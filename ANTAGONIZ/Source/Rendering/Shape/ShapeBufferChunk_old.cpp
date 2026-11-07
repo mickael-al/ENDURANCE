@@ -1,11 +1,11 @@
 #include "glcore.hpp"
-#include "ShapeBufferChunk.hpp"
+#include "ShapeBufferChunk_old.hpp"
 #include <memory.h>
 #include "Debug.hpp"
 
 namespace Ge
 {
-	ShapeBufferChunk::ShapeBufferChunk()
+	ShapeBufferChunk_old::ShapeBufferChunk_old()
 	{
 		//m_iboBuffer = new DynamicGPUAllocator(1024 * 1024, GL_ELEMENT_ARRAY_BUFFER);
 		//m_vboBuffer = new DynamicGPUAllocator(1024 * 1024, GL_ARRAY_BUFFER);
@@ -15,16 +15,16 @@ namespace Ge
 		m_VBO = m_vboBuffer->getBufferID();
 	}
 
-	ShapeBufferChunk::~ShapeBufferChunk()
+	ShapeBufferChunk_old::~ShapeBufferChunk_old()
 	{
 		glDeleteVertexArrays(1, &m_VAO);
 		delete m_iboBuffer;
 		delete m_vboBuffer;
 	}
 
-	void ShapeBufferChunk::pushChunk(VertexBiome* vb, size_t vertexSize, unsigned int* index, size_t indexSize, size_t * offsetIBO, size_t * offsetVBO)
+	void ShapeBufferChunk_old::pushChunk(VertexBiome_old* vb, size_t vertexSize, unsigned int* index, size_t indexSize, size_t * offsetIBO, size_t * offsetVBO)
 	{
-		*offsetVBO = m_vboBuffer->allocate(static_cast<void*>(vb), vertexSize * sizeof(VertexBiome)) / sizeof(VertexBiome);
+		*offsetVBO = m_vboBuffer->allocate(static_cast<void*>(vb), vertexSize * sizeof(VertexBiome_old)) / sizeof(VertexBiome_old);
 		*offsetIBO = m_iboBuffer->allocate(static_cast<void*>(index), indexSize * sizeof(unsigned int)) / sizeof(unsigned int);	
 		if (m_previousProgram != 0)
 		{	
@@ -37,7 +37,7 @@ namespace Ge
 		}
 	}
 
-	void ShapeBufferChunk::updateVAO()
+	void ShapeBufferChunk_old::updateVAO()
 	{
 		if (m_previousProgram != 0)
 		{
@@ -50,7 +50,7 @@ namespace Ge
 		}
 	}
 
-	void ShapeBufferChunk::SetupVAO(uint32_t program)
+	void ShapeBufferChunk_old::SetupVAO(uint32_t program)
 	{
 		GLuint attrPos0 = glGetAttribLocation(program, "a_Pos0");
 		GLuint attrPos1 = glGetAttribLocation(program, "a_Pos1");
@@ -73,7 +73,7 @@ namespace Ge
 			attrPos0,
 			1,
 			GL_UNSIGNED_INT,
-			sizeof(VertexBiome),
+			sizeof(VertexBiome_old),
 			(void*)0
 		);
 
@@ -83,7 +83,7 @@ namespace Ge
 			attrPos1,
 			1,
 			GL_UNSIGNED_INT,
-			sizeof(VertexBiome),
+			sizeof(VertexBiome_old),
 			(void*)4
 		);
 
@@ -93,7 +93,7 @@ namespace Ge
 			attrPos2,
 			1,
 			GL_UNSIGNED_INT,
-			sizeof(VertexBiome),
+			sizeof(VertexBiome_old),
 			(void*)8
 		);
 		m_previousProgram = program;

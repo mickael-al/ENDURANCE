@@ -1,6 +1,6 @@
-#include "NoiseGeneration.hpp"
+#include "NoiseGeneration_old.hpp"
 
-void NoiseGeneration::generatePerlinNoise(float* field, int size, float scale) const
+void NoiseGeneration_old::generatePerlinNoise(float* field, int size, float scale) const
 {
     glm::vec3 pos;
     for (int z = 0; z < size; z++)
@@ -18,7 +18,7 @@ void NoiseGeneration::generatePerlinNoise(float* field, int size, float scale) c
     }
 }
 
-void NoiseGeneration::generateSimplexNoise(float* field, int size, float scale) const
+void NoiseGeneration_old::generateSimplexNoise(float* field, int size, float scale) const
 {
     glm::vec3 pos;
     for (int z = 0; z < size; z++)
@@ -36,7 +36,7 @@ void NoiseGeneration::generateSimplexNoise(float* field, int size, float scale) 
     }
 }
 
-/*void NoiseGeneration::generateWorleyNoise(float* field, int size, float scale) const
+/*void NoiseGeneration_old::generateWorleyNoise(float* field, int size, float scale) const
 {
     for (int z = 0; z < size; z++)
     {
@@ -50,17 +50,17 @@ void NoiseGeneration::generateSimplexNoise(float* field, int size, float scale) 
     }
 }
 
-void NoiseGeneration::generateFractalNoise(float* field, int size, float scale) const
+void NoiseGeneration_old::generateFractalNoise(float* field, int size, float scale) const
 {
 
 }
 
-void NoiseGeneration::generateValueNoise(float* field, int size, float scale) const
+void NoiseGeneration_old::generateValueNoise(float* field, int size, float scale) const
 {
 
 }
 
-void NoiseGeneration::generateGradientNoise(float* field, int size, float scale) const
+void NoiseGeneration_old::generateGradientNoise(float* field, int size, float scale) const
 {
 
 }*/
@@ -90,7 +90,7 @@ glm::vec2 gradientNoise_dir(const glm::vec2& p_in)
     return glm::normalize(glm::vec2(x - std::floor(x + 0.5f), std::abs(x) - 0.5f));
 }
 
-float NoiseGeneration::gradientNoise(const glm::vec2& p)
+float NoiseGeneration_old::gradientNoise(const glm::vec2& p)
 {
     glm::vec2 ip = glm::floor(p);
     glm::vec2 fp = glm::fract(p);
@@ -105,16 +105,16 @@ float NoiseGeneration::gradientNoise(const glm::vec2& p)
     return glm::mix(glm::mix(d00, d01, fp.y), glm::mix(d10, d11, fp.y), fp.x) + 0.5f;
 }
 
-/*void NoiseGeneration::generateBillowNoise(float* field, int size, float scale) const
+/*void NoiseGeneration_old::generateBillowNoise(float* field, int size, float scale) const
 {
 
 }
 
-void NoiseGeneration::generateRidgedMultifractalNoise(float* field, int size, float scale) const
+void NoiseGeneration_old::generateRidgedMultifractalNoise(float* field, int size, float scale) const
 {
 }
 
-void NoiseGeneration::generateMandelbrotNoise(float* field, int size, float scale) const
+void NoiseGeneration_old::generateMandelbrotNoise(float* field, int size, float scale) const
 {
 
 }*/

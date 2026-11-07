@@ -1,5 +1,5 @@
-#ifndef __NOISE_GENERATION__
-#define __NOISE_GENERATION__
+#ifndef __NOISE_GENERATION_OLD__
+#define __NOISE_GENERATION_OLD__
 
 #include "glm/glm.hpp"
 #include "glm/gtc/noise.hpp"
@@ -7,12 +7,12 @@
 #include <functional>
 #include <cmath>
 
-class NoiseGeneration
+class NoiseGeneration_old
 {
 public:
     using ControlCurve = std::function<float(float)>;
 
-    NoiseGeneration() : defaultCurve([](float x) { return x; }) {}
+    NoiseGeneration_old() : defaultCurve([](float x) { return x; }) {}
 
     inline void setControlCurve(ControlCurve curve)
     {
@@ -46,4 +46,4 @@ private:
 };
 
 
-#endif //!__NOISE_GENERATION__
+#endif //!__NOISE_GENERATION_OLD__

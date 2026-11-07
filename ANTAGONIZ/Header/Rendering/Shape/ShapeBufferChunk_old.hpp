@@ -1,21 +1,21 @@
-#ifndef __ENGINE_MODEL_BUFFER_CHUNK__
-#define __ENGINE_MODEL_BUFFER_CHUNK__
+#ifndef __ENGINE_MODEL_BUFFER_CHUNK_OLD__
+#define __ENGINE_MODEL_BUFFER_CHUNK_OLD__
 
 #include <vector>
 struct GraphicsDataMisc;
-#include "marching_cubes.hpp"
+#include "marching_cubes_old.hpp"
 #include "ShapeBuffer.hpp"
 #include "DynamicGPUAllocator.hpp"
 
 namespace Ge
 {
-	class ShapeBufferChunk : public ShapeBuffer
+	class ShapeBufferChunk_old : public ShapeBuffer
 	{
 	public:
-		ShapeBufferChunk();
-		~ShapeBufferChunk();
+		ShapeBufferChunk_old();
+		~ShapeBufferChunk_old();
 		void SetupVAO(unsigned int program);
-		void pushChunk(VertexBiome* vb, size_t vertexSize, unsigned int* index, size_t indexSize, size_t* offsetIBO, size_t* offsetVBO);
+		void pushChunk(VertexBiome_old* vb, size_t vertexSize, unsigned int* index, size_t indexSize, size_t* offsetIBO, size_t* offsetVBO);
 		void updateVAO();
 		inline unsigned int getIndiceSize() const { return 0; }
 		inline DynamicGPUAllocator* getIboAllocator() const { return m_iboBuffer; }
@@ -27,4 +27,4 @@ namespace Ge
 	};
 }
 
-#endif //!__ENGINE_MODEL_BUFFER_CHUNK__
+#endif //!__ENGINE_MODEL_BUFFER_CHUNK_OLD__

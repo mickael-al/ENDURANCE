@@ -1,5 +1,5 @@
-#ifndef MARCHING_CUBES_HPP
-#define MARCHING_CUBES_HPP
+#ifndef MARCHING_CUBES_OLD_HPP
+#define MARCHING_CUBES_OLD_HPP
 
 #include <utility>
 #include <vector>
@@ -9,7 +9,7 @@
 #define BT_USE_STATIC_LIBS
 #include <btBulletDynamicsCommon.h>
 
-struct VertexBiome
+struct VertexBiome_old
 {
     unsigned short x;// 2 ^ 16
     unsigned short y;// 2 ^ 16
@@ -21,7 +21,7 @@ struct VertexBiome
     unsigned int normalEncoded; // octahedral encoding of normal
 };
 
-class MarchingCubes
+class MarchingCubes_old
 {
     public:
     
@@ -333,7 +333,7 @@ class MarchingCubes
         };
 
         std::vector<glm::vec3> triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue);
-        void optimized_triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue, ChunkArray<VertexBiome>* vertexPool, ChunkArray<unsigned int>* indexPool, FixedHashTable64 * fht);        
+        void optimized_triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue, ChunkArray<VertexBiome_old>* vertexPool, ChunkArray<unsigned int>* indexPool, FixedHashTable64 * fht);        
         void optimized_triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue, ChunkArray<btVector3>* vertexPool, ChunkArray<unsigned int>* indexPool, FixedHashTable64* fht, btVector3 basePos,float scale);
 };  
 

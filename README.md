@@ -23,6 +23,8 @@ Le dépôt contient le moteur, ses dépendances nécessaires et un projet d'édi
 
 Le projet ne dépend pas d'une installation de BellGrave. Ses scènes, ses ressources artistiques, ses systèmes de combat et ses menus ne sont pas inclus. Le socle Steam et réseau de Parasite est intégré séparément pour préparer le futur multijoueur. L'éditeur et les connexions par IP directe restent utilisables lorsque le client Steam est indisponible.
 
+L'ancienne génération de terrain est conservée avec le suffixe `_old` : classes et fichiers `NoiseGeneration_old`, `MarchingCubes_old` et `ShapeBufferChunk_old`, type `VertexBiome_old`, shaders de calcul dans `Asset/Shader/Noise_old/` et shaders de terrain `chunk*_old`, `shadowChunk_old` et `noise_opaque_old`. Le code C++ reste compilé, avec ses noms réservés à cette ancienne version. Les utilitaires génériques restent partagés ; la nouvelle génération n'est pas encore implémentée.
+
 ## Compiler
 
 Prérequis : compilateur C/C++ avec C++17, **CMake 3.16 ou plus récent dans la série 3.x**, et un pilote compatible **OpenGL 4.6** pour lancer l'éditeur. Les bibliothèques du moteur sont embarquées ; les en-têtes système de la plateforme restent nécessaires.

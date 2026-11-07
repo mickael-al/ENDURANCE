@@ -1,6 +1,6 @@
-#include "marching_cubes.hpp"
+#include "marching_cubes_old.hpp"
 
-std::vector<glm::vec3> MarchingCubes::triangulate_field(float * scalarFunction, unsigned int odSize, float isovalue)
+std::vector<glm::vec3> MarchingCubes_old::triangulate_field(float * scalarFunction, unsigned int odSize, float isovalue)
 {
     unsigned int max = odSize;
     unsigned int max2 = max * max;
@@ -75,7 +75,7 @@ std::vector<glm::vec3> MarchingCubes::triangulate_field(float * scalarFunction, 
     return triangles;
 }
 
-void MarchingCubes::optimized_triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue, ChunkArray<VertexBiome> * vertexPool, ChunkArray<unsigned int> * indexPool, FixedHashTable64* fht)
+void MarchingCubes_old::optimized_triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue, ChunkArray<VertexBiome_old> * vertexPool, ChunkArray<unsigned int> * indexPool, FixedHashTable64* fht)
 {
     unsigned int max = odSize;
     unsigned int max2 = max * max;
@@ -86,7 +86,7 @@ void MarchingCubes::optimized_triangulate_field(float* scalarFunction, unsigned 
     float tempVal[8];
     glm::vec3 intersections[12];
     float divider = (1.0f / (float)max) * 65535.0f;
-    VertexBiome* cv = nullptr;    
+    VertexBiome_old* cv = nullptr;    
     unsigned short px, py, pz;
     uint64_t packed = 0ULL;
     uint32_t targetVertex;
@@ -167,7 +167,7 @@ void MarchingCubes::optimized_triangulate_field(float* scalarFunction, unsigned 
     }
 }
 
-void MarchingCubes::optimized_triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue, ChunkArray<btVector3>* vertexPool, ChunkArray<unsigned int>* indexPool, FixedHashTable64* fht, btVector3 basePos,float scale)
+void MarchingCubes_old::optimized_triangulate_field(float* scalarFunction, unsigned int odSize, float isovalue, ChunkArray<btVector3>* vertexPool, ChunkArray<unsigned int>* indexPool, FixedHashTable64* fht, btVector3 basePos,float scale)
 {
     unsigned int max = odSize;
     unsigned int max2 = max * max;
