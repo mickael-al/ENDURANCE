@@ -5,25 +5,105 @@
     "z": 5.0
   },
   "freeCamRot": {
-    "x": 0.0,
-    "y": 0.0,
-    "z": 0.0,
-    "w": 1.0
+    "x": -9.911272e-2,
+    "y": 6.4213224e-2,
+    "z": 6.4093317e-3,
+    "w": 0.9929815
   },
   "freeCamAngle": {
-    "x": 0.0,
-    "y": 0.0
+    "x": 7.3999996,
+    "y": -11.399999
   },
-  "skeletonData": [],
-  "bufferData": [],
-  "shaderData": [],
-  "materialData": [],
-  "textureData": [],
-  "modelData": [],
-  "lightData": [],
-  "soundBufferData": [],
-  "audioData": [],
-  "emptyData": [],
+  "skeletonData": [
+  ],
+  "bufferData": [
+    {
+      "path": "/Ressources/Model\\BaseModel\\cube.obj",
+      "normalRecalculate": false,
+      "animatedBuffer": false,
+      "type": 0,
+      "targetSubMesh": 0
+    }
+  ],
+  "shaderData": [
+  ],
+  "materialData": [
+  ],
+  "textureData": [
+  ],
+  "modelData": [
+    {
+      "name": "cube",
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 1.0
+      },
+      "scale": {
+        "x": 10.0,
+        "y": 1.0,
+        "z": 10.0
+      },
+      "idMaterial": -1,
+      "idBuffer": 0,
+      "idParent": -1,
+      "scripts": [
+      ],
+      "collisions": [
+      ],
+      "tags": [
+      ]
+    }
+  ],
+  "lightData": [
+    {
+      "name": "DirectionalLight",
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": -6.5328145e-1,
+        "y": 2.7059805e-1,
+        "z": 2.7059805e-1,
+        "w": 6.5328145e-1
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "color": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
+      "range": 10.0,
+      "spotAngle": 45.0,
+      "shadow": false,
+      "status": 0,
+      "idParent": -1,
+      "scripts": [
+      ],
+      "collisions": [
+      ],
+      "tags": [
+      ]
+    }
+  ],
+  "soundBufferData": [
+  ],
+  "audioData": [
+  ],
+  "emptyData": [
+  ],
   "path": {
     "has": false,
     "pathPosition": {
