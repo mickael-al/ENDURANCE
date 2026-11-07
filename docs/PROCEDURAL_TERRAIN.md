@@ -33,6 +33,8 @@ La génération utilise **six programmes compute** : colonnes, densité, comptag
 
 Les modes de biome forcé et automatique appellent `fieldSurfaceRecipes()` au même endroit après avoir préparé leurs poids locaux. Le compilateur ne reçoit donc plus deux points d’appel complets pour les recettes 2D. La sonde d’interpolation indépendante reste dans les tests ; les 26 fonctions de relief et les 26 fonctions 3D restent personnalisables.
 
+Un masque de 32 bits remplace le balayage des 26 biomes. En 2D, il regroupe les coins de poids positif et la mer, puis appelle le `switch` de relief une fois par identifiant distinct. En 3D, le masque des candidats est précalculé dans la table CPU et transmis dans le mot disponible de chaque colonne ; seuls leurs poids locaux sont recherchés, et les poids nuls évitent les recettes. Le parcours utilise `findLSB` puis `mask &= mask - 1u`, sans tableau temporaire ni atomic. Les champs restent en float32, sans `precise` dans la génération ; le meshing et le décodage des positions conservent leurs règles numériques existantes.
+
 Le backend utilise `Ge::ComputeShader`, et les pipelines de dessin/ombres utilisent `Ge::GraphiquePipeline`. Ces classes partagent `ShaderCompilation` pour charger les includes relatifs, injecter les defines après `#version`, conserver les fichiers et lignes avec `#line`, puis compiler et lier les programmes. Le chargeur local du terrain a été supprimé. Les erreurs de lecture, de compilation et de liaison arrêtent proprement l’initialisation, sans publier de programme invalide ; les objets OpenGL temporaires sont libérés et le journal complet est conservé avec sa table de sources.
 
 Les services `Ge::BackgroundShaderCompiler`, `Ge::ParallelShaderCompiler` et `Ge::SharedShaderContext` restent disponibles dans le moteur, avec leurs tests. Le générateur de terrain ne crée plus de contexte partagé ni de thread de compilation et ne gère plus de cache, de clé ou de defines de variantes.
@@ -82,9 +84,9 @@ Contrat des passes de champ :
 | Colonnes | 1 | Deux `vec4` et un `uvec4` (48 octets), index `x + z*S`. |
 | `terrain` | — | Hauteur, humidité, température, épaisseur totale. |
 | `blend` | — | Fraction verticale de matrice, décalage global, décalage de relief, masque de roche. |
-| `detail` | — | Bits du float d'activité polaire, identifiants 3D 0–5, identifiants 3D 6–7, réservé. |
+| `detail` | — | Bits du float d'activité polaire, identifiants 3D 0–5, identifiants 3D 6–7, masque des biomes 3D candidats. |
 | Compteurs | 3 | 16 octets : total, curseur d’émission, dépassement et réserve. |
-| Cellules de matrice | 7 | 64 `uvec4` ; identifiants des quatre coins 2D et huit coins 3D compactés sur 5 bits. |
+| Cellules de matrice | 7 | 64 `uvec4` ; identifiants des quatre coins 2D et huit coins 3D compactés sur 5 bits, puis masque des biomes 3D dans le quatrième mot. |
 
 La table décrit les colonnes produites par `field_columns.C.glsl`. Le climat et les fractions intermédiaires sont calculés localement avant la composition du relief. Seuls les identifiants sont compactés : densités, climat, activité et fractions restent des floats 32 bits. La passe de densité reconstruit les fractions climatiques une fois par colonne partagée, puis calcule les poids des huit coins ; les identifiants répétés sont regroupés avant les appels aux recettes.
 

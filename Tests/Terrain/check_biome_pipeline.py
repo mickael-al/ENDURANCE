@@ -7,6 +7,7 @@ import subprocess
 import tempfile
 
 from biome_test_support import biome_exporter
+from biome_mask_probe import check_biome_masks
 from check_gpu import FieldRunner, MeshRunner, SHADERS, lattice_values, finite_columns
 from gl_headless import GL
 
@@ -119,6 +120,7 @@ def main():
     subprocess.run([str(biome_exporter())],check=True)
     with GL() as gl:
         print(f"OpenGL {gl.version}; renderer: {gl.renderer}",flush=True)
+        check_biome_masks(gl)
         generic=check_pipeline(gl)
         check_free_surface(gl,generic)
         check_free_volume(gl,generic)

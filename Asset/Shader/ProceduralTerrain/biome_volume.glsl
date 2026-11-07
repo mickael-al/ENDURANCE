@@ -260,4 +260,40 @@ float fieldVolumeMarine(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
     return fieldVolumeFromRecipe(p,column,marineVolume(),cache);
 }
 
+// One generic dispatcher keeps every biome independently editable. The
+// caller visits each contributing ID once and shares its lazy noise cache.
+float fieldBiomeVolume(uint biome,vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    switch(biome)
+    {
+        case 0u: return fieldVolumePolarIce(p,column,cache);
+        case 1u: return fieldVolumeFrozenTundra(p,column,cache);
+        case 2u: return fieldVolumeTundra(p,column,cache);
+        case 3u: return fieldVolumeTaiga(p,column,cache);
+        case 4u: return fieldVolumeBorealBog(p,column,cache);
+        case 5u: return fieldVolumeRockyTundra(p,column,cache);
+        case 6u: return fieldVolumeColdSteppe(p,column,cache);
+        case 7u: return fieldVolumeBorealForest(p,column,cache);
+        case 8u: return fieldVolumeColdForest(p,column,cache);
+        case 9u: return fieldVolumeColdMarsh(p,column,cache);
+        case 10u: return fieldVolumeDryPlain(p,column,cache);
+        case 11u: return fieldVolumeMeadow(p,column,cache);
+        case 12u: return fieldVolumeTemperateForest(p,column,cache);
+        case 13u: return fieldVolumeTemperateRainforest(p,column,cache);
+        case 14u: return fieldVolumeTemperateMarsh(p,column,cache);
+        case 15u: return fieldVolumeRockDesert(p,column,cache);
+        case 16u: return fieldVolumeDrySavanna(p,column,cache);
+        case 17u: return fieldVolumeSavanna(p,column,cache);
+        case 18u: return fieldVolumeDryJungle(p,column,cache);
+        case 19u: return fieldVolumeTropicalJungle(p,column,cache);
+        case 20u: return fieldVolumeVolcanicDesert(p,column,cache);
+        case 21u: return fieldVolumeRedDesert(p,column,cache);
+        case 22u: return fieldVolumeAridPlateau(p,column,cache);
+        case 23u: return fieldVolumeBurningJungle(p,column,cache);
+        case 24u: return fieldVolumeTropicalMangrove(p,column,cache);
+        case 25u: return fieldVolumeMarine(p,column,cache);
+        default: return column.terrain.x-p.y;
+    }
+}
+
 #endif

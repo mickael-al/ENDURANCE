@@ -186,6 +186,15 @@ Voronoi 2D and Voronoi 3D code: the intended columns/density must change while
 other biomes remain unchanged. Setting detailScale to zero must suppress both
 edits. Production sources are not modified by that fixture.
 
+The CPU table checks also verify that every fourth word is exactly the mask of
+its distinct volume corner IDs, with no undefined bits and no change in layout.
+`biome_mask_probe.py` replaces recipe bodies only in memory with known outputs
+and invocation counters. An independent CPU corner-blending oracle checks five
+surface contributors, eight distinct volume contributors, duplicate IDs including
+marine, zero-weight candidates, pure sea, empty surface masks and all 26 forced
+biomes. It verifies that each positive-weight recipe runs exactly once and that
+the prepared column receives the correct normal or forced mask.
+
 The parallel-extension and background-worker fixtures remain independent engine
 service tests. Terrain generation no longer uses either compiler. The former
 checks bounded jobs, nonblocking completion queries, ownership/cancellation,
@@ -198,7 +207,9 @@ Runtime column storage remains 48 bytes: eight float32 controls followed by a
 four-word integer block. Density remains float32. The Python field runner uses
 the production columns → density passes and binds the CPU table at SSBO 7.
 Climate classification is local to the columns pass; no classification buffer
-or GPU-to-CPU cell mask is used. `biome_profile_probe.glsl` contains test-only
+or GPU-to-CPU cell mask is used. The CPU-precomputed candidate mask occupies the
+existing fourth table word and `detail.w` in the completed column; float weights
+remain local to the GPU. `biome_profile_probe.glsl` contains test-only
 matrix inspection and legacy parameter-blend diagnostics; production generation
 blends independently evaluated biome densities. The mesh runner checks the
 count/emit counters and overflow before constructing a CPU draw command; there

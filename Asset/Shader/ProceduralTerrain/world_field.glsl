@@ -30,7 +30,7 @@ struct FieldColumn
 {
     vec4 terrain; // surface height, humidity, temperature, total volume band
     vec4 blend;   // altitude ratio, global offset, relief offset, rock mask
-    uvec4 detail; // floatBits(polar activity), volume IDs 0..5, IDs 6..7, reserved
+    uvec4 detail; // floatBits(polar activity), volume IDs 0..5, IDs 6..7, candidate mask
 };
 
 #include "field_noise.glsl"
@@ -74,225 +74,31 @@ vec3 fieldWorldPosition(ivec3 sampleIndex)
 #include "biome_relief.glsl"
 #include "biome_volume.glsl"
 
-float fieldSurfaceWeight(uvec4 ids,vec4 ratios,float marine,uint biome)
+// IDs are validated on the CPU (0..25). OR merges repeated corner IDs;
+// the mask is invocation-local and requires no atomics or temporary arrays.
+uint fieldActiveBiomeMask(uvec4 ids,vec4 weights)
 {
-    float land=dot(vec4(equal(ids,uvec4(biome))),ratios);
-    return land*(1.0-marine)+(biome==FIELD_MARINE_BIOME ? marine : 0.0);
+    uvec4 bits=uvec4(greaterThan(weights,vec4(0.0)))<<ids;
+    return bits.x|bits.y|bits.z|bits.w;
 }
 
-// Each biome keeps its own editable recipe. Zero local weights skip its call;
-// repeated matrix IDs are combined before the ordered accumulation.
+// Visit only positive-weight biomes (four surface corners plus the sea).
+// Lowest-bit traversal keeps accumulation ordered by biome ID.
 vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
 {
-    precise vec4 result=vec4(0.0);
+    vec4 landWeights=ratios*(1.0-marine);
+    uint remaining=fieldActiveBiomeMask(ids,landWeights)
+        | (uint(marine>0.0)<<FIELD_MARINE_BIOME);
+    vec4 result=vec4(0.0);
+    while(remaining!=0u)
     {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,0u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefPolarIce(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
+        uint biome=uint(findLSB(remaining));
+        remaining&=remaining-1u;
+        float weight=dot(vec4(equal(ids,uvec4(biome))),landWeights)
+            +(biome==FIELD_MARINE_BIOME ? marine : 0.0);
+        result+=fieldBiomeRelief(biome,p)*weight;
     }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,1u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefFrozenTundra(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,2u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefTundra(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,3u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefTaiga(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,4u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefBorealWetland(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,5u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefRockyTundra(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,6u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefColdSteppe(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,7u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefBorealForest(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,8u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefColdForest(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,9u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefColdMarsh(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,10u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefDryPlain(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,11u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefPrairie(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,12u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefTemperateForest(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,13u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefHumidTemperateForest(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,14u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefTemperateMarsh(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,15u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefRockDesert(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,16u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefDrySavanna(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,17u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefSavanna(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,18u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefDryJungle(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,19u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefTropicalJungle(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,20u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefVolcanicDesert(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,21u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefRedDesert(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,22u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefAridPlateau(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,23u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefBurningJungle(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,24u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefTropicalMangrove(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
-    {
-        float weight=fieldSurfaceWeight(ids,ratios,marine,25u);
-        if(weight>0.0)
-        {
-            precise vec4 value=clamp(fieldReliefMarine(p),vec4(-640,0,-160,0),vec4(640,320,160,1));
-            result+=value*weight;
-        }
-    }
+    // Preserve the conservative column bounds even after blend rounding.
     return clamp(result,vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,320.0,160.0,1.0));
 }
 
@@ -308,11 +114,13 @@ FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
     vec4 relief=vec4(0.0,0.0,0.0,1.0);
     vec2 climate=raw.terrain.yz;
     uvec2 volumeIDs=mapping.yz;
+    uint volumeMask=mapping.w;
     bool overrideBiome=uBiomeOverride>=0 && uBiomeOverride<int(FIELD_BIOME_COUNT);
     if(overrideBiome)
     {
         uint biome=uint(uBiomeOverride);
         volumeIDs=fieldRepeatedVolumeID(biome);
+        volumeMask=1u<<biome;
         if(biome<FIELD_MARINE_BIOME)
             climate=vec2(biome%5u,biome/5u)*0.25;
     }
@@ -350,7 +158,7 @@ FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
         polarActivity=polarVolumeActivity(p);
     column.terrain=vec4(height,climate,max(0.0,thickness));
     column.blend=vec4(raw.blend.z,globalOffset,relief.z,relief.w);
-    column.detail=uvec4(floatBitsToUint(polarActivity),volumeIDs,0u);
+    column.detail=uvec4(floatBitsToUint(polarActivity),volumeIDs,volumeMask);
     return column;
 }
 
@@ -393,7 +201,7 @@ FieldBiomeWeights fieldVolumeWeights(FieldColumn column,vec2 climateRatio)
 float fieldVolumeWeight(FieldBiomeWeights weights,uint biome)
 {
     // Repeated matrix IDs are aggregated before a recipe is evaluated.
-    precise float value=dot(vec4(equal(weights.idsLow,uvec4(biome))),weights.low);
+    float value=dot(vec4(equal(weights.idsLow,uvec4(biome))),weights.low);
     value+=dot(vec4(equal(weights.idsHigh,uvec4(biome))),weights.high);
     return value;
 }
@@ -412,214 +220,18 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
     FieldVolumeNoise noise;
     noise.ready=false;
     noise.values=vec3(0.0);
-    precise float density=base;
+    float density=base;
+    // The CPU built this candidate mask once per matrix cell; columns carry
+    // it in their existing fourth metadata word. Local ratios still decide
+    // whether each candidate contributes at this point.
+    uint remaining=column.detail.w;
+    while(remaining!=0u)
     {
-        float weight=fieldVolumeWeight(weights,0u);
+        uint biome=uint(findLSB(remaining));
+        remaining&=remaining-1u;
+        float weight=fieldVolumeWeight(weights,biome);
         if(weight>0.0)
-        {
-            precise float value=fieldVolumePolarIce(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,1u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeFrozenTundra(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,2u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeTundra(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,3u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeTaiga(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,4u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeBorealBog(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,5u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeRockyTundra(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,6u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeColdSteppe(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,7u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeBorealForest(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,8u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeColdForest(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,9u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeColdMarsh(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,10u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeDryPlain(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,11u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeMeadow(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,12u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeTemperateForest(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,13u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeTemperateRainforest(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,14u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeTemperateMarsh(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,15u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeRockDesert(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,16u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeDrySavanna(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,17u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeSavanna(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,18u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeDryJungle(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,19u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeTropicalJungle(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,20u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeVolcanicDesert(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,21u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeRedDesert(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,22u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeAridPlateau(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,23u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeBurningJungle(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,24u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeTropicalMangrove(p,column,noise);
-            density+=(value-base)*weight;
-        }
-    }
-    {
-        float weight=fieldVolumeWeight(weights,25u);
-        if(weight>0.0)
-        {
-            precise float value=fieldVolumeMarine(p,column,noise);
-            density+=(value-base)*weight;
-        }
+            density+=(fieldBiomeVolume(biome,p,column,noise)-base)*weight;
     }
     return density;
 }

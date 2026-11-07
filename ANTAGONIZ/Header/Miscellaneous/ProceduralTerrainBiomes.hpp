@@ -9,6 +9,7 @@ namespace ProceduralTerrain
     inline constexpr std::uint32_t BiomeCount = 26;
     inline constexpr std::uint32_t MarineBiome = 25;
     inline constexpr std::uint32_t FieldColumnBytes = 48;
+    static_assert(BiomeCount > 0 && BiomeCount <= 32, "Biome IDs must fit the 5-bit IDs and 32-bit mask");
 
     // Authoritative matrices live on the CPU. X = humidity, Y = temperature,
     // Z = macro-height relative to the shoreline; not the voxel's altitude.
@@ -23,10 +24,13 @@ namespace ProceduralTerrain
         0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24
     }};
 
-    // std430 uvec4. Eight 5-bit volume IDs occupy two words, without quantizing
-    // any climate coordinate, density, or local interpolation ratio.
+    // std430 uvec4: surface IDs, two words of 5-bit volume IDs, then a mask
+    // of the distinct volume biomes. The mask includes zero-weight candidates;
+    // local climate/altitude ratios are still evaluated on the GPU as floats.
     using BiomeCell = std::array<std::uint32_t, 4>;
     using BiomeCellTable = std::array<BiomeCell, 64>;
+    static_assert(sizeof(BiomeCell) == 16 && sizeof(BiomeCellTable) == 1024,
+                  "Biome masks must reuse the existing GPU table layout");
 
     constexpr bool validBiomeMatrices() noexcept
     {
@@ -54,6 +58,7 @@ namespace ProceduralTerrain
                 const auto corner=dx+2*dy+4*dz;
                 const auto id=BiomeMatrix3D[x+dx+5*(y+dy)+25*(z+dz)];
                 cell[corner<6 ? 1 : 2] |= id << (5*(corner<6 ? corner : corner-6));
+                cell[3] |= std::uint32_t{1} << id;
             }
         }
         return result;

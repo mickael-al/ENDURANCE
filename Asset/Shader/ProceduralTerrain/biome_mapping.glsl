@@ -7,6 +7,7 @@ const uint FIELD_MARINE_BIOME=25u;
 // C++ owns the two biome matrices. Only their compact cell corner descriptors
 // are uploaded once; no climate map or local ratio travels through the CPU.
 // x: four surface IDs; y: first six volume IDs; z: final two volume IDs.
+// w: CPU-precomputed candidate bitmask for the eight volume corners.
 layout(std430,binding=7) readonly buffer FieldBiomeMapping { uvec4 fieldBiomeCells[64]; };
 
 uvec4 fieldUnpackSurface(uint encoded)
@@ -16,7 +17,7 @@ uvec4 fieldUnpackSurface(uint encoded)
 
 vec4 fieldQuadWeights(vec2 f)
 {
-    precise vec4 ratios=vec4(1.0-f.x,f.x,1.0-f.x,f.x)*vec4(1.0-f.y,1.0-f.y,f.y,f.y);
+    vec4 ratios=vec4(1.0-f.x,f.x,1.0-f.x,f.x)*vec4(1.0-f.y,1.0-f.y,f.y,f.y);
     return ratios;
 }
 
