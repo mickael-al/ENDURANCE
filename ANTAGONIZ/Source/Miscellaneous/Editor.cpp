@@ -2721,6 +2721,11 @@ void Editor::saveScene(const std::string& filePath, SceneData* sd)
 	file.close();
 }
 
+SceneData* Editor::getCurrentSceneData()
+{
+	return m_currentSceneData;
+}
+
 const SceneData* Editor::getCurrentSceneData() const
 {
 	return m_currentSceneData;

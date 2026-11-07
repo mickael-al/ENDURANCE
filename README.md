@@ -23,7 +23,9 @@ Le dépôt contient le moteur, ses dépendances nécessaires et un projet d'édi
 
 Le projet ne dépend pas d'une installation de BellGrave. Ses scènes, ses ressources artistiques, ses systèmes de combat et ses menus ne sont pas inclus. Le socle Steam et réseau de Parasite est intégré séparément pour préparer le futur multijoueur. L'éditeur et les connexions par IP directe restent utilisables lorsque le client Steam est indisponible.
 
-L'ancienne génération de terrain est conservée avec le suffixe `_old` : classes et fichiers `NoiseGeneration_old`, `MarchingCubes_old` et `ShapeBufferChunk_old`, type `VertexBiome_old`, shaders de calcul dans `Asset/Shader/Noise_old/` et shaders de terrain `chunk*_old`, `shadowChunk_old` et `noise_opaque_old`. Le code C++ reste compilé, avec ses noms réservés à cette ancienne version. Les utilitaires génériques restent partagés ; la nouvelle génération n'est pas encore implémentée.
+L'ancienne génération de terrain est conservée avec le suffixe `_old` : classes et fichiers `NoiseGeneration_old`, `MarchingCubes_old` et `ShapeBufferChunk_old`, type `VertexBiome_old`, shaders de calcul dans `Asset/Shader/Noise_old/` et shaders de terrain `chunk*_old`, `shadowChunk_old` et `noise_opaque_old`. Le code C++ reste compilé, avec ses noms réservés à cette ancienne version. Les utilitaires génériques restent partagés.
+
+La nouvelle génération GPU est accessible en ouvrant `ENDURANCE/Scene/Terrain.scene`, puis en lançant Play. Elle utilise des champs `float32`, des chunks de 64³ cellules avec LOD adaptatif et raccords Transvoxel, un pool de maillages GPU et des collisions locales asynchrones. Le premier affichage attend la génération de la couverture initiale. Voir les [paramètres et limites du terrain](docs/PROCEDURAL_TERRAIN.md) et les [tests du terrain](Tests/Terrain/README.md).
 
 ## Compiler
 

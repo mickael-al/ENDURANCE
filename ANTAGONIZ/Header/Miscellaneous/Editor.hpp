@@ -87,6 +87,7 @@ namespace Ge
 		void ssSkeleton(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so);
 		std::vector<Lights*> ssLight(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so);
 		void ssAudio(SceneData* sd, std::map<GObject*, std::vector<ScriptData>> & so);
+		SceneData* getCurrentSceneData();
 		const SceneData* getCurrentSceneData() const;		
 		void addModelToScene(const std::string& filePath, BufferSource src = BufferSource::OBJ,bool bones = false);
 		void addAudioToScene(const std::string& filePath);

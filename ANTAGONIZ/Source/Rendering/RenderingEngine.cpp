@@ -408,7 +408,16 @@ namespace Ge
 		{
 			call.second(-1);
 		}
-		if (!callbacks.empty())
+		const auto& customRenderers = m_graphiquePipelineManager->getCustomRenderer();
+		for (CustomRenderer* renderer : customRenderers)
+		{
+			if (renderer != nullptr)
+			{
+				glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_cameraManager->getSSBO());
+				renderer->drawRenderer();
+			}
+		}
+		if (!callbacks.empty() || !customRenderers.empty())
 		{
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_cameraManager->getSSBO());
 			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_modelManager->getSSBO());
@@ -568,6 +577,14 @@ namespace Ge
 			for (const auto & call : callbacks)
 			{
 				call.second(i);
+			}
+			for (CustomRenderer* renderer : customRenderers)
+			{
+				if (renderer != nullptr)
+				{
+					glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_lightManager->getSsboShadow());
+					renderer->drawShadowRenderer(static_cast<unsigned int>(i));
+				}
 			}
 		}
 		glCullFace(GL_BACK);
