@@ -284,7 +284,7 @@ namespace ProceduralTerrain
         s.config=config; s.error.clear();
         if (config.cells<4 || config.cells>64 || (config.cells&(config.cells-1))!=0 ||
             !finiteFieldValue(config.baseSpacing) || config.baseSpacing<=0.0f ||
-            config.baseSpacing<std::numeric_limits<float>::min()*65534.0f/config.cells ||
+            config.baseSpacing<(std::numeric_limits<float>::min)()*65534.0f/config.cells ||
             config.vertexBudgetMiB==0 || config.vertexBudgetMiB>4096 ||
             config.maxResidentChunks==0 || config.maxResidentChunks>65536 ||
             config.maxInFlight==0 || config.maxInFlight>16 || !validFieldParameters(config.field))
