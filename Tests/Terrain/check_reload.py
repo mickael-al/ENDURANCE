@@ -30,6 +30,8 @@ def main():
                    "-I", str(ROOT / "ANTAGONIZ/Header/Rendering/Shader"),
                    "-I", str(ROOT / "ThirdParty"), str(ROOT / "Tests/Terrain/check_reload.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
+                   str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp"),
+                   str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp"),
                    str(args.glew_object.resolve()), "-pthread", "-l:libGL.so.1", "-o", str(library)]
         subprocess.run(command, check=True)
         with GL() as gl:

@@ -188,7 +188,6 @@ class MeshRunner:
         self.gl = gl
         self.regular = [gl.compute(SHADERS / "meshing.C.glsl", f"#define EMIT_PASS {emit}") for emit in (0, 1)]
         self.transition = [gl.compute(SHADERS / "transition.C.glsl", f"#define EMIT_PASS {emit}") for emit in (0, 1)]
-        self.finalize = gl.compute(SHADERS / "meshing_finalize.C.glsl")
         self.tables = gl.buffer(packed_tables())
 
     def run(self, field, mask=0, capacity=None):
@@ -197,11 +196,11 @@ class MeshRunner:
         gl.bind(field["column_buffer"], 1)
         gl.bind(self.tables, 2)
         counter = gl.buffer(bytes(16), 3)
-        programs = self.regular + self.transition + [self.finalize]
+        programs = self.regular + self.transition
         for program in programs:
             span = cells * (1 << field["lod"])
             gl.uniform(program, "uChunkParity", "3ui", *(int(origin // span) & 1 for origin in field["origin"]))
-            for name, value in (("uCells", cells), ("uTransitionMask", mask), ("uChunkSlot", 2)):
+            for name, value in (("uCells", cells), ("uTransitionMask", mask)):
                 gl.uniform(program, name, "1ui", value)
         gl.dispatch_extent(self.regular[0], cells, cells, cells)
         gl.dispatch(self.transition[0], ((cells // 2)**2 + 63)//64, 6)
@@ -214,25 +213,22 @@ class MeshRunner:
         prefix, suffix = 5, 7
         sentinel = struct.pack("<I", 0xCDCDCDCD)
         vertex_buffer = gl.buffer(sentinel * ((prefix + capacity + suffix) * 3), 4)
-        command_buffer = gl.buffer(sentinel * 16, 5)
         for program in programs:
-            for name, value in (("uVertexBase", prefix), ("uVertexFirst", prefix), ("uVertexCapacity", capacity)):
+            for name, value in (("uVertexBase", prefix), ("uVertexCapacity", capacity)):
                 gl.uniform(program, name, "1ui", value)
         gl.dispatch_extent(self.regular[1], cells, cells, cells)
         gl.dispatch(self.transition[1], ((cells // 2)**2 + 63)//64, 6)
-        gl.dispatch(self.finalize, 1)
         total2, emitted, overflow, _ = struct.unpack("<4I", gl.read(counter, 16))
         raw = gl.read(vertex_buffer, (prefix + capacity + suffix) * 12)
-        commands = struct.unpack("<16I", gl.read(command_buffer, 64))
         assert total2 == total == emitted, ("count/emit mismatch", total, total2, emitted)
         assert raw[:prefix*12] == sentinel * (prefix*3), "Vertex prefix overwritten"
         assert raw[(prefix+capacity)*12:] == sentinel * (suffix*3), "Vertex suffix overwritten"
-        assert commands[:8] == (0xCDCDCDCD,) * 8 and commands[12:] == (0xCDCDCDCD,) * 4, "Other draw slots overwritten"
-        assert commands[8:12] == (total if not overflow else 0, 1, prefix, 2), ("Indirect draw", commands)
         if total > capacity:
             assert overflow != 0, "Capacity overrun was not reported"
         else:
             assert overflow == 0, "Unexpected overflow"
+        # Matches completion acceptance: failed emission must never be drawable.
+        command=(emitted,1,prefix,2) if emitted==total and not overflow else (0,1,prefix,2)
         vertices, normals = [], []
         extent = cells * (1 << field["lod"]) * field["uniforms"]["uBaseSpacing"][1]
         for offset in range(prefix*12, (prefix + min(total,capacity))*12, 12):
@@ -241,8 +237,8 @@ class MeshRunner:
             assert all(value <= 65534 for value in packed), ("Invalid quantized vertex", packed)
             vertices.append(tuple(field["origin"][axis] + packed[axis] / 65534.0 * extent for axis in range(3)))
             normals.append(decode_normal(normal))
-        gl.check("count/emit/finalize")
-        return {"vertices": vertices, "normals": normals, "count": total, "overflow": overflow, "field": field}
+        gl.check("count/emit")
+        return {"vertices": vertices, "normals": normals, "count": total, "overflow": overflow, "command": command, "field": field}
 
 
 def triangle_edges(meshes):

@@ -101,7 +101,6 @@ namespace ProceduralTerrain
         void drawMany(const std::vector<MeshHandle>& meshes, std::uint32_t drawList = 0);
         unsigned int vertexBuffer() const noexcept;
         unsigned int descriptorBuffer() const noexcept;
-        unsigned int indirectBuffer() const noexcept;
         unsigned int vertexArray() const noexcept;
         const GpuConfig& config() const noexcept;
         GpuStats stats() const noexcept;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the generic biome pipeline, packed CPU matrices and editable 3D recipes."""
+"""Verify the generic biome pipeline, packed CPU matrices and editable 2D/3D recipes."""
 import math
 from pathlib import Path
 import shutil
@@ -76,13 +76,43 @@ def check_free_volume(gl, generic):
     return customBase+customWeight*(fieldCellular3(p*0.03125,713u)-0.5)*24.0;
 """
         path.write_text(source[:body+1] + injected + source[body+1:])
-        after = FieldRunner(gl,directory=directory).run(**options)
+        edited = FieldRunner(gl,directory=directory)
+        after = edited.run(**options)
         assert before["columns_raw"] == after["columns_raw"], "Editing a volume recipe changed the 2D preparation"
         assert before["density_raw"] != after["density_raw"], "Custom Voronoi 3D recipe did not change the density"
         assert all(math.isfinite(x) for x in after["density"])
-        other_after = FieldRunner(gl,directory=directory).run(**dict(options,uBiomeOverride=11))
+        other_after = edited.run(**dict(options,uBiomeOverride=11))
         compare(other_before,other_after,"Unedited biome after polar 3D edit")
+        disabled=dict(options,uDetailScale=0.)
+        compare(generic.run(**disabled),edited.run(**disabled),"Disabled 3D details after recipe edit")
     print("PASS free 3D recipe: temporary polar Voronoi code changes actual density, preserves 2D columns and leaves another biome unchanged")
+
+
+def check_free_surface(gl, generic):
+    options=dict(cells=8,origin=(-8,-8,-8),seed=1337,uBiomeOverride=0,
+                 uHeightAmplitude=0.,uBandThickness=0.,uBandVariation=0.)
+    before=generic.run(**options)
+    other_before=generic.run(**dict(options,uBiomeOverride=11))
+    with tempfile.TemporaryDirectory(prefix="terrain-free-surface-") as temporary:
+        directory=Path(temporary)/"shaders"
+        shutil.copytree(SHADERS,directory)
+        path=directory/"biome_relief.glsl"
+        source=path.read_text()
+        body=source.index("{",source.index("vec4 fieldReliefPolarIce("))
+        injected="""
+    float customHeight=24.0+fieldCellular2(p*0.03125,714u,1.0)*16.0;
+    return vec4(customHeight,0.0,0.0,1.0);
+"""
+        path.write_text(source[:body+1]+injected+source[body+1:])
+        edited=FieldRunner(gl,directory=directory)
+        after=edited.run(**options)
+        assert before["columns_raw"]!=after["columns_raw"], "Custom 2D recipe did not change columns"
+        assert before["density_raw"]!=after["density_raw"], "Custom 2D recipe did not change actual density"
+        assert finite_columns(after["columns"]) and all(math.isfinite(x) for x in after["density"])
+        compare(other_before,edited.run(**dict(options,uBiomeOverride=11)),"Unedited biome after polar 2D edit")
+        disabled=dict(options,uDetailScale=0.)
+        compare(generic.run(**disabled),edited.run(**disabled),"Disabled 2D details after recipe edit")
+    print("PASS free 2D recipe: temporary Manhattan Voronoi changes columns/density, preserves other biomes and detailScale=0")
 
 
 def main():
@@ -90,6 +120,7 @@ def main():
     with GL() as gl:
         print(f"OpenGL {gl.version}; renderer: {gl.renderer}",flush=True)
         generic=check_pipeline(gl)
+        check_free_surface(gl,generic)
         check_free_volume(gl,generic)
         gl.check("generic biome pipeline")
     return 0

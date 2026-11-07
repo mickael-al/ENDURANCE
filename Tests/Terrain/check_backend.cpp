@@ -54,9 +54,12 @@ void collectRetired(GpuMesher& mesher,std::uint64_t expectedAllocated=0)
 }
 void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& second)
 {
-    // An actual complete target/program exercises the production indirect
-    // submission path under a surfaceless GL context.
-    const char* vertex="#version 450 core\nvoid main(){gl_Position=vec4(float(gl_VertexID%2),float((gl_VertexID/2)%2),0,1);}";
+    // A complete target/program and transform feedback exercise real direct
+    // and indirect submissions under a surfaceless GL context.
+    const char* vertex="#version 450 core\n#extension GL_ARB_shader_draw_parameters : require\n"
+        "out uint capturedVertex;out uint capturedSlot;"
+        "void main(){capturedVertex=uint(gl_VertexID);capturedSlot=uint(gl_BaseInstanceARB);"
+        "gl_Position=vec4(float(gl_VertexID%2),float((gl_VertexID/2)%2),0,1);}";
     const char* fragment="#version 450 core\nlayout(location=0) out vec4 color;void main(){color=vec4(1);}";
     const GLuint program=glCreateProgram();
     const GLenum stages[]={GL_VERTEX_SHADER,GL_FRAGMENT_SHADER};
@@ -69,6 +72,8 @@ void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& 
         require(compiled==GL_TRUE,"Draw-list test shader failed");
         glAttachShader(program,shader);glDeleteShader(shader);
     }
+    const char* capturedNames[]={"capturedVertex","capturedSlot"};
+    glTransformFeedbackVaryings(program,2,capturedNames,GL_INTERLEAVED_ATTRIBS);
     glLinkProgram(program);
     GLint linked=GL_FALSE;glGetProgramiv(program,GL_LINK_STATUS,&linked);
     require(linked==GL_TRUE,"Draw-list test program failed");
@@ -78,9 +83,34 @@ void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& 
     glNamedFramebufferRenderbuffer(framebuffer,GL_COLOR_ATTACHMENT0,GL_RENDERBUFFER,color);
     require(glCheckNamedFramebufferStatus(framebuffer,GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE,"Draw-list test framebuffer incomplete");
     glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,1,1);glUseProgram(program);
+    GLuint feedback=0,primitiveQuery=0;
+    glGenQueries(1,&primitiveQuery);
+    glCreateBuffers(1,&feedback);
+    glNamedBufferStorage(feedback,(first.vertexCount+second.vertexCount)*2*sizeof(GLuint),nullptr,GL_DYNAMIC_STORAGE_BIT);
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER,0,feedback);
+    auto checkCaptured=[&](const std::vector<MeshHandle>& handles)
+    {
+        std::size_t count=0;for(const auto& handle:handles)count+=handle.vertexCount;
+        GLuint primitives=0;glGetQueryObjectuiv(primitiveQuery,GL_QUERY_RESULT,&primitives);
+        require(primitives*3==count,"Draw submitted wrong vertex count");
+        std::vector<GLuint> values(count*2);
+        glGetNamedBufferSubData(feedback,0,values.size()*sizeof(GLuint),values.data());
+        std::size_t index=0;
+        for(const auto& handle:handles)for(unsigned i=0;i<handle.vertexCount;++i,++index)
+            require(values[index*2]==handle.firstVertex+i && values[index*2+1]==handle.slot,
+                "Draw submitted wrong vertex range or descriptor base instance");
+    };
+    glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN,primitiveQuery);
+    glBeginTransformFeedback(GL_TRIANGLES);mesher.draw(first);glEndTransformFeedback();
+    glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+    checkCaptured({first});
     const std::vector<MeshHandle> camera{first},shadow{second},changedShadow{first,second};
     require(mesher.stats().drawListUploads==0 && mesher.stats().drawListUploadBytes==0,"Initial draw cache is not empty");
+    glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN,primitiveQuery);
+    glBeginTransformFeedback(GL_TRIANGLES);
     mesher.drawMany(camera,0);mesher.drawMany(shadow,1);
+    glEndTransformFeedback();glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
+    checkCaptured({first,second});
     require(mesher.stats().drawListUploads==2 && mesher.stats().drawListUploadBytes==32,"First camera/shadow lists did not upload exactly once");
     for (unsigned frame=0;frame<8;++frame)
     {
@@ -92,6 +122,7 @@ void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& 
     mesher.drawMany({},0);mesher.drawMany(camera,0);
     require(mesher.stats().drawListUploads==3,"Empty pass invalidated an unchanged command buffer");
     require(glGetError()==GL_NO_ERROR,"OpenGL error during cached indirect draws");
+    glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER,0,0);glDeleteBuffers(1,&feedback);glDeleteQueries(1,&primitiveQuery);
     glUseProgram(0);glBindFramebuffer(GL_FRAMEBUFFER,0);
     glDeleteProgram(program);glDeleteFramebuffers(1,&framebuffer);glDeleteRenderbuffers(1,&color);
 }
@@ -213,9 +244,6 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         }
         require(mesher.valid(first) && first.vertexCount==384,"Ready handle/count invalid");
         require(mesher.stats().pendingJobs==0 && mesher.stats().residentChunks==1,"Pending/resident accounting");
-        GLuint command[4]{};
-        glGetNamedBufferSubData(mesher.indirectBuffer(),first.slot*16,16,command);
-        require(command[0]==384 && command[1]==1 && command[2]==first.firstVertex && command[3]==first.slot,"Indirect command disagrees with handle");
         auto second=one(mesher,b,3);
         require(second.status==CompletionStatus::Ready,"Second resident plane failed");
         checkDrawLists(mesher,first,second.mesh);

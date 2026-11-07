@@ -74,17 +74,19 @@ namespace
     struct ComputeState
     {
         GLint program = 0, storage = 0;
-        std::array<GLint, 8> bindings{};
-        std::array<GLint64, 8> starts{}, sizes{};
+        // Only these bindings are touched by the field/meshing passes.
+        static constexpr std::array<GLuint, 6> indices{{0, 1, 2, 3, 4, 7}};
+        std::array<GLint, 6> bindings{};
+        std::array<GLint64, 6> starts{}, sizes{};
         ComputeState()
         {
             glGetIntegerv(GL_CURRENT_PROGRAM, &program);
             glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING, &storage);
             for (GLuint i = 0; i < bindings.size(); ++i)
             {
-                glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, i, &bindings[i]);
-                glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_START, i, &starts[i]);
-                glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_SIZE, i, &sizes[i]);
+                glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, indices[i], &bindings[i]);
+                glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_START, indices[i], &starts[i]);
+                glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_SIZE, indices[i], &sizes[i]);
             }
         }
         ~ComputeState()
@@ -93,8 +95,8 @@ namespace
             for (GLuint i = 0; i < bindings.size(); ++i)
             {
                 if (bindings[i] && sizes[i] > 0)
-                    glBindBufferRange(GL_SHADER_STORAGE_BUFFER, i, bindings[i], starts[i], sizes[i]);
-                else glBindBufferBase(GL_SHADER_STORAGE_BUFFER, i, bindings[i]);
+                    glBindBufferRange(GL_SHADER_STORAGE_BUFFER, indices[i], bindings[i], starts[i], sizes[i]);
+                else glBindBufferBase(GL_SHADER_STORAGE_BUFFER, indices[i], bindings[i]);
             }
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, storage);
         }
@@ -141,8 +143,7 @@ struct ProceduralGeneration::Impl
     std::size_t desiredCount = 0;
     bool planned = false, active = false, converged = false, blocked = false;
     bool collisionDirty = true, collisionUpdated = false;
-    GLint detailStrength = -1, detailScale = -1, seed = -1, debug = -1, shadowIndex = -1;
-    GLint biomeOverride = -1, seaLevel = -1, seaBlendWidth = -1;
+    GLint shadowIndex = -1;
 
     ~Impl()
     {
@@ -246,23 +247,22 @@ bool ProceduralGeneration::initialize(const Config& config)
     impl->shadow = impl->pipelines->createPipeline(path("shadow.fs.glsl"), path("shadow.vs.glsl"));
     for (auto* pipeline : {impl->render, impl->shadow})
     {
-        GLint linked = GL_FALSE;
-        if (pipeline && glIsProgram(pipeline->getProgram()))
-            glGetProgramiv(pipeline->getProgram(), GL_LINK_STATUS, &linked);
-        if (!linked)
+        if (!pipeline || !pipeline->isValid())
         {
-            m_lastError = "Terrain render/shadow shader failed to link; see shader log.";
+            m_lastError = pipeline ? pipeline->getLastError() : "Terrain render/shadow pipeline was not created.";
             return false;
         }
     }
+    // These programs belong only to this generator. Config/seed stay fixed
+    // until reinitialization, so their uniforms need no per-frame upload.
     const GLuint render = impl->render->getProgram();
-    impl->detailStrength = glGetUniformLocation(render, "microDetailStrength");
-    impl->detailScale = glGetUniformLocation(render, "microDetailScale");
-    impl->seed = glGetUniformLocation(render, "worldSeed");
-    impl->debug = glGetUniformLocation(render, "debugLod");
-    impl->biomeOverride = glGetUniformLocation(render, "terrainBiomeOverride");
-    impl->seaLevel = glGetUniformLocation(render, "terrainSeaLevel");
-    impl->seaBlendWidth = glGetUniformLocation(render, "terrainSeaBlendWidth");
+    glProgramUniform1f(render, glGetUniformLocation(render, "microDetailStrength"), config.microDetailStrength);
+    glProgramUniform1f(render, glGetUniformLocation(render, "microDetailScale"), config.microDetailScale);
+    glProgramUniform1ui(render, glGetUniformLocation(render, "worldSeed"), m_seed);
+    glProgramUniform1i(render, glGetUniformLocation(render, "debugLod"), config.debugLod ? 1 : 0);
+    glProgramUniform1i(render, glGetUniformLocation(render, "terrainBiomeOverride"), config.field.biomeOverride);
+    glProgramUniform1f(render, glGetUniformLocation(render, "terrainSeaLevel"), config.field.seaLevel);
+    glProgramUniform1f(render, glGetUniformLocation(render, "terrainSeaBlendWidth"), config.field.seaBlendWidth);
     impl->shadowIndex = glGetUniformLocation(impl->shadow->getProgram(), "offsetShadow");
 
     impl->lod.baseSpacing = config.cellSize;
@@ -557,13 +557,6 @@ void ProceduralGeneration::drawRenderer()
     if (s.cameraMeshes.empty()) return;
     TerrainRenderStateGuard state;
     glUseProgram(s.render->getProgram());
-    glUniform1f(s.detailStrength, m_config.microDetailStrength);
-    glUniform1f(s.detailScale, m_config.microDetailScale);
-    glUniform1ui(s.seed, m_seed);
-    glUniform1i(s.debug, m_config.debugLod ? 1 : 0);
-    glUniform1i(s.biomeOverride, m_config.field.biomeOverride);
-    glUniform1f(s.seaLevel, m_config.field.seaLevel);
-    glUniform1f(s.seaBlendWidth, m_config.field.seaBlendWidth);
     s.gpu.drawMany(s.cameraMeshes, 0);
     m_stats.drawListUploads = s.gpu.stats().drawListUploads;
     m_stats.drawListUploadBytes = s.gpu.stats().drawListUploadBytes;

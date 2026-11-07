@@ -181,9 +181,10 @@ records through `check_biome_layout.cpp`; it does not maintain separate
 Python/GLSL matrices. It checks all 64 climate/altitude cells, duplicate corner
 weight normalization, the marine slice, all 26 recipes through a single generic
 program pair, repeated bitwise fields, adjacent chunks/LOD halos and identical
-emitted positions/normals. A temporary polar recipe is replaced with actual
-Voronoi 3D code: density must change while the 2D columns and another biome
-remain unchanged. Production sources are not modified by that fixture.
+emitted positions/normals. Temporary polar recipes are replaced with Manhattan
+Voronoi 2D and Voronoi 3D code: the intended columns/density must change while
+other biomes remain unchanged. Setting detailScale to zero must suppress both
+edits. Production sources are not modified by that fixture.
 
 The parallel-extension and background-worker fixtures remain independent engine
 service tests. Terrain generation no longer uses either compiler. The former
@@ -197,9 +198,11 @@ Runtime column storage remains 48 bytes: eight float32 controls followed by a
 four-word integer block. Density remains float32. The Python field runner uses
 the production columns → density passes and binds the CPU table at SSBO 7.
 Climate classification is local to the columns pass; no classification buffer
-or GPU-to-CPU cell mask is used. `biome_profile_probe.glsl` contains legacy
-parameter-blend diagnostics only; production generation blends independently
-evaluated biome densities.
+or GPU-to-CPU cell mask is used. `biome_profile_probe.glsl` contains test-only
+matrix inspection and legacy parameter-blend diagnostics; production generation
+blends independently evaluated biome densities. The mesh runner checks the
+count/emit counters and overflow before constructing a CPU draw command; there
+is no finalization compute pass or per-slot GPU command buffer.
 
 ## Complete biome matrix and diagnostic plots
 
@@ -289,16 +292,20 @@ runtime OpenGL library and a compiler able to link `-l:libGL.so.1`.
 Checks include asynchronous count/emit completions, token rejection, in-flight
 saturation, cancellation before and after allocation, slot and vertex memory
 budgets, fence retirement, stale handles after reuse/reinitialization, empty
-chunks, shutdown with work in flight, and restart. Test-only readbacks inspect
-indirect commands and buffer guards; the production graphics path keeps density
-and mesh data on the GPU.
+chunks, shutdown with work in flight, and restart. Transform feedback from real
+`draw` and `drawMany` calls checks vertex counts, vertex ranges and descriptor
+base instances. Test-only readbacks inspect buffer guards; production keeps
+density and mesh data on the GPU.
 
 The biome backend cases additionally cover cancellation, visits to different
 climate regions and a return to the first one with identical packed geometry,
 idle polling without new work, the 48-byte transient column budget and 16-byte
 job counters. Intercepted GL compilation/link entry points verify that no
 runtime shader compilation occurs during streaming, revisits or idle polling.
-The backend fixtures do not link the engine compiler services.
+The backend fixtures link the production `ComputeShader` and shared shader
+compiler, without either parallel/background compiler service. Shared loader,
+program ownership and graphics-pipeline coverage is documented separately in
+[Tests/ShaderCompilation](../ShaderCompilation/README.md).
 
 ## Interpretation
 

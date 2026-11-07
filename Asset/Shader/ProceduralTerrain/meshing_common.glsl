@@ -20,8 +20,6 @@ uniform uint uTransitionMask;
 uniform uvec3 uChunkParity;
 uniform uint uVertexBase;
 uniform uint uVertexCapacity;
-uniform uint uChunkSlot;
-uniform uint uVertexFirst;
 
 const uint REGULAR_TABLE_STRIDE = 5u;
 const uint TRANSITION_TABLE_OFFSET = 1280u;

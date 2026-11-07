@@ -2,12 +2,10 @@
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainBiomes.hpp"
 #include "ProceduralTransvoxelTables.hpp"
+#include "ComputeShader.hpp"
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <cstring>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -28,123 +26,11 @@ namespace ProceduralTerrain
         static_assert(sizeof(Counters) == 16 && sizeof(Command) == 16 && sizeof(Descriptor) == 32,
             "GPU structures must match std430 layout");
 
-        bool readShader(const std::filesystem::path& path, std::string& source,
-            std::vector<std::string>& files, std::string& error, unsigned depth = 0)
-        {
-            if (depth > 12) { error = "Recursive terrain shader include: " + path.string(); return false; }
-            std::ifstream input(path, std::ios::binary);
-            if (!input) { error = "Cannot read terrain shader: " + path.string(); return false; }
-            const auto name = path.lexically_normal().generic_string();
-            auto found = std::find(files.begin(), files.end(), name);
-            const auto sourceId = static_cast<unsigned>(found - files.begin());
-            if (found == files.end()) files.push_back(name);
-            // Root #version must remain the first directive. Includes use
-            // numeric source IDs supported by GLSL, with a path table in errors.
-            if (depth) source += "#line 1 " + std::to_string(sourceId) + "\n";
-            std::string line;
-            unsigned lineNumber = 0;
-            while (std::getline(input, line))
-            {
-                ++lineNumber;
-                const auto first = line.find_first_not_of(" \t");
-                if (first != std::string::npos && line.compare(first, 8, "#include") == 0)
-                {
-                    const auto begin = line.find('"', first + 8);
-                    const auto end = begin == std::string::npos ? begin : line.find('"', begin + 1);
-                    if (begin == std::string::npos || end == std::string::npos)
-                    { error = "Invalid terrain shader include: " + path.string(); return false; }
-                    if (!readShader(path.parent_path() / line.substr(begin + 1, end - begin - 1),
-                        source, files, error, depth + 1)) return false;
-                    source += "#line " + std::to_string(lineNumber + 1) + " " +
-                        std::to_string(sourceId) + "\n";
-                }
-                else { source += line; source += '\n'; }
-            }
-            return true;
-        }
-
-        struct ShaderStartupTrace
-        {
-            using Clock = std::chrono::steady_clock;
-            std::string label;
-            Clock::time_point begin(const char* stage) const
-            {
-                std::cerr << "[Terrain shader " << label << "] " << stage << " begin" << std::endl;
-                return Clock::now();
-            }
-            void end(const char* stage, Clock::time_point start) const
-            {
-                const double milliseconds = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
-                std::cerr << "[Terrain shader " << label << "] " << stage << " end ("
-                    << milliseconds << " ms)" << std::endl;
-            }
-        };
-
-        GLuint makeProgram(const std::filesystem::path& path, const char* defines,
-            const ShaderStartupTrace& trace, std::string& error)
-        {
-            std::string source;
-            std::vector<std::string> files;
-            // No source/program cache: restarting the mesher recompiles the
-            // current disk contents of every transitive biome include.
-            if (!readShader(path, source, files, error)) return 0;
-            const auto newline = source.find('\n');
-            if (newline == std::string::npos || source.compare(0, 8, "#version") != 0)
-            { error = "Missing terrain shader version: " + path.string(); return 0; }
-            source.insert(newline + 1, std::string(defines) + "#line 2 0\n");
-            std::cerr << "[Terrain shader " << trace.label << "] source: " << source.size()
-                << " bytes" << std::endl;
-            const auto diagnostic = [&files, &path](const std::string& log)
-            {
-                std::string result = path.string() + ": " + log.c_str();
-                result += "\nGLSL source files (source ID : file):\n";
-                for (std::size_t i = 0; i < files.size(); ++i)
-                    result += std::to_string(i) + " : " + files[i] + "\n";
-                return result;
-            };
-            const char* bytes = source.c_str();
-            GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
-            glShaderSource(shader, 1, &bytes, nullptr);
-            const auto compileStart = trace.begin("glCompileShader");
-            glCompileShader(shader);
-            trace.end("glCompileShader", compileStart);
-            GLint success = GL_FALSE;
-            const auto compileStatusStart = trace.begin("GL_COMPILE_STATUS");
-            glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
-            trace.end("GL_COMPILE_STATUS", compileStatusStart);
-            if (!success)
-            {
-                GLint length = 0; glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
-                std::string log(static_cast<std::size_t>((std::max)(length, 1)), '\0');
-                glGetShaderInfoLog(shader, length, nullptr, &log[0]);
-                error = diagnostic(log);
-                glDeleteShader(shader); return 0;
-            }
-            GLuint program = glCreateProgram();
-            glAttachShader(program, shader);
-            const auto linkStart = trace.begin("glLinkProgram");
-            glLinkProgram(program);
-            trace.end("glLinkProgram", linkStart);
-            glDeleteShader(shader);
-            const auto linkStatusStart = trace.begin("GL_LINK_STATUS");
-            glGetProgramiv(program, GL_LINK_STATUS, &success);
-            trace.end("GL_LINK_STATUS", linkStatusStart);
-            if (!success)
-            {
-                GLint length = 0; glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
-                std::string log(static_cast<std::size_t>((std::max)(length, 1)), '\0');
-                glGetProgramInfoLog(program, length, nullptr, &log[0]);
-                error = diagnostic(log);
-                glDeleteProgram(program); return 0;
-            }
-            return program;
-        }
-
         struct Program
         {
             GLuint id = 0;
             GLint cells=-1, origin=-1, lod=-1, spacing=-1, seed=-1, mask=-1, parity=-1;
-            GLint vertexBase=-1, capacity=-1, slot=-1, first=-1;
+            GLint vertexBase=-1, capacity=-1;
             std::uint32_t cellCount=64;
             void discover()
             {
@@ -153,12 +39,12 @@ namespace ProceduralTerrain
                 seed=glGetUniformLocation(id,"uSeed"); mask=glGetUniformLocation(id,"uTransitionMask");
                 parity=glGetUniformLocation(id,"uChunkParity");
                 vertexBase=glGetUniformLocation(id,"uVertexBase"); capacity=glGetUniformLocation(id,"uVertexCapacity");
-                slot=glGetUniformLocation(id,"uChunkSlot"); first=glGetUniformLocation(id,"uVertexFirst");
             }
             void field(const GpuConfig& config)
             {
                 glUseProgram(id);
                 cellCount=config.cells;
+                if (vertexBase>=0) glUniform1ui(vertexBase,0);
                 glUniform1ui(cells,config.cells); glUniform1f(spacing,config.baseSpacing);
                 const auto& f=config.field;
                 const auto set=[&](const char* name,float value){ glUniform1f(glGetUniformLocation(id,name),value); };
@@ -172,22 +58,25 @@ namespace ProceduralTerrain
                 glUniform1ui(glGetUniformLocation(id,"uFieldMode"),static_cast<std::uint32_t>(f.mode));
                 glUniform3fv(glGetUniformLocation(id,"uSphereCenter"),1,f.sphereCenter.data());
             }
-            void request(const ChunkRequest& request, std::uint32_t meshSlot=0,
-                std::uint32_t firstVertex=0, std::uint32_t vertexCapacity=0) const
+            void request(const ChunkRequest& request, std::uint32_t vertexCapacity=0) const
             {
                 glUseProgram(id);
-                glUniform3iv(origin,1,request.origin.data()); glUniform1ui(lod,request.lod);
-                glUniform1ui(seed,request.seed); glUniform1ui(mask,request.transitionMask);
-                const std::int64_t span=static_cast<std::int64_t>(cellCount)*(std::int64_t{1}<<request.lod);
-                glUniform3ui(parity,static_cast<std::uint32_t>(request.origin[0]/span)&1u,
-                    static_cast<std::uint32_t>(request.origin[1]/span)&1u,
-                    static_cast<std::uint32_t>(request.origin[2]/span)&1u);
-                glUniform1ui(vertexBase,0); glUniform1ui(capacity,vertexCapacity);
-                glUniform1ui(slot,meshSlot); glUniform1ui(first,firstVertex);
+                if (origin>=0) glUniform3iv(origin,1,request.origin.data());
+                if (lod>=0) glUniform1ui(lod,request.lod);
+                if (seed>=0) glUniform1ui(seed,request.seed);
+                if (mask>=0) glUniform1ui(mask,request.transitionMask);
+                if (parity>=0)
+                {
+                    const std::int64_t span=static_cast<std::int64_t>(cellCount)*(std::int64_t{1}<<request.lod);
+                    glUniform3ui(parity,static_cast<std::uint32_t>(request.origin[0]/span)&1u,
+                        static_cast<std::uint32_t>(request.origin[1]/span)&1u,
+                        static_cast<std::uint32_t>(request.origin[2]/span)&1u);
+                }
+                if (capacity>=0) glUniform1ui(capacity,vertexCapacity);
             }
         };
 
-        enum ProgramIndex { Columns, Density, CountRegular, CountTransition, EmitRegular, EmitTransition, Finalize, ProgramCount };
+        enum ProgramIndex { Columns, Density, CountRegular, CountTransition, EmitRegular, EmitTransition, ProgramCount };
         enum class JobStage { Free, Counting, Emitting };
     }
 
@@ -222,7 +111,7 @@ namespace ProceduralTerrain
         std::string error;
         bool initialized=false, broken=false, flushPending=false;
         Program programs[ProgramCount];
-        GLuint vertices=0, vao=0, tables=0, descriptors=0, commands=0, biomeCells=0;
+        GLuint vertices=0, vao=0, tables=0, descriptors=0, biomeCells=0;
         std::vector<Job> jobs;
         std::vector<Slot> slots;
         std::vector<std::uint32_t> freeSlots;
@@ -303,14 +192,14 @@ namespace ProceduralTerrain
 
         void regular(const Program& program, const Job& job)
         {
-            program.request(job.request,job.mesh.slot,job.mesh.firstVertex,job.mesh.vertexCount);
+            program.request(job.request,job.mesh.vertexCount);
             glDispatchCompute((config.cells+7)/8,(config.cells+3)/4,(config.cells+3)/4);
         }
 
         void transition(const Program& program, const Job& job)
         {
             if (!job.request.transitionMask) return;
-            program.request(job.request,job.mesh.slot,job.mesh.firstVertex,job.mesh.vertexCount);
+            program.request(job.request,job.mesh.vertexCount);
             const auto faceCells=(config.cells/2)*(config.cells/2);
             glDispatchCompute((faceCells+63)/64,6,1);
         }
@@ -329,8 +218,11 @@ namespace ProceduralTerrain
             glDispatchCompute((side+7)/8,(side+3)/4,(side+3)/4);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             regular(programs[CountRegular],job);
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-            transition(programs[CountTransition],job);
+            if (job.request.transitionMask)
+            {
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+                transition(programs[CountTransition],job);
+            }
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
             glEndQuery(GL_TIME_ELAPSED);
             job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
@@ -346,16 +238,17 @@ namespace ProceduralTerrain
             glBindBufferRange(GL_SHADER_STORAGE_BUFFER,4,vertices,
                 static_cast<GLintptr>(slot.first)*VertexBytes,
                 static_cast<GLsizeiptr>(slot.allocation)*VertexBytes);
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,commands);
             glBeginQuery(GL_TIME_ELAPSED,job.timers[1]);
             regular(programs[EmitRegular],job);
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-            transition(programs[EmitTransition],job);
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-            programs[Finalize].request(job.request,job.mesh.slot,job.mesh.firstVertex,job.mesh.vertexCount);
-            glDispatchCompute(1,1,1);
+            if (job.request.transitionMask)
+            {
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+                transition(programs[EmitTransition],job);
+            }
+            // poll() validates cursor/overflow before publishing a handle.
+            // Draw lists use that validated handle; no GPU command-copy pass.
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|
-                GL_COMMAND_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+                GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
             glEndQuery(GL_TIME_ELAPSED);
             job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
             flushPending=true;
@@ -403,22 +296,20 @@ namespace ProceduralTerrain
         s.statistics.budgetBytes=static_cast<std::uint64_t>(vertexCapacity)*VertexBytes;
 
         const char* files[ProgramCount]={"field_columns.C.glsl","field_density.C.glsl","meshing.C.glsl",
-            "transition.C.glsl","meshing.C.glsl","transition.C.glsl","meshing_finalize.C.glsl"};
+            "transition.C.glsl","meshing.C.glsl","transition.C.glsl"};
         for (unsigned i=0;i<ProgramCount;++i)
         {
             const bool emitPass = i==EmitRegular || i==EmitTransition;
             const char* define=emitPass?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
-            const ShaderStartupTrace trace{std::to_string(i+1)+"/"+std::to_string(ProgramCount)
-                +" "+files[i]+" EMIT_PASS="+(emitPass ? "1" : "0")};
+            const std::string label="Terrain "+std::to_string(i+1)+"/"+std::to_string(ProgramCount)
+                +" "+files[i]+" EMIT_PASS="+(emitPass ? "1" : "0");
+            Ge::ComputeShader shader(config.shaderDirectory+"/"+files[i],define,label);
+            if (!shader.isValid())
+            { error=shader.getLastError(); shutdown(); s.error=error; return false; }
             auto& program=s.programs[i];
-            program.id=makeProgram(std::filesystem::path(config.shaderDirectory)/files[i],define,trace,s.error);
-            if (!program.id) { error=s.error; shutdown(); s.error=error; return false; }
-            const auto discoverStart = trace.begin("discover uniforms");
+            program.id=shader.takeProgram();
             program.discover();
-            trace.end("discover uniforms", discoverStart);
-            const auto fieldStart = trace.begin("set field uniforms");
             program.field(config);
-            trace.end("set field uniforms", fieldStart);
         }
         glCreateBuffers(1,&s.biomeCells);
         constexpr auto biomeCells=makeBiomeCellTable();
@@ -432,8 +323,6 @@ namespace ProceduralTerrain
         glNamedBufferData(s.tables,sizeof(table),table.data(),GL_STATIC_DRAW);
         glCreateBuffers(1,&s.descriptors);
         glNamedBufferData(s.descriptors,static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Descriptor),nullptr,GL_DYNAMIC_DRAW);
-        glCreateBuffers(1,&s.commands);
-        glNamedBufferData(s.commands,static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Command),nullptr,GL_DYNAMIC_DRAW);
         glCreateVertexArrays(1,&s.vao);
         glVertexArrayVertexBuffer(s.vao,0,s.vertices,0,VertexBytes);
         for (unsigned i=0;i<3;++i)
@@ -493,9 +382,9 @@ namespace ProceduralTerrain
         for (auto& entry:s.drawLists)
             if (entry.second.buffer) glDeleteBuffers(1,&entry.second.buffer);
         s.drawLists.clear();
-        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.commands,s.biomeCells};
-        if (s.vertices || s.tables || s.descriptors || s.commands || s.biomeCells) glDeleteBuffers(5,buffers);
-        s.vertices=s.vao=s.tables=s.descriptors=s.commands=s.biomeCells=0;
+        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.biomeCells};
+        if (s.vertices || s.tables || s.descriptors || s.biomeCells) glDeleteBuffers(4,buffers);
+        s.vertices=s.vao=s.tables=s.descriptors=s.biomeCells=0;
         s.jobs.clear(); s.slots.clear(); s.freeSlots.clear(); s.retired.clear(); s.freeRanges.clear();
         s.drawScratch.clear();
         s.initialized=false; s.broken=false; s.flushPending=false; s.statistics=GpuStats{};
@@ -672,8 +561,8 @@ namespace ProceduralTerrain
         const auto& s=*m_impl;
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,8,s.descriptors);
         glBindVertexArray(s.vao);
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER,s.commands);
-        glDrawArraysIndirect(GL_TRIANGLES,reinterpret_cast<const void*>(static_cast<std::uintptr_t>(mesh.slot)*sizeof(Command)));
+        glDrawArraysInstancedBaseInstance(GL_TRIANGLES,static_cast<GLint>(mesh.firstVertex),
+            static_cast<GLsizei>(mesh.vertexCount),1,mesh.slot);
     }
 
     void GpuMesher::drawMany(const std::vector<MeshHandle>& meshes, std::uint32_t drawList)
@@ -707,7 +596,6 @@ namespace ProceduralTerrain
 
     unsigned int GpuMesher::vertexBuffer() const noexcept { return m_impl->vertices; }
     unsigned int GpuMesher::descriptorBuffer() const noexcept { return m_impl->descriptors; }
-    unsigned int GpuMesher::indirectBuffer() const noexcept { return m_impl->commands; }
     unsigned int GpuMesher::vertexArray() const noexcept { return m_impl->vao; }
     const GpuConfig& GpuMesher::config() const noexcept { return m_impl->config; }
     GpuStats GpuMesher::stats() const noexcept { return m_impl->statistics; }

@@ -1,5 +1,14 @@
-// Test-only diagnostics for the former parameter blend. Runtime evaluates
+// Test-only matrix and former parameter-blend diagnostics. Runtime evaluates
 // independent density functions and never calls these helpers.
+
+vec4 fieldProbeBlendRelief(vec2 p,vec2 climate)
+{
+    vec2 grid=clamp(climate,0.0,1.0)*4.0;
+    uvec2 cell=min(uvec2(floor(grid)),uvec2(3u));
+    vec2 f=fieldFade(grid-vec2(cell));
+    uvec4 ids=fieldUnpackSurface(fieldBiomeCells[cell.x+4u*cell.y].x);
+    return fieldSurfaceRecipes(p,ids,fieldQuadWeights(f),0.0);
+}
 
 BiomeVolume fieldBiomeVolume(uint biome)
 {

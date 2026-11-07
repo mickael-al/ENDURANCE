@@ -296,16 +296,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
     return clamp(result,vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,320.0,160.0,1.0));
 }
 
-// Kept as a useful inspection helper; the authoritative IDs are CPU data.
-vec4 fieldBlendRelief(vec2 p,vec2 climate)
-{
-    vec2 grid=clamp(climate,0.0,1.0)*4.0;
-    uvec2 cell=min(uvec2(floor(grid)),uvec2(3u));
-    vec2 f=fieldFade(grid-vec2(cell));
-    uvec4 ids=fieldUnpackSurface(fieldBiomeCells[cell.x+4u*cell.y].x);
-    return fieldSurfaceRecipes(p,ids,fieldQuadWeights(f),0.0);
-}
-
 FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
 {
     FieldColumn column;
@@ -318,19 +308,34 @@ FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
     vec4 relief=vec4(0.0,0.0,0.0,1.0);
     vec2 climate=raw.terrain.yz;
     uvec2 volumeIDs=mapping.yz;
-    if(uBiomeOverride>=0 && uBiomeOverride<int(FIELD_BIOME_COUNT))
+    bool overrideBiome=uBiomeOverride>=0 && uBiomeOverride<int(FIELD_BIOME_COUNT);
+    if(overrideBiome)
     {
         uint biome=uint(uBiomeOverride);
         volumeIDs=fieldRepeatedVolumeID(biome);
-        if(uDetailScale>0.0)
-            relief=fieldSurfaceRecipes(p,uvec4(biome),vec4(1,0,0,0),0.0);
         if(biome<FIELD_MARINE_BIOME)
             climate=vec2(biome%5u,biome/5u)*0.25;
     }
-    else if(uDetailScale>0.0)
+    if(uDetailScale>0.0)
     {
-        float marine=cell<16u ? 1.0-raw.blend.z : 0.0;
-        relief=fieldSurfaceRecipes(p,fieldUnpackSurface(mapping.x),fieldQuadWeights(raw.blend.xy),marine);
+        uvec4 surfaceIDs;
+        vec4 surfaceRatios;
+        float marine;
+        if(overrideBiome)
+        {
+            surfaceIDs=uvec4(uint(uBiomeOverride));
+            surfaceRatios=vec4(1,0,0,0);
+            marine=0.0;
+        }
+        else
+        {
+            surfaceIDs=fieldUnpackSurface(mapping.x);
+            surfaceRatios=fieldQuadWeights(raw.blend.xy);
+            marine=cell<16u ? 1.0-raw.blend.z : 0.0;
+        }
+        // One call site avoids inlining all 26 recipes separately for the
+        // forced-biome and matrix paths. Only their local blend inputs differ.
+        relief=fieldSurfaceRecipes(p,surfaceIDs,surfaceRatios,marine);
     }
     float height=raw.terrain.x+relief.x*uDetailScale;
     float thickness=uBandThickness+relief.y*uDetailScale;
