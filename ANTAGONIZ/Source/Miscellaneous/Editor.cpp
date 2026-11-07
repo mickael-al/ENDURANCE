@@ -1,0 +1,4183 @@
+/*
+Trigger Warning a rushed code not optimized 
+*/
+
+#include "Editor.hpp"
+#include "EditorExtension.hpp"
+#include "EditorInput.hpp"
+#include "PointeurClass.hpp"
+#include "Engine.hpp"
+#include "CollisionWraper.hpp"
+#include "PhysicsWraper.hpp"
+#include "imgui-cmake/Header/imgui.h"
+#include "PathManager.hpp"
+#include "FolderDialog.hpp"
+#include "Textures.hpp"
+#include <sstream>
+#include "GraphicsDataMisc.hpp"
+#include "ModelManager.hpp"
+#include "Model.hpp"
+#include "Camera.hpp"
+#include "FlyCamera.hpp"
+#include "Materials.hpp"
+#include "GraphiquePipeline.hpp"
+#include "DirectionalLight.hpp"
+#include "PointLight.hpp"
+#include "SpotLight.hpp"
+#include "AudioSource.hpp"
+#include "SoundBuffer.hpp"
+#include "Empty.hpp"
+#include "ImGuizmo.h"
+#include "RenderingEngine.hpp"
+#include "ShapeBufferBase.hpp"
+#include <sys/stat.h>
+#include <filesystem>
+#include <vector>
+#include <algorithm>
+#include <exception>
+#include <stdexcept>
+#include "FrameBuffer.hpp"
+#include "PhysicsEngine.hpp"
+#include "CollisionBody.hpp"
+#include "glm/gtc/matrix_transform.hpp"
+#include "glm/gtx/transform.hpp"
+#include "glm/gtc/quaternion.hpp"
+#include "glm/gtx/quaternion.hpp"
+#include "PathFindingScene.hpp"
+#include "VirtualTextures.hpp"
+#include "Window.hpp"
+#include "ShapeBufferSkeleton.hpp"
+#include "SkinnedTransform.hpp"
+
+using std::fstream;
+using namespace Ge;
+namespace fs = std::filesystem;
+
+const char* const PipelineMode[] = {"Transparency","Default" };
+const char* const PipelineShadow[] = { "Default" };
+
+inline ImVec4 HSVtoRGB(float h, float s, float v) {
+	int i;
+	float f, p, q, t;
+	if (s == 0.0f) {
+		return ImVec4(v, v, v, 1.0f);
+	}
+	h /= 60.0f;
+	i = (int)h;
+	f = h - i;
+	p = v * (1.0f - s);
+	q = v * (1.0f - s * f);
+	t = v * (1.0f - s * (1.0f - f));
+
+	switch (i) {
+	case 0:
+		return ImVec4(v, t, p, 1.0f);
+	case 1:
+		return ImVec4(q, v, p, 1.0f);
+	case 2:
+		return ImVec4(p, v, t, 1.0f);
+	case 3:
+		return ImVec4(p, q, v, 1.0f);
+	case 4:
+		return ImVec4(t, p, v, 1.0f);
+	default:
+		return ImVec4(v, p, q, 1.0f);
+	}
+}
+
+inline bool InputText(const char* label, std::string& str, ImGuiInputTextFlags flags = 0) 
+{
+	static char buffer[1024];
+	strncpy(buffer, str.c_str(), sizeof(buffer));
+	buffer[sizeof(buffer) - 1] = '\0';
+
+	bool changed = ImGui::InputText(label, buffer, sizeof(buffer), flags);
+	if (changed) 
+	{
+		str = buffer;
+	}
+	return changed;
+}
+
+std::string removeFilename(const std::string& path) 
+{
+	// Trouver la dernière occurrence de '/' ou '\'
+	size_t posSlash = path.find_last_of('/');
+	size_t posBackslash = path.find_last_of('\\');
+
+	// Trouver la position maximum des deux
+	size_t pos = (posSlash == std::string::npos) ? posBackslash :
+		(posBackslash == std::string::npos) ? posSlash :
+		(posSlash > posBackslash ? posSlash : posBackslash);
+
+	// Si aucun séparateur n'a été trouvé, retourner le chemin original
+	if (pos == std::string::npos) {
+		return path;
+	}
+
+	// Retourner la sous-chaîne jusqu'à la position du dernier séparateur
+	return path.substr(0, pos);
+}
+
+
+std::string cropPath(std::string& str1, std::string& str2)
+{
+	size_t pos = str1.find(str2);
+	if (pos != std::string::npos)
+	{
+		str1.erase(pos, str2.length());
+	}
+	return str1;
+}
+
+bool copyAndRenameDirectory(const std::string& sourceDir, const std::string& targetDir) 
+{
+	try 
+	{
+		if (!fs::exists(sourceDir) || !fs::is_directory(sourceDir)) 
+		{
+			std::cerr << "Le dossier source n'existe pas ou n'est pas valide." << std::endl;
+			return false;
+		}
+
+		if (fs::exists(targetDir))
+		{
+			std::cerr << "Le dossier cible existe déjà." << std::endl;
+			return false;
+		}
+
+		fs::copy(sourceDir, targetDir, fs::copy_options::recursive);
+		return true;
+	}
+	catch (const std::exception& e)
+	{
+		std::cerr << "Une erreur s'est produite : " << e.what() << std::endl;
+		return false;
+	}
+}
+
+Editor* Editor::s_instance = nullptr;
+
+void Editor::duplicateSceneObject(GObject* obj, GObject* parent)
+{
+	if (obj == nullptr)
+	{
+		return;
+	}
+	GObject * no = nullptr;	
+	if (Model* model = dynamic_cast<Model*>(obj))
+	{
+		Model* m = m_pc->modelManager->createModel(model->getShapeBuffer(), *model->getName());
+		m->setMaterial(model->getMaterial());
+		no = m;
+		m_currentSceneData->models.push_back(m);
+		// Zone helpers own their material so Show remains independent.
+		if (model->hasTag("ParticleVolume") && model->getMaterial() != nullptr)
+		{
+			Materials* source = model->getMaterial();
+			addDuplicateMaterialToModel(m);
+			Materials* copy = m->getMaterial();
+			copy->setPipeline(source->getPipeline());
+			copy->setShadowPipeline(source->getShadowPipeline());
+			copy->setDepthTest(source->getDepthTest());
+			copy->setDepthWrite(source->getDepthWrite());
+		}
+	}
+	if (Empty* empty = dynamic_cast<Empty*>(obj))
+	{
+		Empty* e = new Empty();
+		e->setName(*empty->getName());
+		no = e;
+		m_currentSceneData->empty.push_back(e);
+	}
+	if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(obj))
+	{
+		DirectionalLight* e = m_pc->lightManager->createDirectionalLight(dl->getEulerAngles(), dl->getColors(), *dl->getName());
+		e->setName(*dl->getName());
+		e->setRange(dl->getRange());
+		e->setshadow(dl->getshadow());
+		e->setSpotAngle(dl->getSpotAngle());
+		no = e;
+		m_currentSceneData->dlight.push_back(e);
+	}
+	if (SpotLight* dl = dynamic_cast<SpotLight*>(obj))
+	{
+		SpotLight* e = m_pc->lightManager->createSpotLight(dl->getPosition(), dl->getColors(),dl->getEulerAngles(),dl->getSpotAngle(), *dl->getName());
+		e->setName(*dl->getName());
+		e->setRange(dl->getRange());
+		e->setshadow(dl->getshadow());
+		e->setSpotAngle(dl->getSpotAngle());
+		no = e;
+		m_currentSceneData->slight.push_back(e);
+	}
+	if (PointLight* dl = dynamic_cast<PointLight*>(obj))
+	{
+		PointLight* e = m_pc->lightManager->createPointLight(dl->getPosition(), dl->getColors(), *dl->getName());
+		e->setName(*dl->getName());
+		e->setRange(dl->getRange());
+		e->setshadow(dl->getshadow());
+		e->setSpotAngle(dl->getSpotAngle());
+		no = e;
+		m_currentSceneData->plight.push_back(e);
+	}
+	if (AudioSource* au = dynamic_cast<AudioSource*>(obj))
+	{
+		AudioSource* e = m_pc->soundManager->createSource(au->getSoundBuffer(), *au->getName());
+		e->setName(*au->getName());
+		e->setGain(au->getGain());
+		e->setPitch(au->getPitch());
+		e->setLoop(au->getLoop());		
+		no = e;
+		m_currentSceneData->audio.push_back(e);
+	}
+	if (SkinnedTransform* st = dynamic_cast<SkinnedTransform*>(obj))
+	{
+		SkinnedTransform* e = m_pc->skinnedTransformManager->createSkinnedTransform(st->getBuffer(), *st->getName());
+		no = e;
+		m_currentSceneData->skeleton.push_back(e);
+	}
+	no->setPosition(obj->getPosition());
+	no->setRotation(obj->getRotation());
+	no->setScale(obj->getScale());
+	std::vector<size_t>& tags = obj->getTag();
+	std::vector<size_t>& ntags = no->getTag();
+	ntags.reserve(tags.size());
+	tagObj[no] = tagObj[obj];
+	std::copy(tags.begin(), tags.end(), std::back_inserter(ntags));
+	no->setParent(parent);
+
+	if (scriptObject.find(obj) != scriptObject.end())
+	{
+		std::vector<ScriptData> copy;
+		copy.assign(scriptObject[obj].begin(), scriptObject[obj].end());
+		scriptObject[no] = copy;
+	}
+	if (collisionObj.find(obj) != collisionObj.end())
+	{
+		std::vector<CollisionData> copy;
+		copy.assign(collisionObj[obj].begin(), collisionObj[obj].end());
+		collisionObj[no] = copy;
+	}
+	for (int c = 0; c < obj->getChilds().size(); c++)
+	{
+		duplicateSceneObject(obj->getChilds()[c], no);
+	}
+}
+
+
+void removeExistTexture(Textures* texture, SceneData* sd, TextureManager* tm, GraphicsDataMisc* gdm)
+{
+	if (sd != nullptr)
+	{
+		if (texture == gdm->str_default_normal_texture || texture == gdm->str_default_texture)
+		{
+			return;
+		}
+		int count = 0;
+		for (int i = 0; i < sd->materials.size(); i++)
+		{
+			if (sd->materials[i]->getAlbedoTexture() == texture) { count++; }
+			if (sd->materials[i]->getMetallicTexture() == texture) { count++; }
+			if (sd->materials[i]->getRoughnessTexture() == texture) { count++; }
+			if (sd->materials[i]->getNormalTexture() == texture) { count++; }
+			if (sd->materials[i]->getOclusionTexture() == texture) { count++; }
+		}
+		if (count <= 1)
+		{
+			for (int i = 0; i < sd->textures.size(); i++)
+			{
+				if (sd->textures[i] == texture)
+				{
+					sd->textures.erase(sd->textures.begin() + i);
+					sd->textureData.erase(sd->textureData.begin() + i);
+					break;
+				}
+			}
+			tm->destroyTexture(texture);
+		}
+	}
+}
+
+void removeExistMaterial(Model* obj, SceneData* sd, MaterialManager* mm, TextureManager* tm, GraphicsDataMisc* gdm)
+{
+	if (sd != nullptr)
+	{
+		Materials* current = obj->getMaterial();
+		int count = 0;
+		if (current != nullptr)
+		{
+			for (int i = 0; i < sd->models.size(); i++)
+			{
+				if (sd->models[i]->getMaterial() == current)
+				{
+					count++;
+				}
+			}
+			if (count <= 1)
+			{
+				removeExistTexture(current->getAlbedoTexture(), sd, tm, gdm);
+				removeExistTexture(current->getMetallicTexture(), sd, tm, gdm);
+				removeExistTexture(current->getRoughnessTexture(), sd, tm, gdm);
+				removeExistTexture(current->getNormalTexture(), sd, tm, gdm);
+				removeExistTexture(current->getOclusionTexture(), sd, tm, gdm);
+				obj->setMaterial(nullptr);
+				sd->materials.erase(std::remove(sd->materials.begin(), sd->materials.end(), current), sd->materials.end());
+				if (gdm->str_default_material != current)
+				{
+					mm->destroyMaterial(current);
+				}
+			}
+		}
+	}
+}
+
+void Editor::deleteSceneObject(GObject * obj)
+{
+	if (obj == nullptr)
+	{
+		return;
+	}
+	const std::vector<GObject*> cchild = obj->getChilds();
+	for (int c = 0; c < cchild.size(); c++)
+	{
+		deleteSceneObject(cchild[c]);
+	}
+	ShapeBuffer* sbCheck = nullptr;
+	for (int i = 0; i < m_currentSceneData->models.size(); i++)
+	{
+		if ((GObject*)m_currentSceneData->models[i] == obj)
+		{
+			sbCheck = m_currentSceneData->models[i]->getShapeBuffer();
+			Model* m = m_currentSceneData->models[i];
+			if (m->getMaterial() != nullptr)
+			{
+				removeExistMaterial(m, m_currentSceneData, m_pc->materialManager, m_pc->textureManager, m_gdm);
+			}
+			m_currentSceneData->models.erase(m_currentSceneData->models.begin() + i);
+			m_pc->modelManager->destroyModel(m);
+			i = m_currentSceneData->models.size();
+		}
+	}
+	if (sbCheck != nullptr)
+	{
+		bool found = false;
+		int i = 0;
+		for (; i < m_currentSceneData->models.size() && !found; i++)
+		{
+			if (m_currentSceneData->models[i]->getShapeBuffer() == sbCheck)
+			{
+				found = true;
+			}
+		}
+		if (!found)
+		{
+			bool skeleton = false;
+			for (int j = 0; j < m_currentSceneData->buffer.size(); j++)
+			{
+				if (m_currentSceneData->buffer[j] == sbCheck)
+				{
+					skeleton = m_currentSceneData->bufferData[j].animatedBuffer;
+					if (!skeleton)
+					{
+						m_currentSceneData->buffer.erase(m_currentSceneData->buffer.begin() + j);
+						m_currentSceneData->bufferData.erase(m_currentSceneData->bufferData.begin() + j);
+					}
+					break;
+				}
+			}
+			if (!skeleton)
+			{
+				m_pc->modelManager->destroyBuffer(sbCheck);
+			}
+		}
+	}
+	for (int j = 0; j < m_currentSceneData->skeleton.size(); j++)
+	{
+		if ((GObject*)m_currentSceneData->skeleton[j] == obj)
+		{
+			m_pc->skinnedTransformManager->destroySkinnedTransform(m_currentSceneData->skeleton[j]);			
+			bool found = false;
+			ShapeBufferSkeleton* sbs = m_currentSceneData->skeleton[j]->getBuffer();
+			m_currentSceneData->skeleton.erase(m_currentSceneData->skeleton.begin() + j);
+			for (int i = 0; i < m_currentSceneData->skeleton.size(); i++)
+			{
+				if (m_currentSceneData->skeleton[i]->getBuffer() == sbs)
+				{
+					found = true;
+					break;
+				}
+			}
+			if (!found)
+			{				
+				const std::vector<ShapeBufferBase*>& sbb = sbs->getShapes();
+				for (int i = static_cast<int>(m_currentSceneData->buffer.size()) - 1; i >= 0; --i)
+				{
+					if (std::find(sbb.begin(), sbb.end(), m_currentSceneData->buffer[i]) != sbb.end())
+					{
+						m_currentSceneData->buffer.erase(m_currentSceneData->buffer.begin() + i);
+						m_currentSceneData->bufferData.erase(m_currentSceneData->bufferData.begin() + i);
+					}
+				}
+				m_currentSceneData->bufferSkeleton.erase(
+					std::remove(m_currentSceneData->bufferSkeleton.begin(), m_currentSceneData->bufferSkeleton.end(), sbs),
+					m_currentSceneData->bufferSkeleton.end());
+				m_pc->modelManager->destroyBuffer(sbs);
+			}			
+			break;
+		}
+	}
+	SoundBuffer* soundbCheck = nullptr;
+	for (int i = 0; i < m_currentSceneData->audio.size(); i++)
+	{
+		if ((GObject*)m_currentSceneData->audio[i] == obj)
+		{
+			soundbCheck = m_currentSceneData->audio[i]->getSoundBuffer();
+			AudioSource* m = m_currentSceneData->audio[i];
+			m_currentSceneData->audio.erase(m_currentSceneData->audio.begin() + i);
+			m_pc->soundManager->releaseSource(m);
+			i = m_currentSceneData->audio.size();
+		}
+	}
+	if (soundbCheck != nullptr)
+	{
+		bool found = false;
+		int i = 0;
+		for (; i < m_currentSceneData->audio.size() && !found; i++)
+		{
+			if (m_currentSceneData->audio[i]->getSoundBuffer() == soundbCheck)
+			{
+				found = true;
+			}
+		}
+		if (!found)
+		{
+			for (int j = 0; j < m_currentSceneData->sound.size(); j++)
+			{
+				if (m_currentSceneData->sound[j] == soundbCheck)
+				{
+					m_currentSceneData->sound.erase(m_currentSceneData->sound.begin() + j);
+					m_currentSceneData->soundBufferData.erase(m_currentSceneData->soundBufferData.begin() + j);
+					break;
+				}
+			}
+			m_pc->soundManager->releaseBuffer(soundbCheck);
+		}
+	}
+	for (int j = 0; j < m_currentSceneData->empty.size(); j++)
+	{
+		if ((GObject*)m_currentSceneData->empty[j] == obj)
+		{
+			delete m_currentSceneData->empty[j];
+			m_currentSceneData->empty.erase(m_currentSceneData->empty.begin() + j);
+			break;
+		}
+	}
+	for (int j = 0; j < m_currentSceneData->dlight.size(); j++)
+	{
+		if ((GObject*)m_currentSceneData->dlight[j] == obj)
+		{
+			DirectionalLight* dl = m_currentSceneData->dlight[j];
+			m_currentSceneData->dlight.erase(m_currentSceneData->dlight.begin() + j);
+			m_pc->lightManager->destroyLight(dl);
+			break;
+		}
+	}
+	for (int j = 0; j < m_currentSceneData->plight.size(); j++)
+	{
+		if ((GObject*)m_currentSceneData->plight[j] == obj)
+		{
+			PointLight* dl = m_currentSceneData->plight[j];
+			m_currentSceneData->plight.erase(m_currentSceneData->plight.begin() + j);
+			m_pc->lightManager->destroyLight(dl);
+			break;
+		}
+	}
+	for (int j = 0; j < m_currentSceneData->slight.size(); j++)
+	{
+		if ((GObject*)m_currentSceneData->slight[j] == obj)
+		{
+			SpotLight* dl = m_currentSceneData->slight[j];
+			m_currentSceneData->slight.erase(m_currentSceneData->slight.begin() + j);
+			m_pc->lightManager->destroyLight(dl);
+			break;
+		}
+	}
+}
+
+bool hasChild(GObject* parent, GObject* child)
+{
+	bool childFound = false;
+	const std::vector<GObject*> & c = parent->getChilds();
+	if (parent == child)
+	{
+		return true;
+	}
+	for (int i = 0; i < c.size(); i++)
+	{
+		if (hasChild(c[i], child))
+		{
+			childFound = true;
+			break;
+		}
+	}
+	return childFound;
+}
+
+std::string extractExtension(const std::string& fullPath)
+{
+	size_t dotPosition = fullPath.find_last_of('.');
+	if (dotPosition == std::string::npos)
+	{
+		return "";
+	}
+
+	size_t slashPosition = fullPath.find_last_of("/\\");
+	if (slashPosition != std::string::npos && slashPosition > dotPosition)
+	{
+		return "";
+	}
+	return fullPath.substr(dotPosition);
+}
+
+const std::string& Editor::getProjectLocation() const
+{
+	return m_currentProjectLocation;
+}
+
+std::string Editor::dropTargetImage()
+{
+	std::string path = "";
+	if (ImGui::BeginDragDropTarget())
+	{ 
+		if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload("DND_DEMO_ITEM"))
+		{			
+			std::string data = (char *)payload->Data;
+			data.resize(payload->DataSize/sizeof(char));
+			struct stat sb;
+			std::string ext = extractExtension(data);
+			if (stat(data.c_str(), &sb) == 0 && (ext == ".png" || ext == ".jpeg"))
+			{
+				path = cropPath(data, m_baseProjectLocation);
+			}		
+		}
+		ImGui::EndDragDropTarget();
+	}
+	return path;
+}
+
+void Editor::dtv(GObject * obj,int * id)
+{
+	(*id)++;
+	int baseId = (*id);
+	ImGui::PushID(obj);
+	const std::vector<GObject*>& child = obj->getChilds();
+	bool selected = m_selectedOBJ == obj;
+	bool fdk = false;
+	bool iclicked = false;
+	bool isHover = false;
+	if (multiSelect)
+	{
+		fdk = multiSelected.find(baseId) != multiSelected.end();
+		if (fdk)
+		{
+			if (multiSelected[baseId] == nullptr)
+			{
+				multiSelected[baseId] = obj;
+			}
+			if (m_selectedOBJ != obj)
+			{
+				ImGui::PushStyleColor(ImGuiCol_Header, ImVec4(1.0f, 0.0f, 0.0f, 0.25f));
+			}
+			selected = true;
+		}		
+	}
+	if (child.empty())
+	{
+		if (ImGui::TreeNodeEx(obj->getName()->c_str(), selected ? (ImGuiTreeNodeFlags_Selected | ImGuiTreeNodeFlags_Leaf) : ImGuiTreeNodeFlags_Leaf))
+		{
+			ImGui::TreePop();
+		}
+		isHover = ImGui::IsItemHovered();
+		iclicked = ImGui::IsItemClicked();
+	}
+	else
+	{
+		ImGui::PushID(obj);
+		ImGui::PushItemWidth(20.0f);
+		bool op = ImGui::TreeNodeEx("##TreeNode", selected ? ImGuiTreeNodeFlags_Selected : ImGuiTreeNodeFlags_None);	
+		isHover = isHover || ImGui::IsItemHovered();
+		iclicked = iclicked || ImGui::IsItemClicked();		
+		ImGui::PopItemWidth();
+		ImGui::SameLine();
+		ImGui::Selectable(obj->getName()->c_str(), selected, ImGuiSelectableFlags_SpanAllColumns);
+		iclicked = iclicked || ImGui::IsItemClicked();
+		isHover = isHover || ImGui::IsItemHovered();
+		ImGui::PopID();		
+		if (op)
+		{
+			for (int i = 0; i < child.size(); i++)
+			{
+				dtv(child[i], id);
+			}
+			ImGui::TreePop();
+		}				
+	}
+	if (multiSelect && fdk && m_selectedOBJ != obj)
+	{
+		ImGui::PopStyleColor();
+	}
+	if (m_hasSwitch && m_switchTreeObj == baseId)
+	{
+		m_selectedOBJ = obj;
+		m_hasSwitch = false;
+	}
+	if (iclicked && !m_oneClickFrame)
+	{
+		m_oneClickFrame = true;
+		m_selectedOBJ = obj;
+		m_switchTreeObj = baseId;
+		m_hasSwitch = false;
+		if (multiSelect)
+		{
+			multiSelected[baseId] = m_selectedOBJ;
+		}
+	}	
+	ignoreKeyState();
+	if (m_selectedOBJ == obj)
+	{
+		if (m_pc->inputManager->getKeyDown(GLFW_KEY_DELETE) && !m_ignoredKeys)
+		{
+			m_selectedOBJ = nullptr;
+			m_switchTreeObj = -1;
+			m_hasSwitch = false;
+			deleteSceneObject(obj);
+		}
+		if (m_pc->inputManager->getKeyDown(GLFW_KEY_D) && m_pc->inputManager->getKey(GLFW_KEY_LEFT_CONTROL) && !m_ignoredKeys)
+		{
+			duplicateSceneObject(m_selectedOBJ);
+		}
+		if (m_pc->inputManager->getKeyDown(GLFW_KEY_LEFT_SHIFT) && !multiSelect && !m_ignoredKeys)
+		{
+			multiSelected.clear();
+			multiSelected[baseId] = obj;
+			multiSelect = true;
+		}
+		if (m_pc->inputManager->getKeyDown(GLFW_KEY_DOWN) && !m_ignoredKeys)
+		{
+			m_switchTreeObj++;
+			m_hasSwitch = true;
+			if (multiSelect)
+			{
+				multiSelected[m_switchTreeObj] = nullptr;
+			}
+		}
+		if (m_pc->inputManager->getKeyDown(GLFW_KEY_UP) && !m_ignoredKeys)
+		{
+			m_switchTreeObj--;
+			m_hasSwitch = true;
+			if (multiSelect)
+			{
+				multiSelected[m_switchTreeObj] = nullptr;
+			}
+		}
+	}
+	if (multiSelect && isHover)
+	{
+		if (m_pc->inputManager->getKeyUp(GLFW_KEY_LEFT_SHIFT) && !m_ignoredKeys)
+		{
+			bool find = false;
+			for (const auto& var : multiSelected)
+			{
+				if (var.second == obj)
+				{
+					find = true;
+					break;
+				}
+			}
+			if (!find)
+			{
+				for (auto& var : multiSelected)
+				{
+					if (var.second != nullptr)
+					{
+						if (!hasChild(var.second, obj))
+						{
+							var.second->setParent(obj);
+						}
+					}
+				}
+			}		
+			multiSelect = false;
+			multiSelected.clear();
+		}		
+	}
+	ImGui::PopID();		
+}
+
+void Editor::drawTreeView()
+{
+	int id = 500;	
+
+	for (int i = 0; i < m_currentSceneData->models.size();i++)
+	{
+		if (m_currentSceneData->models[i]->getParent() == nullptr)
+		{
+			dtv(m_currentSceneData->models[i], &id);
+		}
+	}	
+	for (int i = 0; i < m_currentSceneData->dlight.size(); i++)
+	{
+		if (m_currentSceneData->dlight[i]->getParent() == nullptr)
+		{
+			dtv(m_currentSceneData->dlight[i], &id);
+		}
+	}
+	for (int i = 0; i < m_currentSceneData->slight.size(); i++)
+	{
+		if (m_currentSceneData->slight[i]->getParent() == nullptr)
+		{
+			dtv(m_currentSceneData->slight[i], &id);
+		}
+	}	
+	for (int i = 0; i < m_currentSceneData->plight.size(); i++)
+	{
+		if (m_currentSceneData->plight[i]->getParent() == nullptr)
+		{
+			dtv(m_currentSceneData->plight[i], &id);
+		}
+	}
+	for (int i = 0; i < m_currentSceneData->audio.size(); i++)
+	{
+		if (m_currentSceneData->audio[i]->getParent() == nullptr)
+		{
+			dtv(m_currentSceneData->audio[i], &id);
+		}
+	}
+	for (int i = 0; i < m_currentSceneData->empty.size(); i++)
+	{
+		if (m_currentSceneData->empty[i]->getParent() == nullptr)
+		{
+			dtv(m_currentSceneData->empty[i], &id);
+		}			
+	}
+	for (int i = 0; i < m_currentSceneData->skeleton.size(); i++)
+	{
+		if (m_currentSceneData->skeleton[i]->getParent() == nullptr)
+		{
+			dtv(m_currentSceneData->skeleton[i], &id);
+		}
+	}
+	if (multiSelect && m_pc->inputManager->getKeyUp(GLFW_KEY_LEFT_SHIFT) && !m_ignoredKeys)
+	{
+		if (m_pc->inputManager->getKey(GLFW_KEY_LEFT_CONTROL))
+		{
+			for (auto& var : multiSelected)
+			{
+				if (var.second != nullptr)
+				{
+					var.second->setParent(nullptr);
+				}
+			}
+		}
+		multiSelect = false;
+		multiSelected.clear();
+	}
+	m_oneClickFrame = false;
+}
+
+void Editor::drawFolderContents(const std::string& basePath,std::string& path)
+{
+	int itemCount = 0;
+	ImGuiStyle& style = ImGui::GetStyle();	
+	ImVec4 col = style.Colors[ImGuiCol_Button];
+	style.Colors[ImGuiCol_Button] = ImVec4(0, 0, 0, 0);
+	std::vector<std::string> subPaths;
+	std::string remainingPath = path.substr(basePath.length());
+	std::replace(remainingPath.begin(), remainingPath.end(), '\\', '/');
+	std::istringstream iss(remainingPath);
+	std::string subPath;
+	while (std::getline(iss, subPath, '/')) 
+	{
+		if (!subPath.empty())
+		{
+			subPaths.push_back(subPath);
+		}
+	}
+
+	ImGui::BeginChild("##ButtonPath", ImVec2(0, 35), true);
+	if (ImGui::Button("Asset"))
+	{
+		path = basePath;
+	}
+	for (size_t i = 0; i < subPaths.size(); ++i) 
+	{
+		ImGui::SameLine();
+		if (ImGui::Button(subPaths[i].c_str())) 
+		{
+			std::string newPath = basePath;
+			for (size_t j = 0; j <= i; ++j) 
+			{
+				newPath += "/" + subPaths[j];
+			}
+			if (path == newPath)
+			{
+				FolderDialog::openFolder(path);
+			}
+			path = newPath;
+		}
+	}
+	ImGui::EndChild();
+	int idIM = 10;
+	std::string newpath = path;
+	for (const auto& entry : fs::directory_iterator(path))
+	{
+		ImGui::BeginGroup();	
+		ImGui::PushID(idIM++);
+		if (entry.is_directory())
+		{			
+			if (ImGui::ImageButton(m_icon[0], ImVec2(m_iconSize, m_iconSize)))
+			{
+				newpath = entry.path().string();
+			}			
+		}
+		else if (entry.path().extension() == ".png" || entry.path().extension() == ".hdr" || entry.path().extension() == ".jpeg")
+		{
+			if (ImGui::ImageButton(m_icon[4], ImVec2(m_iconSize, m_iconSize)))
+			{
+				ignoreKeyState();
+				if (m_pc->inputManager->getKey(GLFW_KEY_L) && !m_ignoredKeys)
+				{
+					m_pc->skybox->loadTextureSkybox(entry.path().string());
+					std::string eps = entry.path().string();
+					m_currentSceneData->skyboxPath = cropPath(eps, m_baseProjectLocation);
+				}
+			}
+			if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None))
+			{				
+				ImGui::SetDragDropPayload("DND_DEMO_ITEM", entry.path().string().c_str(), entry.path().string().size() * sizeof(char));				
+				ImGui::Text("Dragging image");
+				ImGui::EndDragDropSource();
+			}
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Right)){ImGui::OpenPopup(entry.path().string().c_str());}
+			if (ImGui::BeginPopup(entry.path().string().c_str()))
+			{
+				if (ImGui::MenuItem("Skybox Load"))
+				{
+					m_pc->skybox->loadTextureSkybox(entry.path().string());
+					std::string eps = entry.path().string();
+					m_currentSceneData->skyboxPath = cropPath(eps, m_baseProjectLocation);
+				}
+				ImGui::EndPopup();
+			}
+		}
+		else if (entry.path().extension() == ".scene")
+		{
+			if (ImGui::ImageButton(m_icon[3], ImVec2(m_iconSize, m_iconSize)))
+			{
+				globalSave();
+				if (m_currentSceneData == nullptr)
+				{
+					m_currentSceneData = new SceneData();
+					m_currentSceneData->path.has = false;
+				}
+				clearScene(m_currentSceneData);
+				loadScene(entry.path().string(), m_currentSceneData);
+			}
+		}
+		else if (entry.path().extension() == ".obj")
+		{
+			if (ImGui::ImageButton(m_icon[1], ImVec2(m_iconSize, m_iconSize)))
+			{				
+				addModelToScene(entry.path().string(), BufferSource::OBJ);
+			}
+		}
+		else if (entry.path().extension() == ".fbx")
+		{			
+			if (ImGui::ImageButton(m_icon[1], ImVec2(m_iconSize, m_iconSize)))
+			{
+				addModelToScene(entry.path().string(), BufferSource::FBX);
+			}
+			if (ImGui::IsItemClicked(ImGuiMouseButton_Right)) { ImGui::OpenPopup(entry.path().string().c_str()); }
+			if (ImGui::BeginPopup(entry.path().string().c_str()))
+			{
+				if (ImGui::MenuItem("Add to scene"))
+				{
+					addModelToScene(entry.path().string(), BufferSource::FBX);
+				}
+
+				if (ImGui::MenuItem("Import with bones"))
+				{
+					addModelToScene(entry.path().string(), BufferSource::FBX,true);
+				}
+
+				ImGui::EndPopup();
+			}			
+		}
+		else if (entry.path().extension() == ".wav")
+		{
+			if (ImGui::ImageButton(m_icon[2], ImVec2(m_iconSize, m_iconSize)))
+			{
+				addAudioToScene(entry.path().string());
+			}
+		}
+		else
+		{
+			if (ImGui::ImageButton(m_icon[5], ImVec2(m_iconSize, m_iconSize)))
+			{
+
+			}
+		}
+		ignoreKeyState();
+		if (ImGui::IsItemHovered())
+		{
+			if (m_pc->inputManager->getKeyDown(GLFW_KEY_DELETE) && !m_ignoredKeys)
+			{
+				m_deleteOject = true;
+				deletePath = entry.path().string();							
+			}
+		}
+		ImGui::PopID();
+		ImGui::PushTextWrapPos(ImGui::GetCursorPos().x + 100);
+		ImGui::TextWrapped("%s", entry.path().filename().string().c_str());
+		ImGui::PopTextWrapPos();
+		ImGui::EndGroup();
+		if ((itemCount + 1) % m_columns != 0)
+		{
+			ImGui::SameLine();
+		}
+
+		itemCount++;
+	}
+	path = newpath;
+	style.Colors[ImGuiCol_Button] = col;
+}
+
+Editor::Editor()
+{
+	s_instance = this;
+}
+
+Editor* Editor::instance()
+{
+	return s_instance;
+}
+
+void Editor::start()
+{
+	m_pc = Engine::getPtrClassAddr();
+	m_pc->hud->addImgui(this);
+	FrameBuffer* fb = m_pc->renderingEngine->getFrameBuffer();
+	m_depthTexture = new VirtualTextures(fb->getDepth(),0,0);
+	m_editorData = new EditorConfig();
+	m_editorData->inspector = true;
+	m_editorData->project = true;
+	m_editorData->hiearchy = true;
+	m_editorData->gameMode = true;
+	m_configPath = (std::filesystem::path(PathManager::getHomeDirectory()) /
+		(std::string(m_pc->settingManager->getName()) + ".editor.json")).string();
+	loadConfig(m_configPath, m_editorData);
+	for (int i = 0; i < 13; i++)
+	{
+		std::string fn = "../Asset/Editor/" + std::to_string(i) + ".png";
+		m_icon.push_back((ImTextureID)m_pc->textureManager->createTexture(fn.c_str())->getTextureID());
+	}
+	op = ImGuizmo::TRANSLATE;
+	// An explicit project belongs to this application, independently of the
+	// editor's previously opened projects and of optional play mode.
+	const char* requestedProject = m_pc->settingManager->getEditorPath();
+	if (requestedProject != nullptr && requestedProject[0] != '\0')
+	{
+		m_editorData->autoLoadProject = true;
+		m_editorData->lastProjectpathOpen = requestedProject;
+	}
+	if (m_editorData->autoLoadProject)
+	{
+		m_pathOpenProject[0] = '\0';
+		if (m_editorData->lastProjectpathOpen.size() != 0)
+		{
+			strncpy(m_pathOpenProject, m_editorData->lastProjectpathOpen.c_str(), sizeof(m_pathOpenProject) - 1);
+			m_pathOpenProject[sizeof(m_pathOpenProject) - 1] = '\0';
+		}
+		if (m_pathOpenProject[0] != '\0')
+		{//TODO: Made fonction for this
+			struct stat sb;
+			m_editorData->lastProjectpathOpen = m_pathOpenProject;
+			if (stat(m_pathOpenProject, &sb) == 0)
+			{
+				globalSave();
+				if (m_currentSceneData != nullptr)
+				{
+					clearScene(m_currentSceneData);
+					delete m_currentSceneData;
+					m_currentSceneData = nullptr;
+				}
+				m_currentProjectData = new ProjectData();
+				loadProject(m_pathOpenProject, m_currentProjectData);
+				if (!m_currentProjectData->lastSceneOpen.empty())
+				{
+					SceneData* sd = new SceneData();
+					m_currentSceneData = sd;
+					loadScene(m_baseProjectLocation + m_currentProjectData->lastSceneOpen, m_currentSceneData);
+				}
+				globalSave();
+				ImGui::CloseCurrentPopup();
+			}
+		}
+	}
+#ifdef EDITOR_RUN_MODE
+	if (m_currentSceneData != nullptr)
+	{
+		playScene();
+	}
+#endif
+}
+
+void Editor::loadConfig(const std::string& filePath,EditorConfig* ec)
+{
+	std::ifstream file(filePath);
+	if (!file.is_open()) 
+	{
+		saveConfig(filePath,ec);
+		return;
+	}
+
+	std::stringstream buffer;
+	buffer << file.rdbuf();
+	std::string jsonFile = buffer.str();
+	file.close();
+	JS::ParseContext context(jsonFile);
+	context.parseTo(*ec);
+}
+
+void Editor::saveConfig(const std::string& filePath,EditorConfig* ec)
+{
+#ifdef EDITOR_RUN_MODE
+	return;
+#endif
+	std::string pretty_json = JS::serializeStruct(*ec);
+	std::ofstream file(filePath);
+	if (!file.is_open()) 
+	{
+		Debug::Error("Failed to save EditorConfig");
+		return;
+	}
+
+	file << pretty_json;
+	file.close();
+}
+
+void replaceChar(std::string& str, char from, char to) 
+{
+	size_t pos = str.find(from);
+	while (pos != std::string::npos) 
+	{
+		str[pos] = to;
+		pos = str.find(from, pos + 1);
+	}
+}
+
+
+void Editor::clearCurrentProject()
+{
+	if(m_currentProjectData != nullptr)
+	{ 
+		delete m_currentProjectData;
+		m_currentProjectData = nullptr;
+	}
+}
+
+
+
+bool Editor::createDirectory(const std::string& path)
+{
+	m_tempFile = path;
+	replaceChar(m_tempFile, '\\', '/');
+	std::error_code error;
+	std::filesystem::create_directories(m_tempFile, error);
+	return !error && std::filesystem::is_directory(m_tempFile, error);
+}
+
+void Editor::loadProject(const std::string& filePath, ProjectData* ec)
+{
+	std::filesystem::path projectPath = std::filesystem::absolute(filePath).lexically_normal();
+	if (projectPath.filename().empty())
+	{
+		projectPath = projectPath.parent_path();
+	}
+	const std::filesystem::path settingsPath = projectPath / "Setting.json";
+	std::ifstream file(settingsPath);
+	const bool hasSettings = file.is_open();
+	if (hasSettings)
+	{
+		std::stringstream buffer;
+		buffer << file.rdbuf();
+		const std::string jsonFile = buffer.str();
+		JS::ParseContext context(jsonFile);
+		if (context.parseTo(*ec) != JS::Error::NoError)
+		{
+			Debug::Warn("Could not parse project settings: %s", settingsPath.string().c_str());
+		}
+	}
+
+	// Saved absolute paths must not send a copied project back to its source.
+	ec->projetName = projectPath.filename().string();
+	ec->projetPath = projectPath.parent_path().generic_string();
+	ec->assetPath = projectPath.generic_string();
+	ec->ressourcePath = (projectPath / "Ressources").generic_string();
+	replaceChar(ec->lastSceneOpen, '\\', '/');
+	if (ec->lastSceneOpen.empty() &&
+		std::filesystem::is_regular_file(projectPath / "Scene" / "Main.scene"))
+	{
+		ec->lastSceneOpen = "/Scene/Main.scene";
+	}
+	m_baseProjectLocation = ec->assetPath;
+	PathManager::setHomeProjectPath(m_baseProjectLocation);
+	m_currentProjectLocation = ec->assetPath;
+	if (!hasSettings)
+	{
+		saveProject(ec->projetPath, ec);
+	}
+}
+
+void Editor::saveProject(const std::string& filePath, ProjectData* ec)
+{
+#ifdef EDITOR_RUN_MODE
+	return;
+#endif
+	const std::filesystem::path projectPath =
+		std::filesystem::absolute(std::filesystem::path(filePath) / ec->projetName).lexically_normal();
+	m_baseProjectLocation = projectPath.generic_string();
+	PathManager::setHomeProjectPath(m_baseProjectLocation);
+	ec->assetPath = m_baseProjectLocation;
+	ec->ressourcePath = (projectPath / "Ressources").generic_string();
+	std::filesystem::create_directories(projectPath / "Scene");
+	std::filesystem::create_directories(projectPath / "Ressources" / "Model");
+	std::filesystem::create_directories(projectPath / "Ressources" / "Shader");
+	std::string pretty_json = JS::serializeStruct(*ec);
+	std::ofstream file(projectPath / "Setting.json");
+	if (!file.is_open())
+	{
+		Debug::Error("Failed to save project settings");
+		return;
+	}
+	file << pretty_json;
+}
+
+
+std::string extractFileName(const std::string& fullPath) 
+{
+	size_t lastSlashPos = fullPath.find_last_of("/\\");
+	size_t lastDotPos = fullPath.find_last_of('.');
+	if (lastSlashPos != std::string::npos && lastDotPos != std::string::npos && lastDotPos > lastSlashPos) 
+	{
+		return fullPath.substr(lastSlashPos + 1, lastDotPos - lastSlashPos - 1);
+	}
+	else 
+	{
+		return "";
+	}
+}
+
+std::string extractFolderPath(const std::string& fullPath) 
+{
+	size_t lastSlashPos = fullPath.find_last_of("/\\");
+	if (lastSlashPos != std::string::npos) 
+	{
+		return fullPath.substr(0, lastSlashPos);
+	}
+	else 
+	{
+		return "";
+	}
+}
+
+void Editor::clearScene(SceneData* sd)
+{
+	m_selectedOBJ = nullptr;
+	m_switchTreeObj = -1;	
+	for (const auto & obj : sd->models) { obj->setParent(nullptr); }
+	for (const auto & obj : sd->skeleton) { obj->setParent(nullptr); }
+	for (const auto & obj : sd->dlight) { obj->setParent(nullptr); }
+	for (const auto & obj : sd->plight) { obj->setParent(nullptr); }
+	for (const auto & obj : sd->slight) { obj->setParent(nullptr); }
+	for (const auto & obj : sd->audio) { obj->setParent(nullptr); }
+	for (const auto & obj : sd->empty) { obj->setParent(nullptr); }
+
+	for (int i = 0; i < sd->models.size(); i++)
+	{
+		m_pc->modelManager->destroyModel(sd->models[i]);
+	}
+	sd->models.clear();
+	for (int i = 0; i < sd->skeleton.size(); i++)
+	{
+		m_pc->skinnedTransformManager->destroySkinnedTransform(sd->skeleton[i]);
+	}
+	sd->skeleton.clear();
+	for (int i = 0; i < sd->bufferSkeleton.size(); i++)
+	{
+		const std::vector<ShapeBufferBase*>& sbs = sd->bufferSkeleton[i]->getShapes();
+		sd->buffer.erase(
+			std::remove_if(
+				sd->buffer.begin(),
+				sd->buffer.end(),
+				[&](ShapeBuffer* ptr)
+				{
+					return std::find(sbs.begin(), sbs.end(), ptr) != sbs.end();
+				}
+			),
+			sd->buffer.end()
+		);
+		m_pc->modelManager->destroyBuffer(sd->bufferSkeleton[i]);
+	}
+	sd->bufferSkeleton.clear();
+	for (int i = 0; i < sd->buffer.size(); i++)
+	{
+		m_pc->modelManager->destroyBuffer(sd->buffer[i]);
+	}
+	sd->buffer.clear();
+	for (int i = 0; i < sd->materials.size(); i++)
+	{
+		m_pc->materialManager->destroyMaterial(sd->materials[i]);
+	}
+	sd->materials.clear();
+	for (int i = 0; i < sd->shader.size(); i++)
+	{
+		m_pc->graphiquePipelineManager->destroyPipeline(sd->shader[i]);
+	}
+	sd->shader.clear();
+	for (int i = 0; i < sd->textures.size(); i++)
+	{
+		m_pc->textureManager->destroyTexture(sd->textures[i]);
+	}
+	sd->textures.clear();
+
+	for (int i = 0; i < sd->dlight.size(); i++)
+	{
+		m_pc->lightManager->destroyLight(sd->dlight[i]);
+	}
+	sd->dlight.clear();
+	for (int i = 0; i < sd->plight.size(); i++)
+	{
+		m_pc->lightManager->destroyLight(sd->plight[i]);
+	}
+	sd->plight.clear();
+	for (int i = 0; i < sd->slight.size(); i++)
+	{
+		m_pc->lightManager->destroyLight(sd->slight[i]);
+	}
+	sd->slight.clear();
+	for (int i = 0; i < sd->audio.size(); i++)
+	{
+		m_pc->soundManager->releaseSource(sd->audio[i]);
+	}
+	sd->audio.clear();
+	for (int i = 0; i < sd->sound.size(); i++)
+	{		
+		m_pc->soundManager->releaseBuffer(sd->sound[i]);
+	}
+	sd->sound.clear();
+	for (int i = 0; i < sd->empty.size(); i++)
+	{
+		delete sd->empty[i];
+	}		
+	sd->empty.clear();
+	if (m_currentSceneData == sd)
+	{
+		tagObj.clear();
+		m_pc->physicsEngine->DebugClearCollider();
+		m_guizmo = false;
+	}
+}
+
+GObject* Editor::getEntityByScript(Behaviour* b)
+{
+	for (int i = 0; i < m_allBehaviourLoaded.size(); i++)
+	{
+		if (m_allBehaviourLoaded[i].second == b)
+		{
+			return m_allBehaviourLoaded[i].first;
+		}
+	}
+	Debug::Warn("Script not found");
+	return nullptr;
+}
+
+void Editor::detachScriptFromScene(Behaviour* b)
+{	
+	for (int i = 0; i < m_allBehaviourLoaded.size(); i++)
+	{
+		if (m_allBehaviourLoaded[i].second == b)
+		{
+			m_allBehaviourLoaded[i].first->removeComponent(b);
+			m_allBehaviourLoaded.erase(m_allBehaviourLoaded.begin() + i);
+			return;
+		}
+	}
+}
+
+void Editor::detachEntityFromScene(GObject* obj)
+{
+	m_currentSceneData->empty.begin();
+	auto it = std::find(m_currentSceneData->empty.begin(), m_currentSceneData->empty.end(), obj);
+	if (it != m_currentSceneData->empty.end())
+	{
+		m_currentSceneData->empty.erase(it);
+	}
+}
+
+GraphiquePipeline* Editor::getPipelineByScene(const std::string& Name)
+{
+	for (int i = 0; i < m_currentSceneData->shaderData.size(); i++)
+	{
+		if (m_currentSceneData->shaderData[i].name == Name)
+		{
+			return m_currentSceneData->shader[i];
+		}
+	}
+	Debug::Error("getPipelineByScene %s not found in this scene",Name.c_str());
+	return nullptr;
+}
+
+std::vector<Materials*> Editor::getMaterialByScene(const std::string& Name)
+{
+	std::vector<Materials*> mat;
+	GraphiquePipeline* gp = nullptr;
+	for (int i = 0; i < m_currentSceneData->shaderData.size() && gp == nullptr; i++)
+	{
+		if (m_currentSceneData->shaderData[i].name == Name)
+		{
+			gp = m_currentSceneData->shader[i];
+		}
+	}
+	if (gp == nullptr)
+	{
+		Debug::Error("getMaterialByScene %s not found in this scene", Name.c_str());
+		return mat;
+	}
+
+	for (int i = 0; i < m_currentSceneData->materials.size(); i++)
+	{
+		if (m_currentSceneData->materials[i]->getPipeline() == gp)
+		{
+			mat.push_back(m_currentSceneData->materials[i]);
+		}
+	}
+	return mat;
+}
+
+void Editor::loadSceneGame(const std::string& filePath, LoadSceneType type)
+{			
+	if (type == LoadSceneType::Override)
+	{
+		stopScene();
+		clearScene(m_currentSceneData);
+	}
+	else
+	{
+		Debug::Warn("Additive not implemented");
+	}
+	m_tempFlyCamera = m_pc->cameraManager->getCurrentCamera();	
+	m_currentFovCS = m_tempFlyCamera->getFieldOfView();
+	m_tempFlyCamera->setFieldOfView(0);
+	m_gameChangeScene = true;
+	loadScene(filePath, m_currentSceneData);
+	playScene();	
+}
+
+void Editor::ssEmpty(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so)
+{
+	sd->empty.clear();
+	for (int i = 0; i < sd->emptyData.size(); i++)
+	{
+		Empty* e = new Empty();
+		e->setName(sd->emptyData[i].name);
+		e->setPosition(sd->emptyData[i].position);
+		e->setRotation(sd->emptyData[i].rotation);
+		e->setScale(sd->emptyData[i].scale);
+		so[(GObject*)e] = sd->emptyData[i].scripts;
+		collisionObj[(GObject*)e] = sd->emptyData[i].collisions;
+		tagObj[(GObject*)e] = sd->emptyData[i].tags;
+		sd->empty.push_back(e);
+	}
+}
+
+void Editor::ssModel(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so)
+{
+	sd->models.clear();
+	for (unsigned int i = 0; i < sd->modelData.size(); ++i)
+	{
+		if (sd->modelData[i].idBuffer >= 0)
+		{
+			Model* m = m_pc->modelManager->createModel(sd->buffer[sd->modelData[i].idBuffer], sd->modelData[i].name);
+			m->setPosition(sd->modelData[i].position);
+			m->setRotation(sd->modelData[i].rotation);
+			m->setScale(sd->modelData[i].scale);
+			so[(GObject*)m] = sd->modelData[i].scripts;
+			collisionObj[(GObject*)m] = sd->modelData[i].collisions;
+			tagObj[(GObject*)m] = sd->modelData[i].tags;
+			if (sd->modelData[i].idMaterial >= 0)
+			{
+				m->setMaterial(sd->materials[sd->modelData[i].idMaterial]);
+			}
+			sd->models.push_back(m);
+		}
+	}
+}
+
+void Editor::ssSkeleton(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so)
+{
+	sd->skeleton.clear();
+	for (unsigned int i = 0; i < sd->skeletonData.size(); ++i)
+	{
+		unsigned int idb = sd->skeletonData[i].idBuffer;
+		if (idb >= 0)
+		{
+			SkinnedTransform* st = m_pc->skinnedTransformManager->createSkinnedTransform(sd->bufferSkeleton[idb], sd->skeletonData[i].name);
+			st->setPosition(sd->skeletonData[i].position);
+			st->setRotation(sd->skeletonData[i].rotation);
+			st->setScale(sd->skeletonData[i].scale);
+			so[(GObject*)st] = sd->skeletonData[i].scripts;
+			collisionObj[(GObject*)st] = sd->skeletonData[i].collisions;
+			tagObj[(GObject*)st] = sd->skeletonData[i].tags;
+			sd->skeleton.push_back(st);
+		}
+	}
+}
+
+std::vector<Lights*> Editor::ssLight(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so)
+{
+	sd->dlight.clear();
+	sd->plight.clear();
+	sd->slight.clear();
+	std::vector<Lights*> allLight;
+	for (int i = 0; i < sd->lightData.size(); i++)
+	{
+		if (sd->lightData[i].status == 0)
+		{
+			DirectionalLight* dl = m_pc->lightManager->createDirectionalLight(glm::vec3(0, 0, 0), sd->lightData[i].color, sd->lightData[i].name);
+			dl->setPosition(sd->lightData[i].position);
+			dl->setRotation(sd->lightData[i].rotation);
+			dl->setScale(sd->lightData[i].scale);
+			dl->setRange(sd->lightData[i].range);
+			dl->setSpotAngle(sd->lightData[i].spotAngle);
+			dl->setshadow(sd->lightData[i].shadow);
+			sd->dlight.push_back(dl);
+			so[(GObject*)dl] = sd->lightData[i].scripts;
+			collisionObj[(GObject*)dl] = sd->lightData[i].collisions;
+			tagObj[(GObject*)dl] = sd->lightData[i].tags;
+			allLight.push_back(dl);
+		}
+		else if (sd->lightData[i].status == 1)
+		{
+			PointLight* pl = m_pc->lightManager->createPointLight(sd->lightData[i].position, sd->lightData[i].color, sd->lightData[i].name);
+			pl->setPosition(sd->lightData[i].position);
+			pl->setRotation(sd->lightData[i].rotation);
+			pl->setScale(sd->lightData[i].scale);
+			pl->setRange(sd->lightData[i].range);
+			pl->setSpotAngle(sd->lightData[i].spotAngle);
+			pl->setshadow(sd->lightData[i].shadow);
+			sd->plight.push_back(pl);
+			so[(GObject*)pl] = sd->lightData[i].scripts;
+			collisionObj[(GObject*)pl] = sd->lightData[i].collisions;
+			tagObj[(GObject*)pl] = sd->lightData[i].tags;
+			allLight.push_back(pl);
+		}
+		else if (sd->lightData[i].status == 2)
+		{
+			SpotLight* sl = m_pc->lightManager->createSpotLight(sd->lightData[i].position, sd->lightData[i].color, glm::vec3(0, 0, 0), sd->lightData[i].spotAngle, sd->lightData[i].name);
+			sl->setPosition(sd->lightData[i].position);
+			sl->setRotation(sd->lightData[i].rotation);
+			sl->setScale(sd->lightData[i].scale);
+			sl->setRange(sd->lightData[i].range);
+			sl->setSpotAngle(sd->lightData[i].spotAngle);
+			sl->setshadow(sd->lightData[i].shadow);
+			sd->slight.push_back(sl);
+			so[(GObject*)sl] = sd->lightData[i].scripts;
+			collisionObj[(GObject*)sl] = sd->lightData[i].collisions;
+			tagObj[(GObject*)sl] = sd->lightData[i].tags;
+			allLight.push_back(sl);
+		}
+	}
+	return allLight;
+}
+
+void Editor::ssShader(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so)
+{
+	sd->shader.clear();
+	for (int i = 0; i < sd->shaderData.size(); i++)
+	{
+		GraphiquePipeline* gp = m_pc->graphiquePipelineManager->createPipeline(m_baseProjectLocation + sd->shaderData[i].frag, m_baseProjectLocation + sd->shaderData[i].vert, sd->shaderData[i].back, sd->shaderData[i].multiS, sd->shaderData[i].transparency, sd->shaderData[i].cullmode);
+		sd->shader.push_back(gp);
+	}
+}
+
+void Editor::switchShaderMat(int target, const std::vector<GraphiquePipeline*>& sds, Materials* mat)
+{
+	switch (target)
+	{
+	case -3:
+		break;
+	case -2:
+		mat->setPipeline(m_gdm->str_default_pipeline_forward_transparency);
+		break;
+	case -1:
+		break;
+	default:
+		mat->setPipeline(sds[target]);
+		break;
+	}
+}
+
+void Editor::ssMaterials(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so)
+{
+	sd->materials.clear();
+	for (int i = 0; i < sd->materialData.size(); i++)
+	{
+		Materials* mat = m_pc->materialManager->createMaterial();
+		mat->setColor(sd->materialData[i].albedo);
+		mat->setOffset(sd->materialData[i].offset);
+		mat->setTilling(sd->materialData[i].tilling);
+		mat->setMetallic(sd->materialData[i].metallic);
+		mat->setRoughness(sd->materialData[i].roughness);
+		mat->setNormal(sd->materialData[i].normal);
+		mat->setOclusion(sd->materialData[i].ao);
+		mat->setEmission(sd->materialData[i].emit);
+		mat->setDraw(sd->materialData[i].active);
+		mat->setDepthTest(sd->materialData[i].depthTest);
+		mat->setDepthWrite(sd->materialData[i].depthWrite);
+		mat->setCastShadow(sd->materialData[i].castShadow);
+		if (sd->materialData[i].albedoMap != -1)
+		{
+			mat->setAlbedoTexture(sd->textures[sd->materialData[i].albedoMap]);
+		}
+		if (sd->materialData[i].normalMap != -1)
+		{
+			mat->setNormalTexture(sd->textures[sd->materialData[i].normalMap]);
+		}
+		if (sd->materialData[i].metallicMap != -1)
+		{
+			mat->setMetallicTexture(sd->textures[sd->materialData[i].metallicMap]);
+		}
+		if (sd->materialData[i].RoughnessMap != -1)
+		{
+			mat->setRoughnessTexture(sd->textures[sd->materialData[i].RoughnessMap]);
+		}
+		if (sd->materialData[i].aoMap != -1)
+		{
+			if (sd->materialData[i].aoMap == -2)
+			{
+				mat->setOclusionTexture(m_depthTexture);
+			}
+			else
+			{
+				mat->setOclusionTexture(sd->textures[sd->materialData[i].aoMap]);
+			}
+		}
+		switchShaderMat(sd->materialData[i].shader, sd->shader, mat);
+		if (sd->materialData[i].shadowShader >= 0)
+		{
+			mat->setShadowPipeline(sd->shader[sd->materialData[i].shadowShader]);
+		}
+	
+		sd->materials.push_back(mat);
+	}
+}
+
+void Editor::ssAudio(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>& so)
+{
+	sd->sound.clear();
+	for (int i = 0; i < sd->soundBufferData.size(); i++)
+	{
+		sd->sound.push_back(m_pc->soundManager->createBuffer((m_baseProjectLocation + sd->soundBufferData[i].path).c_str()));
+	}
+	sd->audio.clear();
+	for (int i = 0; i < sd->audioData.size(); i++)
+	{
+		if (sd->audioData[i].idBuffer >= 0)
+		{
+			AudioSource* as = m_pc->soundManager->createSource(sd->sound[sd->audioData[i].idBuffer], sd->audioData[i].name);
+			as->setPosition(sd->audioData[i].position);
+			as->setRotation(sd->audioData[i].rotation);
+			as->setScale(sd->audioData[i].scale);
+			as->setPitch(sd->audioData[i].pitch);
+			as->setGain(sd->audioData[i].gain);
+			as->setVelocity(sd->audioData[i].velocity);
+			as->setLoop(sd->audioData[i].loop);
+			as->setRolloffFactor(sd->audioData[i].rolloffFactor);
+			as->setMaxDistance(sd->audioData[i].maxDistance);
+			as->setRefDistance(sd->audioData[i].refDistance);
+			so[(GObject*)as] = sd->audioData[i].scripts;
+			collisionObj[(GObject*)as] = sd->audioData[i].collisions;
+			tagObj[(GObject*)as] = sd->audioData[i].tags;
+			sd->audio.push_back(as);
+		}
+	}
+}
+
+void Editor::playPrefab(PrefabLoad* prefab)
+{
+	if (!prefab || !prefab->error.empty()) return;
+	for (const auto& var : prefab->so)
+	{
+		for (const auto& s : var.second)
+		{
+			Behaviour* b = FACTORY(Behaviour).create(s.pathName);
+			var.first->addComponent(b);
+			b->load(s.data);
+			m_pc->behaviourManager->addBehaviour(b);
+			prefab->allBehaviourLoaded.push_back({ var.first,b });
+			m_allBehaviourLoaded.push_back({ var.first,b });
+		}
+	}
+}
+
+void Editor::stopPrefab(PrefabLoad* prefab)
+{
+	for (auto& bh : prefab->allBehaviourLoaded)
+	{
+		Behaviour* behaviour = bh.second;
+
+		m_pc->behaviourManager->removeBehaviour(behaviour, true);
+
+		behaviour->stop();
+
+		m_allBehaviourLoaded.erase(
+			std::remove_if(
+				m_allBehaviourLoaded.begin(),
+				m_allBehaviourLoaded.end(),
+				[behaviour](const auto& v)
+				{
+					return v.second == behaviour;
+				}
+			),
+			m_allBehaviourLoaded.end()
+		);
+
+		delete behaviour;
+	}
+
+	prefab->allBehaviourLoaded.clear();
+}
+
+PrefabLoad * Editor::loadPrefab(const std::string& filePath, GObject* parent)
+{
+	PrefabLoad * load = new PrefabLoad();
+	load->parent = parent;
+	// Publish the pending work before the CPU worker can start or complete.
+	load->loadingTicket = LoadingState::begin();
+	try
+	{
+		load->worker = std::thread([this, filePath, load, projectLocation = m_baseProjectLocation]()
+		{
+			try
+			{
+				std::ifstream file(filePath, std::ios::binary);
+				if (!file.is_open())
+				{
+					throw std::runtime_error("Prefab file could not be opened: " + filePath);
+				}
+				std::string jsonFile(
+					(std::istreambuf_iterator<char>(file)),
+					std::istreambuf_iterator<char>()
+				);
+				file.close();
+				JS::ParseContext context(jsonFile);		
+				SceneData & pcsd = load->sd;
+				if (context.parseTo(pcsd) != JS::Error::NoError)
+					throw std::runtime_error("Invalid prefab JSON: " + filePath);
+				std::vector<std::function<Textures* ()>> m_textures;
+				for (int i = 0; i < pcsd.textureData.size(); i++)
+				{
+					m_textures.push_back(m_pc->textureManager->prepareTexture((projectLocation + pcsd.textureData[i].path).c_str(), pcsd.textureData[i].filter));
+				}
+				std::vector<std::function<void(std::unordered_map<ShapeBuffer*, ShapeBufferSkeleton*>& bufferToSkeleton, SceneData& pcsd)>> m_buffers;
+				for (int i = 0; i < pcsd.bufferData.size(); i++)
+				{
+					if (pcsd.bufferData[i].targetSubMesh != 0)
+					{
+						continue;
+					}
+					if (pcsd.bufferData[i].getBufferSource() == BufferSource::FBX)
+					{
+						if (pcsd.bufferData[i].animatedBuffer)
+						{
+							std::function<ShapeBufferSkeleton*()> sbsl = m_pc->modelManager->prepareFBXBufferBones((projectLocation + pcsd.bufferData[i].path).c_str(), pcsd.bufferData[i].normalRecalculate);
+							m_buffers.emplace_back(
+							[sbsl = std::move(sbsl)](std::unordered_map<ShapeBuffer*, ShapeBufferSkeleton*>& bufferToSkeleton, SceneData & pcsd)
+							{
+								ShapeBufferSkeleton* sbs = sbsl();
+								if (!sbs) throw std::runtime_error("Prefab skeleton preparation failed.");
+								pcsd.bufferSkeleton.push_back(sbs);
+								const std::vector<ShapeBufferBase*>& allshape = sbs->getShapes();
+								pcsd.buffer.insert(pcsd.buffer.end(), allshape.begin(), allshape.end());
+								for (int j = 0; j < pcsd.buffer.size(); j++)
+								{
+									bufferToSkeleton[pcsd.buffer[j]] = sbs;
+								}
+							});
+						}
+						else
+						{
+							std::function<std::vector<ShapeBuffer*>()> sbbl = m_pc->modelManager->prepareFBXBuffer((projectLocation + pcsd.bufferData[i].path).c_str(), pcsd.bufferData[i].normalRecalculate, {});
+							m_buffers.emplace_back(
+								[sbbl = std::move(sbbl)](std::unordered_map<ShapeBuffer*, ShapeBufferSkeleton*>& bufferToSkeleton, SceneData& pcsd)
+								{
+									std::vector<ShapeBuffer*> sbb = sbbl();
+									pcsd.buffer.insert(pcsd.buffer.end(), sbb.begin(), sbb.end());
+								}
+							);
+						}
+					}
+					else
+					{
+						std::function<ShapeBuffer*()> sbbl = m_pc->modelManager->prepareBuffer((projectLocation + pcsd.bufferData[i].path).c_str(), pcsd.bufferData[i].normalRecalculate);
+						m_buffers.emplace_back(
+							[sbbl = std::move(sbbl)](std::unordered_map<ShapeBuffer*, ShapeBufferSkeleton*>& bufferToSkeleton, SceneData& pcsd)
+							{						
+								ShapeBuffer* buffer = sbbl();
+							if (!buffer) throw std::runtime_error("Prefab mesh preparation failed.");
+							pcsd.buffer.push_back(buffer);
+							}
+						);
+					}
+				}
+		
+				load->finalize = [
+				this,
+				load,
+				m_textures = std::move(m_textures),
+				m_buffers = std::move(m_buffers),
+				finalized = false]() mutable
+				{
+					if (finalized) return;
+					finalized = true;
+					struct CompleteOnExit
+					{
+						PrefabLoad* load;
+						~CompleteOnExit()
+						{
+							if (load->error.empty()) load->loadingTicket.complete();
+							else load->loadingTicket.fail();
+						}
+					} completion{load};
+					try
+					{
+						SceneData& pcsd = load->sd;
+						// Scene objects, tags, collision maps and audio belong to the main thread.
+						ssEmpty(&pcsd, load->so);
+						ssAudio(&pcsd, load->so);
+						ssShader(&pcsd, load->so);
+						for (int i = 0; i < m_textures.size(); i++)
+						{
+							Textures* texture = m_textures[i]();
+							if (!texture) throw std::runtime_error("Prefab texture preparation failed.");
+							pcsd.textures.push_back(texture);
+						}
+						ssMaterials(&pcsd, load->so);
+						std::unordered_map<ShapeBuffer*, ShapeBufferSkeleton*> bufferToSkeleton;
+						for (int i = 0; i < m_buffers.size(); i++)
+						{
+							m_buffers[i](bufferToSkeleton, pcsd);
+						}
+						if (std::any_of(pcsd.buffer.begin(), pcsd.buffer.end(),
+							[](const ShapeBuffer* buffer) { return buffer == nullptr || buffer->getIndiceSize() == 0; }))
+							throw std::runtime_error("Prefab mesh preparation failed.");
+						// A missing FBX can produce no submeshes instead of throwing. Never
+						// index these resolved buffers until the authored references are valid.
+						for (const auto& model : pcsd.modelData)
+						{
+							if (model.idBuffer < 0 || static_cast<std::size_t>(model.idBuffer) >= pcsd.buffer.size() ||
+								model.idMaterial < -1 || (model.idMaterial >= 0 &&
+								static_cast<std::size_t>(model.idMaterial) >= pcsd.materials.size()))
+								throw std::runtime_error("Invalid resolved prefab mesh or material reference.");
+						}
+						for (const auto& skeleton : pcsd.skeletonData)
+							if (skeleton.idBuffer < 0 || static_cast<std::size_t>(skeleton.idBuffer) >= pcsd.bufferSkeleton.size())
+								throw std::runtime_error("Invalid resolved prefab skeleton reference.");
+
+						ssModel(&pcsd, load->so);
+						ssSkeleton(&pcsd, load->so);
+						std::vector<Lights*> allLight = ssLight(&pcsd, load->so);
+						std::vector<GObject*> allGObject;
+						allGObject.reserve(
+							pcsd.empty.size() +
+							pcsd.audio.size() +
+							pcsd.dlight.size() +
+							pcsd.slight.size() +
+							pcsd.plight.size() +
+							pcsd.models.size() +
+							pcsd.skeleton.size()
+						);
+						for(int i = 0; i < pcsd.empty.size(); i++) { allGObject.push_back(pcsd.empty[i]); }
+						for(int i = 0; i < pcsd.audio.size(); i++) { allGObject.push_back(pcsd.audio[i]); }
+						for(int i = 0; i < pcsd.dlight.size(); i++) { allGObject.push_back(pcsd.dlight[i]); }
+						for(int i = 0; i < pcsd.slight.size(); i++) { allGObject.push_back(pcsd.slight[i]); }
+						for(int i = 0; i < pcsd.plight.size(); i++) { allGObject.push_back(pcsd.plight[i]); }
+						for(int i = 0; i < pcsd.models.size(); i++) { allGObject.push_back(pcsd.models[i]); }
+						for(int i = 0; i < pcsd.skeleton.size(); i++) { allGObject.push_back(pcsd.skeleton[i]); }
+
+						for(int i = 0; i < pcsd.emptyData.size(); i++) { if (pcsd.emptyData[i].idParent != -1) { pcsd.empty[i]->setParent(allGObject[pcsd.emptyData[i].idParent]); } }
+						for(int i = 0; i < pcsd.audioData.size(); i++) { if (pcsd.audioData[i].idParent != -1) { pcsd.audio[i]->setParent(allGObject[pcsd.audioData[i].idParent]); } }
+						for(int i = 0; i < pcsd.lightData.size(); i++) { if (pcsd.lightData[i].idParent != -1) { allLight[i]->setParent(allGObject[pcsd.lightData[i].idParent]); } }
+						for(int i = 0; i < pcsd.modelData.size(); i++) { if (pcsd.modelData[i].idParent != -1) { pcsd.models[i]->setParent(allGObject[pcsd.modelData[i].idParent]); } }
+						for(int i = 0; i < pcsd.skeletonData.size(); i++) { if (pcsd.skeletonData[i].idParent != -1) { pcsd.skeleton[i]->setParent(allGObject[pcsd.skeletonData[i].idParent]); } }
+
+						for (int i = 0; i < pcsd.skeleton.size(); i++)
+						{
+							const std::vector<GObject*>& childs = pcsd.skeleton[i]->getChilds();
+							for (const auto& data : childs)
+							{
+								if (Model* model = dynamic_cast<Model*>(data))
+								{
+									ShapeBuffer* sb = model->getShapeBuffer();
+									if (bufferToSkeleton.find(sb) != bufferToSkeleton.end())
+									{
+										Materials* mat = model->getMaterial();
+										m_pc->skinnedTransformManager->setupMaterials(pcsd.skeleton[i], mat);
+									}
+								}
+							}
+						}
+						for (auto& data : allGObject)
+						{
+							auto it = tagObj.find(data);
+							if (it != tagObj.end())
+							{
+								std::vector<std::string> & t = it->second;
+								for (int i = 0; i < t.size(); i++)
+								{
+									data->addTag(t[i]);
+								}
+							}
+						}
+						if (load->parent != nullptr)
+						{
+							glm::vec3 pos = load->parent->getPosition();
+							glm::quat rot = load->parent->getRotation();
+							glm::vec3 scale = load->parent->getScale();
+							load->parent->setPosition(glm::vec3(0,0,0));
+							load->parent->setEulerAngles(glm::vec3(0, 0, 0));
+							load->parent->setScale(glm::vec3(1, 1, 1));
+							for (int i = 0; i < allGObject.size(); ++i)
+							{
+								if (allGObject[i]->getParent() == nullptr)
+								{
+									allGObject[i]->setParent(load->parent);
+								}
+							}
+							load->parent->setPosition(pos);
+							load->parent->setRotation(rot);
+							load->parent->setScale(scale);
+						}
+					}
+					catch (const std::exception& error)
+					{
+						load->error = error.what();
+					}
+					catch (...)
+					{
+						load->error = "Prefab finalization failed.";
+					}
+					if (!load->error.empty())
+					{
+						// No partial prefab becomes visible when an owner reveals its error UI.
+						load->sd.buffer.erase(std::remove(load->sd.buffer.begin(),
+							load->sd.buffer.end(), nullptr), load->sd.buffer.end());
+						clearScene(&load->sd);
+					}
+				};
+			}
+			catch (const std::exception& error)
+			{
+				load->error = error.what();
+				load->loadingTicket.fail();
+			}
+			catch (...)
+			{
+				load->error = "Prefab preparation failed.";
+				load->loadingTicket.fail();
+			}
+			// A failed load is terminal too; consumers can report it without waiting forever.
+			load->finish.store(true, std::memory_order_release);
+		});
+	}
+	catch (const std::exception& error)
+	{
+		load->error = error.what();
+		load->loadingTicket.fail();
+		load->finish.store(true, std::memory_order_release);
+	}
+	catch (...)
+	{
+		load->error = "Prefab worker could not start.";
+		load->loadingTicket.fail();
+		load->finish.store(true, std::memory_order_release);
+	}
+	return load;
+}
+
+void Editor::loadScene(const std::string& filePath, SceneData* sd)
+{
+	std::ifstream file(filePath, std::ios::binary);
+	if (!file.is_open())
+	{
+		return;
+	}
+
+	std::string jsonFile(
+		(std::istreambuf_iterator<char>(file)),
+		std::istreambuf_iterator<char>()
+	);
+	file.close();
+	// Missing fields must not inherit the previous scene's effects.
+	sd->pp = PPSetting{};
+	JS::ParseContext context(jsonFile);
+	context.parseTo(*sd);
+	sd->name = extractFileName(filePath);
+	std::string fp = std::string(filePath);
+	sd->currentPath = cropPath(fp, m_baseProjectLocation);
+	m_currentProjectData->lastSceneOpen = sd->currentPath;	
+	scriptObject.clear();
+	collisionObj.clear();
+	ssEmpty(sd,scriptObject);
+	ssShader(sd, scriptObject);
+	sd->textures.clear();
+	for (int i = 0; i < sd->textureData.size(); i++)
+	{
+		sd->textures.push_back(m_pc->textureManager->createTexture((m_baseProjectLocation+sd->textureData[i].path).c_str(), sd->textureData[i].filter));
+	}
+	ssMaterials(sd, scriptObject);
+	sd->buffer.clear();
+	sd->bufferSkeleton.clear();
+	std::unordered_map<ShapeBuffer*, ShapeBufferSkeleton*> bufferToSkeleton;
+	for (int i = 0; i < sd->bufferData.size(); i++)
+	{		
+		if (sd->bufferData[i].targetSubMesh != 0)
+		{
+			continue;
+		}
+		if (sd->bufferData[i].getBufferSource() == BufferSource::FBX)
+		{
+			if (sd->bufferData[i].animatedBuffer)
+			{
+				ShapeBufferSkeleton* sbs = m_pc->modelManager->allocateFBXBufferBones((m_baseProjectLocation + sd->bufferData[i].path).c_str(), sd->bufferData[i].normalRecalculate);
+				sd->bufferSkeleton.push_back(sbs);
+				const std::vector<ShapeBufferBase*>& allshape = sbs->getShapes();
+				sd->buffer.insert(sd->buffer.end(), allshape.begin(), allshape.end());
+				for (int j = 0; j < sd->buffer.size(); j++)
+				{
+					bufferToSkeleton[sd->buffer[j]] = sbs;
+				}
+			}
+			else
+			{
+				std::vector<ShapeBuffer*> sbb = m_pc->modelManager->allocateFBXBuffer((m_baseProjectLocation + sd->bufferData[i].path).c_str(), sd->bufferData[i].normalRecalculate, {});				
+				sd->buffer.insert(sd->buffer.end(), sbb.begin(), sbb.end());
+			}
+		}
+		else
+		{
+			sd->buffer.push_back(m_pc->modelManager->allocateBuffer((m_baseProjectLocation + sd->bufferData[i].path).c_str(), sd->bufferData[i].normalRecalculate));
+		}
+	}
+	ssModel(sd, scriptObject);
+	ssSkeleton(sd, scriptObject);
+	std::vector<Lights*> allLight = ssLight(sd, scriptObject);
+	ssAudio(sd, scriptObject);
+
+	std::vector<GObject*> allGObject;
+	allGObject.reserve(
+		sd->empty.size() +
+		sd->audio.size() +
+		sd->dlight.size() +
+		sd->slight.size() +
+		sd->plight.size() +
+		sd->models.size() +
+		sd->skeleton.size()
+	);
+	for (int i = 0; i < sd->empty.size(); i++) { allGObject.push_back(sd->empty[i]); }
+	for (int i = 0; i < sd->audio.size(); i++) { allGObject.push_back(sd->audio[i]); }
+	for (int i = 0; i < sd->dlight.size(); i++) { allGObject.push_back(sd->dlight[i]); }
+	for (int i = 0; i < sd->slight.size(); i++) { allGObject.push_back(sd->slight[i]); }
+	for (int i = 0; i < sd->plight.size(); i++) { allGObject.push_back(sd->plight[i]); }
+	for (int i = 0; i < sd->models.size(); i++) { allGObject.push_back(sd->models[i]); }
+	for (int i = 0; i < sd->skeleton.size(); i++) { allGObject.push_back(sd->skeleton[i]); }
+
+	for (int i = 0; i < sd->emptyData.size(); i++) { if (sd->emptyData[i].idParent != -1) { sd->empty[i]->setParent(allGObject[sd->emptyData[i].idParent]); } }
+	for (int i = 0; i < sd->audioData.size(); i++) { if (sd->audioData[i].idParent != -1) { sd->audio[i]->setParent(allGObject[sd->audioData[i].idParent]); } }
+	for (int i = 0; i < sd->lightData.size(); i++) { if (sd->lightData[i].idParent != -1) { allLight[i]->setParent(allGObject[sd->lightData[i].idParent]);}}
+	for (int i = 0; i < sd->modelData.size(); i++) { if (sd->modelData[i].idParent != -1) { sd->models[i]->setParent(allGObject[sd->modelData[i].idParent]); } }
+	for (int i = 0; i < sd->skeletonData.size(); i++) { if (sd->skeletonData[i].idParent != -1) { sd->skeleton[i]->setParent(allGObject[sd->skeletonData[i].idParent]); } }
+
+	for (int i = 0; i < sd->skeleton.size(); i++)
+	{
+		const std::vector<GObject*>& childs = sd->skeleton[i]->getChilds();
+		for (const auto& data : childs)
+		{
+			if (Model* model = dynamic_cast<Model*>(data))
+			{
+				ShapeBuffer* sb = model->getShapeBuffer();								
+				if(bufferToSkeleton.find(sb) != bufferToSkeleton.end())
+				{
+					Materials* mat = model->getMaterial();
+					m_pc->skinnedTransformManager->setupMaterials(sd->skeleton[i],mat);
+				}
+			}
+		}
+	}
+
+	FlyCamera* fcam = m_pc->cameraManager->getFlyCamera();
+	fcam->setPosition(sd->freeCamPos);
+	fcam->setRotation(sd->freeCamRot);
+	fcam->setAngle(sd->freeCamAngle);
+
+	m_pc->skybox->setNearestFiltering(sd->skyboxNearest);
+	m_pc->skybox->setSaturation(sd->skyboxSaturation);
+	if (sd->skyboxPath.empty())
+	{
+		m_pc->skybox->clearTextureSkybox();
+	}
+	else
+	{
+		m_pc->skybox->loadTextureSkybox(m_baseProjectLocation + sd->skyboxPath);
+	}
+	PPSetting* setting = m_pc->postProcess->getPPSetting();
+	setting->copy(sd->pp);
+
+	for (auto& data : tagObj)
+	{
+		for (int i = 0; i < data.second.size(); i++)
+		{
+			data.first->addTag(data.second[i]);
+		}
+	}
+}
+
+void Editor::globalSave()
+{
+	if (m_currentProjectData != nullptr)
+	{
+		saveProject(m_currentProjectData->projetPath, m_currentProjectData);
+		if (m_currentSceneData != nullptr)
+		{
+			saveScene(m_baseProjectLocation+m_currentSceneData->currentPath, m_currentSceneData);
+		}
+	}
+}
+
+void Editor::addLightToScene(int type)
+{
+	if (m_currentSceneData != nullptr)
+	{
+		if (type == 0)
+		{
+			DirectionalLight* dl = m_pc->lightManager->createDirectionalLight(glm::vec3(-90.0f, 45.0f, 0.0f), glm::vec3(1, 1, 1));
+			m_currentSceneData->dlight.push_back(dl);
+			m_selectedOBJ = dl;
+		}		
+		else if(type == 1)
+		{
+			Camera* cam = m_pc->cameraManager->getCurrentCamera();
+			PointLight* pl = m_pc->lightManager->createPointLight(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE, glm::vec3(1, 1, 1));
+			m_currentSceneData->plight.push_back(pl);			
+			m_selectedOBJ = pl;
+		}		
+		else if (type == 2)
+		{
+			Camera* cam = m_pc->cameraManager->getCurrentCamera();
+			SpotLight* sl = m_pc->lightManager->createSpotLight(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE, glm::vec3(1, 1, 1),glm::vec3(0,0,0),0);
+			m_currentSceneData->slight.push_back(sl);
+			m_selectedOBJ = sl;
+		}
+	}
+}
+
+void Editor::addEmptyToScene()
+{
+	if (m_currentSceneData != nullptr)
+	{
+		Empty * e = new Empty();
+		Camera* cam = m_pc->cameraManager->getCurrentCamera();
+		e->setPosition(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE);
+		m_selectedOBJ = e;
+		m_currentSceneData->empty.push_back(e);
+	}
+}
+
+void Editor::playScene()
+{
+	LoadingState::beginScene();
+	for (const auto& var : collisionObj)
+	{
+		for (const auto& s : var.second)
+		{
+			std::shared_ptr<CollisionShape> cs = nullptr;
+			if (s.type == 0)//box
+			{
+				cs = std::make_shared<BoxShape>(glm::vec3(s.data), s.mass);
+			}
+			else if (s.type == 1)
+			{
+				cs = std::make_shared<SphereShape>(s.data.x, s.mass);
+			}
+			else if (s.type == 2)
+			{
+				cs = std::make_shared<CapsuleShape>(s.data.x, s.data.y, s.mass);
+			}
+			if (cs != nullptr)
+			{
+				m_allCollisionLoaded.push_back(cs);
+				CollisionWraper* cb = m_pc->physicsEngine->AllocateCollision(cs);
+				m_allCollisionBodyLoaded.push_back(cb);
+				cb->setPosition(s.position);
+				cb->setEulerAngles(s.euler);
+				m_pc->physicsEngine->AddCollision(cb);
+			}
+		}
+	}
+	for (const auto& var : scriptObject)
+	{
+		for (const auto& s : var.second)
+		{
+			Behaviour* b = FACTORY(Behaviour).create(s.pathName);
+			var.first->addComponent(b);
+			b->load(s.data);
+			m_pc->behaviourManager->addBehaviour(b);
+			m_allBehaviourLoaded.push_back({ var.first,b });
+		}
+	}
+	if (m_currentSceneData != nullptr)
+	{
+		for (int i = 0; i < m_currentSceneData->audio.size(); i++)
+		{
+			if (m_currentSceneData->audio[i] != nullptr)
+			{
+				m_currentSceneData->audio[i]->play();
+			}
+		}
+	}	
+	if (m_generatePathFindingNextPlay)//TODO: change generation system to auto mode
+	{
+		PathFindingScene* b = new PathFindingScene(m_currentSceneData->path.pathPosition, m_currentSceneData->path.zoneSize, m_currentSceneData->path.pointCount, m_baseProjectLocation + m_currentSceneData->path.pathFolder, m_currentSceneData->path.pathLiasonPercent);
+		b->help();
+		m_allBehaviourLoaded.push_back({ nullptr,b });
+		m_pc->behaviourManager->addBehaviour(b);
+		m_generatePathFindingNextPlay = false;
+	}
+	else if (m_currentSceneData->path.has)
+	{
+		PathFindingScene* b = new PathFindingScene(m_currentSceneData->path.pathPosition, m_currentSceneData->path.zoneSize, m_currentSceneData->path.pointCount, m_baseProjectLocation + m_currentSceneData->path.pathFolder, m_currentSceneData->path.pathLiasonPercent);
+		b->loadFromFile();
+		m_allBehaviourLoaded.push_back({ nullptr,b });
+		//m_pc->behaviourManager->addBehaviour(b);
+	}
+}
+
+void Editor::stopScene()
+{
+	for (int i = 0; i < m_allBehaviourLoaded.size(); i++)
+	{
+		m_pc->behaviourManager->removeBehaviour(m_allBehaviourLoaded[i].second, true);
+		m_allBehaviourLoaded[i].second->stop();
+		delete m_allBehaviourLoaded[i].second;
+	}
+	m_allBehaviourLoaded.clear();
+	for (int i = 0; i < m_allCollisionBodyLoaded.size(); i++)
+	{
+		m_pc->physicsEngine->ReleaseCollision(m_allCollisionBodyLoaded[i]);
+	}
+	m_allCollisionBodyLoaded.clear();
+	m_allCollisionLoaded.clear();
+}
+
+void Editor::addMaterialToModel(Model* obj)
+{
+	if (m_currentSceneData != nullptr)
+	{
+		removeExistMaterial(obj, m_currentSceneData, m_pc->materialManager,m_pc->textureManager,m_gdm);
+		Materials* mat = m_pc->materialManager->createMaterial();
+		obj->setMaterial(mat);
+		m_currentSceneData->materials.push_back(mat);
+	}
+}
+
+void Editor::addDuplicateMaterialToModel(Model* obj)
+{
+	if (m_currentSceneData != nullptr)
+	{
+		Materials* mat = m_pc->materialManager->createMaterial();
+		Materials* prevMat = obj->getMaterial();
+		if (prevMat == nullptr)
+		{
+			return;
+		}
+		mat->setTilling(prevMat->getTilling());
+		mat->setOffset(prevMat->getOffset());
+		mat->setColor(prevMat->getColor());
+		mat->setAlbedoTexture(prevMat->getAlbedoTexture());
+		mat->setNormalTexture(prevMat->getNormalTexture());
+		mat->setMetallicTexture(prevMat->getMetallicTexture());
+		mat->setRoughnessTexture(prevMat->getRoughnessTexture());
+		mat->setOclusionTexture(prevMat->getOclusionTexture());
+		mat->setDraw(prevMat->getDraw());
+		mat->setEmission(prevMat->getEmission());
+		mat->setMetallic(prevMat->getMetallic());
+		mat->setRoughness(prevMat->getRoughness());
+		mat->setNormal(prevMat->getNormal());
+		mat->setOclusion(prevMat->getOclusion());
+		mat->setCastShadow(prevMat->getCastShadow());
+		m_currentSceneData->materials.push_back(mat);
+		removeExistMaterial(obj, m_currentSceneData, m_pc->materialManager, m_pc->textureManager, m_gdm);				
+		obj->setMaterial(mat);		
+	}
+}
+
+void Editor::addAudioToScene(const std::string& filePath)
+{
+	if (m_currentSceneData != nullptr)
+	{
+		SoundBuffer* sb = nullptr;
+		for (int i = 0; i < m_currentSceneData->soundBufferData.size(); i++)
+		{
+			if ((m_baseProjectLocation+m_currentSceneData->soundBufferData[i].path) == filePath)
+			{
+				sb = m_currentSceneData->sound[i];
+				i = m_currentSceneData->soundBufferData.size();
+			}
+		}
+		if (sb == nullptr)
+		{
+			sb = m_pc->soundManager->createBuffer(filePath.c_str());
+			m_currentSceneData->sound.push_back(sb);
+			SoundBufferData sbd;
+			std::string temp = filePath;
+			sbd.path = cropPath(temp, m_baseProjectLocation).c_str();
+			m_currentSceneData->soundBufferData.push_back(sbd);
+		}
+		AudioSource* au = m_pc->soundManager->createSource(sb, extractFileName(filePath));
+		m_selectedOBJ = au;
+		Camera* cam = m_pc->cameraManager->getCurrentCamera();
+		au->setPosition(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE);
+		m_currentSceneData->audio.push_back(au);
+	}
+}
+
+
+void Editor::addModelToScene(const std::string& filePath, BufferSource src,bool bones)
+{
+	if (m_currentSceneData != nullptr)
+	{
+		std::string tempPath = filePath;
+		std::vector<ShapeBuffer*> shapeBufferToAdd;		
+		BufferData targetBuffer;
+		targetBuffer.normalRecalculate = false;
+		targetBuffer.animatedBuffer = bones;		
+		targetBuffer.path = cropPath(tempPath, m_baseProjectLocation);
+		targetBuffer.type = src;
+		targetBuffer.targetSubMesh = -1;
+		for (unsigned int i = 0; i < m_currentSceneData->bufferData.size(); ++i)
+		{
+			if (targetBuffer.sameIgnoreSub(m_currentSceneData->bufferData[i]))
+			{
+				shapeBufferToAdd.push_back(m_currentSceneData->buffer[i]);				
+			}
+		}
+		if (shapeBufferToAdd.size() == 0)
+		{
+			if (src == BufferSource::FBX)
+			{
+				if (bones)
+				{
+					ShapeBufferSkeleton * sbs = m_pc->modelManager->allocateFBXBufferBones(filePath.c_str(), targetBuffer.normalRecalculate);
+					m_currentSceneData->bufferSkeleton.push_back(sbs);
+					const std::vector<ShapeBufferBase*>& allshape = sbs->getShapes();				
+					for (unsigned int i = 0; i < allshape.size(); ++i)
+					{
+						m_currentSceneData->buffer.push_back(allshape[i]);
+						BufferData bd;
+						bd.normalRecalculate = targetBuffer.normalRecalculate;
+						bd.animatedBuffer = targetBuffer.animatedBuffer;
+						bd.path = targetBuffer.path;
+						bd.type = targetBuffer.type;
+						bd.targetSubMesh = i;
+						m_currentSceneData->bufferData.push_back(bd);						
+					}
+					std::vector<Model*> models;
+					SkinnedTransform* st = m_pc->skinnedTransformManager->createSkinnedTransform(sbs, models, extractFileName(filePath));
+					for (unsigned int i = 0; i < models.size(); ++i)
+					{
+						m_currentSceneData->models.push_back(models[i]);
+					}
+					m_currentSceneData->skeleton.push_back(st);
+					m_selectedOBJ = st;
+					Camera* cam = m_pc->cameraManager->getCurrentCamera();
+					st->setPosition(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE);
+				}
+				else
+				{	
+					std::string ef = extractFileName(filePath);
+					Empty* e = new Empty();
+					e->setName(ef);
+					m_currentSceneData->empty.push_back(e);
+					const std::vector<ShapeBuffer*>& allshape = m_pc->modelManager->allocateFBXBuffer(filePath.c_str(), targetBuffer.normalRecalculate, {});
+
+					for (unsigned int i = 0; i < allshape.size(); ++i)
+					{
+						m_currentSceneData->buffer.push_back(allshape[i]);
+						BufferData bd;
+						bd.normalRecalculate = targetBuffer.normalRecalculate;
+						bd.animatedBuffer = targetBuffer.animatedBuffer;
+						bd.path = targetBuffer.path;
+						bd.type = targetBuffer.type;
+						bd.targetSubMesh = i;
+						m_currentSceneData->bufferData.push_back(bd);
+						std::string fn = ef + "_" + std::to_string(i);
+						Model* m = m_pc->modelManager->createModel(allshape[i], fn);
+						m_currentSceneData->models.push_back(m);
+						m->setParent(e);
+
+					}
+					Camera* cam = m_pc->cameraManager->getCurrentCamera();
+					e->setPosition(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE);
+					m_selectedOBJ = e;
+				}
+			}
+			else
+			{
+				ShapeBuffer * sb = m_pc->modelManager->allocateBuffer(filePath.c_str(), targetBuffer.normalRecalculate);
+				m_currentSceneData->buffer.push_back(sb);
+				shapeBufferToAdd.push_back(sb);
+				BufferData bd;
+				bd.normalRecalculate = targetBuffer.normalRecalculate;
+				bd.animatedBuffer = bones;
+				std::string temp = filePath;
+				bd.path = cropPath(temp, m_baseProjectLocation);
+				m_currentSceneData->bufferData.push_back(bd);
+			}
+		}
+		else
+		{
+			if (targetBuffer.animatedBuffer)
+			{
+				for (const auto& sbs : m_currentSceneData->bufferSkeleton)
+				{
+					const std::vector<ShapeBufferBase*>& allshape = sbs->getShapes();
+					if (std::find(allshape.begin(), allshape.end(), shapeBufferToAdd[0]) != allshape.end())
+					{
+						std::vector<Model*> models;
+						SkinnedTransform* st = m_pc->skinnedTransformManager->createSkinnedTransform(sbs, models, extractFileName(filePath));
+						for (unsigned int i = 0; i < models.size(); ++i)
+						{
+							m_currentSceneData->models.push_back(models[i]);
+						}
+						m_currentSceneData->skeleton.push_back(st);
+						m_selectedOBJ = st;
+						Camera* cam = m_pc->cameraManager->getCurrentCamera();
+						st->setPosition(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE);
+						break;
+					}
+				}
+			}
+			else
+			{
+				for (unsigned int i = 0; i < shapeBufferToAdd.size(); ++i)
+				{
+					Model* m = m_pc->modelManager->createModel(shapeBufferToAdd[i], extractFileName(filePath));
+					m_selectedOBJ = m;
+					Camera* cam = m_pc->cameraManager->getCurrentCamera();
+					m->setPosition(cam->getPosition() + cam->transformDirectionAxeZ() * SPAWN_DISTANCE);
+					m_currentSceneData->models.push_back(m);
+				}
+			}
+		}
+	}
+}
+
+void Editor::saveScene(const std::string& filePath, SceneData* sd)
+{
+#ifdef EDITOR_RUN_MODE
+	return;
+#endif
+	FlyCamera* fcam = m_pc->cameraManager->getFlyCamera();
+	sd->freeCamPos = fcam->getPosition();
+	sd->freeCamRot = fcam->getRotation();
+	sd->freeCamAngle = fcam->getAngle();
+		
+	std::vector<GObject*> allGObject;
+	for (int i = 0; i < sd->empty.size(); i++) { allGObject.push_back(sd->empty[i]); }
+	for (int i = 0; i < sd->audio.size(); i++) { allGObject.push_back(sd->audio[i]); }
+	for (int i = 0; i < sd->dlight.size(); i++) { allGObject.push_back(sd->dlight[i]); }
+	for (int i = 0; i < sd->slight.size(); i++) { allGObject.push_back(sd->slight[i]); }
+	for (int i = 0; i < sd->plight.size(); i++) { allGObject.push_back(sd->plight[i]); }
+	for (int i = 0; i < sd->models.size(); i++) { allGObject.push_back(sd->models[i]); }
+	for (int i = 0; i < sd->skeleton.size(); i++) { allGObject.push_back(sd->skeleton[i]); }
+
+	sd->emptyData.clear();
+	for (int i = 0; i < sd->empty.size(); i++)
+	{
+		EmptyData ed;
+		ed.name = *sd->empty[i]->getName();
+		ed.position = sd->empty[i]->getPosition();
+		ed.rotation = sd->empty[i]->getRotation();
+		ed.scale = sd->empty[i]->getScale();
+		GObject* parent = sd->empty[i]->getParent();
+		ed.scripts = scriptObject[(GObject*)sd->empty[i]];
+		ed.collisions = collisionObj[(GObject*)sd->empty[i]];
+		ed.tags = tagObj[(GObject*)sd->empty[i]];
+		if (parent != nullptr)
+		{
+			for (int j = 0; j < allGObject.size(); j++)
+			{
+				if (allGObject[j] == parent)
+				{
+					ed.idParent = j;
+					break;
+				}
+			}
+		}
+		sd->emptyData.push_back(ed);
+	}
+	sd->skeletonData.clear();
+	for (int i = 0; i < sd->skeleton.size(); i++)
+	{
+		SkeletonData skd;
+		skd.name = *sd->skeleton[i]->getName();
+		skd.position = sd->skeleton[i]->getPosition();
+		skd.rotation = sd->skeleton[i]->getRotation();
+		skd.scale = sd->skeleton[i]->getScale();
+		GObject* parent = sd->skeleton[i]->getParent();
+		skd.scripts = scriptObject[(GObject*)sd->skeleton[i]];
+		skd.collisions = collisionObj[(GObject*)sd->skeleton[i]];
+		skd.tags = tagObj[(GObject*)sd->skeleton[i]];
+		for (int j = 0; j < sd->bufferSkeleton.size(); j++)
+		{
+			if (sd->bufferSkeleton[j] == sd->skeleton[i]->getBuffer())
+			{
+				skd.idBuffer = j;
+				j = sd->bufferSkeleton.size();
+			}
+		}
+		if (parent != nullptr)
+		{
+			for (int j = 0; j < allGObject.size(); j++)
+			{
+				if (allGObject[j] == parent)
+				{
+					skd.idParent = j;
+					break;
+				}
+			}
+		}
+		sd->skeletonData.push_back(skd);
+	}
+	sd->audioData.clear();
+	for (int i = 0; i < sd->audio.size(); i++)
+	{
+		AudioSourceData asd;
+		asd.name = *sd->audio[i]->getName();
+		asd.position = sd->audio[i]->getPosition();
+		asd.rotation = sd->audio[i]->getRotation();
+		asd.scale = sd->audio[i]->getScale();
+		asd.pitch = sd->audio[i]->getPitch();
+		asd.gain = sd->audio[i]->getGain();
+		asd.velocity = sd->audio[i]->getVelocity();
+		asd.loop = sd->audio[i]->getLoop();
+		asd.rolloffFactor = sd->audio[i]->getLoop();
+		asd.maxDistance = sd->audio[i]->getLoop();
+		asd.refDistance = sd->audio[i]->getLoop();
+		asd.scripts = scriptObject[(GObject*)sd->audio[i]];
+		asd.collisions = collisionObj[(GObject*)sd->audio[i]];
+		asd.tags = tagObj[(GObject*)sd->audio[i]];
+		for (int j = 0; j < sd->sound.size(); j++)
+		{
+			if (sd->sound[j] == sd->audio[i]->getSoundBuffer())
+			{
+				asd.idBuffer = j;
+				j = sd->sound.size();
+			}
+		}
+		GObject* parent = sd->audio[i]->getParent();
+		if (parent != nullptr)
+		{
+			for (int j = 0; j < allGObject.size(); j++)
+			{
+				if (allGObject[j] == parent)
+				{
+					asd.idParent = j;
+					break;
+				}
+			}
+		}
+		sd->audioData.push_back(asd);
+	}
+
+	sd->lightData.clear();
+	for (int i = 0; i < sd->dlight.size(); i++)
+	{
+		LightData ld;
+		ld.name = *sd->dlight[i]->getName();
+		ld.position = sd->dlight[i]->getPosition();
+		ld.rotation = sd->dlight[i]->getRotation();
+		ld.scale = sd->dlight[i]->getScale();
+		ld.color = sd->dlight[i]->getColors();
+		ld.range = sd->dlight[i]->getRange();
+		ld.spotAngle = sd->dlight[i]->getSpotAngle();
+		ld.shadow = sd->dlight[i]->getshadow();
+		ld.status = 0;
+		ld.scripts = scriptObject[(GObject*)sd->dlight[i]];
+		ld.collisions = collisionObj[(GObject*)sd->dlight[i]];
+		ld.tags = tagObj[(GObject*)sd->dlight[i]];
+		GObject* parent = sd->dlight[i]->getParent();
+		if (parent != nullptr)
+		{
+			for (int j = 0; j < allGObject.size(); j++)
+			{
+				if (allGObject[j] == parent)
+				{
+					ld.idParent = j;
+					break;
+				}
+			}
+		}
+		sd->lightData.push_back(ld);
+	}
+	for (int i = 0; i < sd->plight.size(); i++)
+	{
+		LightData ld;
+		ld.name = *sd->plight[i]->getName();
+		ld.position = sd->plight[i]->getPosition();
+		ld.rotation = sd->plight[i]->getRotation();
+		ld.scale = sd->plight[i]->getScale();
+		ld.color = sd->plight[i]->getColors();
+		ld.range = sd->plight[i]->getRange();
+		ld.spotAngle = sd->plight[i]->getSpotAngle();
+		ld.shadow = sd->plight[i]->getshadow();
+		ld.status = 1;
+		ld.scripts = scriptObject[(GObject*)sd->plight[i]];
+		ld.collisions = collisionObj[(GObject*)sd->plight[i]];
+		ld.tags = tagObj[(GObject*)sd->plight[i]];
+		GObject* parent = sd->plight[i]->getParent();
+		if (parent != nullptr)
+		{
+			for (int j = 0; j < allGObject.size(); j++)
+			{
+				if (allGObject[j] == parent)
+				{
+					ld.idParent = j;
+					break;
+				}
+			}
+		}
+		sd->lightData.push_back(ld);
+	}
+	for (int i = 0; i < sd->slight.size(); i++)
+	{
+		LightData ld;
+		ld.name = *sd->slight[i]->getName();
+		ld.position = sd->slight[i]->getPosition();
+		ld.rotation = sd->slight[i]->getRotation();
+		ld.scale = sd->slight[i]->getScale();
+		ld.color = sd->slight[i]->getColors();
+		ld.range = sd->slight[i]->getRange();
+		ld.spotAngle = sd->slight[i]->getSpotAngle();
+		ld.shadow = sd->slight[i]->getshadow();
+		ld.status = 2;
+		ld.scripts = scriptObject[(GObject*)sd->slight[i]];
+		ld.collisions = collisionObj[(GObject*)sd->slight[i]];
+		ld.tags = tagObj[(GObject*)sd->slight[i]];
+		GObject* parent = sd->slight[i]->getParent();
+		if (parent != nullptr)
+		{
+			for (int j = 0; j < allGObject.size(); j++)
+			{
+				if (allGObject[j] == parent)
+				{
+					ld.idParent = j;
+					break;
+				}
+			}
+		}
+		sd->lightData.push_back(ld);
+	}
+	sd->materialData.clear();
+	for (int i = 0; i < sd->materials.size(); i++)
+	{		
+		MaterialData md;
+		md.albedo = sd->materials[i]->getColor();
+		md.offset = sd->materials[i]->getOffset();
+		md.tilling = sd->materials[i]->getTilling();
+		md.metallic = sd->materials[i]->getMetallic();
+		md.roughness = sd->materials[i]->getRoughness();
+		md.normal = sd->materials[i]->getNormal();
+		md.ao = sd->materials[i]->getOclusion();
+		md.emit = sd->materials[i]->getEmission();
+		md.active = sd->materials[i]->getDraw();
+		md.depthTest = sd->materials[i]->getDepthTest();
+		md.depthWrite = sd->materials[i]->getDepthWrite();
+		md.castShadow = sd->materials[i]->getCastShadow();
+
+		for (int j = 0; j < sd->textures.size(); j++)
+		{			
+			if (sd->textures[j] == sd->materials[i]->getAlbedoTexture())
+			{
+				md.albedoMap = j;
+			}			
+			if (sd->textures[j] == sd->materials[i]->getNormalTexture())
+			{
+				md.normalMap = j;
+			}
+			if (sd->textures[j] == sd->materials[i]->getMetallicTexture())
+			{
+				md.metallicMap = j;
+			}
+			if (sd->textures[j] == sd->materials[i]->getRoughnessTexture())
+			{
+				md.RoughnessMap = j;
+			}
+			if (sd->textures[j] == sd->materials[i]->getOclusionTexture())
+			{
+				md.aoMap = j;
+			}
+		}
+		if (m_depthTexture == sd->materials[i]->getOclusionTexture())
+		{
+			md.aoMap = -2;
+		}
+		if (sd->materials[i]->getPipeline() == m_gdm->str_default_pipeline_forward_transparency)
+		{
+			md.shader = -2;
+		}
+		else
+		{
+			for (int j = 0; j < sd->shader.size(); j++)
+			{
+				if (sd->shader[j] == sd->materials[i]->getPipeline())
+				{
+					md.shader = j;
+					j = sd->shader.size();
+				}
+			}
+		}
+		for (int j = 0; j < sd->shader.size(); j++)
+		{
+			if (sd->shader[j] == sd->materials[i]->getShadowPipeline())
+			{
+				md.shadowShader = j;
+				j = sd->shader.size();
+			}
+		}
+		sd->materialData.push_back(md);
+	}
+	sd->modelData.clear();
+	for (int i = 0; i < sd->models.size(); i++)
+	{
+		ModelData md;
+		md.name = *sd->models[i]->getName();
+		md.position = sd->models[i]->getPosition();
+		md.rotation = sd->models[i]->getRotation();
+		md.scale = sd->models[i]->getScale();
+		md.scripts = scriptObject[(GObject*)sd->models[i]];
+		md.collisions = collisionObj[(GObject*)sd->models[i]];
+		md.tags = tagObj[(GObject*)sd->models[i]];
+		for (int j = 0; j < sd->buffer.size(); j++)
+		{
+			if (sd->buffer[j] == sd->models[i]->getShapeBuffer())
+			{
+				md.idBuffer = j;
+				j = sd->buffer.size();
+			}			
+		}
+		for (int j = 0; j < sd->materials.size(); j++)
+		{
+			if (sd->materials[j] == sd->models[i]->getMaterial())
+			{
+				md.idMaterial = j;
+				j = sd->materials.size();
+			}
+		}
+		GObject* parent = sd->models[i]->getParent();
+		if (parent != nullptr)
+		{
+			for (int j = 0; j < allGObject.size(); j++)
+			{
+				if (allGObject[j] == parent)
+				{
+					md.idParent = j;
+					break;
+				}
+			}
+		}
+		sd->modelData.push_back(md);
+	}
+	std::string pretty_json = JS::serializeStruct(*sd);
+	std::ofstream file(filePath);
+	if (!file.is_open())
+	{
+		Debug::Error("Failed to save Scene at %s", filePath.c_str());
+		return;
+	}
+
+	file << pretty_json;
+	file.close();
+}
+
+const SceneData* Editor::getCurrentSceneData() const
+{
+	return m_currentSceneData;
+}
+
+void Editor::fixedUpdate()
+{
+
+}
+
+void Editor::update()
+{
+#ifndef EDITOR_RUN_MODE
+	ignoreKeyState();
+#endif
+	if (m_pc->inputManager->getKeyDown(GLFW_KEY_F3))
+	{
+		Window* window = m_pc->renderingEngine->getWindow();
+		window->toggleFullscreen();
+	}
+#ifndef EDITOR_RUN_MODE
+	if (m_pc->inputManager->getKeyDown(GLFW_KEY_INSERT) && !m_ignoredKeys)
+	{
+		m_hide = !m_hide;
+		ignoreKeyState();
+	}
+	if (!m_hide)
+	{
+		m_colRGB = HSVtoRGB(fmod(m_pc->time->getTime() * 36.0f, 360.0f), 1.0f, 1.0f);
+	}
+	if(m_gameChangeScene)
+	{
+		m_gameChangeScene = false;
+		m_tempFlyCamera->setFieldOfView(m_currentFovCS);
+	}
+	if (m_noLight != nullptr)
+	{
+		FlyCamera* fc = m_pc->cameraManager->getFlyCamera();
+		m_noLight->setEulerAngles(fc->getEulerAngles());
+	}	
+#endif
+}
+
+void Editor::stop()
+{
+	if (m_playMode == 1 || m_playMode == 2)
+	{
+		stopScene();
+		m_playMode = 0;
+	}
+	else
+	{
+		globalSave();
+	}
+#ifndef EDITOR_RUN_MODE
+	saveConfig(m_configPath, m_editorData);
+	if (m_noLight != nullptr)
+	{
+		m_pc->lightManager->destroyLight(m_noLight);
+		m_noLight = nullptr;
+	}
+#endif
+	delete m_editorData;
+	if (m_currentProjectData != nullptr)
+	{
+		delete m_currentProjectData;
+	}
+	if (m_currentSceneData != nullptr)
+	{
+		delete m_currentSceneData;
+	}
+	m_pc->hud->removeImgui(this);
+	delete m_depthTexture;
+}
+
+void Editor::onGUI()
+{
+
+}
+
+void Editor::init(GraphicsDataMisc* gdm)
+{
+	m_gdm = gdm;
+	ImGuiStyle& style = ImGui::GetStyle();
+	style.Colors[ImGuiCol_DockingEmptyBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.06f, 0.06f, 0.06f, 0.64f);		
+}
+
+
+inline void ShowTagEditor(std::vector<std::string>& tags,GObject * obj) 
+{
+	static char inputBuffer[128] = ""; // buffer pour saisir un nouveau tag
+	ImGui::BeginChild("Tags##Child", ImVec2(0, 0), true);
+	ImGui::Text("Tags");
+	ImGui::Separator();
+
+	// Champ d'entrée pour ajouter un nouveau tag
+	ImGui::InputText("New tag", inputBuffer, IM_ARRAYSIZE(inputBuffer));
+	ImGui::SameLine();
+	if (ImGui::Button("Add")) 
+	{
+		if (strlen(inputBuffer) > 0) {
+			tags.emplace_back(inputBuffer);
+			obj->addTag(inputBuffer);
+			inputBuffer[0] = '\0'; // reset le champ
+		}
+	}
+
+	ImGui::Spacing();
+	ImGui::Text("List :");
+
+	// Affichage des tags existants
+	for (int i = 0; i < tags.size(); ++i) 
+	{
+		ImGui::PushID(i+541856); // éviter les conflits dID ImGui
+
+		ImGui::Text("%s", tags[i].c_str());
+		ImGui::SameLine();
+		if (ImGui::Button("Remove")) 
+		{
+			obj->addTag(tags[i]);
+			tags.erase(tags.begin() + i);			
+			ImGui::PopID();
+			break; // sortir pour éviter problème ditérateur invalide
+		}
+
+		ImGui::PopID();
+	}
+	ImGui::EndChild();
+}
+
+void Editor::render(GraphicsDataMisc* gdm)
+{
+#ifdef EDITOR_RUN_MODE
+	return;
+#endif	
+	ignoreKeyState();
+	if (m_hide)
+	{
+		return;
+	}
+	EditorExtensionContext extensionContext;
+	extensionContext.hasProject = m_currentProjectData != nullptr;
+	extensionContext.projectRoot = extensionContext.hasProject ? fs::path(m_baseProjectLocation) : fs::path{};
+	auto& extensions = EditorExtensionRegistry::instance();
+	ImGuiStyle& style = ImGui::GetStyle();
+	ImVec4 wbg = style.Colors[ImGuiCol_WindowBg];
+	style.Colors[ImGuiCol_WindowBg] = ImVec4(0.0f, 0.0f, 0.0f, 0.0f);
+	ImGui::DockSpaceOverViewport(NULL, ImGuiDockNodeFlags_NoDockingOverCentralNode | ImGuiDockNodeFlags_PassthruCentralNode);
+	style.Colors[ImGuiCol_WindowBg] = wbg;	
+	ImVec4 colbbg = style.Colors[ImGuiCol_Button];
+	int mainWindowPosX, mainWindowPosY;
+	glfwGetWindowPos(gdm->str_window, &mainWindowPosX, &mainWindowPosY);
+
+	if (m_pc->inputManager->getKeyDown(GLFW_KEY_N) && m_pc->inputManager->getKey(GLFW_KEY_LEFT_CONTROL) && !m_ignoredKeys)
+	{
+		m_newProjectModal = true;
+	}
+	if (m_pc->inputManager->getKeyDown(GLFW_KEY_O) && m_pc->inputManager->getKey(GLFW_KEY_LEFT_CONTROL) && !m_ignoredKeys)
+	{
+		m_openProjectModal = true;
+	}
+	if (m_pc->inputManager->getKeyDown(GLFW_KEY_S) && m_pc->inputManager->getKey(GLFW_KEY_LEFT_CONTROL) && !m_ignoredKeys && m_playMode == 0)
+	{
+		globalSave();		
+	}
+	if (ImGui::BeginMainMenuBar())
+	{
+		if (ImGui::BeginMenu("File"))
+		{
+			if (ImGui::MenuItem("New", "Ctrl+N"))
+			{
+				m_newProjectModal = true;				
+			}
+			if (ImGui::MenuItem("Open", "Ctrl+O"))
+			{
+				m_openProjectModal = true;
+			}
+			if (m_currentProjectData != nullptr)
+			{
+				if (ImGui::MenuItem("Save", "Ctrl+S"))
+				{
+					globalSave();
+				}
+			}
+			ImGui::Checkbox("Auto Load Project", &m_editorData->autoLoadProject);
+			ImGui::EndMenu();
+		}
+		if (m_currentProjectData != nullptr)
+		{		
+			if (ImGui::BeginMenu("Create"))
+			{
+				if (ImGui::MenuItem("Scene"))
+				{
+					m_createObject = true;
+					objType = ObjectType::SceneOBJ;
+				}
+				if (ImGui::MenuItem("Directional Light"))
+				{
+					addLightToScene(0);
+				}
+				if (ImGui::MenuItem("Point Light"))
+				{
+					addLightToScene(1);
+				}
+				if (ImGui::MenuItem("Spot Light"))
+				{
+					addLightToScene(2);
+				}
+				if (ImGui::MenuItem("Empty"))
+				{
+					addEmptyToScene();
+				}
+				if (ImGui::MenuItem("PathFinding"))
+				{							
+					if (m_currentSceneData != nullptr)
+					{
+						m_openPathFinding = true;
+					}
+				}
+				if (m_currentSceneData != nullptr)
+				{
+					if (ImGui::Checkbox("Skybox Nearest", &m_currentSceneData->skyboxNearest))
+					{
+						m_pc->skybox->setNearestFiltering(m_currentSceneData->skyboxNearest);
+					}
+					if (ImGui::SliderFloat("Skybox Saturation", &m_currentSceneData->skyboxSaturation, 0.0f, 1.5f))
+					{
+						m_pc->skybox->setSaturation(m_currentSceneData->skyboxSaturation);
+					}
+				}
+				if (ImGui::MenuItem("Skybox Clear"))
+				{
+					m_pc->skybox->clearTextureSkybox();
+					if (m_currentSceneData != nullptr)
+					{						
+						m_currentSceneData->skyboxPath = "";
+					}
+				}
+				if (ImGui::MenuItem("Shader"))
+				{
+					if (m_currentSceneData != nullptr)
+					{
+						m_openPathShader = true;
+					}
+				}
+				ImGui::EndMenu();
+			}
+		}
+				
+		extensions.renderMenu(extensionContext);
+		if (ImGui::BeginMenu("Window"))
+		{
+			if (ImGui::MenuItem("Game"))
+			{
+				m_editorData->gameMode = !m_editorData->gameMode;
+				ImGui::SetWindowFocus("Game Mode");
+			}
+			if (ImGui::MenuItem("Inspector"))
+			{
+				m_editorData->inspector = true;
+				ImGui::SetWindowFocus("Inspector");
+			}
+			if (ImGui::MenuItem("Hiearchy"))
+			{
+				m_editorData->hiearchy = true;
+				ImGui::SetWindowFocus("Hiearchy");
+			}
+			if (ImGui::MenuItem("Project"))
+			{
+				m_editorData->project = true;
+				ImGui::SetWindowFocus("Project");
+			}
+			if (ImGui::MenuItem("PostProcess"))
+			{
+				m_editorData->postProcess = true;
+				ImGui::SetWindowFocus("PostProcess");
+			}
+			ImGui::EndMenu();
+		}		
+		if (m_currentProjectData != nullptr)
+		{
+			ImGui::SameLine(ImGui::GetWindowWidth() - ImGui::CalcTextSize(m_currentProjectData->projetName.c_str()).x-15);
+			ImGui::TextColored(m_colRGB,m_currentProjectData->projetName.c_str());
+		}
+		ImGui::EndMainMenuBar();
+	}
+
+	extensions.renderWindows(extensionContext);
+	ignoreKeyState();
+
+	if (m_openPathFinding)
+	{
+		ImGui::OpenPopup("PathFinding");
+		m_currentSceneData->path.pathPosition = glm::vec3(0,0,0);
+		m_currentSceneData->path.zoneSize = glm::vec3(10, 10, 10);
+		m_currentSceneData->path.pointCount = glm::vec3(10, 10, 10);
+		m_currentSceneData->path.pathLiasonPercent = 0.1f;		
+		m_currentSceneData->path.has = false;
+		std::string cpl = m_currentProjectLocation + "/" + m_currentSceneData->name + ".path";
+		std::string computeName = cropPath(cpl, m_baseProjectLocation);
+		strcpy(m_pathFindingName, computeName.c_str());
+		m_openPathFinding = false;
+	}
+
+	if (m_openPathShader)
+	{
+		ImGui::OpenPopup("ShaderPath");	
+		m_pathOpenProject[0] = '\0';
+		m_objectName[0] = '\0';
+		m_pathFindingName[0] = '\0';
+		currentWriteSD.back = false;
+		currentWriteSD.multiS = true;
+		currentWriteSD.transparency = false;
+		currentWriteSD.cullmode = 1;		
+		m_openPathShader = false;
+	}
+	if (ImGui::BeginPopupModal("ShaderPath") && m_currentSceneData != nullptr)
+	{
+		ImGui::InputText("Name ##ShaderPath", m_pathOpenProject, IM_ARRAYSIZE(m_pathOpenProject));
+
+		ImGui::InputText("Fragment Shader##ShaderPath", m_objectName, IM_ARRAYSIZE(m_objectName));
+		ImGui::SameLine();
+		if (ImGui::Button("...##Fragment"))
+		{
+			std::string path = FolderDialog::openFileDialog();
+			strncpy(m_objectName, path.c_str(), sizeof(m_objectName) - 1);
+			m_objectName[sizeof(m_objectName) - 1] = '\0';
+		}
+
+		ImGui::InputText("Vertex Shader##ShaderPath", m_pathFindingName, IM_ARRAYSIZE(m_pathFindingName));
+		ImGui::SameLine();
+		if (ImGui::Button("...##Vertex"))
+		{
+			std::string path = FolderDialog::openFileDialog();
+			strncpy(m_pathFindingName, path.c_str(), sizeof(m_pathFindingName) - 1);
+			m_pathFindingName[sizeof(m_pathFindingName) - 1] = '\0';
+		}
+
+		ImGui::Checkbox("Back##shader",&currentWriteSD.back);
+		ImGui::Checkbox("MultiS##shader", &currentWriteSD.multiS);
+		ImGui::Checkbox("Transparency##shader", &currentWriteSD.transparency);
+		ImGui::DragInt("Cullmode[0,1,2]", &currentWriteSD.cullmode);
+
+		if (ImGui::Button("Apply"))
+		{
+			ShaderData nsd;
+			nsd.name = m_pathOpenProject;
+			nsd.frag = m_objectName;
+			nsd.vert = m_pathFindingName;
+
+			nsd.frag = cropPath(nsd.frag, m_baseProjectLocation);
+			nsd.vert = cropPath(nsd.vert, m_baseProjectLocation);
+
+			nsd.back = currentWriteSD.back;
+			nsd.multiS = currentWriteSD.multiS;
+			nsd.transparency = currentWriteSD.transparency;
+			nsd.cullmode = currentWriteSD.cullmode;
+			m_currentSceneData->shaderData.push_back(nsd);
+			GraphiquePipeline* gp = m_pc->graphiquePipelineManager->createPipeline(m_baseProjectLocation + nsd.frag, m_baseProjectLocation + nsd.vert, nsd.back, nsd.multiS, nsd.transparency, nsd.cullmode);
+			m_currentSceneData->shader.push_back(gp);
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Close"))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+
+	if (ImGui::BeginPopupModal("PathFinding") && m_currentSceneData != nullptr)
+	{
+		ImGui::InputText("PathFinding##inputFieldPathOpen", m_pathFindingName, IM_ARRAYSIZE(m_pathFindingName));
+		ImGui::SameLine();
+		if (ImGui::Button("..."))
+		{
+			std::string path = FolderDialog::openDialog();
+			strncpy(m_pathFindingName, path.c_str(), sizeof(m_pathFindingName) - 1);
+			m_pathFindingName[sizeof(m_pathFindingName) - 1] = '\0';
+		}
+		ImGui::DragFloat3("Position", &m_currentSceneData->path.pathPosition[0]);
+		ImGui::DragFloat3("Zone", &m_currentSceneData->path.zoneSize[0]);
+		ImGui::DragFloat3("Point", &m_currentSceneData->path.pointCount[0]);
+		ImGui::DragFloat("LiasonPercent", &m_currentSceneData->path.pathLiasonPercent);
+		if (ImGui::Button("Apply"))
+		{
+			m_generatePathFindingNextPlay = true;
+			m_currentSceneData->path.pathFolder = m_pathFindingName;
+			m_currentSceneData->path.pathFolder = cropPath(m_currentSceneData->path.pathFolder, m_baseProjectLocation);
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Close"))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+	}
+
+	if (m_newProjectModal)
+	{
+		ImGui::OpenPopup("New Project");
+		clearCurrentProject();
+		m_currentProjectData = new ProjectData();
+		m_newProjectModal = false;
+	}
+
+	if (m_openProjectModal)
+	{
+		ImGui::OpenPopup("Open Project");
+		clearCurrentProject();
+		m_pathOpenProject[0] = '\0';
+		if (m_editorData->lastProjectpathOpen.size() != 0)
+		{
+			strncpy(m_pathOpenProject, m_editorData->lastProjectpathOpen.c_str(), sizeof(m_pathOpenProject) - 1);
+			m_pathOpenProject[sizeof(m_pathOpenProject) - 1] = '\0';
+		}
+		m_openProjectModal = false;
+	}
+
+	if (m_deleteOject)
+	{
+		ImGui::OpenPopup("Delete");
+		m_deleteOject = false;
+	}
+	if (ImGui::BeginPopupModal("Delete", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::Text("Are you sure ?");
+		if (ImGui::Button("Yes", ImVec2(100, 0)) || m_pc->inputManager->getKeyDown(GLFW_KEY_ENTER))
+		{
+			if (std::remove(deletePath.c_str()) != 0)
+			{
+				Debug::Error("Error deleting file: %s", deletePath.c_str());
+			}
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("No", ImVec2(100, 0)) || m_pc->inputManager->getKeyDown(GLFW_KEY_ESCAPE))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+		return;
+	}
+
+	if (ImGui::BeginPopupModal("Open Project", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{
+		ImGui::InputText("Path##inputFieldPathOpen", m_pathOpenProject, IM_ARRAYSIZE(m_pathOpenProject));
+		ImGui::SameLine();
+		if (ImGui::Button("..."))
+		{
+			std::string path = FolderDialog::openDialog();
+			strncpy(m_pathOpenProject, path.c_str(), sizeof(m_pathOpenProject) - 1);
+			m_pathOpenProject[sizeof(m_pathOpenProject) - 1] = '\0';
+		}
+
+		if (ImGui::Button("Load", ImVec2(100, 0)) || m_pc->inputManager->getKeyDown(GLFW_KEY_ENTER))
+		{
+			if (m_pathOpenProject[0] != '\0')
+			{
+				struct stat sb;
+				m_editorData->lastProjectpathOpen = m_pathOpenProject;
+				if (stat(m_pathOpenProject, &sb) == 0)
+				{
+					globalSave();
+					if (m_currentSceneData != nullptr)
+					{
+						clearScene(m_currentSceneData);
+						delete m_currentSceneData;
+						m_currentSceneData = nullptr;
+					}
+					m_currentProjectData = new ProjectData();
+					loadProject(m_pathOpenProject, m_currentProjectData);
+					if (!m_currentProjectData->lastSceneOpen.empty())
+					{
+						SceneData* sd = new SceneData();
+						m_currentSceneData = sd;
+						loadScene(m_baseProjectLocation+m_currentProjectData->lastSceneOpen, m_currentSceneData);
+					}
+					globalSave();
+					ImGui::CloseCurrentPopup();
+				}
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(100, 0)))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+		return;
+	}
+
+	if (ImGui::BeginPopupModal("New Project", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{		
+		InputText("Name##inputFieldName", m_currentProjectData->projetName);
+		InputText("Path##inputFieldPath", m_currentProjectData->projetPath);
+		ImGui::SameLine();
+		if (ImGui::Button("..."))
+		{
+			m_currentProjectData->projetPath = FolderDialog::openDialog();
+		}
+
+		if (ImGui::Button("Create", ImVec2(100, 0)) || m_pc->inputManager->getKeyDown(GLFW_KEY_ENTER))
+		{
+			if (m_currentProjectData->projetName[0] != '\0' && m_currentProjectData->projetPath[0] != '\0')
+			{
+				struct stat sb;
+				if (stat(m_currentProjectData->projetPath.c_str(), &sb) == 0)
+				{
+					globalSave();
+					if (m_currentSceneData != nullptr)
+					{
+						clearScene(m_currentSceneData);
+						delete m_currentSceneData;
+						m_currentSceneData = nullptr;
+					}
+					m_currentProjectData->lastSceneOpen = "/Scene/Main.scene";
+					saveProject(m_currentProjectData->projetPath, m_currentProjectData);
+					m_currentProjectLocation = m_currentProjectData->assetPath;
+					if (!copyAndRenameDirectory("../Asset/Model", m_currentProjectData->assetPath + "/Ressources/Model/BaseModel"))
+					{
+						Debug::Error("Failed to copy Base Model");
+					}
+					SceneData* sd = new SceneData();
+					m_currentSceneData = sd;
+					m_currentSceneData->path.has = false;
+					saveScene(m_baseProjectLocation +m_currentProjectData->lastSceneOpen, m_currentSceneData);
+					m_currentSceneData->currentPath = m_currentProjectData->lastSceneOpen;
+					m_currentSceneData->name = "Main";
+					ImGui::CloseCurrentPopup();
+				}
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(100, 0)))
+		{
+			delete m_currentProjectData;
+			m_currentProjectData = nullptr;
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+		return;
+	}
+
+	if (m_createObject)
+	{
+		ImGui::OpenPopup("Create Object");
+		m_objectName[0] = '\0';
+		m_createObject = false;
+	}
+	if (ImGui::BeginPopupModal("Create Object", NULL, ImGuiWindowFlags_AlwaysAutoResize))
+	{		
+		ImGui::InputText("Name##inputFieldObject", m_objectName, IM_ARRAYSIZE(m_objectName));
+		if (ImGui::Button("Create", ImVec2(100, 0)) || m_pc->inputManager->getKeyDown(GLFW_KEY_ENTER))
+		{
+			if (m_objectName[0] != '\0')
+			{
+				struct stat sb;
+				if (stat(m_currentProjectLocation.c_str(), &sb) == 0)
+				{
+					if (objType == ObjectType::SceneOBJ)
+					{
+						if (m_currentSceneData != nullptr)
+						{							
+							saveScene(m_baseProjectLocation +m_currentSceneData->currentPath, m_currentSceneData);
+							clearScene(m_currentSceneData);
+							delete m_currentSceneData;
+							m_currentSceneData = nullptr;
+						}
+						SceneData* sd = new SceneData();
+						m_currentSceneData = sd;
+						m_currentSceneData->path.has = false;
+						sd->name = m_objectName;
+						std::string cpl = m_currentProjectLocation + "/" + m_objectName + ".scene";
+						sd->currentPath = cropPath(cpl, m_baseProjectLocation);
+						m_currentProjectData->lastSceneOpen = sd->currentPath;
+						sd->dlight.push_back(m_pc->lightManager->createDirectionalLight(glm::vec3(-45,45,0),glm::vec3(1,1,1)));
+						globalSave();
+					}
+					ImGui::CloseCurrentPopup();
+				}
+			}
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Cancel", ImVec2(100, 0)))
+		{
+			ImGui::CloseCurrentPopup();
+		}
+		ImGui::EndPopup();
+		return;
+	}
+	
+	if (m_editorData->gameMode)
+	{
+		ImGui::SetNextWindowSize(ImVec2(250,100));
+
+		ImGui::SetNextWindowPos(ImVec2(mainWindowPosX+(m_pc->settingManager->getWindowWidth() / 2 - 125), 25+ mainWindowPosY));
+		ImGui::Begin("Game Mode", &m_editorData->gameMode, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoScrollbar);
+		style.Colors[ImGuiCol_Button] = ImVec4(0, 0, 0, 0);
+		int popCol = 0;
+		if (m_playMode == 1) 
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.7f, 0.0f, 1.0f));
+			popCol++;
+		}
+		if (ImGui::ImageButton(m_icon[6], ImVec2(m_iconModeSize, m_iconModeSize)) && m_playMode != 1 && m_currentSceneData != nullptr)
+		{
+			if (m_playMode == 2)
+			{
+				for (int i = 0; i < m_allBehaviourLoaded.size(); i++)
+				{
+					m_pc->behaviourManager->addBehaviourWithoutStart(m_allBehaviourLoaded[i].second);
+				}
+			}
+			else
+			{				
+				globalSave();
+				playScene();
+			}
+			m_playMode = 1;
+		}
+		if (popCol == 1) {
+			ImGui::PopStyleColor(); 
+			popCol--;
+		}
+		ImGui::SameLine();
+		if (m_playMode == 2) {
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.0f, 0.7f, 1.0f));
+			popCol++;
+		}
+		if (ImGui::ImageButton(m_icon[7], ImVec2(m_iconModeSize, m_iconModeSize)) && m_playMode != 2)
+		{
+			m_playMode = 2;
+			for (int i = 0; i < m_allBehaviourLoaded.size(); i++)
+			{
+				m_pc->behaviourManager->removeBehaviour(m_allBehaviourLoaded[i].second, true);
+			}			
+		}
+		if (popCol == 1) 
+		{
+			ImGui::PopStyleColor();
+			popCol--;
+		}
+		if (m_playMode == 0) 
+		{
+			ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.4f, 0.0f, 0.0f, 1.0f));
+			popCol++;
+		}
+		ImGui::SameLine();
+		if (ImGui::ImageButton(m_icon[8], ImVec2(m_iconModeSize, m_iconModeSize)) && m_playMode != 0)
+		{
+			m_playMode = 0;
+			stopScene();
+			m_allCollisionLoaded.clear();
+			clearScene(m_currentSceneData);
+
+			m_pc->behaviourManager->removeBehaviour(this,true);
+			m_pc->behaviourManager->release();
+			m_pc->behaviourManager->addBehaviourWithoutStart(this);
+
+			loadScene(m_baseProjectLocation +m_currentProjectData->lastSceneOpen, m_currentSceneData);
+			m_pc->inputManager->HideMouse(false);
+		}		
+		if (popCol == 1) 
+		{
+			ImGui::PopStyleColor();
+			popCol--;
+		}
+		style.Colors[ImGuiCol_Button] = colbbg;
+		ImGui::SameLine();
+		ImGui::End();
+	}
+
+	if (m_editorData->inspector)
+	{
+		ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Inspector", &m_editorData->inspector);
+		if (m_selectedOBJ != nullptr && m_currentSceneData != nullptr)
+		{
+			m_selectedOBJ->onGUI();
+			if (Model* model = dynamic_cast<Model*>(m_selectedOBJ))
+			{
+				if (ImGui::Button("Add Material"))
+				{
+					addMaterialToModel(model);
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Add(Duplicate) Material"))
+				{
+					addDuplicateMaterialToModel(model);
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Clear Matertial"))
+				{
+					removeExistMaterial(model, m_currentSceneData, m_pc->materialManager, m_pc->textureManager, m_gdm);
+					model->setMaterial(gdm->str_default_material);
+				}
+				if (ImGui::Button("Next"))
+				{
+					removeExistMaterial(model, m_currentSceneData, m_pc->materialManager, m_pc->textureManager, m_gdm);
+					if (m_currentSceneData->materials.size() > 0)
+					{
+						model->setMaterial(m_currentSceneData->materials[matCN % m_currentSceneData->materials.size()]);
+						matCN++;
+					}
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Prev"))
+				{
+					removeExistMaterial(model, m_currentSceneData, m_pc->materialManager, m_pc->textureManager, m_gdm);
+					if (m_currentSceneData->materials.size() > 0)
+					{
+						model->setMaterial(m_currentSceneData->materials[matCN % m_currentSceneData->materials.size()]);
+						matCN--;
+						if (matCN < 0)
+						{
+							matCN = m_currentSceneData->materials.size();
+						}
+					}
+				}
+				Materials* mat = model->getMaterial();
+				if (mat != nullptr)
+				{
+					ImGui::SameLine();
+					int shaderID = -1;
+					int shaderShadowID = -1;
+					const GraphiquePipeline* targetPipeline = mat->getPipeline();					
+					if(gdm->str_default_pipeline_forward_transparency == targetPipeline)
+					{
+						shaderID = -2;
+					}
+					else
+					{
+						for (int i = 0; i < m_currentSceneData->shader.size() && shaderID == -1; i++)
+						{
+							if (mat->getPipeline() == m_currentSceneData->shader[i])
+							{
+								shaderID = i;
+							}
+						}
+					}
+					for (int i = 0; i < m_currentSceneData->shader.size() && shaderShadowID == -1; i++)
+					{
+						if (mat->getShadowPipeline() == m_currentSceneData->shader[i])
+						{
+							shaderShadowID = i;
+						}
+					}
+					ImGui::PushItemWidth(200.0f);
+					if (ImGui::BeginCombo("##ShaderCombo", shaderID < 0 ? PipelineMode[shaderID+2] : m_currentSceneData->shaderData[shaderID].name.c_str()))
+					{
+						int size = m_currentSceneData->shader.size();
+						for (int n = -2; n < size; n++)
+						{
+							const bool is_selected = (shaderID == n);
+							if (ImGui::Selectable(((n < 0 ? PipelineMode[n + 2] : m_currentSceneData->shaderData[n].name)+"##Shader").c_str(), is_selected))
+							{
+								switch (n)
+								{
+								case -2:
+									mat->setPipeline(gdm->str_default_pipeline_forward_transparency);
+									break;
+								case -1:
+									mat->setPipeline(gdm->str_default_pipeline);
+									break;
+								default:
+									mat->setPipeline(m_currentSceneData->shader[n]);
+									break;
+								}
+							}
+
+							if (is_selected)
+							{
+								ImGui::SetItemDefaultFocus();
+							}
+						}
+
+						ImGui::EndCombo();
+					}		
+					ImGui::SameLine();
+					if (ImGui::BeginCombo("##ShaderComboShadow", shaderShadowID < 0 ? PipelineShadow[shaderShadowID + 1] : m_currentSceneData->shaderData[shaderShadowID].name.c_str()))
+					{
+						int size = m_currentSceneData->shader.size();
+						for (int n = -1; n < size; n++)
+						{
+							const bool is_selected = (shaderShadowID == n);
+							if (ImGui::Selectable(((n < 0 ? PipelineShadow[n + 1] : m_currentSceneData->shaderData[n].name) + "##Shader").c_str(), is_selected))
+							{
+								switch (n)
+								{
+								case -1:
+									mat->setShadowPipeline(gdm->str_default_pipeline_shadow);
+									break;
+								default:
+									mat->setShadowPipeline(m_currentSceneData->shader[n]);
+									break;
+								}
+							}
+
+							if (is_selected)
+							{
+								ImGui::SetItemDefaultFocus();
+							}
+						}
+
+						ImGui::EndCombo();
+					}
+					ImGui::PopItemWidth();
+					bool filter = !m_pc->inputManager->getKey(GLFW_KEY_N);
+					ImGui::Text("Base       ");
+					ImGui::SameLine();
+					ImGui::Image((ImTextureID)mat->getAlbedoTexture()->getTextureID(),ImVec2(80, 80));
+					if (ImGui::IsItemClicked(0))
+					{
+						for (int i = 0; i < m_currentSceneData->textures.size(); i++)
+						{
+							if (m_currentSceneData->textures[i] == mat->getAlbedoTexture())
+							{								
+								m_currentProjectLocation = m_baseProjectLocation + removeFilename(m_currentSceneData->textureData[i].path);
+							}
+						}
+					}
+					std::string path = dropTargetImage();
+					if (!path.empty())
+					{
+						removeExistTexture(mat->getAlbedoTexture(), m_currentSceneData, m_pc->textureManager, gdm);
+						bool found = false;
+						Textures* t = nullptr;
+						
+						for (int i = 0; i < m_currentSceneData->textureData.size(); i++)
+						{
+							if (m_currentSceneData->textureData[i].path == path && m_currentSceneData->textureData[i].filter == filter)
+							{
+								t = m_currentSceneData->textures[i];
+								found = true;
+							}
+						}
+						if (!found)
+						{
+							t = m_pc->textureManager->createTexture((m_baseProjectLocation+path).c_str(), filter);
+						}
+						mat->setAlbedoTexture(t);
+						if (mat != m_gdm->str_default_material && !found)
+						{							
+							m_currentSceneData->textures.push_back(t);
+							TextureData td;
+							td.path = path;
+							td.filter = t->getFilter();
+							m_currentSceneData->textureData.push_back(td);
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Clear##Base")) { removeExistTexture(mat->getAlbedoTexture(), m_currentSceneData, m_pc->textureManager, gdm); mat->setAlbedoTexture(nullptr); }
+
+					ImGui::Text("Metallic   ");
+					ImGui::SameLine();
+					ImGui::Image((ImTextureID)mat->getMetallicTexture()->getTextureID(), ImVec2(80, 80));
+					if (ImGui::IsItemClicked(0))
+					{
+						for (int i = 0; i < m_currentSceneData->textures.size(); i++)
+						{
+							if (m_currentSceneData->textures[i] == mat->getMetallicTexture())
+							{
+								m_currentProjectLocation = m_baseProjectLocation + removeFilename(m_currentSceneData->textureData[i].path);
+							}
+						}
+					}
+					path = dropTargetImage();
+					if (!path.empty())
+					{
+						removeExistTexture(mat->getMetallicTexture(), m_currentSceneData, m_pc->textureManager, gdm);
+						bool found = false;
+						Textures* t = nullptr;
+						for (int i = 0; i < m_currentSceneData->textureData.size(); i++)
+						{
+							if (m_currentSceneData->textureData[i].path == path && m_currentSceneData->textureData[i].filter == filter)
+							{
+								t = m_currentSceneData->textures[i];
+								found = true;
+							}
+						}
+						if (!found)
+						{
+							t = m_pc->textureManager->createTexture((m_baseProjectLocation+path).c_str(), filter);
+						}
+						mat->setMetallicTexture(t);
+						if (mat != m_gdm->str_default_material && !found)
+						{							
+							m_currentSceneData->textures.push_back(t);
+							TextureData td;
+							td.path = path;
+							td.filter = t->getFilter();
+							m_currentSceneData->textureData.push_back(td);
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Clear##Metallic")) { removeExistTexture(mat->getMetallicTexture(), m_currentSceneData, m_pc->textureManager, gdm); mat->setMetallicTexture(nullptr); }
+
+					ImGui::Text("Roughness  ");
+					ImGui::SameLine();
+					ImGui::Image((ImTextureID)mat->getRoughnessTexture()->getTextureID(), ImVec2(80, 80));
+					if (ImGui::IsItemClicked(0))
+					{
+						for (int i = 0; i < m_currentSceneData->textures.size(); i++)
+						{
+							if (m_currentSceneData->textures[i] == mat->getRoughnessTexture())
+							{
+								m_currentProjectLocation = m_baseProjectLocation + removeFilename(m_currentSceneData->textureData[i].path);
+							}
+						}
+					}
+					path = dropTargetImage();
+					if (!path.empty())
+					{
+						removeExistTexture(mat->getRoughnessTexture(), m_currentSceneData, m_pc->textureManager, gdm);
+						bool found = false;
+						Textures* t = nullptr;
+						for (int i = 0; i < m_currentSceneData->textureData.size(); i++)
+						{
+							if (m_currentSceneData->textureData[i].path == path && m_currentSceneData->textureData[i].filter == filter)
+							{
+								t = m_currentSceneData->textures[i];
+								found = true;
+							}
+						}
+						if (!found)
+						{
+							t = m_pc->textureManager->createTexture((m_baseProjectLocation+path).c_str(), filter);
+						}
+						mat->setRoughnessTexture(t);
+						
+						if (mat != m_gdm->str_default_material && !found)
+						{							
+							m_currentSceneData->textures.push_back(t);
+							TextureData td;
+							td.path = path;
+							td.filter = t->getFilter();
+							m_currentSceneData->textureData.push_back(td);
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Clear##Roughness")) { removeExistTexture(mat->getRoughnessTexture(), m_currentSceneData, m_pc->textureManager, gdm); mat->setRoughnessTexture(nullptr); }
+
+					ImGui::Text("Normal     ");
+					ImGui::SameLine();
+					ImGui::Image((ImTextureID)mat->getNormalTexture()->getTextureID(), ImVec2(80, 80));
+					if (ImGui::IsItemClicked(0))
+					{
+						for (int i = 0; i < m_currentSceneData->textures.size(); i++)
+						{
+							if (m_currentSceneData->textures[i] == mat->getNormalTexture())
+							{
+								m_currentProjectLocation = m_baseProjectLocation + removeFilename(m_currentSceneData->textureData[i].path);
+							}
+						}
+					}
+					path = dropTargetImage();
+					if (!path.empty())
+					{
+						removeExistTexture(mat->getNormalTexture(), m_currentSceneData, m_pc->textureManager, gdm);
+						bool found = false;
+						Textures* t = nullptr;
+						for (int i = 0; i < m_currentSceneData->textureData.size(); i++)
+						{
+							if (m_currentSceneData->textureData[i].path == path && m_currentSceneData->textureData[i].filter == filter)
+							{
+								t = m_currentSceneData->textures[i];								
+								found = true;
+							}
+						}
+						if (!found)
+						{
+							t = m_pc->textureManager->createTexture((m_baseProjectLocation+path).c_str(), filter);
+						}
+						mat->setNormalTexture(t);
+						if (mat != m_gdm->str_default_material && !found)
+						{							
+							m_currentSceneData->textures.push_back(t);
+							TextureData td;
+							td.path = path;
+							td.filter = t->getFilter();
+							m_currentSceneData->textureData.push_back(td);
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Clear##Normal")) 
+					{ 
+						removeExistTexture(mat->getNormalTexture(), m_currentSceneData, m_pc->textureManager, gdm); 
+						mat->setNormalTexture(nullptr); 
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Create from Albedo"))
+					{
+						if(gdm->str_default_texture != mat->getAlbedoTexture())
+						{
+							mat->setNormalTexture(m_pc->textureManager->generateNormal(mat->getAlbedoTexture(), mat->getAlbedoTexture()->getFilter()));
+						}						
+					}
+
+					ImGui::Text("Oclusion   ");
+					ImGui::SameLine();
+					ImGui::Image((ImTextureID)mat->getOclusionTexture()->getTextureID(), ImVec2(80, 80));
+					if (ImGui::IsItemClicked(0))
+					{
+						for (int i = 0; i < m_currentSceneData->textures.size(); i++)
+						{
+							if (m_currentSceneData->textures[i] == mat->getOclusionTexture())
+							{
+								m_currentProjectLocation = m_baseProjectLocation + removeFilename(m_currentSceneData->textureData[i].path);
+							}
+						}
+					}
+					path = dropTargetImage();
+					if (!path.empty())
+					{
+						removeExistTexture(mat->getOclusionTexture(), m_currentSceneData, m_pc->textureManager, gdm);
+						bool found = false;
+						Textures* t = nullptr;
+						for (int i = 0; i < m_currentSceneData->textureData.size(); i++)
+						{
+							if (m_currentSceneData->textureData[i].path == path && m_currentSceneData->textureData[i].filter == filter)
+							{
+								t = m_currentSceneData->textures[i];
+								found = true;
+							}
+						}
+						if (!found)
+						{
+							t = m_pc->textureManager->createTexture((m_baseProjectLocation+path).c_str(), filter);
+						}
+						mat->setOclusionTexture(t);
+						if (mat != m_gdm->str_default_material && !found)
+						{							
+							m_currentSceneData->textures.push_back(t);
+							TextureData td;
+							td.path = path;
+							td.filter = t->getFilter();
+							m_currentSceneData->textureData.push_back(td);
+						}
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Clear##Oclusion")) 
+					{ 
+						if (mat->getOclusionTexture() != m_depthTexture)
+						{
+							removeExistTexture(mat->getOclusionTexture(), m_currentSceneData, m_pc->textureManager, gdm);
+						}
+						mat->setOclusionTexture(nullptr); 
+					}
+					ImGui::SameLine();
+					if (ImGui::Button("Depth Texture"))
+					{
+						mat->setOclusionTexture(m_depthTexture);
+					}
+				}
+			}
+			const std::vector<std::string>& derivedName = FACTORY(Behaviour).getDerivedName();
+			if (m_scriptCombo < derivedName.size())
+			{
+				if (ImGui::Button("Add Script"))
+				{					
+					ScriptData sd;
+					sd.pathName = derivedName[m_scriptCombo];
+					Behaviour* b = (FACTORY(Behaviour).create(sd.pathName));
+					sd.data = b->serialize();
+					delete b;
+					scriptObject[m_selectedOBJ].push_back(sd);
+				}
+				ImGui::SameLine();
+				if (ImGui::Button("Remove Script"))
+				{
+					std::vector<ScriptData>& lso = scriptObject[m_selectedOBJ];
+					std::string sc = derivedName[m_scriptCombo];
+					lso.erase(
+						std::remove_if(lso.begin(), lso.end(),
+							[&sc](const ScriptData& sd) { return sd.pathName == sc; }),
+						lso.end()
+					);
+				}
+				ImGui::SameLine();
+				if (ImGui::BeginCombo("##ScriptCombo", derivedName[m_scriptCombo].c_str()))
+				{
+					for (int n = 0; n < derivedName.size(); n++)
+					{
+						const bool is_selected = (m_scriptCombo == n);
+						if (ImGui::Selectable(derivedName[n].c_str(), is_selected))
+						{
+							m_scriptCombo = n;
+						}
+
+						if (is_selected)
+						{
+							ImGui::SetItemDefaultFocus();
+						}
+					}
+
+					ImGui::EndCombo();
+				}
+			}
+			std::vector<ScriptData>& scriptUse = scriptObject[m_selectedOBJ];
+			float scriptHeight = m_ignoredKeys ? 600.0f : 200.0f;
+			for (const ScriptData& script : scriptUse)
+				scriptHeight = (std::max)(scriptHeight, extensions.inspectorHeight(script.pathName));
+			ImGui::BeginChild("##ScriptCurrent", ImVec2(0, scriptHeight), true);
+			for (int i = 0; i < scriptUse.size(); i++)
+			{
+				ImGui::TextColored(m_colRGB, scriptUse[i].pathName.c_str());
+				bool showRawScript = true;
+				if (extensions.hasInspector(scriptUse[i].pathName))
+				{
+					ImGui::PushID(i);
+					extensions.renderInspector(extensionContext, scriptUse[i].pathName, scriptUse[i].data);
+					ignoreKeyState();
+					showRawScript = ImGui::CollapsingHeader("Parametres du script (JSON)");
+					ImGui::PopID();
+				}
+				if (!showRawScript) continue;
+				int lineCount = 1;
+				for (const char* p = scriptUse[i].data.c_str(); *p; ++p)
+				{
+					if (*p == '\n'){lineCount++;}
+				}
+
+				float lineHeight = ImGui::GetTextLineHeight();
+				float height = lineCount * lineHeight + ImGui::GetStyle().FramePadding.y * 2;
+				strncpy(m_scriptBuffer, scriptUse[i].data.c_str(), (std::min)(scriptUse[i].data.size() + 1, sizeof(m_scriptBuffer)));
+				m_scriptBuffer[BUFFER_SCRIPT_SIZE - 1] = '\0';
+				if (ImGui::InputTextMultiline(("##Script_" + std::to_string(i)).c_str(), m_scriptBuffer, BUFFER_SCRIPT_SIZE,ImVec2(500, height + 100), ImGuiInputTextFlags_AllowTabInput))
+				{
+					scriptUse[i].data = std::string(m_scriptBuffer);
+				}
+				ignoreKeyState();
+			}
+
+			ImGui::EndChild();
+			ShowTagEditor(tagObj[m_selectedOBJ], m_selectedOBJ);
+			std::vector<CollisionData>& collisionUse = collisionObj[m_selectedOBJ];
+			
+			if (ImGui::BeginCombo("##CollisionCombo", collisionType[m_collisionCombo]))
+			{
+				for (int n = 0; n < collisionType.size(); n++)
+				{					
+					const bool is_selected = (m_collisionCombo == n);
+					if (ImGui::Selectable(collisionType[n], is_selected))
+					{
+						m_collisionCombo = n;
+					}
+
+					if (is_selected)
+					{
+						ImGui::SetItemDefaultFocus();
+					}
+				}
+
+				ImGui::EndCombo();
+			}
+			ImGui::DragInt("SubDivid", &m_subDividCollision,1.0f,1);
+			if (ImGui::Button("Create Collision"))
+			{
+				CollisionData data;
+				
+				if (Model* model = dynamic_cast<Model*>(m_selectedOBJ))
+				{
+					if (m_collisionCombo == 0)
+					{
+						glm::vec3 min = glm::vec3(FLT_MAX, FLT_MAX, FLT_MAX);
+						glm::vec3 max = glm::vec3(FLT_MIN, FLT_MIN, FLT_MIN);
+						const std::vector<Vertex>& vertex = ((ShapeBufferBase*)model->getShapeBuffer())->getVertices();
+						glm::mat4 mat = glm::scale(glm::mat4(1.0f), model->getScale());						
+						for (int j = 0; j < vertex.size(); j++)
+						{
+							glm::vec3 np = glm::vec3(mat * glm::vec4(vertex[j].pos, 1));
+							min.x = min.x < np.x ? min.x : np.x;
+							min.y = min.y < np.y ? min.y : np.y;
+							min.z = min.z < np.z ? min.z : np.z;
+
+							max.x = max.x > np.x ? max.x : np.x;
+							max.y = max.y > np.y ? max.y : np.y;
+							max.z = max.z > np.z ? max.z : np.z;
+						}
+						glm::vec3 centerCollision = glm::vec3(glm::translate(glm::mat4(1.0f), model->getPosition()) * glm::toMat4(glm::quat(model->getRotation())) * glm::vec4(((max + min) / 2.0f),1));
+						glm::vec3 extend = (max - min)/2.0f;
+						data.position = centerCollision;
+						data.data = glm::vec4(extend,0);
+						data.euler = model->getEulerAngles();
+					}
+					else if (m_collisionCombo == 1)
+					{
+						data.position = m_selectedOBJ->getPosition();
+						data.data = glm::vec4(1, 1, 1, 1);
+						data.euler = glm::vec3(0, 0, 0);
+					}
+					else
+					{
+						data.position = m_selectedOBJ->getPosition();
+						data.data = glm::vec4(1, 1, 1, 1);
+						data.euler = glm::vec3(0, 0, 0);
+					}
+				}				
+				else
+				{
+					data.position = m_selectedOBJ->getPosition();
+					data.type = m_collisionCombo;
+					data.data = glm::vec4(1, 1, 1, 1);
+				}
+				data.type = m_collisionCombo;
+				data.mass = 1.0f;
+				collisionObj[m_selectedOBJ].push_back(data);
+			}
+			ImGui::SameLine();
+			if (ImGui::Button("Clear Collision"))
+			{
+				collisionObj[m_selectedOBJ].clear();
+			}
+			ImGui::BeginChild("Collision Group", ImVec2(0, 200), true);
+
+			for (int i = 0; i < collisionUse.size(); i++)
+			{
+				ImGui::DragFloat3(("Position##Col_"+std::to_string(i)).c_str(), &collisionUse[i].position[0]);
+				if (collisionUse[i].type == 0)
+				{
+					ImGui::DragFloat3(("Extend##Col_" + std::to_string(i)).c_str(), &collisionUse[i].data[0]);
+				}
+				else if (collisionUse[i].type == 1)
+				{
+					ImGui::DragFloat(("radius##Col_" + std::to_string(i)).c_str(), &collisionUse[i].data.x);
+				}
+				else if (collisionUse[i].type == 2)
+				{
+					ImGui::DragFloat(("radius##Col_" + std::to_string(i)).c_str(), &collisionUse[i].data.x);
+					ImGui::DragFloat(("Height##Col_" + std::to_string(i)).c_str(), &collisionUse[i].data.y);
+				}
+				ImGui::DragFloat3(("Euler##Col_" + std::to_string(i)).c_str(), &collisionUse[i].euler[0]);
+				ImGui::DragFloat(("Mass##Col_" + std::to_string(i)).c_str(), &collisionUse[i].mass);
+				ImGui::Separator();
+			}
+			ImGui::EndChild();
+		}
+		ImGui::End();
+	}
+
+	if (m_editorData->project)
+	{
+		ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Project", &m_editorData->project);
+		if (m_currentProjectData != nullptr)
+		{			
+			drawFolderContents(m_currentProjectData->assetPath, m_currentProjectLocation);
+		}
+		ImGui::End();
+	}
+	if (m_editorData->postProcess)
+	{
+		ImGui::SetNextWindowSize(ImVec2(300, 300), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Post Process", &m_editorData->postProcess);
+		ImGui::Text("Post processing");		
+		m_ambient = m_pc->settingManager->getAmbient();
+		if (ImGui::DragFloat("Ambient", &m_ambient))
+		{
+			m_pc->settingManager->setAmbient(m_ambient);			
+		}
+		m_pc->postProcess->onGui(m_currentSceneData == nullptr ? nullptr : &m_currentSceneData->pp);
+		
+		ImGui::End();
+	}
+	if (m_editorData->hiearchy)
+	{
+		ImGui::SetNextWindowSize(ImVec2(400, 400), ImGuiCond_FirstUseEver);
+		ImGui::Begin("Hiearchy", &m_editorData->hiearchy);
+		if (m_currentSceneData != nullptr)
+		{
+			ImGui::BeginChild("##HiearchyBP", ImVec2(0, 50), true);
+			ImGui::TextColored(m_colRGB, m_currentSceneData->name.c_str());
+			ImGui::SameLine();
+			if (ImGui::ImageButton(m_icon[8], ImVec2(m_iconMoveSize, m_iconMoveSize))) { op = ImGuizmo::TRANSLATE; }
+			ImGui::SameLine();
+			if (ImGui::ImageButton(m_icon[9], ImVec2(m_iconMoveSize, m_iconMoveSize))) { op = ImGuizmo::ROTATE; }
+			ImGui::SameLine();
+			if (ImGui::ImageButton(m_icon[10], ImVec2(m_iconMoveSize, m_iconMoveSize))) { op = ImGuizmo::SCALE; }
+			ImGui::SameLine();
+			if (ImGui::ImageButton(m_icon[11], ImVec2(m_iconMoveSize, m_iconMoveSize))) { op = ImGuizmo::TRANSLATE | ImGuizmo::ROTATE; }
+			ImGui::SameLine();			
+			if (ImGui::Checkbox("Guizmo", &m_guizmo))
+			{
+				if (m_guizmo)
+				{
+					m_pc->physicsEngine->DebugDrawCollider();
+				}
+				else
+				{
+					m_pc->physicsEngine->DebugClearCollider();
+				}
+			}
+			ImGui::SameLine();
+			if (ImGui::Button(m_noLight == nullptr ? "Dbg Light Off" : "Dbg Light On"))
+			{
+				if (m_noLight != nullptr)
+				{
+					m_pc->lightManager->destroyLight(m_noLight);
+					m_noLight = nullptr;
+				}
+				else
+				{
+					FlyCamera* fc = m_pc->cameraManager->getFlyCamera();
+					m_noLight = m_pc->lightManager->createDirectionalLight(fc->getEulerAngles(), glm::vec3(1, 1, 1), "Debug Light");
+				}
+			}
+			ImGui::EndChild();
+			drawTreeView();			
+		}
+		ImGui::End();
+		ignoreKeyState();
+		if (m_selectedOBJ != nullptr)
+		{
+			Camera* cam = m_pc->cameraManager->getCurrentCamera();
+			glm::mat4 view = cam->getViewMatrix();
+			glm::mat4 proj = cam->getProjectionMatrix();
+			glm::mat4 objMod = m_selectedOBJ->getModelMatrix();
+			ImGuizmo::SetRect(mainWindowPosX, mainWindowPosY, m_pc->settingManager->getWindowWidth(), m_pc->settingManager->getWindowHeight());
+			ImGuizmo::SetGizmoSizeClipSpace(0.08f);
+			if (ImGuizmo::Manipulate(&view[0][0], &proj[0][0], (ImGuizmo::OPERATION)op, ImGuizmo::WORLD, &objMod[0][0]))
+			{				
+				glm::vec3 pos;
+				glm::vec3 eul;
+				glm::vec3 scale;
+				ImGuizmo::DecomposeMatrixToComponents(&objMod[0][0], &pos[0], &eul[0], &scale[0]);
+				m_selectedOBJ->setPosition(pos);
+				m_selectedOBJ->setEulerAngles(eul);
+				m_selectedOBJ->setScale(scale);
+			}
+			if (m_pc->inputManager->getKeyDown(GLFW_KEY_V) && !m_ignoredKeys)
+			{
+				glm::vec3 pos = m_pc->renderingEngine->getWorldCoordinates(m_pc->inputManager->getMousePosX(), m_pc->inputManager->getMousePosY());
+				for (int i = 0; i < m_currentSceneData->models.size(); i++)
+				{
+					if (m_selectedOBJ == m_currentSceneData->models[i])
+					{
+						const std::vector<Vertex>&  vertex = ((ShapeBufferBase*)m_currentSceneData->models[i]->getShapeBuffer())->getVertices();
+						glm::mat4 mat = m_selectedOBJ->getModelMatrix();
+						m_offsetMove = m_selectedOBJ->getPosition();
+						float dist = glm::distance(m_offsetMove, pos);
+						for (int j = 0; j < vertex.size(); j++)
+						{							
+							glm::vec3 np = glm::vec3(mat* glm::vec4(vertex[j].pos,1));
+							if (glm::distance(np, pos) < dist)
+							{
+								m_offsetMove = np;
+								dist = glm::distance(np, pos);
+							}
+						}
+						m_offsetMove = m_offsetMove-m_selectedOBJ->getPosition();						
+						break;
+					}
+				}
+				if (m_pc->inputManager->getKey(GLFW_KEY_C) && !m_ignoredKeys)
+				{
+					float dist = FLT_MAX;
+					int idModel = -1;
+					int idVertex = -1;
+					for (int i = 0; i < m_currentSceneData->models.size(); i++)
+					{
+						if (m_selectedOBJ != m_currentSceneData->models[i])
+						{
+							const std::vector<Vertex>& vertex = ((ShapeBufferBase*)m_currentSceneData->models[i]->getShapeBuffer())->getVertices();
+							glm::mat4 mat = m_currentSceneData->models[i]->getModelMatrix();
+							for (int j = 0; j < vertex.size(); j++)
+							{
+								glm::vec3 np = glm::vec3(mat * glm::vec4(vertex[j].pos, 1));
+								if (glm::distance(np, pos) < dist)
+								{									
+									dist = glm::distance(np, pos);
+									idModel = i;
+									idVertex = j;
+								}
+							}
+						}
+					}
+					if (idModel != -1)
+					{
+						const std::vector<Vertex>& vertex = ((ShapeBufferBase*)m_currentSceneData->models[idModel]->getShapeBuffer())->getVertices();
+						glm::mat4 mat = m_currentSceneData->models[idModel]->getModelMatrix();
+						glm::vec3 np = glm::vec3(mat * glm::vec4(vertex[idVertex].pos, 1));
+						m_selectedOBJ->setPosition(np - m_offsetMove);
+					}
+				}
+			}
+			if (m_pc->inputManager->getKey(GLFW_KEY_V) && !m_pc->inputManager->getKey(GLFW_KEY_C) && !m_ignoredKeys)
+			{				
+				glm::vec3 pos = m_pc->renderingEngine->getWorldCoordinates(m_pc->inputManager->getMousePosX(), m_pc->inputManager->getMousePosY());
+				if (glm::distance(cam->getPosition(), pos) < cam->getFar())
+				{
+					m_selectedOBJ->setPosition(pos- m_offsetMove);
+				}						
+			}
+		}	
+		if (m_currentSceneData != nullptr && m_generatePathFindingNextPlay && m_playMode == 1)
+		{
+			if (m_pc->inputManager->getKey(GLFW_KEY_K) && !m_currentSceneData->path.has)
+			{
+				m_currentSceneData->path.has = true;
+				Debug::Log("Scene Add Current path");
+			}
+		}
+		if (m_pc->inputManager->getMouse(GLFW_MOUSE_BUTTON_LEFT) && m_currentSceneData != nullptr && !m_ignoredKeys)
+		{
+			if (!m_clickedSceneSelected && !ImGuizmo::IsUsing() && !ImGui::GetIO().WantCaptureMouse)
+			{
+				Camera* cam = m_pc->cameraManager->getCurrentCamera();
+				glm::vec3 pos = m_pc->renderingEngine->getWorldCoordinates(m_pc->inputManager->getMousePosX(), m_pc->inputManager->getMousePosY());
+				if (glm::distance(cam->getPosition(), pos) < cam->getFar())
+				{
+					float dist = FLT_MAX;
+					float nd;
+					int selectedModel = -1;
+					for (int i = 0; i < m_currentSceneData->models.size(); i++)
+					{
+						nd = glm::distance(m_currentSceneData->models[i]->getPosition(), pos);
+						if (nd < dist)
+						{
+							dist = nd;
+							selectedModel = i;
+						}
+					}
+					if (selectedModel != -1)
+					{
+						m_selectedOBJ = m_currentSceneData->models[selectedModel];
+					}
+				}
+				else
+				{
+					m_selectedOBJ = nullptr;
+				}
+			}
+			m_clickedSceneSelected = true;
+		}
+		else
+		{
+			m_clickedSceneSelected = false;
+		}
+	}
+	ignoreKeyState();
+}
+
+FuncLinkSystem* Editor::getLinkSystem()
+{
+	return &m_linkSystem;
+}
+
+void Editor::ignoreKeyState()
+{
+	const EditorInputCapture capture = editorInputCapture(!m_hide);
+	m_ignoredKeys = capture.textInput;
+	if (m_pc && m_pc->cameraManager)
+	{
+		if (FlyCamera* camera = m_pc->cameraManager->getFlyCamera())
+			camera->setLock(capture.lockCamera || (!m_hide && ImGuizmo::IsUsing()));
+	}
+}

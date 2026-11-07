@@ -1,0 +1,308 @@
+#include "AudioSource.hpp"
+#include "SoundBuffer.hpp"
+#include "AL/al.h"
+#include "AL/alc.h"
+#define AL_ALEXT_PROTOTYPES
+#include "AL/efx.h"
+#include "imgui-cmake/Header/imgui.h"
+
+namespace Ge
+{
+	AudioSource::AudioSource(SoundBuffer* sb, std::string name, bool music) : GObject()
+	{
+		m_sb = sb;
+		m_music = music;
+		alGenSources(1, &m_sourceID);
+		alSourcei(m_sourceID, AL_BUFFER, sb->getbufferID());
+		alSourcef(m_sourceID, AL_PITCH, m_pitch);
+		alSourcef(m_sourceID, AL_GAIN, m_gain * m_busGain);
+		setName(name);
+		m_velocity = glm::vec3(0, 0, 0);
+	}
+
+	void AudioSource::play()
+	{
+		alSourcePlay(m_sourceID);
+	}
+
+	void AudioSource::stop()
+	{
+		alSourceStop(m_sourceID);
+	}
+
+	void AudioSource::pause()
+	{
+		alSourcePause(m_sourceID);
+	}
+
+	void AudioSource::setPitch(float pitch)
+	{
+		m_pitch = pitch;
+		alSourcef(m_sourceID, AL_PITCH, m_pitch);
+	}
+
+	void AudioSource::setGain(float gain)
+	{
+		m_gain = gain;
+		alSourcef(m_sourceID, AL_GAIN, m_gain * m_busGain);
+	}
+
+	void AudioSource::setBusGain(float gain)
+	{
+		m_busGain = glm::clamp(gain, 0.0f, 1.0f);
+		alSourcef(m_sourceID, AL_GAIN, m_gain * m_busGain);
+	}
+
+	bool AudioSource::isMusic() const
+	{
+		return m_music;
+	}
+
+	void AudioSource::setRelative(bool state3D)
+	{
+		alSourcei(m_sourceID, AL_SOURCE_RELATIVE, state3D ? AL_FALSE : AL_TRUE);
+	}
+
+	float AudioSource::getPitch() const
+	{
+		return m_pitch;
+	}
+
+	float AudioSource::getGain() const
+	{
+		return m_gain;
+	}
+
+	float AudioSource::getTime() const
+	{
+		ALfloat currentTime;
+		alGetSourcef(m_sourceID, AL_SEC_OFFSET, &currentTime);
+		return currentTime;
+	}
+
+	void AudioSource::setTime(float t)
+	{
+		alSourcef(m_sourceID, AL_SEC_OFFSET, t);
+	}
+
+	int AudioSource::SourceState()
+	{
+		ALint sourceState;
+		alGetSourcei(m_sourceID, AL_SOURCE_STATE, &sourceState);
+		//AL_PLAYING
+		return sourceState;
+	}
+
+	void AudioSource::setPosition(glm::vec3 pos)
+	{
+		GObject::setPosition(pos);
+		alSource3f(m_sourceID, AL_POSITION, pos.x, pos.y, pos.z);
+	}
+
+	void AudioSource::setRotation(glm::quat rot)
+	{
+		GObject::setRotation(rot);
+		glm::vec3 dir = getDirection();		
+		orientation[0] = dir.x;
+		orientation[1] = dir.y;
+		orientation[2] = dir.z;
+		orientation[3] = 0;
+		orientation[4] = -1.0f;
+		orientation[5] = 0.0f;		
+		alSourcefv(m_sourceID, AL_ORIENTATION, orientation);
+	}
+
+	void AudioSource::setEulerAngles(glm::vec3 eul)
+	{
+		GObject::setEulerAngles(eul);
+		glm::vec3 dir = getDirection();
+		orientation[0] = dir.x;
+		orientation[1] = dir.y;
+		orientation[2] = dir.z;
+		orientation[3] = 0;
+		orientation[4] = -1.0f;
+		orientation[5] = 0.0f;
+		alSourcefv(m_sourceID, AL_ORIENTATION, orientation);
+	}
+
+	void AudioSource::setVelocity(glm::vec3 vel)
+	{
+		m_velocity = vel;
+		alSource3f(m_sourceID, AL_VELOCITY, m_velocity.x, m_velocity.y, m_velocity.z);
+	}
+
+	glm::vec3 AudioSource::getVelocity() const
+	{
+		return m_velocity;
+	}
+
+	void AudioSource::setLoop(bool state)
+	{
+		m_loop = state;
+		alSourcei(m_sourceID, AL_LOOPING, m_loop ? AL_TRUE : AL_FALSE);
+	}
+
+	bool AudioSource::getLoop() const
+	{
+		return m_loop;
+	}
+
+	SoundBuffer* AudioSource::getSoundBuffer() const
+	{
+		return m_sb;
+	}
+
+	bool AudioSource::isPlaying()
+	{
+		ALint state;
+		alGetSourcei(m_sourceID, AL_SOURCE_STATE, &state);
+		return state == AL_PLAYING;
+	}
+
+	void AudioSource::setSoundBuffer(SoundBuffer* newBuffer)
+	{
+		if (newBuffer == nullptr)
+		{
+			std::cerr << "[AudioSource] Tentative de changer vers un buffer nul !" << std::endl;
+			return;
+		}
+
+		if (m_sb == newBuffer)
+		{
+			return;
+		}
+
+		ALint state;
+		alGetSourcei(m_sourceID, AL_SOURCE_STATE, &state);
+		if (state == AL_PLAYING || state == AL_PAUSED)
+		{
+			alSourceStop(m_sourceID);
+		}
+
+		m_sb = newBuffer;
+		alSourcei(m_sourceID, AL_BUFFER, newBuffer->getbufferID());
+	}
+
+
+	void AudioSource::setRolloffFactor(float rolloffFactor)
+	{
+		m_rolloffFactor = rolloffFactor;
+		alSourcef(m_sourceID, AL_ROLLOFF_FACTOR, m_rolloffFactor);
+	}
+
+	float AudioSource::getRolloffFactor() const
+	{
+		return m_rolloffFactor;
+	}
+
+	void AudioSource::setMaxDistance(float maxDistance)
+	{
+		m_maxDistance = maxDistance;
+		alSourcef(m_sourceID, AL_MAX_DISTANCE, m_maxDistance);
+	}
+
+	float AudioSource::getMaxDistance() const
+	{
+		return m_maxDistance;
+	}
+
+	void AudioSource::setRefDistance(float refDistance)
+	{
+		m_refDistance = refDistance;
+		alSourcef(m_sourceID, AL_REFERENCE_DISTANCE, m_refDistance);
+	}
+
+	float AudioSource::getRefDistance() const
+	{
+		return m_refDistance;
+	}
+
+	void AudioSource::mapMemory(){}
+
+	void AudioSource::addWaterFilter(float gain, float hf)
+	{		
+		alGenFilters(1, &m_filter);
+
+		alFilteri(m_filter, AL_FILTER_TYPE, AL_FILTER_LOWPASS);
+		alFilterf(m_filter, AL_LOWPASS_GAIN, gain);
+		alFilterf(m_filter, AL_LOWPASS_GAINHF, hf);
+
+		alSourcei(m_sourceID, AL_DIRECT_FILTER, m_filter);
+	}
+
+	void AudioSource::clearFilter()
+	{
+		if (m_filter != -1)
+		{
+			alSourcei(m_sourceID, AL_DIRECT_FILTER, AL_FILTER_NULL);
+			alDeleteFilters(1, &m_filter);
+			m_filter = -1;
+		}
+	}
+
+	void AudioSource::onGUI()
+	{
+		GObject::onGUI();
+		ImGui::TextColored(ImVec4(0.2f, 1, 0.2f, 1), "AudioSource\n");
+
+		if (ImGui::DragFloat("Pitch", &m_pitch, 0.05f, 0.0f))
+		{
+			m_pitch = glm::max(0.001f, m_pitch);
+			setPitch(m_pitch);
+		}
+		if (ImGui::DragFloat("Gain", &m_gain, 0.05f, 0.0f,1.0f))
+		{
+			setGain(m_gain);
+		}
+		if (ImGui::DragFloat("RolloffFactor", &m_rolloffFactor,0.05f,0.0f))
+		{
+			setRolloffFactor(m_rolloffFactor);
+		}
+		if (ImGui::DragFloat("MaxDistance", &m_maxDistance, 0.5f, 0.0f))
+		{
+			setMaxDistance(m_maxDistance);
+		}
+		if (ImGui::DragFloat("RefDistance", &m_refDistance, 0.5f, 0.0f))
+		{
+			setRefDistance(m_refDistance);
+		}
+		if (ImGui::DragFloat3("Velocity", (float*)&m_velocity))
+		{
+			setVelocity(m_velocity);
+		}
+		if (ImGui::Checkbox("Loop", &m_loop))
+		{
+			setLoop(m_loop);
+		}
+		if (ImGui::Button("Play"))
+		{
+			play();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Pause"))
+		{
+			pause();
+		}
+		ImGui::SameLine();
+		if (ImGui::Button("Stop"))
+		{
+			stop();
+		}
+		if (m_sb != nullptr)
+		{
+			float f = getTime();
+			if (ImGui::SliderFloat("Time", &f, 0.0f, m_sb->getTime()))
+			{
+				setTime(glm::min(f, m_sb->getTime()-0.01f));
+			}
+		}
+
+	}
+
+	AudioSource::~AudioSource()
+	{		
+		alSourceStop(m_sourceID);
+		clearFilter();
+		alDeleteSources(1, &m_sourceID);
+	}
+}

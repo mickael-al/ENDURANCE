@@ -1,0 +1,84 @@
+{
+  "freeCamPos": {
+    "x": 0.0,
+    "y": 2.0,
+    "z": 5.0
+  },
+  "freeCamRot": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+    "w": 1.0
+  },
+  "freeCamAngle": {
+    "x": 0.0,
+    "y": 0.0
+  },
+  "skeletonData": [],
+  "bufferData": [],
+  "shaderData": [],
+  "materialData": [],
+  "textureData": [],
+  "modelData": [],
+  "lightData": [],
+  "soundBufferData": [],
+  "audioData": [],
+  "emptyData": [],
+  "path": {
+    "has": false,
+    "pathPosition": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "zoneSize": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "pointCount": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "pathFolder": "",
+    "pathLiasonPercent": 0.0
+  },
+  "skyboxPath": "",
+  "skyboxNearest": false,
+  "skyboxSaturation": 1.0,
+  "pp": {
+    "bloom": false,
+    "bloom_filter": 0.001,
+    "bloom_threshold": 0.01,
+    "bloom_intensity": 1.0,
+    "exposure": 1.0,
+    "fog": false,
+    "fog_min_distance": 100.0,
+    "fog_max_distance": 800.0,
+    "fog_mode": 0,
+    "fog_color": {
+      "x": 1.0,
+      "y": 1.0,
+      "z": 1.0
+    },
+    "depth_of_field": false,
+    "dof_focus_distance": 12.0,
+    "dof_focal_length": 50.0,
+    "dof_f_number": 1.8,
+    "dof_sensor_height": 24.0,
+    "dof_max_radius": 12.0,
+    "dof_match_camera_fov": true,
+    "color_tint": false,
+    "tint_color": {
+      "x": 1.0,
+      "y": 1.0,
+      "z": 1.0
+    },
+    "tint_strength": 0.5,
+    "tint_saturation": 1.0,
+    "tint_contrast": 1.0,
+    "oil_painting": false,
+    "oilp_radius": 1
+  }
+}

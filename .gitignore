@@ -1,0 +1,24 @@
+# Build products and IDE state
+/Bin/
+/build/
+/out/
+/.vs/
+/.idea/
+/CMakeUserPresets.json
+*.o
+*.a
+*.so
+*.dylib
+*.dll
+*.exe
+*.pdb
+*.ilk
+*.exp
+*.log
+
+# Local editor preferences and generated project settings
+/ENDURANCE.editor.json
+/ENDURANCE/Setting.json
+/imgui.ini
+
+# OBJ files are source meshes, so do not ignore *.obj globally.

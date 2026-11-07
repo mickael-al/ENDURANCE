@@ -1,0 +1,21 @@
+#ifndef __ENGINE_UNIFORM_BUFFER_LIGHT__
+#define __ENGINE_UNIFORM_BUFFER_LIGHT__
+
+#include "glm/glm.hpp"
+
+struct UniformBufferLight
+{
+    alignas(16) glm::vec3 position;
+    alignas(16) glm::vec3 color;
+    alignas(16) glm::vec3 direction;
+    float range;
+    float spotAngle;
+    int status;    // DirLight = 0 ; PointLight = 1 ; SpotLight = 2
+    int shadowId;
+    int minPlaneID; // -1 when the light has no blocker plane.
+    int maxPlaneID; // Exclusive end of the range in the plane buffer.
+};
+
+static_assert(sizeof(UniformBufferLight) == 80, "UniformBufferLight must match the GLSL std430 layout");
+
+#endif //!__ENGINE_UNIFORM_BUFFER_LIGHT__

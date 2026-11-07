@@ -1,0 +1,398 @@
+#include "RigidBody.hpp"
+
+#include <algorithm>
+
+namespace Ge
+{
+
+RigidBody::RigidBody(btDynamicsWorld* world) : m_pWorld(world), GObject(false)
+{
+    setName("RigidBody");
+}
+
+RigidBody::RigidBody(btDynamicsWorld* world, std::shared_ptr<CollisionShape> shape, bool hasInertia) : m_pWorld(world), GObject(false)
+{
+    setName("RigidBody");
+    BuildPhysics(shape, hasInertia);   
+    //m_pBody->setCollisionFlags(m_pBody->getCollisionFlags() & ~btCollisionObject::CF_NO_CONTACT_RESPONSE);    
+}
+
+void RigidBody::Translate(glm::vec3 const& translate)
+{
+    m_pBody->translate( btVector3(translate.x, translate.y, translate.z));
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::setPosition(glm::vec3 pos) 
+{
+    m_transform.position = pos;
+    btTransform initialTransform;
+    btQuaternion rotation = m_pBody->getWorldTransform().getRotation();
+
+    initialTransform.setOrigin(btVector3(pos.x, pos.y, pos.z));
+    initialTransform.setRotation(rotation);
+
+    m_pBody->setWorldTransform(initialTransform);
+    m_pMotionState->setWorldTransform(initialTransform);
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::setRotation(glm::quat rot) 
+{
+    m_transform.rotation = rot;
+    m_eulerAngles = GObject::getEulerAngles();
+    btTransform initialTransform;
+    btVector3   position = m_pBody->getWorldTransform().getOrigin();
+
+    initialTransform.setOrigin(position);
+    initialTransform.setRotation(btQuaternion(rot.x, rot.y, rot.z, rot.w));
+
+    m_pBody->setWorldTransform(initialTransform);
+    m_pMotionState->setWorldTransform(initialTransform);
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::setEulerAngles(glm::vec3 eul) 
+{
+    m_eulerAngles = eul;
+    m_transform.rotation = glm::quat(glm::radians(eul));
+    glm::quat rot = GObject::getRotation();
+    btTransform initialTransform;
+    btVector3   position = m_pBody->getWorldTransform().getOrigin();
+    
+    initialTransform.setOrigin(position);
+    initialTransform.setRotation(btQuaternion(rot.x, rot.y, rot.z, rot.w));
+
+    m_pBody->setWorldTransform(initialTransform);
+    m_pMotionState->setWorldTransform(initialTransform);
+    publishPhysicsSnapshot();
+}
+
+glm::vec3 RigidBody::getPosition() const
+{
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    return m_snapshotPosition;
+}
+glm::quat RigidBody::getRotation() const
+{
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    return m_snapshotRotation;
+}
+glm::vec3 RigidBody::getEulerAngles() 
+{
+    m_transform.rotation = getRotation();
+    m_eulerAngles = GObject::getEulerAngles();
+    return GObject::getEulerAngles();
+}
+
+glm::vec3 RigidBody::getGravity() const
+{
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    return m_snapshotGravity;
+}
+
+void RigidBody::SetMass(float mass)
+{
+    m_pShape->SetMass(mass);
+    glm::vec3 inertia = m_pShape->GetInertia();    
+    m_pBody->setMassProps(mass, btVector3(inertia.x, inertia.y, inertia.z) );
+}
+
+void RigidBody::setGravity(glm::vec3 const& gravity)
+{
+    m_pBody->setGravity( btVector3(gravity.x, gravity.y, gravity.z) );
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::SetRestitution(float coef)
+{
+    m_pBody->setRestitution(coef);
+}
+
+void RigidBody::SetLinearVelocity(const glm::vec3 velocity)
+{
+    m_pBody->setLinearVelocity(btVector3(velocity.x, velocity.y, velocity.z));
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::SetAngularVelocity(const glm::vec3 velocity)
+{
+    m_pBody->setAngularVelocity(btVector3(velocity.x, velocity.y, velocity.z));
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::ResetDynamics(const glm::vec3 position, const glm::quat rotation)
+{
+	if (m_pBody == nullptr || m_pMotionState == nullptr)
+	{
+		return;
+	}
+
+	// Clear every source of residual motion before moving the body. In
+	// particular, Bullet's interpolation velocities must not keep carrying the
+	// previous round's motion after the teleport.
+	const btVector3 zeroVelocity(0.0f, 0.0f, 0.0f);
+	m_pBody->setLinearVelocity(zeroVelocity);
+	m_pBody->setAngularVelocity(zeroVelocity);
+	m_pBody->setInterpolationLinearVelocity(zeroVelocity);
+	m_pBody->setInterpolationAngularVelocity(zeroVelocity);
+	m_pBody->clearForces();
+	m_pBody->setDeactivationTime(0.0f);
+
+	btTransform resetTransform;
+	resetTransform.setOrigin(btVector3(position.x, position.y, position.z));
+	resetTransform.setRotation(
+		btQuaternion(rotation.x, rotation.y, rotation.z, rotation.w));
+	m_pBody->setWorldTransform(resetTransform);
+	m_pMotionState->setWorldTransform(resetTransform);
+	m_pBody->setInterpolationWorldTransform(resetTransform);
+
+	m_transform.position = position;
+	m_transform.rotation = rotation;
+	m_eulerAngles = GObject::getEulerAngles();
+	m_pBody->forceActivationState(ISLAND_SLEEPING);
+	publishPhysicsSnapshot();
+}
+
+void RigidBody::ApplyImpulse(glm::vec3 impulse, glm::vec3 real_pos)
+{
+    m_pBody->applyImpulse(btVector3(impulse.x, impulse.y, impulse.z), btVector3(real_pos.x, real_pos.y, real_pos.z));
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::applyCentralImpulse(glm::vec3 impulse)
+{
+    m_pBody->applyCentralImpulse(btVector3(impulse.x, impulse.y, impulse.z));
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::setCollisionFlags(int flags)
+{
+    m_pBody->setCollisionFlags(flags);
+}
+
+void RigidBody::addCollisionFlags(int flags)
+{
+    m_pBody->setCollisionFlags(m_pBody->getCollisionFlags() | flags);
+}
+
+int RigidBody::getCollisionFlags()
+{
+    return m_pBody->getCollisionFlags();
+}
+
+void RigidBody::SetAngularFactor(const glm::vec3 factor)
+{
+    m_pBody->setAngularFactor(btVector3(factor.x, factor.y, factor.z));
+}
+
+void RigidBody::SetLinearFactor(const glm::vec3 factor)
+{
+    m_pBody->setLinearFactor(btVector3(factor.x, factor.y, factor.z));
+}
+
+void RigidBody::SetDampling(const glm::vec2 dampling)
+{
+    m_pBody->setDamping(dampling.x, dampling.y);
+}
+
+glm::vec3 RigidBody::GetLinearVelocity()
+{
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    return m_snapshotLinearVelocity;
+}
+
+glm::vec3 RigidBody::GetAngularVelocity()
+{
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    return m_snapshotAngularVelocity;
+}
+
+bool RigidBody::GetPhysicsSnapshot(
+    glm::vec3& position,
+    glm::quat& rotation,
+    glm::vec3& linearVelocity,
+    glm::vec3& angularVelocity,
+    bool* active) const
+{
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    if (!m_snapshotInWorld)
+    {
+        return false;
+    }
+    position = m_snapshotPosition;
+    rotation = m_snapshotRotation;
+    linearVelocity = m_snapshotLinearVelocity;
+    angularVelocity = m_snapshotAngularVelocity;
+    if (active != nullptr)
+    {
+        *active = m_snapshotActive;
+    }
+    return true;
+}
+
+void RigidBody::capturePhysicsSnapshot()
+{
+    publishPhysicsSnapshot();
+}
+
+void RigidBody::publishPhysicsSnapshot()
+{
+    if (m_pBody == nullptr)
+    {
+        return;
+    }
+    const btTransform& transform = m_pBody->getWorldTransform();
+    const btVector3 position = transform.getOrigin();
+    const btQuaternion rotation = transform.getRotation();
+    const btVector3 linearVelocity = m_pBody->getLinearVelocity();
+    const btVector3 angularVelocity = m_pBody->getAngularVelocity();
+    const btVector3 gravity = m_pBody->getGravity();
+
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    m_snapshotPosition = glm::vec3(position.x(), position.y(), position.z());
+    m_snapshotRotation = glm::quat(rotation.w(), rotation.x(), rotation.y(), rotation.z());
+    m_snapshotLinearVelocity = glm::vec3(
+        linearVelocity.x(), linearVelocity.y(), linearVelocity.z());
+    m_snapshotAngularVelocity = glm::vec3(
+        angularVelocity.x(), angularVelocity.y(), angularVelocity.z());
+    m_snapshotGravity = glm::vec3(gravity.x(), gravity.y(), gravity.z());
+    m_snapshotActive = m_pBody->isActive();
+}
+
+void RigidBody::setInWorldSnapshot(bool inWorld)
+{
+    std::lock_guard<std::mutex> lock(m_snapshotMutex);
+    m_snapshotInWorld = inWorld;
+}
+
+void RigidBody::forceActivationState(int newState)
+{
+    style_idx = newState - 1;
+    m_pBody->forceActivationState(newState);    
+}
+
+void RigidBody::BuildPhysics(std::shared_ptr<CollisionShape> shape, bool hasInertia)
+{
+    if (IsInitialized())
+    {
+        return;
+    }
+    m_pShape = shape;
+    m_pMotionState = new btDefaultMotionState();
+    
+    // A body created without inertia must explicitly use Bullet's zero
+    // inertia vector. GLM does not guarantee that a default-constructed
+    // vector is initialized, so forwarding it here was undefined behaviour.
+    glm::vec3 inertia(0.0f);
+    if (hasInertia)
+    {
+        inertia = m_pShape->GetInertia();
+    }
+
+    m_pBody = new btRigidBody(m_pShape->GetMass(), m_pMotionState, m_pShape->GetShape(), btVector3(inertia.x, inertia.y, inertia.z));
+    publishPhysicsSnapshot();
+}
+
+bool RigidBody::IsInitialized()
+{
+    return m_pBody != nullptr;
+}
+
+void RigidBody::SetSleepingThreshold(float linear, float angular)
+{
+    m_pBody->setSleepingThresholds(btScalar(linear), btScalar(angular));
+}
+
+void RigidBody::SetCcd(float motionThreshold, float sweptSphereRadius)
+{
+	m_pBody->setCcdMotionThreshold((std::max)(0.0f, motionThreshold));
+	m_pBody->setCcdSweptSphereRadius((std::max)(0.0f, sweptSphereRadius));
+}
+
+void RigidBody::setFriction(float f)
+{
+    m_pBody->setFriction(f);
+}
+
+void RigidBody::activate(bool state)
+{
+    m_pBody->activate(state);
+}
+
+void RigidBody::lockRotation()
+{
+    btTransform initialTransform;
+    m_pBody->getMotionState()->getWorldTransform(initialTransform);
+
+    btGeneric6DofConstraint* constraint = new btGeneric6DofConstraint(*m_pBody, btTransform::getIdentity(), true);
+
+    constraint->setLinearLowerLimit(btVector3(-100000, -100000, -100000));
+    constraint->setLinearUpperLimit(btVector3(100000, 100000, 100000));
+
+    constraint->setAngularLowerLimit(btVector3(0, 0, 0));
+    constraint->setAngularUpperLimit(btVector3(0, 0, 0));
+    m_contraints.push_back(constraint);
+    m_pWorld->addConstraint(constraint, true);
+}
+
+const std::shared_ptr<CollisionShape> RigidBody::getCollisionShape() const
+{
+    return m_pShape;
+}
+
+void RigidBody::mapMemory(){}
+
+
+void RigidBody::onGUI()
+{
+    GObject::setPosition(getPosition());    
+    GObject::onGUI();
+
+    glm::vec3 vel = GetLinearVelocity();
+    m_velocity[0] = vel.x;
+    m_velocity[1] = vel.y;
+    m_velocity[2] = vel.z;
+    glm::vec3 gravity = getGravity();
+    m_gravity[0] = gravity.x;
+    m_gravity[1] = gravity.y;
+    m_gravity[2] = gravity.z;
+
+    ImGui::TextColored(ImVec4(0.2f, 1, 0.2f, 1), "RigidBody\n");
+    if (ImGui::DragFloat3("Gravity", m_gravity, 0.2f))
+    {
+        setGravity(glm::vec3(m_gravity[0], m_gravity[1], m_gravity[2]));
+    }
+    if (ImGui::DragFloat3("Velocity", m_velocity, 0.2f))
+    {
+        vel.x = m_velocity[0];
+        vel.y = m_velocity[1];
+        vel.z = m_velocity[2];
+        SetLinearVelocity(vel);
+    }
+    if (ImGui::Combo("ActivationState", &style_idx, "ACTIVE_TAG\0ISLAND_SLEEPING\0WANTS_DEACTIVATION\0DISABLE_DEACTIVATION\0DISABLE_SIMULATION\0"))
+    {
+        switch (style_idx)
+        {
+        case 0: m_pBody->forceActivationState(1); break;
+        case 1: m_pBody->forceActivationState(2); break;
+        case 2: m_pBody->forceActivationState(3); break;
+        case 3: m_pBody->forceActivationState(4); break;
+        case 4: m_pBody->forceActivationState(5); break;
+        }
+    }
+}
+
+RigidBody::~RigidBody()
+{
+    for (int i = 0; i < m_contraints.size(); i++)
+    {        
+        m_pWorld->removeConstraint(m_contraints[i]);
+        delete m_contraints[i];
+    }
+    m_contraints.clear();
+    delete m_pMotionState;
+    delete m_pBody;
+}
+
+}
