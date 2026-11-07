@@ -3,7 +3,6 @@
 #include "glcore.hpp"
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainBiomes.hpp"
-#include "SharedEglContext.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -105,23 +104,26 @@ std::vector<std::array<std::uint32_t,3>> meshBytes(GpuMesher& mesher,const MeshH
     std::sort(vertices.begin(),vertices.end());
     return vertices;
 }
-void finishCompiles(GpuMesher& mesher)
+// Intercept the real GL entry points after initialization: streaming/revisiting
+// regions must never create a shader or link a program on this generic path.
+unsigned streamingCompiles=0, streamingLinks=0;
+PFNGLCOMPILESHADERPROC originalCompile=nullptr;
+PFNGLLINKPROGRAMPROC originalLink=nullptr;
+void GLAPIENTRY observeCompile(GLuint shader) { ++streamingCompiles; originalCompile(shader); }
+void GLAPIENTRY observeLink(GLuint program) { ++streamingLinks; originalLink(program); }
+struct CompileObserver
 {
-    std::vector<Completion> ignored;
-    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
-    while(mesher.stats().pendingBiomeVariants && std::chrono::steady_clock::now()<deadline)
+    CompileObserver()
     {
-        mesher.poll(ignored);
-        std::this_thread::yield();
+        streamingCompiles=streamingLinks=0;
+        originalCompile=__glewCompileShader; originalLink=__glewLinkProgram;
+        __glewCompileShader=observeCompile; __glewLinkProgram=observeLink;
     }
-    require(ignored.empty(),"Idle shader compilation produced a duplicate mesh completion");
-    require(!mesher.stats().pendingBiomeVariants,"Parallel biome compilation failed to complete while no mesh jobs were pending");
-    require(!mesher.stats().biomeCompileFailures,"Biome variant compilation failed: "+mesher.lastError());
-}
-void checkBiomeVariants(GpuMesher& mesher,GpuConfig config)
+    ~CompileObserver() { __glewCompileShader=originalCompile; __glewLinkProgram=originalLink; }
+};
+void checkGenericBiomes(GpuMesher& mesher,GpuConfig config)
 {
     config.cells=8;config.maxInFlight=2;config.maxResidentChunks=4;config.vertexBudgetMiB=1;
-    config.maxBiomeVariants=2;config.maxParallelBiomeCompiles=1;
     config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
     config.field.heightAmplitude=0;config.field.detailScale=0;
     config.field.biomeOverride=-1;
@@ -129,83 +131,49 @@ void checkBiomeVariants(GpuMesher& mesher,GpuConfig config)
     require(mesher.initialize(config,error),error);
     const std::uint64_t side=config.cells+3;
     require(mesher.stats().transientFieldBytes==config.maxInFlight*(side*side*side*4+side*side*FieldColumnBytes),
-        "Transient fields no longer use the expected 48-byte columns and float density");
+        "Transient fields no longer use 48-byte columns and float density");
+    require(mesher.stats().biomeMetadataBytes==1024+config.maxInFlight*16,
+        "Biome metadata no longer contains only the CPU cell table and 16-byte job counters");
+    CompileObserver observer;
     ChunkRequest request;request.seed=1337;
     require(mesher.submit(request,100),mesher.lastError());
-    mesher.cancel(100); // Cancel while the CPU is waiting for classification.
+    mesher.cancel(100);
     const auto cancelled=finish(mesher,1).front();
     require(cancelled.status==CompletionStatus::Cancelled && mesher.stats().allocatedBytes==0,
-        "Classification cancellation leaked a job/allocation");
+        "Generic generation cancellation leaked a job/allocation");
     const auto first=one(mesher,request,101);
-    require(first.status==CompletionStatus::Ready,"Automatic terrain fallback did not produce a mesh");
+    require(first.status==CompletionStatus::Ready,"Automatic biome generation did not produce a mesh");
     const auto reference=meshBytes(mesher,first.mesh);
-    const bool parallel=mesher.stats().parallelShaderCompilation;
-    if(parallel) require(mesher.stats().biomeVariantFallbacks>0,"First unseen biome mask did not use generic fallback");
     mesher.release(first.mesh);collectRetired(mesher);
-    finishCompiles(mesher);
-    const auto hits=mesher.stats().biomeVariantHits;
-    const auto second=one(mesher,request,102);
-    require(second.status==CompletionStatus::Ready && meshBytes(mesher,second.mesh)==reference,
-        "Cached specialized program changes actual packed geometry/normals/climate");
-    if(parallel)require(mesher.stats().biomeVariantHits==hits+1,"Ready biome variant was not reused");
-    mesher.release(second.mesh);collectRetired(mesher);
     const std::array<std::array<int,2>,5> origins{{{{4096,0}},{{-4096,4096}},{{8192,-8192}},{{-16384,8192}},{{24576,16384}}}};
-    std::uint64_t token=103;
+    std::uint64_t token=102;
     for(const auto& origin:origins)
     {
         request.origin[0]=origin[0];request.origin[2]=origin[1];
         const auto mesh=one(mesher,request,token++);
-        require(mesh.status==CompletionStatus::Ready,"Variant cache pressure interrupted terrain generation");
-        require(mesher.stats().biomeVariants<=config.maxBiomeVariants &&
-                mesher.stats().pendingBiomeVariants<=config.maxParallelBiomeCompiles,"Variant cache or compile budget exceeded");
-        mesher.release(mesh.mesh);collectRetired(mesher);finishCompiles(mesher);
+        require(mesh.status==CompletionStatus::Ready,"Visiting another biome region failed");
+        mesher.release(mesh.mesh);collectRetired(mesher);
     }
-    if(parallel) require(mesher.stats().biomeVariantFallbacks>=3 && mesher.stats().biomeVariants==2,
-        "Cache test did not exercise more masks than its bounded capacity");
-    const auto saturated=mesher.stats();
-    if(parallel)require(saturated.biomeVariantCompiles==2 && saturated.biomeVariantCacheFull>0,
-        "A full cache evicted/recompiled variants instead of retaining its two admitted programs");
     request.origin={0,0,0};
-    const auto revisited=one(mesher,request,190);
+    const auto revisited=one(mesher,request,token++);
     require(revisited.status==CompletionStatus::Ready && meshBytes(mesher,revisited.mesh)==reference,
-        "Revisiting the first chunk changed its packed geometry after cache saturation");
-    if(parallel) require(mesher.stats().biomeVariantHits==saturated.biomeVariantHits+1 &&
-        mesher.stats().biomeVariantCompiles==saturated.biomeVariantCompiles,
-        "The first variant was evicted or recompiled after visiting more biome masks");
+        "Revisiting a region changed its packed positions/normals/climate");
     mesher.release(revisited.mesh);collectRetired(mesher);
     const auto idle=mesher.stats();
     std::vector<Completion> idleCompletions;
     for(unsigned i=0;i<64;++i)mesher.poll(idleCompletions);
     const auto afterIdle=mesher.stats();
     require(idleCompletions.empty() && afterIdle.pendingJobs==0 &&
-        afterIdle.biomeVariants==idle.biomeVariants && afterIdle.pendingBiomeVariants==0 &&
-        afterIdle.biomeVariantHits==idle.biomeVariantHits &&
-        afterIdle.biomeVariantFallbacks==idle.biomeVariantFallbacks &&
-        afterIdle.biomeVariantCompiles==idle.biomeVariantCompiles &&
-        afterIdle.biomeVariantCacheFull==idle.biomeVariantCacheFull &&
-        afterIdle.biomeCompileFailures==idle.biomeCompileFailures,
-        "An idle terrain continued scheduling generation or shader work");
-    // Generic-only mode must preserve the same world, and never enqueue a
-    // runtime compilation even on a driver exposing parallel shader support.
-    config.enableBiomeVariants=false;
-    require(mesher.initialize(config,error),error);
-    request.origin={0,0,0};
-    const auto generic=one(mesher,request,200);
-    require(generic.status==CompletionStatus::Ready && meshBytes(mesher,generic.mesh)==reference,
-        "Disabling specialization changed terrain output");
-    require(!mesher.stats().biomeVariants && !mesher.stats().pendingBiomeVariants,
-        "Generic-only mode still allocated variants");
-    config.enableBiomeVariants=true;
-    config.shaderCompilerContext={};
-    require(mesher.initialize(config,error),error);
-    const auto noContext=one(mesher,request,201);
-    require(noContext.status==CompletionStatus::Ready && meshBytes(mesher,noContext.mesh)==reference,
-        "No-worker-context fallback changed terrain output");
-    require(!mesher.stats().parallelShaderCompilation && !mesher.stats().biomeVariants &&
-            !mesher.stats().pendingBiomeVariants,"Missing shared context caused render-thread compilation");
+        afterIdle.completedJobs==idle.completedJobs && afterIdle.emptyJobs==idle.emptyJobs &&
+        afterIdle.failedJobs==idle.failedJobs && afterIdle.allocatedBytes==idle.allocatedBytes &&
+        afterIdle.drawListUploads==idle.drawListUploads,
+        "An idle terrain continued scheduling generation or uploads");
+    require(streamingCompiles==0 && streamingLinks==0,
+        "Terrain streaming, region revisits or idle polling compiled/linked shaders");
     mesher.shutdown();
-    std::cout<<"PASS biome backend: classification cancellation, generic fallback, shared-context compilation, idle polling, stable full cache without recompilation, identical packed meshes and 48-byte columns\n";
+    std::cout<<"PASS generic biome backend: cancellation, region revisits, idle polling, no runtime shader compilation, identical packed meshes and 48-byte columns/16-byte counters\n";
 }
+
 }
 
 extern "C" int terrain_backend_tests(const char* shaderDirectory)
@@ -219,10 +187,8 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         require(glewStatus==GLEW_OK || glewStatus==GLEW_ERROR_NO_GLX_DISPLAY,"GLEW initialization failed");
         require(GLEW_VERSION_4_5 && glCreateBuffers,"Backend requires desktop GL4.5 DSA");
         while (glGetError()!=GL_NO_ERROR) {}
-        SharedEglContext compilerContext;
         GpuMesher mesher;
         GpuConfig config;
-        config.shaderCompilerContext=compilerContext.hooks();
         config.cells=8;config.maxInFlight=2;config.maxResidentChunks=2;config.vertexBudgetMiB=1;
         config.shaderDirectory=shaderDirectory;config.field.mode=FieldMode::Plane;config.field.baseHeight=3.25f;
         std::string error;
@@ -305,7 +271,7 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         std::cout << "PASS backend vertex budget: three 64³ planes fit, fourth fails without exceeding its allocation\n";
         std::cout << "Software-driver GPU query for last 64³ plane: " << mesher.stats().lastGenerationMilliseconds << " ms (not hardware performance)\n";
         mesher.shutdown();
-        checkBiomeVariants(mesher,config);
+        checkGenericBiomes(mesher,config);
         require(glGetError()==GL_NO_ERROR,"OpenGL error after shutdown");
         return 0;
     }

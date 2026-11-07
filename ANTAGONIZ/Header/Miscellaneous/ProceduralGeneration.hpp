@@ -25,9 +25,6 @@ public:
         std::uint32_t vertexBudgetMiB = 256;
         std::uint32_t maxResidentChunks = 2048;
         std::uint32_t maxSelectedChunks = 1024;
-        bool enableBiomeVariants = true;
-        std::uint32_t maxBiomeVariants = 256;
-        std::uint32_t maxParallelBiomeCompiles = 2;
         ProceduralTerrain::FieldParameters field;
         float microDetailStrength = 0.15f;
         float microDetailScale = 2.0f;
@@ -67,12 +64,7 @@ public:
         std::uint32_t largestLodTransaction = 0;
         double lastPlanningMilliseconds = 0.0;
         double lastGenerationMilliseconds = 0.0;
-        double lastClassificationMilliseconds = 0.0;
         std::uint64_t transientFieldBytes = 0;
-        std::uint64_t biomeVariantHits = 0, biomeVariantFallbacks = 0, biomeCompileFailures = 0;
-        std::uint64_t biomeVariantCompiles = 0, biomeVariantCacheFull = 0;
-        std::uint32_t biomeVariants = 0, pendingBiomeVariants = 0;
-        bool parallelShaderCompilation = false;
         bool rebuilding = false;
         bool resourceLimited = false;
     };

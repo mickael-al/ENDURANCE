@@ -25,12 +25,11 @@ COLUMN_BYTES = COLUMN_WORDS * 4
 
 
 class FieldRunner:
-    def __init__(self, gl: GL, defines="", directory=SHADERS):
+    def __init__(self, gl: GL, directory=SHADERS):
         self.gl = gl
         self.mapping = gl.buffer(packed_biome_cells())
-        self.classify_program = gl.compute(directory / "field_classify.C.glsl")
-        self.columns_program = gl.compute(directory / "field_columns.C.glsl", defines)
-        self.density_program = gl.compute(directory / "field_density.C.glsl", defines)
+        self.columns_program = gl.compute(directory / "field_columns.C.glsl")
+        self.density_program = gl.compute(directory / "field_density.C.glsl")
 
     def run(self, cells=8, origin=(0, 0, 0), lod=0, seed=0, mode=0, **overrides):
         gl = self.gl
@@ -39,7 +38,6 @@ class FieldRunner:
         nan = struct.pack("<I", 0x7FC00001)
         columns = gl.buffer(nan * (side * side * COLUMN_WORDS), 1)
         density = gl.buffer(nan * (side ** 3), 0)
-        counters = gl.buffer(bytes(32), 3)
         gl.bind(self.mapping, 7)
         uniforms = {
             "uCells": ("1ui", cells),
@@ -66,12 +64,9 @@ class FieldRunner:
         for name, value in overrides.items():
             suffix = uniforms[name][0]
             uniforms[name] = (suffix, *(value if isinstance(value, tuple) else (value,)))
-        for program in (self.classify_program, self.columns_program, self.density_program):
+        for program in (self.columns_program, self.density_program):
             for name, values in uniforms.items():
                 gl.uniform(program, name, *values)
-        gl.dispatch_extent(self.classify_program, side, side)
-        classification = struct.unpack("<8I", gl.read(counters, 32))
-        raw_classification = gl.read(columns, side * side * COLUMN_BYTES)
         gl.dispatch_extent(self.columns_program, side, side)
         gl.dispatch_extent(self.density_program, side, side, side)
         raw_density = gl.read(density, side ** 3 * 4)
@@ -79,8 +74,6 @@ class FieldRunner:
         gl.check("field generation")
         return {
             "density_buffer": density, "column_buffer": columns,
-            "classification_raw": raw_classification,
-            "cell_mask": classification[4:6],
             "density_raw": raw_density, "columns_raw": raw_columns,
             "density": struct.unpack(f"<{side ** 3}f", raw_density),
             "columns": struct.unpack(f"<{side * side * COLUMN_WORDS}f", raw_columns),

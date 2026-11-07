@@ -43,8 +43,8 @@ vec2 fieldClimateAt(vec2 p)
     return smoothstep(vec2(-0.32),vec2(0.32),n);
 }
 
-// No biome functions execute in this inexpensive classification prepass.
-// The complete sample lattice (including the meshing halo) is classified.
+// Compute local climate coordinates and matrix cell before evaluating relief.
+// This intermediate stays within the column invocation, including its halo.
 FieldColumn fieldClassifyColumn(vec2 p)
 {
     FieldColumn column;
@@ -71,7 +71,6 @@ vec3 fieldWorldPosition(ivec3 sampleIndex)
     return vec3(lattice)*uBaseSpacing;
 }
 
-#ifndef FIELD_CLASSIFY_PASS
 #include "biome_relief.glsl"
 #include "biome_volume.glsl"
 
@@ -81,12 +80,11 @@ float fieldSurfaceWeight(uvec4 ids,vec4 ratios,float marine,uint biome)
     return land*(1.0-marine)+(biome==FIELD_MARINE_BIOME ? marine : 0.0);
 }
 
-// The ordered accumulation is shared by generic and specialized programs.
-// Specialization removes whole biome calls, not the spatial interpolation.
+// Each biome keeps its own editable recipe. Zero local weights skip its call;
+// repeated matrix IDs are combined before the ordered accumulation.
 vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
 {
     precise vec4 result=vec4(0.0);
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_POLAR_ICE)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,0u);
         if(weight>0.0)
@@ -95,8 +93,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_FROZEN_TUNDRA)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,1u);
         if(weight>0.0)
@@ -105,8 +101,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_TUNDRA)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,2u);
         if(weight>0.0)
@@ -115,8 +109,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_TAIGA)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,3u);
         if(weight>0.0)
@@ -125,8 +117,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_BOREAL_BOG)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,4u);
         if(weight>0.0)
@@ -135,8 +125,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_ROCKY_TUNDRA)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,5u);
         if(weight>0.0)
@@ -145,8 +133,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_COLD_STEPPE)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,6u);
         if(weight>0.0)
@@ -155,8 +141,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_BOREAL_FOREST)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,7u);
         if(weight>0.0)
@@ -165,8 +149,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_COLD_FOREST)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,8u);
         if(weight>0.0)
@@ -175,8 +157,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_COLD_MARSH)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,9u);
         if(weight>0.0)
@@ -185,8 +165,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_DRY_PLAIN)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,10u);
         if(weight>0.0)
@@ -195,8 +173,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_MEADOW)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,11u);
         if(weight>0.0)
@@ -205,8 +181,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_TEMPERATE_FOREST)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,12u);
         if(weight>0.0)
@@ -215,8 +189,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_TEMPERATE_RAINFOREST)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,13u);
         if(weight>0.0)
@@ -225,8 +197,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_TEMPERATE_MARSH)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,14u);
         if(weight>0.0)
@@ -235,8 +205,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_ROCK_DESERT)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,15u);
         if(weight>0.0)
@@ -245,8 +213,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_DRY_SAVANNA)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,16u);
         if(weight>0.0)
@@ -255,8 +221,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_SAVANNA)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,17u);
         if(weight>0.0)
@@ -265,8 +229,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_DRY_JUNGLE)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,18u);
         if(weight>0.0)
@@ -275,8 +237,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_TROPICAL_JUNGLE)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,19u);
         if(weight>0.0)
@@ -285,8 +245,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_VOLCANIC_DESERT)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,20u);
         if(weight>0.0)
@@ -295,8 +253,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_RED_DESERT)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,21u);
         if(weight>0.0)
@@ -305,8 +261,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_ARID_PLATEAU)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,22u);
         if(weight>0.0)
@@ -315,8 +269,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_BURNING_JUNGLE)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,23u);
         if(weight>0.0)
@@ -325,8 +277,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_TROPICAL_MANGROVE)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,24u);
         if(weight>0.0)
@@ -335,8 +285,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_SURFACE_MARINE)
     {
         float weight=fieldSurfaceWeight(ids,ratios,marine,25u);
         if(weight>0.0)
@@ -345,7 +293,6 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
             result+=value*weight;
         }
     }
-#endif
     return clamp(result,vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,320.0,160.0,1.0));
 }
 
@@ -393,11 +340,9 @@ FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
     if(uBandOffsetVariation>0.0)
         globalOffset+=uBandOffsetVariation*fieldNoise2(p*0.0004,0xa4093822u);
     float polarActivity=0.0;
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_POLAR_ICE)
     if(uDetailScale>0.0 && (uBiomeOverride==0 ||
         (uBiomeOverride<0 && fieldMappedVolumeWeight(volumeIDs,raw.blend.xyz,0u)>0.0)))
         polarActivity=polarVolumeActivity(p);
-#endif
     column.terrain=vec4(height,climate,max(0.0,thickness));
     column.blend=vec4(raw.blend.z,globalOffset,relief.z,relief.w);
     column.detail=uvec4(floatBitsToUint(polarActivity),volumeIDs,0u);
@@ -463,7 +408,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
     noise.ready=false;
     noise.values=vec3(0.0);
     precise float density=base;
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_POLAR_ICE)
     {
         float weight=fieldVolumeWeight(weights,0u);
         if(weight>0.0)
@@ -472,8 +416,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_FROZEN_TUNDRA)
     {
         float weight=fieldVolumeWeight(weights,1u);
         if(weight>0.0)
@@ -482,8 +424,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_TUNDRA)
     {
         float weight=fieldVolumeWeight(weights,2u);
         if(weight>0.0)
@@ -492,8 +432,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_TAIGA)
     {
         float weight=fieldVolumeWeight(weights,3u);
         if(weight>0.0)
@@ -502,8 +440,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_BOREAL_BOG)
     {
         float weight=fieldVolumeWeight(weights,4u);
         if(weight>0.0)
@@ -512,8 +448,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_ROCKY_TUNDRA)
     {
         float weight=fieldVolumeWeight(weights,5u);
         if(weight>0.0)
@@ -522,8 +456,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_COLD_STEPPE)
     {
         float weight=fieldVolumeWeight(weights,6u);
         if(weight>0.0)
@@ -532,8 +464,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_BOREAL_FOREST)
     {
         float weight=fieldVolumeWeight(weights,7u);
         if(weight>0.0)
@@ -542,8 +472,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_COLD_FOREST)
     {
         float weight=fieldVolumeWeight(weights,8u);
         if(weight>0.0)
@@ -552,8 +480,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_COLD_MARSH)
     {
         float weight=fieldVolumeWeight(weights,9u);
         if(weight>0.0)
@@ -562,8 +488,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_DRY_PLAIN)
     {
         float weight=fieldVolumeWeight(weights,10u);
         if(weight>0.0)
@@ -572,8 +496,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_MEADOW)
     {
         float weight=fieldVolumeWeight(weights,11u);
         if(weight>0.0)
@@ -582,8 +504,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_TEMPERATE_FOREST)
     {
         float weight=fieldVolumeWeight(weights,12u);
         if(weight>0.0)
@@ -592,8 +512,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_TEMPERATE_RAINFOREST)
     {
         float weight=fieldVolumeWeight(weights,13u);
         if(weight>0.0)
@@ -602,8 +520,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_TEMPERATE_MARSH)
     {
         float weight=fieldVolumeWeight(weights,14u);
         if(weight>0.0)
@@ -612,8 +528,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_ROCK_DESERT)
     {
         float weight=fieldVolumeWeight(weights,15u);
         if(weight>0.0)
@@ -622,8 +536,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_DRY_SAVANNA)
     {
         float weight=fieldVolumeWeight(weights,16u);
         if(weight>0.0)
@@ -632,8 +544,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_SAVANNA)
     {
         float weight=fieldVolumeWeight(weights,17u);
         if(weight>0.0)
@@ -642,8 +552,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_DRY_JUNGLE)
     {
         float weight=fieldVolumeWeight(weights,18u);
         if(weight>0.0)
@@ -652,8 +560,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_TROPICAL_JUNGLE)
     {
         float weight=fieldVolumeWeight(weights,19u);
         if(weight>0.0)
@@ -662,8 +568,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_VOLCANIC_DESERT)
     {
         float weight=fieldVolumeWeight(weights,20u);
         if(weight>0.0)
@@ -672,8 +576,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_RED_DESERT)
     {
         float weight=fieldVolumeWeight(weights,21u);
         if(weight>0.0)
@@ -682,8 +584,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_ARID_PLATEAU)
     {
         float weight=fieldVolumeWeight(weights,22u);
         if(weight>0.0)
@@ -692,8 +592,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_BURNING_JUNGLE)
     {
         float weight=fieldVolumeWeight(weights,23u);
         if(weight>0.0)
@@ -702,8 +600,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_TROPICAL_MANGROVE)
     {
         float weight=fieldVolumeWeight(weights,24u);
         if(weight>0.0)
@@ -712,8 +608,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
-#if defined(FIELD_GENERIC_BIOMES) || defined(BIOME_VOLUME_MARINE)
     {
         float weight=fieldVolumeWeight(weights,25u);
         if(weight>0.0)
@@ -722,7 +616,6 @@ float fieldDensityAtPrepared(vec3 p,FieldColumn column,vec2 climateRatio)
             density+=(value-base)*weight;
         }
     }
-#endif
     return density;
 }
 
@@ -731,5 +624,4 @@ float fieldDensityAt(vec3 p,FieldColumn column)
     return fieldDensityAtPrepared(p,column,fieldColumnClimateRatio(column));
 }
 
-#endif // !FIELD_CLASSIFY_PASS
 #endif

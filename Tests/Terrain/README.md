@@ -166,40 +166,40 @@ To isolate field generation:
 python3 Tests/Terrain/check_gpu.py --fields-only
 ```
 
-## CPU biome layout and specialized shaders
+## CPU biome layout and generic shaders
 
 ```sh
-EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_variants.py
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_pipeline.py
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_parallel_compiler.py \
   --glew-object /tmp/endurance-glew-pic.o
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_background_compiler.py \
   --glew-object /tmp/endurance-glew-pic.o
 ```
 
-The variant fixture exports the production C++ matrices, packed cell records,
-mask reduction and define strings through `check_biome_layout.cpp`; it does not
-maintain separate Python/GLSL matrices. It checks all 64 climate/altitude cells,
-duplicate corner weight normalization, marine selection, complete halo
-classification, generic/specialized bitwise fields, adjacent chunks and LODs,
-and identical emitted positions/normals. A temporary polar recipe is replaced
-with actual Voronoi 3D code: density must change while the 2D columns and another
-biome remain unchanged. Production sources are not modified by that fixture.
+The biome pipeline fixture exports the production C++ matrices and packed cell
+records through `check_biome_layout.cpp`; it does not maintain separate
+Python/GLSL matrices. It checks all 64 climate/altitude cells, duplicate corner
+weight normalization, the marine slice, all 26 recipes through a single generic
+program pair, repeated bitwise fields, adjacent chunks/LOD halos and identical
+emitted positions/normals. A temporary polar recipe is replaced with actual
+Voronoi 3D code: density must change while the 2D columns and another biome
+remain unchanged. Production sources are not modified by that fixture.
 
-The original parallel-extension fixture checks bounded jobs, nonblocking
-completion queries, ownership/cancellation, diagnostics, compute output and
-unsupported-driver fallback. The terrain now uses a separate background worker:
-the background fixture creates a shared EGL context and verifies that actual
-compile/link/preparation calls stay on that worker, while submit/poll remain
-CPU-only. It also checks shared program execution, bounded cancellation,
-diagnostics and hook failures. `ARB_parallel_shader_compile` remains available
-as an additive engine service; the extension alone does not guarantee that
-shader submission will avoid a driver stall on its caller.
+The parallel-extension and background-worker fixtures remain independent engine
+service tests. Terrain generation no longer uses either compiler. The former
+checks bounded jobs, nonblocking completion queries, ownership/cancellation,
+diagnostics and unsupported-driver fallback. The latter creates a shared EGL
+context and verifies worker-only compile/link/preparation, shared execution,
+bounded cancellation and hook failures; `SharedEglContext.hpp` owns that test
+context until the worker is joined.
 
-Runtime column storage is now 48 bytes: eight float32 controls followed by a
+Runtime column storage remains 48 bytes: eight float32 controls followed by a
 four-word integer block. Density remains float32. The Python field runner uses
-the same classify → columns → density passes and binds the CPU table at SSBO 7.
-`biome_profile_probe.glsl` contains legacy parameter-blend diagnostics only;
-production generation blends independently evaluated biome densities.
+the production columns → density passes and binds the CPU table at SSBO 7.
+Climate classification is local to the columns pass; no classification buffer
+or GPU-to-CPU cell mask is used. `biome_profile_probe.glsl` contains legacy
+parameter-blend diagnostics only; production generation blends independently
+evaluated biome densities.
 
 ## Complete biome matrix and diagnostic plots
 
@@ -293,14 +293,12 @@ chunks, shutdown with work in flight, and restart. Test-only readbacks inspect
 indirect commands and buffer guards; the production graphics path keeps density
 and mesh data on the GPU.
 
-The biome backend cases additionally cover classification cancellation,
-generic fallback on a cold variant, shared-context compilation without pending
-mesh jobs, reuse of ready variants, bounded admission under a two-variant limit,
-revisiting the first variant after cache saturation without eviction or
-recompilation, idle polling without new work, the 48-byte transient column budget, and
-identical packed geometry when variants are disabled or no worker context is
-provided. `SharedEglContext.hpp` supplies test-only context ownership; it lives
-until after the mesher has shut down and joined its worker.
+The biome backend cases additionally cover cancellation, visits to different
+climate regions and a return to the first one with identical packed geometry,
+idle polling without new work, the 48-byte transient column budget and 16-byte
+job counters. Intercepted GL compilation/link entry points verify that no
+runtime shader compilation occurs during streaming, revisits or idle polling.
+The backend fixtures do not link the engine compiler services.
 
 ## Interpretation
 

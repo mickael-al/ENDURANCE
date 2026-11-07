@@ -12,7 +12,6 @@
 #include "Camera.hpp"
 #include "GraphiquePipeline.hpp"
 #include "ShaderPair.hpp"
-#include "SharedShaderContext.hpp"
 #include <glm/mat4x4.hpp>
 #include <glm/geometric.hpp>
 #include <algorithm>
@@ -111,7 +110,6 @@ struct ProceduralGeneration::Impl
     Ge::GraphiquePipeline* render = nullptr;
     Ge::GraphiquePipeline* shadow = nullptr;
     ProceduralGeneration* registered = nullptr;
-    std::unique_ptr<Ge::SharedShaderContext> shaderCompilerContext;
     GpuMesher gpu;
     CollisionCache collision;
     LodConfig lod;
@@ -235,16 +233,6 @@ bool ProceduralGeneration::initialize(const Config& config)
     impl->pipelines = impl->engine->graphiquePipelineManager;
     ComputeState computeState;
     GpuConfig gpuConfig;
-    gpuConfig.enableBiomeVariants = config.enableBiomeVariants;
-    gpuConfig.maxBiomeVariants = config.maxBiomeVariants;
-    gpuConfig.maxParallelBiomeCompiles = config.maxParallelBiomeCompiles;
-    if (config.enableBiomeVariants)
-    {
-        std::string contextError;
-        impl->shaderCompilerContext = Ge::SharedShaderContext::create(contextError);
-        if (impl->shaderCompilerContext)
-            gpuConfig.shaderCompilerContext = impl->shaderCompilerContext->hooks();
-    }
     gpuConfig.baseSpacing = config.cellSize;
     gpuConfig.vertexBudgetMiB = config.vertexBudgetMiB;
     gpuConfig.maxResidentChunks = config.maxResidentChunks;
@@ -344,14 +332,10 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         return;
     }
     // Idle terrain needs neither binding queries nor a full selection walk.
-    // Poll may also finish a program and initialize its uniforms while no
-    // generation job is active; preserve application bindings in that case.
     std::optional<ComputeState> computeState;
-    if (s.gpu.stats().pendingJobs || s.gpu.stats().pendingBiomeVariants) computeState.emplace();
+    if (s.gpu.stats().pendingJobs) computeState.emplace();
     s.completions.clear();
     s.gpu.poll(s.completions);
-    if (s.gpu.stats().biomeCompileFailures > m_stats.biomeCompileFailures)
-        m_lastError = s.gpu.lastError();
     bool failed = false;
     for (const auto& result : s.completions)
     {
@@ -545,16 +529,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     m_stats.emptyJobs = gpu.emptyJobs;
     m_stats.failedJobs = gpu.failedJobs;
     m_stats.lastGenerationMilliseconds = gpu.lastGenerationMilliseconds;
-    m_stats.lastClassificationMilliseconds = gpu.lastClassificationMilliseconds;
     m_stats.transientFieldBytes = gpu.transientFieldBytes;
-    m_stats.biomeVariantHits = gpu.biomeVariantHits;
-    m_stats.biomeVariantFallbacks = gpu.biomeVariantFallbacks;
-    m_stats.biomeCompileFailures = gpu.biomeCompileFailures;
-    m_stats.biomeVariantCompiles = gpu.biomeVariantCompiles;
-    m_stats.biomeVariantCacheFull = gpu.biomeVariantCacheFull;
-    m_stats.biomeVariants = gpu.biomeVariants;
-    m_stats.pendingBiomeVariants = gpu.pendingBiomeVariants;
-    m_stats.parallelShaderCompilation = gpu.parallelShaderCompilation;
     m_stats.drawListUploads = gpu.drawListUploads;
     m_stats.drawListUploadBytes = gpu.drawListUploadBytes;
     m_stats.rebuilding = s.active || s.planner->busy() || (!s.converged && !s.blocked);

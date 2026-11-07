@@ -3,9 +3,6 @@
 
 const uint FIELD_BIOME_COUNT=26u;
 const uint FIELD_MARINE_BIOME=25u;
-#ifndef FIELD_SPECIALIZED_BIOMES
-#define FIELD_GENERIC_BIOMES 1
-#endif
 
 // C++ owns the two biome matrices. Only their compact cell corner descriptors
 // are uploaded once; no climate map or local ratio travels through the CPU.
@@ -27,12 +24,6 @@ uvec2 fieldRepeatedVolumeID(uint biome)
 {
     uint low=biome|(biome<<5u)|(biome<<10u)|(biome<<15u)|(biome<<20u)|(biome<<25u);
     return uvec2(low,biome|(biome<<5u));
-}
-
-bool fieldVolumeContains(uvec2 encoded,uint biome)
-{
-    for(uint i=0u;i<6u;++i) if(((encoded.x>>(5u*i))&31u)==biome) return true;
-    return (encoded.y&31u)==biome || ((encoded.y>>5u)&31u)==biome;
 }
 
 // Column-only activity checks should not evaluate a mask noise merely because

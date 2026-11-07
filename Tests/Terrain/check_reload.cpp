@@ -2,7 +2,6 @@
 // that a nested biome edit changes real meshed vertices after reinitialization.
 #include "glcore.hpp"
 #include "ProceduralTerrainGpu.hpp"
-#include "SharedEglContext.hpp"
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -86,8 +85,6 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         const auto originalRelief = read(reliefPath);
         const auto originalVolume = read(volumePath);
         GpuConfig config;
-        SharedEglContext compilerContext;
-        config.shaderCompilerContext=compilerContext.hooks();
         config.cells = 8; config.maxInFlight = 1; config.maxResidentChunks = 2;
         config.vertexBudgetMiB = 1; config.shaderDirectory = directory.string();
         config.field.heightAmplitude = 0; config.field.detailScale = 1;

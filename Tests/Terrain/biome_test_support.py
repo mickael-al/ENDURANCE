@@ -1,4 +1,4 @@
-"""Read the production CPU matrix/variant definitions without duplicating them."""
+"""Read the production CPU matrix definitions without duplicating them."""
 from functools import lru_cache
 import os
 from pathlib import Path
@@ -25,16 +25,3 @@ def packed_biome_cells():
     data = subprocess.run([str(biome_exporter()), "--cells"], check=True, stdout=subprocess.PIPE).stdout
     assert len(data) == 64 * 16
     return data
-
-
-@lru_cache(maxsize=128)
-def biome_masks(low, high):
-    text = subprocess.run([str(biome_exporter()), "--mask", str(low), str(high)],
-                          check=True, stdout=subprocess.PIPE, text=True).stdout
-    return tuple(map(int, text.split()))
-
-
-@lru_cache(maxsize=128)
-def biome_defines(surface, volume):
-    return subprocess.run([str(biome_exporter()), "--defines", str(surface), str(volume)],
-                          check=True, stdout=subprocess.PIPE, text=True).stdout

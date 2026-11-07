@@ -77,24 +77,14 @@ PROBE = LEGACY_PROBE.replace(
 
 
 class PolarProbe(BiomeProbe):
-    def __init__(self, gl, directory=SHADERS, source=None, polar_only=True):
+    def __init__(self, gl, directory=SHADERS, source=None):
         self.gl = gl
         field_source = shader_source(directory / "world_field.glsl")
         modern = "uvec4 detail" in field_source
         if source is None:
             # Optional comparisons can still load the former 64-byte generator.
             source = PROBE if modern else LEGACY_PROBE
-        defines = ""
-        if modern and polar_only:
-            # Four density samples per invocation are useful for diagnostics,
-            # but compiling all 26 recipes four times would test compiler size
-            # instead of this polar fixture. The generic path is tested below
-            # for the other biomes and by the variant/mesher suites.
-            defines = ("#define FIELD_SPECIALIZED_BIOMES 1\n"
-                       "#define BIOME_SURFACE_POLAR_ICE 1\n"
-                       "#define BIOME_VOLUME_POLAR_ICE 1\n")
-            source = source.replace("uint(max(uBiomeOverride,0))", "0u")
-        self.program = gl.compile([(0x91B9, "#version 450 core\n" + defines +
+        self.program = gl.compile([(0x91B9, "#version 450 core\n" +
             field_source + (profile_probe_source() if modern else "") + source)], "polar production probe")
         self.mapping = gl.buffer(packed_biome_cells(), 7)
         self.buffer = gl.buffer(0)
@@ -179,8 +169,8 @@ def check_repeat_and_lod(gl):
 
 
 def check_other_biomes(gl, directory):
-    old = PolarProbe(gl, directory=directory, polar_only=False)
-    new = PolarProbe(gl, polar_only=False)
+    old = PolarProbe(gl, directory=directory)
+    new = PolarProbe(gl)
     for biome in range(1, 26):
         for seed in (1337, 98765):
             options = dict(biome=biome, size=13, origin=(-493.25, 271.75),
