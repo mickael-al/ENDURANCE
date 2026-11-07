@@ -127,13 +127,20 @@ void ProceduralTerrainComponent::onGUI()
     ImGui::Text("LOD selections: %llu / published groups: %llu",
         static_cast<unsigned long long>(stats.lodSelections),
         static_cast<unsigned long long>(stats.publishedLodGroups));
+    ImGui::Text("Largest LOD transaction: %u meshes / CPU plan: %.3f ms",
+        stats.largestLodTransaction, stats.lastPlanningMilliseconds);
+    ImGui::Text("Cull updates: camera %llu / shadows %llu",
+        static_cast<unsigned long long>(stats.cameraCullUpdates),
+        static_cast<unsigned long long>(stats.shadowCullUpdates));
+    ImGui::Text("Draw-list uploads: %llu (%.1f KiB)",
+        static_cast<unsigned long long>(stats.drawListUploads), stats.drawListUploadBytes / 1024.0);
     ImGui::Text("Collisions: %u chunks / %u pending / %llu failed", stats.collisionChunks,
         stats.pendingCollisionJobs, static_cast<unsigned long long>(stats.failedCollisionJobs));
     ImGui::Text("Mesh memory: %.1f / %.1f MiB", stats.allocatedBytes / 1048576.0,
         stats.budgetBytes / 1048576.0);
     ImGui::Text("Last generation: %.3f ms", stats.lastGenerationMilliseconds);
     if (stats.rebuilding && stats.visibleChunks == 0)
-        ImGui::TextWrapped("Preparing the initial terrain coverage. Rendering starts when all selected chunks are ready.");
+        ImGui::TextWrapped("Preparing nearby terrain. Ready local coverage appears progressively.");
     if (stats.resourceLimited) ImGui::TextWrapped("Terrain memory or chunk budget reached.");
     if (!m_generator->getLastError().empty())
         ImGui::TextWrapped("%s", m_generator->getLastError().c_str());

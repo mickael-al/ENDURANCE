@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <array>
 #include <cstdint>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <map>
@@ -28,10 +29,10 @@ ChunkId id(const LodChunk& chunk)
 
 // Independent geometric oracle: positive overlap in all axes is a collision;
 // two positive overlaps and one exact boundary is an actual shared face.
-int sharedFace(const LodChunk& a, const LodChunk& b)
+int sharedFace(const LodChunk& a, const LodChunk& b, std::uint32_t cells = Cells)
 {
-    const std::int64_t as = static_cast<std::int64_t>(Cells) << a.lod;
-    const std::int64_t bs = static_cast<std::int64_t>(Cells) << b.lod;
+    const std::int64_t as = static_cast<std::int64_t>(cells) << a.lod;
+    const std::int64_t bs = static_cast<std::int64_t>(cells) << b.lod;
     int face = -1, touching = 0;
     for (int axis = 0; axis < 3; ++axis)
     {
@@ -65,12 +66,12 @@ void deriveMasks(std::vector<LodChunk>& chunks)
         }
 }
 
-void verifyTopology(const std::vector<LodChunk>& chunks)
+void verifyTopology(const std::vector<LodChunk>& chunks, std::uint32_t cells = Cells)
 {
     for (std::size_t a = 0; a < chunks.size(); ++a)
         for (std::size_t b = a + 1; b < chunks.size(); ++b)
         {
-            const int face = sharedFace(chunks[a], chunks[b]);
+            const int face = sharedFace(chunks[a], chunks[b], cells);
             if (face < 0) continue;
             require(std::abs(static_cast<int>(chunks[a].lod) - static_cast<int>(chunks[b].lod)) <= 1,
                     "mixed selection violates face balance");
@@ -269,6 +270,203 @@ void checkMovingSelection()
     std::cout << "PASS moving selection: " << commitsDuringMovement << " group commits during motion, "
               << commitsBeforeWholeTarget << " before complete target; converged after stopping\n";
 }
+// Each GPU publication is independently sound. Compare the actual previous/next
+// mesh keys, not merely work counters, and preserve all already-covered target
+// cells while allowing retired exterior chunks to leave.
+void verifyTransaction(const std::vector<LodChunk>& before, const std::vector<LodChunk>& desired,
+                       const LodTransaction& transaction, const LodConfig& config, bool exactCoverage)
+{
+    require(transaction.nextIndices.size() <= 32, "transaction exceeded bounded GPU work");
+    require(transaction.next.size() <= config.maxLeaves, "transaction exceeded leaf budget");
+    verifyTopology(transaction.next, config.cells);
+    std::set<ChunkId> oldKeys, newKeys, reconstructed;
+    for (const auto& chunk : before) oldKeys.insert(id(chunk));
+    for (const auto& chunk : transaction.next) newKeys.insert(id(chunk));
+    std::set<std::size_t> removed(transaction.previousIndices.begin(), transaction.previousIndices.end());
+    require(removed.size() == transaction.previousIndices.size(), "duplicate removal index");
+    for (auto index : removed)
+        require(index < before.size() && !newKeys.count(id(before[index])), "invalid transaction removal");
+    for (std::size_t i = 0; i < before.size(); ++i)
+        if (!removed.count(i)) reconstructed.insert(id(before[i]));
+    for (auto index : transaction.nextIndices)
+    {
+        require(index < transaction.next.size() && !oldKeys.count(id(transaction.next[index])),
+                "invalid transaction addition");
+        require(reconstructed.insert(id(transaction.next[index])).second, "duplicate transaction addition");
+    }
+    require(reconstructed == newKeys, "transaction does not reconstruct its published selection");
+    if (transaction.kind == LodWorkKind::Retire)
+        require(transaction.nextIndices.empty(), "retirement must not regenerate exterior masks");
+    if (exactCoverage)
+    {
+        const auto oldCoverage = coverageOf(before), target = coverageOf(desired);
+        const auto after = coverageOf(transaction.next);
+        Coverage retained;
+        std::set_intersection(oldCoverage.begin(), oldCoverage.end(), target.begin(), target.end(),
+                              std::inserter(retained, retained.end()));
+        require(std::includes(after.begin(), after.end(), retained.begin(), retained.end()),
+                "local publication opened a hole in retained target coverage");
+    }
+}
+
+std::set<std::pair<std::array<std::int32_t, 3>, std::uint32_t>> spatialKeys(const std::vector<LodChunk>& chunks)
+{
+    std::set<std::pair<std::array<std::int32_t, 3>, std::uint32_t>> result;
+    for (const auto& chunk : chunks) result.emplace(chunk.origin, chunk.lod);
+    return result;
+}
+
+void checkLocalPriorities()
+{
+    LodConfig config; config.cells = Cells; config.maxLod = 3; config.maxLeaves = 512;
+    const glm::vec3 camera(1, 1, 1);
+    const LodChunk near{{0, 0, 0}, 1, 0}, distant{{128, 0, 0}, 1, 0};
+    std::vector<LodChunk> before{near}, desired, children;
+    appendChildren(before, distant); appendChildren(desired, near); desired.push_back(distant);
+    deriveMasks(before); deriveMasks(desired);
+    LodTransaction transaction; std::string error;
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::Refine, "far downgrade blocked the near refinement");
+    verifyTransaction(before, desired, transaction, config, true);
+    require(!spatialKeys(transaction.next).count({near.origin, near.lod}), "coarse parent survived its ready children");
+    require(transaction.next.size() == 16, "refinement unexpectedly waited for distant downgrade");
+    before = transaction.next;
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::Coarsen, "downgrade did not follow refinements");
+    verifyTransaction(before, desired, transaction, config, true);
+
+    // Empty space wins over an existing coarse leaf, including in an already
+    // visited region. Within each work kind the user's fine/coarse ordering holds.
+    const LodChunk holeFine{{256, 0, 0}, 0, 0}, holeCoarse{{512, 0, 0}, 2, 0};
+    before = {near}; desired.clear(); appendChildren(desired, near);
+    desired.push_back(holeCoarse); desired.push_back(holeFine); deriveMasks(desired);
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::Fill && transaction.next[transaction.nextIndices.front()].lod == 0,
+            "void fill did not choose the finest missing chunk first");
+    require(transaction.nextIndices.size() == 2 && transaction.next[transaction.nextIndices.back()].lod == 2,
+            "direct void fills did not batch in fine-to-coarse order");
+    before = transaction.next;
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::Refine, "filled void did not unlock the pending refinement");
+
+    // Free retirement retains the fine mesh's old transition on its newly empty
+    // exterior face; that bit is valid until real coverage appears there again.
+    before = {{{8, 0, 0}, 0, 0}, {{16, 0, 0}, 1, 0}}; deriveMasks(before);
+    desired = {before.front()}; desired.front().transitionMask = 0;
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::Retire && transaction.next.front().transitionMask == before.front().transitionMask,
+            "retirement unnecessarily regenerated an unchanged exterior mesh");
+    verifyTransaction(before, desired, transaction, config, true);
+    before = transaction.next;
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::None, "external transition bits prevented convergence");
+
+    // A clipped boundary parent only creates children needed by the destination.
+    before = {near}; desired = {{{0, 0, 0}, 0, 0}};
+    config.maxLeaves = 1;
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.next.size() == 1 && transaction.next.front().lod == 0,
+            "boundary refinement generated unnecessary children outside the destination");
+
+    // At a tight budget, a necessary merge may precede refinement to free slots.
+    config.maxLeaves = 9; before = {near}; appendChildren(before, distant);
+    desired.clear(); appendChildren(desired, near); desired.push_back(distant);
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::Coarsen && transaction.budgetFallback,
+            "tight leaf budget did not schedule its capacity prerequisite");
+    verifyTransaction(before, desired, transaction, config, true);
+    before = transaction.next;
+    require(planLodTransaction(before, desired, camera, config, transaction, error), error);
+    require(transaction.kind == LodWorkKind::Refine, "capacity prerequisite did not unlock refinement");
+    verifyTransaction(before, desired, transaction, config, true);
+
+    // Invalid input must leave a previous concrete transaction reviewable.
+    const auto saved = spatialKeys(transaction.next);
+    config.cells = 7;
+    require(!planLodTransaction(before, desired, camera, config, transaction, error) && !error.empty(),
+            "invalid streaming input accepted");
+    require(spatialKeys(transaction.next) == saved, "failure overwrote the previous transaction");
+    std::cout << "PASS local priorities, coarse-parent retirement, clipped boundaries and tight budgets\n";
+}
+
+void checkLocalMovingSelection()
+{
+    LodConfig config; config.cells = Cells; config.maxLod = 3; config.viewDistance = 48;
+    config.splitDistanceFactor = .75f; config.fullResolutionRadius = 4;
+    config.minimumY = -16; config.maximumY = 16; config.maxLeaves = 256;
+    std::string error;
+    std::vector<LodChunk> current, desired;
+    unsigned movementCommits = 0, returnCommits = 0;
+    // Re-target after every finite transaction, including reversal before the old
+    // destination finishes. GPU latency cannot restart a global dependency wave.
+    for (unsigned step = 0; step < 160; ++step)
+    {
+        const float x = step < 80 ? static_cast<float>(step) : static_cast<float>(159 - step);
+        const glm::vec3 camera(x, 2, 3);
+        require(selectLodChunks(camera, config, desired, error), error);
+        LodTransaction transaction;
+        require(planLodTransaction(current, desired, camera, config, transaction, error), error);
+        verifyTransaction(current, desired, transaction, config, true);
+        if (transaction.kind != LodWorkKind::None)
+        { ++movementCommits; if (step >= 80) ++returnCommits; }
+        current = std::move(transaction.next);
+    }
+    const glm::vec3 camera(0, 2, 3);
+    require(selectLodChunks(camera, config, desired, error), error);
+    unsigned steps = 0;
+    for (; steps < 1000; ++steps)
+    {
+        LodTransaction transaction;
+        require(planLodTransaction(current, desired, camera, config, transaction, error), error);
+        verifyTransaction(current, desired, transaction, config, true);
+        current = std::move(transaction.next);
+        if (transaction.kind == LodWorkKind::None) break;
+    }
+    require(steps < 1000 && spatialKeys(current) == spatialKeys(desired), "moving local planner failed to converge after stopping");
+    require(movementCommits > 80 && returnCommits > 30, "local streaming stalled during continuous movement or return");
+    std::cout << "PASS local motion/reversal: " << movementCommits << " commits during movement, "
+              << returnCommits << " on return; converged in " << steps << " remaining transactions\n";
+}
+
+void checkDefaultTransactions()
+{
+    LodConfig config; config.minimumY = -760; config.maximumY = 760;
+    const glm::vec3 start(80, 180, 120);
+    std::vector<LodChunk> current, desired; std::string error;
+    require(selectLodChunks(start, config, current, error), error);
+    unsigned total = 0, maximumBatch = 0;
+    double planningMs = 0, peakMs = 0;
+    for (int displacement : {128, 256, 1024, 0})
+    {
+        const auto camera = start + glm::vec3(displacement, 0, 0);
+        require(selectLodChunks(camera, config, desired, error), error);
+        bool nearRefinedBeforeConvergence = false;
+        unsigned steps = 0;
+        for (; steps < 2000; ++steps)
+        {
+            LodTransaction transaction;
+            const auto begin = std::chrono::steady_clock::now();
+            require(planLodTransaction(current, desired, camera, config, transaction, error), error);
+            const auto elapsed = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - begin).count();
+            planningMs += elapsed; peakMs = (std::max)(peakMs, elapsed);
+            // Real default selections: full spatial oracle at every publication.
+            verifyTransaction(current, desired, transaction, config, false);
+            maximumBatch = (std::max)(maximumBatch, static_cast<unsigned>(transaction.nextIndices.size()));
+            if (transaction.kind == LodWorkKind::Refine && spatialKeys(transaction.next) != spatialKeys(desired))
+                for (auto i : transaction.nextIndices)
+                    if (transaction.next[i].lod == 0 && chunkDistanceSquared(camera, transaction.next[i], config.cells, config.baseSpacing) <= 128.0 * 128.0)
+                        nearRefinedBeforeConvergence = true;
+            current = std::move(transaction.next);
+            ++total;
+            if (transaction.kind == LodWorkKind::None) break;
+        }
+        require(steps < 2000 && spatialKeys(current) == spatialKeys(desired), "default camera route did not converge");
+        require(nearRefinedBeforeConvergence, "near LOD0 waited for completion of all distant changes");
+    }
+    std::cout << "PASS default route and known-region return: " << total << " transactions, max " << maximumBatch
+              << " new meshes; planner mean=" << planningMs / total << " ms peak=" << peakMs << " ms\n";
+}
+
 }
 
 int main()
@@ -342,4 +540,7 @@ int main()
         previous = next;
     }
     checkMovingSelection();
+    checkLocalPriorities();
+    checkLocalMovingSelection();
+    checkDefaultTransactions();
 }

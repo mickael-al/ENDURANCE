@@ -4,6 +4,8 @@
 #include "ProceduralTerrainLod.hpp"
 #include "ProceduralTerrainFrustum.hpp"
 #include "ProceduralTerrainStreaming.hpp"
+#include "ProceduralTerrainPlanner.hpp"
+#include "ProceduralTerrainVisibility.hpp"
 #include "ProceduralTerrainCollision.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
@@ -15,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <optional>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -113,29 +116,38 @@ struct ProceduralGeneration::Impl
     std::unordered_map<ChunkKey, MeshHandle, KeyHash> ready;
     std::unordered_map<std::uint64_t, ChunkKey> pending;
     KeySet submitted, wanted, visibleKeys, collisionKeys;
-    struct PendingLodGroup
+    std::unique_ptr<LodPlanner> planner;
+    LodTransaction transaction;
+    std::vector<LodChunk> visibleSelection;
+    CameraVisibilityCache cameraVisibility;
+    struct ShadowVisibility
     {
-        std::vector<ChunkKey> remove, add;
+        ShadowVisibilityCache cache;
+        std::vector<MeshHandle> meshes;
     };
+    std::unordered_map<unsigned int, ShadowVisibility> shadowVisibility;
     struct CameraRange
     {
         Ge::Camera* camera;
         float originalFar, appliedFar;
     };
     std::vector<CameraRange> cameraRanges;
-    std::vector<PendingLodGroup> groups;
     std::vector<ChunkKey> target;
-    std::vector<MeshHandle> visible, culled, collisionCandidates;
+    std::vector<MeshHandle> visible, cameraMeshes, collisionCandidates;
     std::vector<Completion> completions;
     glm::vec3 plannedPosition{};
-    std::uint64_t nextToken = 1;
-    bool planned = false, rebuilding = false;
+    glm::vec3 collisionPosition{};
+    std::uint64_t nextToken = 1, visibleRevision = 0;
+    std::size_t desiredCount = 0;
+    bool planned = false, active = false, converged = false, blocked = false;
+    bool collisionDirty = true, collisionUpdated = false;
     GLint detailStrength = -1, detailScale = -1, seed = -1, debug = -1, shadowIndex = -1;
     GLint biomeOverride = -1, seaLevel = -1, seaBlendWidth = -1;
 
     ~Impl()
     {
         if (registered && pipelines) pipelines->removeCustomRenderer(registered);
+        planner.reset();
         collision.shutdown();
         gpu.shutdown();
         const auto liveObjects = Ge::GObject::GetGObjects();
@@ -177,8 +189,9 @@ struct ProceduralGeneration::Impl
         submitted.clear();
         wanted.clear();
         target.clear();
-        groups.clear();
-        rebuilding = false;
+        transaction = {};
+        active = false;
+        collisionDirty = true;
         discardUnused();
     }
 };
@@ -262,6 +275,7 @@ bool ProceduralGeneration::initialize(const Config& config)
     const float padding = std::ldexp(config.cellSize, static_cast<int>(config.maxLod));
     impl->lod.minimumY = bounds.minimumY - padding;
     impl->lod.maximumY = bounds.maximumY + padding;
+    impl->planner = std::make_unique<LodPlanner>(impl->lod);
     if (config.collisionEnabled)
     {
         CollisionConfig collisionConfig;
@@ -317,7 +331,10 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         m_lastError = "Terrain camera position must be finite.";
         return;
     }
-    ComputeState computeState;
+    // Idle terrain needs neither binding queries nor a full selection walk.
+    // poll() can emit geometry only while compute jobs are in flight.
+    std::optional<ComputeState> computeState;
+    if (s.gpu.stats().pendingJobs) computeState.emplace();
     s.completions.clear();
     s.gpu.poll(s.completions);
     bool failed = false;
@@ -330,107 +347,71 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         s.submitted.erase(key);
         if (!s.wanted.count(key)) { s.gpu.release(result.mesh); continue; }
         if (result.status == CompletionStatus::Ready || result.status == CompletionStatus::Empty)
+        {
             s.ready.emplace(key, result.mesh);
+            s.collisionDirty = true;
+        }
         else if (result.status == CompletionStatus::Failed)
         {
             m_lastError = result.error.empty() ? "GPU terrain generation failed." : result.error;
             failed = true;
         }
     }
-    if (failed)
-    {
-        // Preserve the last published coverage. Never publish an incomplete
-        // group, silently drop geometry or repeatedly retry an exhausted pool.
-        s.abandonTarget();
-        s.plannedPosition = cameraPosition;
-        m_stats.resourceLimited = true;
-    }
 
-    const glm::vec3 delta = cameraPosition - s.plannedPosition;
-    const double distanceSquared = static_cast<double>(delta.x) * delta.x
-        + static_cast<double>(delta.y) * delta.y + static_cast<double>(delta.z) * delta.z;
-    const double replanDistance = 32.0 * m_config.cellSize;
-    if (!s.planned || distanceSquared >= replanDistance * replanDistance)
+    const auto distanceSquared = [](const glm::vec3& a, const glm::vec3& b)
     {
-        std::vector<LodChunk> selection;
-        std::string error;
+        const auto delta = glm::dvec3(a) - glm::dvec3(b);
+        return glm::dot(delta, delta);
+    };
+    const double replanDistance = 32.0 * m_config.cellSize;
+    const bool moved = !s.planned || distanceSquared(cameraPosition, s.plannedPosition)
+        >= replanDistance * replanDistance;
+    if (moved) s.blocked = false;
+
+    LodPlanResult plan;
+    if (s.planner->poll(plan) && plan.coverageRevision == s.visibleRevision)
+    {
+        m_stats.lastPlanningMilliseconds = plan.milliseconds;
+        s.plannedPosition = plan.selectionPosition;
         s.planned = true;
-        s.plannedPosition = cameraPosition;
-        if (selectLodChunks(cameraPosition, s.lod, selection, error))
+        s.desiredCount = plan.desiredCount;
+        if (plan.selected) ++m_stats.lodSelections;
+        if (!plan.success)
         {
-            ++m_stats.lodSelections;
-            // Compare with what is actually on screen, which may already contain
-            // completed groups from the previous destination. Keep common jobs.
-            std::vector<LodChunk> previous;
-            previous.reserve(s.visibleKeys.size());
-            for (const auto& key : s.visibleKeys)
-                previous.push_back({key.origin, key.lod, key.mask});
-            std::sort(previous.begin(), previous.end(), [](const LodChunk& a, const LodChunk& b)
-            {
-                if (a.origin != b.origin) return a.origin < b.origin;
-                if (a.lod != b.lod) return a.lod < b.lod;
-                return a.transitionMask < b.transitionMask;
-            });
+            m_lastError = plan.error;
+            s.blocked = true;
+            s.plannedPosition = cameraPosition;
+            m_stats.resourceLimited = true;
+        }
+        else
+        {
+            s.converged = plan.transaction.kind == LodWorkKind::None;
+            s.active = !s.converged;
+            s.transaction = std::move(plan.transaction);
             s.target.clear();
             s.wanted.clear();
-            s.target.reserve(selection.size());
-            for (const auto& chunk : selection)
+            for (auto index : s.transaction.nextIndices)
             {
+                const auto& chunk = s.transaction.next[index];
                 const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
                 s.target.push_back(key);
                 s.wanted.insert(key);
             }
-            for (auto job = s.pending.begin(); job != s.pending.end();)
-            {
-                if (s.wanted.count(job->second)) { ++job; continue; }
-                s.gpu.cancel(job->first);
-                s.submitted.erase(job->second);
-                job = s.pending.erase(job);
-            }
-            s.groups.clear();
-            if (previous.empty() && !selection.empty())
-            {
-                // The first coverage is published whole. Later replacements are
-                // independent, crack-free groups rather than one global barrier.
-                Impl::PendingLodGroup group;
-                group.add = s.target;
-                s.groups.push_back(std::move(group));
-            }
-            else
-            {
-                const auto changes = groupLodChanges(previous, selection, s.lod.cells);
-                for (const auto& change : changes)
-                {
-                    Impl::PendingLodGroup group;
-                    for (auto index : change.previousIndices)
-                    {
-                        const auto& old = previous[index];
-                        group.remove.push_back({old.origin, old.lod, old.transitionMask});
-                    }
-                    for (auto index : change.nextIndices) group.add.push_back(s.target[index]);
-                    s.groups.push_back(std::move(group));
-                }
-            }
-            s.rebuilding = !s.groups.empty();
+            m_stats.largestLodTransaction = std::max(m_stats.largestLodTransaction,
+                static_cast<std::uint32_t>(s.target.size()));
             m_stats.resourceLimited = false;
             m_lastError.clear();
-            s.discardUnused();
-        }
-        else
-        {
-            m_stats.resourceLimited = true;
-            m_lastError = error;
         }
     }
 
     std::uint32_t queued = 0, dispatched = 0;
-    for (const auto& key : s.target)
+    if (!failed) for (const auto& key : s.target)
     {
-        if (s.ready.count(key)) continue;
-        if (s.submitted.count(key)) continue;
+        if (s.ready.count(key) || s.submitted.count(key)) continue;
         ++queued;
         if (dispatched >= m_config.maxChunksPerFrame
             || s.gpu.stats().pendingJobs >= m_config.maxInFlight) continue;
+        if (!computeState) computeState.emplace();
         ChunkRequest request;
         request.origin = key.origin;
         request.lod = key.lod;
@@ -439,8 +420,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         const auto token = s.nextToken++;
         if (!s.gpu.submit(request, token))
         {
-            // A cancelled job can still occupy a fenced work slot. Only treat
-            // a submit error as fatal when the backend reports one.
+            // A cancelled job can still occupy a fenced slot; retry when free.
             if (!s.gpu.lastError().empty())
             {
                 m_lastError = s.gpu.lastError();
@@ -453,68 +433,79 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         ++dispatched;
         --queued;
     }
-    if (failed && s.rebuilding)
+    if (failed)
     {
+        // Keep the published coverage intact, with no automatic failure loop.
         s.abandonTarget();
+        s.blocked = true;
+        s.plannedPosition = cameraPosition;
         m_stats.resourceLimited = true;
         queued = 0;
     }
-    else
+    else if (s.active && std::all_of(s.target.begin(), s.target.end(),
+        [&s](const ChunkKey& key) { return s.ready.count(key) != 0; }))
     {
-        bool changed = false;
-        for (auto group = s.groups.begin(); group != s.groups.end();)
+        // One local split/merge (and the affected transition faces) commits as
+        // a whole. A nearby refinement cannot wait for distant downgrades.
+        s.visibleSelection = std::move(s.transaction.next);
+        s.visibleKeys.clear();
+        s.visible.clear();
+        s.visible.reserve(s.visibleSelection.size());
+        for (const auto& chunk : s.visibleSelection)
         {
-            const bool complete = std::all_of(group->add.begin(), group->add.end(),
-                [&s](const ChunkKey& key) { return s.ready.count(key) != 0; });
-            if (!complete) { ++group; continue; }
-            // Overlap and incompatible boundary dependencies belong to the same
-            // group, so every intermediate visible octree remains consistent.
-            for (const auto& key : group->remove) s.visibleKeys.erase(key);
-            for (const auto& key : group->add) s.visibleKeys.insert(key);
-            group = s.groups.erase(group);
-            ++m_stats.publishedLodGroups;
-            changed = true;
+            const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
+            s.visibleKeys.insert(key);
+            const auto& mesh = s.ready.at(key);
+            if (mesh.vertexCount) s.visible.push_back(mesh);
         }
-        if (changed)
-        {
-            s.visible.clear();
-            s.visible.reserve(s.visibleKeys.size());
-            for (const auto& key : s.visibleKeys)
-            {
-                const auto& mesh = s.ready.at(key);
-                if (mesh.vertexCount) s.visible.push_back(mesh);
-            }
-        }
-        s.rebuilding = !s.groups.empty();
-        if (!s.rebuilding)
-        {
-            s.wanted.clear();
-            s.target.clear();
-        }
-        if (changed || !s.rebuilding) s.discardUnused();
+        ++s.visibleRevision;
+        ++m_stats.publishedLodGroups;
+        s.transaction = {};
+        s.active = false;
+        s.wanted.clear();
+        s.target.clear();
+        s.collisionDirty = true;
+        s.discardUnused();
     }
+
+    // Only one bounded GPU transaction is frozen at a time. The next CPU job
+    // snapshots the last published octree and the latest camera position; no
+    // queue of obsolete destinations, no cancelling unfinished work each step.
+    const bool selectionMoved = !s.planned || distanceSquared(cameraPosition, s.plannedPosition)
+        >= replanDistance * replanDistance;
+    if (!s.active && !s.blocked && (!s.converged || selectionMoved) && !s.planner->busy())
+        s.planner->request(s.visibleSelection, cameraPosition, s.visibleRevision);
 
     if (m_config.collisionEnabled)
     {
-        // Nearby physics need not wait for all distant visual LODs. Cached
-        // colliders outlive these visual handles and have their own radius.
-        s.collisionCandidates.clear();
-        s.collisionKeys.clear();
-        const auto addCollision = [&s](const ChunkKey& key)
+        const bool changed = s.collisionDirty;
+        if (changed)
         {
-            if (key.lod != 0) return;
-            const auto found = s.ready.find(key);
-            if (found == s.ready.end() || found->second.vertexCount == 0) return;
-            ChunkKey spatialKey = key;
-            spatialKey.mask = 0;
-            if (s.collisionKeys.insert(spatialKey).second)
-                s.collisionCandidates.push_back(found->second);
-        };
-        // A changed transition mask can give two versions of one spatial
-        // chunk. Prefer the new one, then fill any gaps with the visible set.
-        for (const auto& key : s.target) addCollision(key);
-        for (const auto& key : s.visibleKeys) addCollision(key);
-        s.collision.update(cameraPosition, s.collisionCandidates, s.gpu);
+            s.collisionCandidates.clear();
+            s.collisionKeys.clear();
+            const auto addCollision = [&s](const ChunkKey& key)
+            {
+                if (key.lod != 0) return;
+                const auto found = s.ready.find(key);
+                if (found == s.ready.end() || found->second.vertexCount == 0) return;
+                ChunkKey spatialKey = key;
+                spatialKey.mask = 0;
+                if (s.collisionKeys.insert(spatialKey).second)
+                    s.collisionCandidates.push_back(found->second);
+            };
+            for (const auto& key : s.target) addCollision(key);
+            for (const auto& chunk : s.visibleSelection)
+                addCollision({chunk.origin, chunk.lod, chunk.transitionMask});
+            s.collisionDirty = false;
+        }
+        const auto before = s.collision.stats();
+        if (changed || !s.collisionUpdated || cameraPosition != s.collisionPosition
+            || before.pendingReadbacks || before.pendingBuilds)
+        {
+            s.collision.update(cameraPosition, s.collisionCandidates, s.gpu);
+            s.collisionPosition = cameraPosition;
+            s.collisionUpdated = true;
+        }
     }
     const auto collision = s.collision.stats();
     m_stats.collisionChunks = collision.residentChunks;
@@ -527,7 +518,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         if (!s.collision.lastError().empty()) m_lastError = s.collision.lastError();
     }
     const auto gpu = s.gpu.stats();
-    m_stats.selectedChunks = static_cast<std::uint32_t>(s.rebuilding ? s.target.size() : s.visibleKeys.size());
+    m_stats.selectedChunks = static_cast<std::uint32_t>(s.desiredCount);
     m_stats.visibleChunks = static_cast<std::uint32_t>(s.visible.size());
     m_stats.queuedChunks = queued;
     m_stats.pendingJobs = gpu.pendingJobs;
@@ -539,23 +530,31 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     m_stats.emptyJobs = gpu.emptyJobs;
     m_stats.failedJobs = gpu.failedJobs;
     m_stats.lastGenerationMilliseconds = gpu.lastGenerationMilliseconds;
-    m_stats.rebuilding = s.rebuilding;
-    m_stats.pendingLodGroups = static_cast<std::uint32_t>(s.groups.size());
+    m_stats.drawListUploads = gpu.drawListUploads;
+    m_stats.drawListUploadBytes = gpu.drawListUploadBytes;
+    m_stats.rebuilding = s.active || s.planner->busy() || (!s.converged && !s.blocked);
+    m_stats.pendingLodGroups = s.active ? 1u : 0u;
 }
 
 void ProceduralGeneration::drawRenderer()
 {
     if (!m_impl || m_impl->visible.empty()) return;
     auto& s = *m_impl;
-    s.culled.clear();
     auto* camera = s.engine->cameraManager ? s.engine->cameraManager->getCurrentCamera() : nullptr;
     if (!camera) return;
-    const auto frustum = makeFrustum(camera->getProjectionMatrix() * camera->getViewMatrix());
-    for (const auto& mesh : s.visible)
-        if (intersectsFrustum(frustum, mesh.origin, mesh.extent)) s.culled.push_back(mesh);
-    m_stats.cameraDrawChunks = static_cast<std::uint32_t>(s.culled.size());
-    m_stats.cameraCulledChunks = static_cast<std::uint32_t>(s.visible.size() - s.culled.size());
-    if (s.culled.empty()) return;
+    const auto* uniform = camera->getUniformCamera();
+    if (s.cameraVisibility.update(camera, uniform->view, uniform->proj,
+        camera->getPosition(), s.visibleRevision, 8.0f * m_config.cellSize))
+    {
+        s.cameraMeshes.clear();
+        for (const auto& mesh : s.visible)
+            if (intersectsFrustum(s.cameraVisibility.frustum(), mesh.origin, mesh.extent))
+                s.cameraMeshes.push_back(mesh);
+        ++m_stats.cameraCullUpdates;
+    }
+    m_stats.cameraDrawChunks = static_cast<std::uint32_t>(s.cameraMeshes.size());
+    m_stats.cameraCulledChunks = static_cast<std::uint32_t>(s.visible.size() - s.cameraMeshes.size());
+    if (s.cameraMeshes.empty()) return;
     TerrainRenderStateGuard state;
     glUseProgram(s.render->getProgram());
     glUniform1f(s.detailStrength, m_config.microDetailStrength);
@@ -565,7 +564,9 @@ void ProceduralGeneration::drawRenderer()
     glUniform1i(s.biomeOverride, m_config.field.biomeOverride);
     glUniform1f(s.seaLevel, m_config.field.seaLevel);
     glUniform1f(s.seaBlendWidth, m_config.field.seaBlendWidth);
-    s.gpu.drawMany(s.culled);
+    s.gpu.drawMany(s.cameraMeshes, 0);
+    m_stats.drawListUploads = s.gpu.stats().drawListUploads;
+    m_stats.drawListUploadBytes = s.gpu.stats().drawListUploadBytes;
 }
 
 void ProceduralGeneration::drawShadowRenderer(unsigned int shadowIndex)
@@ -574,20 +575,33 @@ void ProceduralGeneration::drawShadowRenderer(unsigned int shadowIndex)
     auto& s = *m_impl;
     glm::mat4 lightMatrix;
     if (!s.engine->lightManager || !s.engine->lightManager->getShadowMatrix(shadowIndex, lightMatrix)) return;
-    const auto frustum = makeFrustum(lightMatrix);
-    s.culled.clear();
-    for (const auto& mesh : s.visible)
-        if (intersectsFrustum(frustum, mesh.origin, mesh.extent)) s.culled.push_back(mesh);
-    m_stats.shadowDrawChunks += static_cast<std::uint32_t>(s.culled.size());
-    m_stats.shadowCulledChunks += static_cast<std::uint32_t>(s.visible.size() - s.culled.size());
-    if (s.culled.empty()) return;
+    auto& visibility = s.shadowVisibility[shadowIndex];
+    if (visibility.cache.update(lightMatrix, s.visibleRevision))
+    {
+        visibility.meshes.clear();
+        for (const auto& mesh : s.visible)
+            if (intersectsFrustum(visibility.cache.frustum(), mesh.origin, mesh.extent))
+                visibility.meshes.push_back(mesh);
+        ++m_stats.shadowCullUpdates;
+    }
+    m_stats.shadowDrawChunks += static_cast<std::uint32_t>(visibility.meshes.size());
+    m_stats.shadowCulledChunks += static_cast<std::uint32_t>(s.visible.size() - visibility.meshes.size());
+    if (visibility.meshes.empty()) return;
     TerrainRenderStateGuard state;
     glUseProgram(s.shadow->getProgram());
     glUniform1i(s.shadowIndex, static_cast<GLint>(shadowIndex));
-    s.gpu.drawMany(s.culled);
+    s.gpu.drawMany(visibility.meshes, shadowIndex + 1u);
+    m_stats.drawListUploads = s.gpu.stats().drawListUploads;
+    m_stats.drawListUploadBytes = s.gpu.stats().drawListUploadBytes;
 }
 
 bool ProceduralGeneration::isInitialized() const noexcept { return m_impl != nullptr; }
 const ProceduralGeneration::Stats& ProceduralGeneration::getStats() const noexcept { return m_stats; }
 const std::string& ProceduralGeneration::getLastError() const noexcept { return m_lastError; }
 const ProceduralGeneration::Config& ProceduralGeneration::getConfig() const noexcept { return m_config; }
+
+void ProceduralGeneration::getVisibleLodChunks(std::vector<ProceduralTerrain::LodChunk>& output) const
+{
+    if (m_impl) output = m_impl->visibleSelection;
+    else output.clear();
+}

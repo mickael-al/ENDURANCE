@@ -26,10 +26,11 @@ namespace Ge
 		float m_angleX = 0.0f;
 		float m_angleY = 0.0f;
 		float m_maxSpeed = 10.0f;
-		float m_fastSpeedMult = 1.0f;
+		// 60 m/s^2 retains approximately the previous boost at 60 Hz.
+		float m_fastSpeedMult = 60.0f;
 		float m_moveSpeed = 0.0f;
 		float m_maxSpeedRotate = 0.2f;
-		float m_addMoveSpeed = 0.0f;
+		float m_addMoveSpeed = 0.0f; // Accumulated boost velocity in m/s.
 	};
 }
 

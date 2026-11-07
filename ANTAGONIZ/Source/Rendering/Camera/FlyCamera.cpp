@@ -18,54 +18,57 @@ namespace Ge
 
 	void FlyCamera::updateCamera()
 	{
-		if (m_lock)
-		{
-			return;
-		}
+		if (m_lock) return;
+		const float dt = Time::GetDeltaTime();
+		const float previousBoost = m_addMoveSpeed;
 		if (m_im->getKey(340))
 		{
-			m_addMoveSpeed += Time::GetDeltaTime() * m_fastSpeedMult;
+			// The boost is a velocity, not an extra distance on every frame.
+			m_addMoveSpeed += dt * m_fastSpeedMult;
+			m_moveSpeed = (m_maxSpeed + 0.5f * (previousBoost + m_addMoveSpeed)) * dt;
 		}
 		else
 		{
 			m_addMoveSpeed = 0.0f;
+			m_moveSpeed = dt * m_maxSpeed;
 		}
-		m_moveSpeed = Time::GetDeltaTime() * m_maxSpeed;
-		m_moveSpeed += m_addMoveSpeed;
 
+		bool changed = false;
 		if (m_im->getMouse(1))
 		{
-			m_angleY -= m_im->axisMouseY() * m_maxSpeedRotate;
-			m_angleX -= m_im->axisMouseX() * m_maxSpeedRotate;
-			setEulerAngles(glm::vec3(m_angleY, m_angleX, 0.0f));
+			const float mouseX = static_cast<float>(m_im->axisMouseX());
+			const float mouseY = static_cast<float>(m_im->axisMouseY());
+			if (mouseX != 0.0f || mouseY != 0.0f)
+			{
+				m_angleY -= mouseY * m_maxSpeedRotate;
+				m_angleX -= mouseX * m_maxSpeedRotate;
+				m_eulerAngles = glm::vec3(m_angleY, m_angleX, 0.0f);
+				m_transform.rotation = glm::quat(glm::radians(m_eulerAngles));
+				changed = true;
+			}
 		}
 
+		glm::vec3 movement(0.0f);
 		if (m_im->getKey(87))
-		{
-			setPosition(getPosition() + transformDirectionAxeZ() * m_moveSpeed);
-		}
+			movement += transformDirectionAxeZ() * m_moveSpeed;
 		else if (m_im->getKey(83))
-		{
-			setPosition(getPosition() + transformDirectionAxeZ() * -m_moveSpeed);
-		}
-
+			movement -= transformDirectionAxeZ() * m_moveSpeed;
 		if (m_im->getKey(68))
-		{
-			setPosition(getPosition() + transformDirectionAxeX() * -m_moveSpeed);
-		}
+			movement -= transformDirectionAxeX() * m_moveSpeed;
 		else if (m_im->getKey(65))
-		{
-			setPosition(getPosition() + transformDirectionAxeX() * m_moveSpeed);
-		}
-
+			movement += transformDirectionAxeX() * m_moveSpeed;
 		if (m_im->getKey(341))
-		{
-			setPosition(getPosition() + glm::vec3(0, -1, 0) * m_moveSpeed);
-		}
+			movement.y -= m_moveSpeed;
 		else if (m_im->getKey(32))
+			movement.y += m_moveSpeed;
+		if (movement.x != 0.0f || movement.y != 0.0f || movement.z != 0.0f)
 		{
-			setPosition(getPosition() + glm::vec3(0, 1, 0) * m_moveSpeed);
-		}		
+			m_transform.position += movement;
+			changed = true;
+		}
+		// Preserve GObject's parent/local transform and child propagation, but
+		// upload the final camera pose and rebuild shadow matrices only once.
+		if (changed) updateLocal();
 	}
 
 	glm::vec2 FlyCamera::getAngle()

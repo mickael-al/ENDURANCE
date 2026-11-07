@@ -3,6 +3,7 @@
 
 #include "CustomRenderer.hpp"
 #include "ProceduralTerrainField.hpp"
+#include "ProceduralTerrainLod.hpp"
 #include <glm/vec3.hpp>
 #include <cstdint>
 #include <memory>
@@ -56,6 +57,12 @@ public:
         std::uint64_t failedJobs = 0;
         std::uint64_t lodSelections = 0;
         std::uint64_t publishedLodGroups = 0;
+        std::uint64_t cameraCullUpdates = 0;
+        std::uint64_t shadowCullUpdates = 0;
+        std::uint64_t drawListUploads = 0;
+        std::uint64_t drawListUploadBytes = 0;
+        std::uint32_t largestLodTransaction = 0;
+        double lastPlanningMilliseconds = 0.0;
         double lastGenerationMilliseconds = 0.0;
         bool rebuilding = false;
         bool resourceLimited = false;
@@ -78,6 +85,8 @@ public:
     const Stats& getStats() const noexcept;
     const std::string& getLastError() const noexcept;
     const Config& getConfig() const noexcept;
+    // Published octree coverage, including chunks whose density was all empty.
+    void getVisibleLodChunks(std::vector<ProceduralTerrain::LodChunk>& output) const;
 
     SceneData& getScene() noexcept { return m_scene; }
     const SceneData& getScene() const noexcept { return m_scene; }

@@ -34,13 +34,63 @@ Completion one(GpuMesher& mesher,const ChunkRequest& request,std::uint64_t token
     require(mesher.submit(request,token),"submit: "+mesher.lastError());
     return finish(mesher,1).front();
 }
-void collectRetired(GpuMesher& mesher)
+void collectRetired(GpuMesher& mesher,std::uint64_t expectedAllocated=0)
 {
-    // This explicit test-only completion allows precise allocator accounting.
-    glFinish();
+    // No swap, glFinish or generation job drives this retirement: poll must
+    // submit its release fences and make progress on its own.
+    require(mesher.stats().pendingJobs==0,"Retirement test requires idle jobs");
     std::vector<Completion> ignored;
-    mesher.poll(ignored);
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+    do
+    {
+        mesher.poll(ignored);
+        std::this_thread::yield();
+    } while (mesher.stats().allocatedBytes!=expectedAllocated && std::chrono::steady_clock::now()<deadline);
+    require(mesher.stats().allocatedBytes==expectedAllocated,"Idle retirement did not reclaim its allocation");
     require(ignored.empty(),"Unexpected duplicate completion");
+}
+void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& second)
+{
+    // An actual complete target/program exercises the production indirect
+    // submission path under a surfaceless GL context.
+    const char* vertex="#version 450 core\nvoid main(){gl_Position=vec4(float(gl_VertexID%2),float((gl_VertexID/2)%2),0,1);}";
+    const char* fragment="#version 450 core\nlayout(location=0) out vec4 color;void main(){color=vec4(1);}";
+    const GLuint program=glCreateProgram();
+    const GLenum stages[]={GL_VERTEX_SHADER,GL_FRAGMENT_SHADER};
+    const char* sources[]={vertex,fragment};
+    for (unsigned i=0;i<2;++i)
+    {
+        const GLuint shader=glCreateShader(stages[i]);
+        glShaderSource(shader,1,&sources[i],nullptr);glCompileShader(shader);
+        GLint compiled=GL_FALSE;glGetShaderiv(shader,GL_COMPILE_STATUS,&compiled);
+        require(compiled==GL_TRUE,"Draw-list test shader failed");
+        glAttachShader(program,shader);glDeleteShader(shader);
+    }
+    glLinkProgram(program);
+    GLint linked=GL_FALSE;glGetProgramiv(program,GL_LINK_STATUS,&linked);
+    require(linked==GL_TRUE,"Draw-list test program failed");
+    GLuint framebuffer=0,color=0;
+    glCreateFramebuffers(1,&framebuffer);glCreateRenderbuffers(1,&color);
+    glNamedRenderbufferStorage(color,GL_RGBA8,1,1);
+    glNamedFramebufferRenderbuffer(framebuffer,GL_COLOR_ATTACHMENT0,GL_RENDERBUFFER,color);
+    require(glCheckNamedFramebufferStatus(framebuffer,GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE,"Draw-list test framebuffer incomplete");
+    glBindFramebuffer(GL_FRAMEBUFFER,framebuffer);glViewport(0,0,1,1);glUseProgram(program);
+    const std::vector<MeshHandle> camera{first},shadow{second},changedShadow{first,second};
+    require(mesher.stats().drawListUploads==0 && mesher.stats().drawListUploadBytes==0,"Initial draw cache is not empty");
+    mesher.drawMany(camera,0);mesher.drawMany(shadow,1);
+    require(mesher.stats().drawListUploads==2 && mesher.stats().drawListUploadBytes==32,"First camera/shadow lists did not upload exactly once");
+    for (unsigned frame=0;frame<8;++frame)
+    {
+        mesher.drawMany(camera,0);mesher.drawMany(shadow,1);
+    }
+    require(mesher.stats().drawListUploads==2 && mesher.stats().drawListUploadBytes==32,"Static interleaved passes reuploaded their draw lists");
+    mesher.drawMany(changedShadow,1);mesher.drawMany(camera,0);
+    require(mesher.stats().drawListUploads==3 && mesher.stats().drawListUploadBytes==64,"Changing one pass invalidated another pass's draw cache");
+    mesher.drawMany({},0);mesher.drawMany(camera,0);
+    require(mesher.stats().drawListUploads==3,"Empty pass invalidated an unchanged command buffer");
+    require(glGetError()==GL_NO_ERROR,"OpenGL error during cached indirect draws");
+    glUseProgram(0);glBindFramebuffer(GL_FRAMEBUFFER,0);
+    glDeleteProgram(program);glDeleteFramebuffers(1,&framebuffer);glDeleteRenderbuffers(1,&color);
 }
 }
 
@@ -86,6 +136,7 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         require(command[0]==384 && command[1]==1 && command[2]==first.firstVertex && command[3]==first.slot,"Indirect command disagrees with handle");
         auto second=one(mesher,b,3);
         require(second.status==CompletionStatus::Ready,"Second resident plane failed");
+        checkDrawLists(mesher,first,second.mesh);
         const auto allocated=mesher.stats().allocatedBytes;
         auto overflow=one(mesher,c,4);
         require(overflow.status==CompletionStatus::Failed && !overflow.error.empty(),"Resident slot overflow not reported");
@@ -93,7 +144,7 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         mesher.release(first);
         mesher.release(first); // Idempotent, including before retirement fence.
         require(!mesher.valid(first) && mesher.stats().residentChunks==1,"Released mesh remained valid");
-        collectRetired(mesher);
+        collectRetired(mesher,allocated/2);
         auto replacement=one(mesher,c,5);
         require(replacement.status==CompletionStatus::Ready && mesher.valid(replacement.mesh),"Released slot not reusable");
         require(!mesher.valid(first) && replacement.mesh.generation!=first.generation,"Stale handle alias after reuse");
@@ -114,6 +165,7 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         require(!mesher.submit(invalid,8),"Unaligned chunk accepted");
         auto old=one(mesher,a,9).mesh;
         require(mesher.initialize(config,error),error);
+        require(mesher.stats().drawListUploads==0 && mesher.stats().drawListUploadBytes==0,"Restart retained draw-cache statistics");
         auto fresh=one(mesher,a,10).mesh;
         require(mesher.valid(fresh) && !mesher.valid(old),"Stale handle alias across shutdown/reinitialize");
         require(mesher.submit(b,11),mesher.lastError());
@@ -133,6 +185,7 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         }
         require(mesher.stats().residentChunks==3 && mesher.stats().failedJobs==1,"Vertex budget failure leaked a resident slot");
         std::cout << "PASS backend: async phases, cancellation, slot budget, fence retirement, stale handles, empty chunks and restart\n";
+        std::cout << "PASS backend draw cache: camera/shadow passes upload once; static frames upload zero command bytes\n";
         std::cout << "PASS backend vertex budget: three 64³ planes fit, fourth fails without exceeding its allocation\n";
         std::cout << "Software-driver GPU query for last 64³ plane: " << mesher.stats().lastGenerationMilliseconds << " ms (not hardware performance)\n";
         mesher.shutdown();

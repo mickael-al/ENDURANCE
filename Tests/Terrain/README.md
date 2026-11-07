@@ -32,11 +32,25 @@ c++ -std=c++17 -O3 -ffast-math \
 
 c++ -std=c++17 -O3 -ffast-math \
   -I ANTAGONIZ/Header/Miscellaneous -I ThirdParty/glm \
+  Tests/Terrain/check_visibility.cpp -o /tmp/endurance-check-visibility
+/tmp/endurance-check-visibility
+
+c++ -std=c++17 -O3 -ffast-math \
+  -I ANTAGONIZ/Header/Miscellaneous -I ThirdParty/glm \
   Tests/Terrain/check_streaming.cpp \
   ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainLod.cpp \
   ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainStreaming.cpp \
   -o /tmp/endurance-check-streaming
 /tmp/endurance-check-streaming
+
+c++ -std=c++17 -O3 -ffast-math -pthread \
+  -I ANTAGONIZ/Header/Miscellaneous -I ThirdParty/glm \
+  Tests/Terrain/check_planner.cpp \
+  ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainLod.cpp \
+  ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainStreaming.cpp \
+  ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainPlanner.cpp \
+  -o /tmp/endurance-check-planner
+/tmp/endurance-check-planner
 ```
 
 The frustum fixture exercises the production helper for moving/rotating cameras,
@@ -45,10 +59,21 @@ negative coordinates. An independent homogeneous clip-space corner oracle checks
 that potentially visible boxes are not rejected. A caster outside the camera
 frustum remains eligible for a different light frustum.
 
-The streaming fixture validates independent publication groups against a separate
+The visibility-cache fixture verifies stationary reuse, cumulative translation
+thresholds, rotation/projection/camera invalidation and per-light matrix changes.
+Independent clip-space tests ensure that padded cached frusta retain visible boxes
+through sub-threshold motion, including boundary crossings and large coordinates.
+
+The streaming fixture validates local publication transactions against a separate
 geometric oracle: no overlap, face balance at most 2:1, compatible transition
-masks, and preservation of shared old/new coverage. It covers split/merge,
-changed transition masks, negative coordinates and moving-camera replanning.
+masks, and preservation of shared old/new coverage. It checks fill before
+refinement before downgrade, ordering within each category, retirement of the
+coarse parent, clipped boundaries and tight budgets. Each transaction requires at
+most 32 new meshes. A default-distance route with reversals checks progress while
+the desired camera position changes and exact spatial convergence after stopping.
+The earlier independent-group tests remain as regression coverage. The worker
+fixture checks asynchronous requests, one outstanding result, desired-selection
+reuse, coalesced camera movement and destruction with work pending.
 
 ## Actual camera / terrain / shadow integration
 
@@ -68,10 +93,24 @@ and libraries as the application. Mesa software validation additionally uses
 
 The fixture creates real engine camera, light and terrain managers in EGL. Only
 `prepareRenderer()` advances terrain generation: no behaviour update or game
-script runs. Camera movement during pending jobs must replan and publish LOD
-groups; stopping must converge to the active camera's current selection. It also
-checks camera replacement, projection-range restoration on shutdown, main-camera
-culling and actual shadow-depth writes from terrain outside the camera frustum.
+script runs. The analytic plane starts with partial drawable coverage before the
+whole selection is ready. The fixture then approaches a region already published
+at LOD2: actual LOD0 chunks must replace its coarse parent before all distant
+changes finish. Moving away and returning verifies both downgrade and a second
+refinement of the same generated region. A read-only snapshot of published chunks
+checks their geometry, not just counters: no overlapping parent/child, 2:1 face
+balance, compatible transition masks on every shared face and exact final spatial
+selection (including empty chunks). Exterior-face mask bits may remain after
+retirement because no neighbour depends on them. In-flight, resident-chunk and vertex-memory budgets are checked throughout.
+
+Camera movement during pending jobs must replan and publish LOD groups; stopping
+must converge to the active camera's current selection. The fixture also checks
+camera replacement, projection-range restoration on shutdown, main-camera culling
+and actual shadow-depth writes from terrain outside the camera frustum. Eight
+alternating stationary camera/shadow frames must add no culling updates or indirect
+command uploads. Camera movement below and beyond the cumulative culling step
+checks reuse and invalidation; stationary converged terrain must not repeat LOD
+selection.
 Real directional, point and spot lights exercise allocation, shadow toggles,
 framebuffer reattachment and destruction as the array changes between 0, 4, 8
 and 10 layers. It does not launch the complete editor/window/input loop or the

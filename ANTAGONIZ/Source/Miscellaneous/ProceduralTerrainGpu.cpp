@@ -154,18 +154,24 @@ namespace ProceduralTerrain
             MeshHandle mesh;
         };
         struct Retirement { std::uint32_t slot; GLsync fence; };
+        struct DrawList
+        {
+            GLuint buffer=0;
+            std::vector<Command> commands;
+        };
         GpuConfig config;
         GpuStats statistics;
         std::string error;
-        bool initialized=false, broken=false;
+        bool initialized=false, broken=false, flushPending=false;
         Program programs[ProgramCount];
-        GLuint vertices=0, vao=0, tables=0, descriptors=0, commands=0, drawCommands=0;
+        GLuint vertices=0, vao=0, tables=0, descriptors=0, commands=0;
         std::vector<Job> jobs;
         std::vector<Slot> slots;
         std::vector<std::uint32_t> freeSlots;
         std::vector<Retirement> retired;
         std::map<std::uint32_t,std::uint32_t> freeRanges;
-        std::vector<Command> drawCache, drawScratch;
+        std::map<std::uint32_t,DrawList> drawLists;
+        std::vector<Command> drawScratch;
         std::uint32_t vertexAlignment=1;
         // Deliberately survives shutdown/reinitialize, unlike the slot array.
         std::uint32_t nextGeneration=0;
@@ -269,6 +275,7 @@ namespace ProceduralTerrain
                 GL_COMMAND_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
             glEndQuery(GL_TIME_ELAPSED);
             job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+            flushPending=true;
             job.stage=JobStage::Emitting;
             if (!job.fence) { broken=true; error="Cannot create terrain emission fence"; }
         }
@@ -323,8 +330,6 @@ namespace ProceduralTerrain
         glNamedBufferData(s.descriptors,static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Descriptor),nullptr,GL_DYNAMIC_DRAW);
         glCreateBuffers(1,&s.commands);
         glNamedBufferData(s.commands,static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Command),nullptr,GL_DYNAMIC_DRAW);
-        glCreateBuffers(1,&s.drawCommands);
-        glNamedBufferData(s.drawCommands,static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Command),nullptr,GL_STREAM_DRAW);
         glCreateVertexArrays(1,&s.vao);
         glVertexArrayVertexBuffer(s.vao,0,s.vertices,0,VertexBytes);
         for (unsigned i=0;i<3;++i)
@@ -336,7 +341,6 @@ namespace ProceduralTerrain
         s.slots.resize(config.maxResidentChunks);
         s.freeSlots.reserve(config.maxResidentChunks);
         s.retired.reserve(config.maxResidentChunks);
-        s.drawCache.reserve(config.maxResidentChunks);
         s.drawScratch.reserve(config.maxResidentChunks);
         for (std::uint32_t i=config.maxResidentChunks;i>0;--i) s.freeSlots.push_back(i-1);
         s.freeRanges.emplace(0,vertexCapacity);
@@ -380,12 +384,15 @@ namespace ProceduralTerrain
         for (auto& item:s.retired) if (item.fence) glDeleteSync(item.fence);
         for (auto& program:s.programs) { if (program.id) glDeleteProgram(program.id); program=Program{}; }
         if (s.vao) glDeleteVertexArrays(1,&s.vao);
-        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.commands,s.drawCommands};
-        if (s.vertices || s.tables || s.descriptors || s.commands || s.drawCommands) glDeleteBuffers(5,buffers);
-        s.vertices=s.vao=s.tables=s.descriptors=s.commands=s.drawCommands=0;
+        for (auto& entry:s.drawLists)
+            if (entry.second.buffer) glDeleteBuffers(1,&entry.second.buffer);
+        s.drawLists.clear();
+        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.commands};
+        if (s.vertices || s.tables || s.descriptors || s.commands) glDeleteBuffers(4,buffers);
+        s.vertices=s.vao=s.tables=s.descriptors=s.commands=0;
         s.jobs.clear(); s.slots.clear(); s.freeSlots.clear(); s.retired.clear(); s.freeRanges.clear();
-        s.drawCache.clear(); s.drawScratch.clear();
-        s.initialized=false; s.broken=false; s.statistics=GpuStats{};
+        s.drawScratch.clear();
+        s.initialized=false; s.broken=false; s.flushPending=false; s.statistics=GpuStats{};
     }
 
     bool GpuMesher::submit(const ChunkRequest& request, std::uint64_t token)
@@ -436,6 +443,7 @@ namespace ProceduralTerrain
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
         glEndQuery(GL_TIME_ELAPSED);
         job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+        s.flushPending=true;
         job.stage=JobStage::Counting;
         ++s.statistics.pendingJobs;
         if (!job.fence)
@@ -464,9 +472,12 @@ namespace ProceduralTerrain
             s.statistics.pendingJobs=0;
         };
         if (s.broken) { failPending(); return; }
+        // One submission for all newly queued generation/retirement fences.
+        // In particular, retirement must progress even when no jobs remain.
+        if (s.flushPending) { glFlush(); s.flushPending=false; }
         for (auto it=s.retired.begin();it!=s.retired.end();)
         {
-            const auto status=glClientWaitSync(it->fence,GL_SYNC_FLUSH_COMMANDS_BIT,0);
+            const auto status=glClientWaitSync(it->fence,0,0);
             if (status==GL_ALREADY_SIGNALED || status==GL_CONDITION_SATISFIED)
             { glDeleteSync(it->fence); s.freeSlot(it->slot); it=s.retired.erase(it); }
             else if (status==GL_WAIT_FAILED)
@@ -476,7 +487,7 @@ namespace ProceduralTerrain
         for (auto& job:s.jobs)
         {
             if (job.stage==JobStage::Free) continue;
-            const auto status=glClientWaitSync(job.fence,GL_SYNC_FLUSH_COMMANDS_BIT,0);
+            const auto status=glClientWaitSync(job.fence,0,0);
             if (status==GL_TIMEOUT_EXPIRED) continue;
             if (status==GL_WAIT_FAILED)
             { s.error="Terrain GPU fence failed"; s.broken=true; failPending(); return; }
@@ -517,10 +528,18 @@ namespace ProceduralTerrain
                     s.slots[job.mesh.slot].live=true;
                     ++s.statistics.residentChunks; s.statistics.residentVertices+=job.mesh.vertexCount;
                     ++s.statistics.completedJobs;
-                    GLuint64 time0=0,time1=0;
-                    glGetQueryObjectui64v(job.timers[0],GL_QUERY_RESULT,&time0);
-                    glGetQueryObjectui64v(job.timers[1],GL_QUERY_RESULT,&time1);
-                    s.statistics.lastGenerationMilliseconds=static_cast<double>(time0+time1)/1000000.0;
+                    // Timing is diagnostic only. Never make mesh publication
+                    // wait for a driver's delayed query-result delivery.
+                    GLint available0=GL_FALSE,available1=GL_FALSE;
+                    glGetQueryObjectiv(job.timers[0],GL_QUERY_RESULT_AVAILABLE,&available0);
+                    glGetQueryObjectiv(job.timers[1],GL_QUERY_RESULT_AVAILABLE,&available1);
+                    if (available0 && available1)
+                    {
+                        GLuint64 time0=0,time1=0;
+                        glGetQueryObjectui64v(job.timers[0],GL_QUERY_RESULT,&time0);
+                        glGetQueryObjectui64v(job.timers[1],GL_QUERY_RESULT,&time1);
+                        s.statistics.lastGenerationMilliseconds=static_cast<double>(time0+time1)/1000000.0;
+                    }
                 }
             }
             if (!completion.error.empty()) s.error=completion.error;
@@ -551,6 +570,7 @@ namespace ProceduralTerrain
         --s.statistics.residentChunks; s.statistics.residentVertices-=mesh.vertexCount;
         const GLsync fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
         if (!fence) { s.broken=true; s.error="Cannot create terrain retirement fence"; return; }
+        s.flushPending=true;
         s.retired.push_back({mesh.slot,fence});
     }
 
@@ -564,7 +584,7 @@ namespace ProceduralTerrain
         glDrawArraysIndirect(GL_TRIANGLES,reinterpret_cast<const void*>(static_cast<std::uintptr_t>(mesh.slot)*sizeof(Command)));
     }
 
-    void GpuMesher::drawMany(const std::vector<MeshHandle>& meshes)
+    void GpuMesher::drawMany(const std::vector<MeshHandle>& meshes, std::uint32_t drawList)
     {
         auto& s=*m_impl;
         if (!s.initialized) return;
@@ -573,19 +593,24 @@ namespace ProceduralTerrain
         for (const auto& mesh:meshes)
             if (valid(mesh)) commands.push_back({mesh.vertexCount,1,mesh.firstVertex,mesh.slot});
         if (commands.empty()) return;
-        const bool changed=commands.size()!=s.drawCache.size() ||
-            std::memcmp(commands.data(),s.drawCache.data(),commands.size()*sizeof(Command))!=0;
+        auto& cache=s.drawLists[drawList];
+        const bool changed=commands.size()!=cache.commands.size() ||
+            std::memcmp(commands.data(),cache.commands.data(),commands.size()*sizeof(Command))!=0;
         if (changed)
         {
             // Only 16-byte draw descriptors cross the bus; geometry remains in
             // its GPU allocation. Orphaning avoids overwriting in-flight draws.
-            glNamedBufferData(s.drawCommands,static_cast<GLsizeiptr>(commands.size()*sizeof(Command)),commands.data(),GL_STREAM_DRAW);
-            s.drawCache.swap(commands);
+            if (!cache.buffer) glCreateBuffers(1,&cache.buffer);
+            const auto bytes=commands.size()*sizeof(Command);
+            glNamedBufferData(cache.buffer,static_cast<GLsizeiptr>(bytes),commands.data(),GL_STREAM_DRAW);
+            cache.commands.swap(commands);
+            ++s.statistics.drawListUploads;
+            s.statistics.drawListUploadBytes+=bytes;
         }
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER,8,s.descriptors);
         glBindVertexArray(s.vao);
-        glBindBuffer(GL_DRAW_INDIRECT_BUFFER,s.drawCommands);
-        glMultiDrawArraysIndirect(GL_TRIANGLES,nullptr,static_cast<GLsizei>(s.drawCache.size()),sizeof(Command));
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER,cache.buffer);
+        glMultiDrawArraysIndirect(GL_TRIANGLES,nullptr,static_cast<GLsizei>(cache.commands.size()),sizeof(Command));
     }
 
     unsigned int GpuMesher::vertexBuffer() const noexcept { return m_impl->vertices; }

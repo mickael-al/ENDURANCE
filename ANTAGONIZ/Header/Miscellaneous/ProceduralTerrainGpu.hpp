@@ -66,6 +66,9 @@ namespace ProceduralTerrain
         std::uint64_t completedJobs = 0;
         std::uint64_t emptyJobs = 0;
         std::uint64_t failedJobs = 0;
+        // CPU-to-GPU command uploads, not vertex/field transfers.
+        std::uint64_t drawListUploads = 0;
+        std::uint64_t drawListUploadBytes = 0;
         double lastGenerationMilliseconds = 0.0;
     };
 
@@ -91,7 +94,9 @@ namespace ProceduralTerrain
         // The caller binds its render/shadow program. These methods bind only
         // geometry, indirect commands and the per-chunk descriptor at SSBO 8.
         void draw(const MeshHandle& mesh) const;
-        void drawMany(const std::vector<MeshHandle>& meshes);
+        // Keep camera/cascade command lists independent. Use a stable ID per
+        // render pass (for example camera=0, shadow layer=index+1).
+        void drawMany(const std::vector<MeshHandle>& meshes, std::uint32_t drawList = 0);
         unsigned int vertexBuffer() const noexcept;
         unsigned int descriptorBuffer() const noexcept;
         unsigned int indirectBuffer() const noexcept;

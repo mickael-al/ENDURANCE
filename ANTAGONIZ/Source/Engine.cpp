@@ -14,6 +14,7 @@
 #include "Editor.hpp"
 #include "PathManager.hpp"
 #include "CommandQueue.hpp"
+#include <cmath>
 #if ENDURANCE_ENABLE_NETWORK
 #include "OnlineSessionManager.hpp"
 #endif
@@ -180,8 +181,12 @@ namespace Ge
             m_time->fixedUpdateTime();
 			m_lag += m_time->getFixedDeltaTime();
 			m_behaviourManager->fixedUpdate();
-			if (m_lag >= 1.0/m_settingManager->getFps())
+			const double frameInterval = 1.0 / m_settingManager->getFps();
+			if (m_lag >= frameInterval)
 			{
+				// Missed render frames cannot be recovered. Keep only the fractional
+				// phase instead of bursting through stale frames after a slow draw.
+				m_lag = static_cast<float>(std::fmod(m_lag, frameInterval));
 				m_time->updateTime();
 				m_inputManager->updateAxis();
 #if ENDURANCE_ENABLE_NETWORK
@@ -189,7 +194,6 @@ namespace Ge
 #endif
 				m_behaviourManager->update();
 				m_renderingEngine->drawFrame();
-				m_lag -= 1.0/m_settingManager->getFps();
 			}
 		}
     }
