@@ -26,7 +26,7 @@ public:
         std::uint32_t maxResidentChunks = 2048;
         std::uint32_t maxSelectedChunks = 1024;
         bool enableBiomeVariants = true;
-        std::uint32_t maxBiomeVariants = 32;
+        std::uint32_t maxBiomeVariants = 256;
         std::uint32_t maxParallelBiomeCompiles = 2;
         ProceduralTerrain::FieldParameters field;
         float microDetailStrength = 0.15f;

@@ -14,21 +14,10 @@
 #include "Editor.hpp"
 #include "PathManager.hpp"
 #include "CommandQueue.hpp"
+#include "PhysicsWorkerLoop.hpp"
 #include <cmath>
 #if ENDURANCE_ENABLE_NETWORK
 #include "OnlineSessionManager.hpp"
-#endif
-#if defined(_WIN32) || defined(_WIN64)
-#include <Windows.h>
-#elif defined(__unix__) || defined(__unix)
-#include <cstdint>
-#include <ctime>
-uint64_t GetTickCount64()
-{
-	struct timespec ts;
-	clock_gettime(CLOCK_MONOTONIC,&ts);
-	return static_cast<uint64_t>(ts.tv_sec) * 1000 + ts.tv_nsec /1000000;
-}
 #endif
 
 namespace Ge
@@ -57,6 +46,7 @@ namespace Ge
 	Engine::~Engine()
 	{
 		m_fixedThreadRuning = false;
+		m_queue->wake();
 		if (m_fixedThread.joinable())
 		{
 			m_fixedThread.join();
@@ -127,6 +117,7 @@ namespace Ge
         m_inputManager->release();
 		m_soundManager->release();
 		m_fixedThreadRuning = false;
+		m_queue->wake();
 		if (m_fixedThread.joinable())
 		{
 			m_fixedThread.join();
@@ -138,24 +129,13 @@ namespace Ge
         Debug::RELEASESUCCESS("Engine");
     }
 
-	int deltaTime(int previous, int offset) 
+	void updatePhysique(glm::vec3 gravity, PhysicsEngine* pe,
+		std::atomic<bool>* fixedThreadRuning, CommandQueue* queue)
 	{
-		return (clock() - previous) + offset;
-	}
-
-	void updatePhysique(glm::vec3 gravity,PhysicsEngine * pe, std::atomic<bool>* fixedThreadRuning,CommandQueue * queue)
-	{		
-		unsigned long m_lastTime = GetTickCount64();
-		unsigned long currentTime;
-		float deltaTime;
-		pe->Initialize(gravity, queue);
-		while (*fixedThreadRuning)
-		{
-			currentTime = GetTickCount64();
-			deltaTime = (currentTime - m_lastTime) / 1000.0f;
-			m_lastTime = currentTime;
-			pe->Update(deltaTime);
-		}
+		if (!pe->Initialize(gravity, queue)) return;
+		runPhysicsWorkerLoop(*queue, *fixedThreadRuning,
+			[pe] { pe->ProcessCommands(); },
+			[pe](float step) { pe->Update(step); });
 		pe->Shutdown();
 	}
 

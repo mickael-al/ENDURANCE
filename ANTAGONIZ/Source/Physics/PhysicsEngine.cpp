@@ -49,18 +49,24 @@ namespace Ge
 		return true;
 	}
 
+	void PhysicsEngine::ProcessCommands()
+	{
+		// Bound a batch so continuous producers cannot postpone physics ticks.
+		// Commands arriving during execution remain queued and wake the next loop.
+		for (unsigned i = 0; i < 64; ++i)
+		{
+			std::unique_ptr<Command> command(m_queue->tryPop());
+			if (!command) break;
+			command->execute();
+		}
+	}
+
 	void PhysicsEngine::Update(float dt,bool engine)
 	{
-		// Apply the latest gameplay commands before advancing Bullet. Movement
-		// commands remain active across every fixed substep until replaced.
-		while (!m_queue->empty())
-		{
-			Command* command = m_queue->pop();
-			command->execute();
-			delete command;
-		}
-
-		if (!m_paused.load(std::memory_order_acquire))
+		// Apply gameplay commands before advancing Bullet. Movement commands
+		// remain active across every fixed substep until replaced.
+		ProcessCommands();
+		if (std::isfinite(dt) && dt > 0.0f && !m_paused.load(std::memory_order_acquire))
 		{
 			const float maximumFrameTime = FixedPhysicsStep * MaximumPhysicsSubSteps;
 			const float simulationTime = std::clamp(dt, 0.0f, maximumFrameTime);

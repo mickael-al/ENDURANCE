@@ -8,6 +8,8 @@
 #include <thread>
 #include <condition_variable>
 #include <future>
+#include <atomic>
+#include <chrono>
 
 namespace Ge
 {
@@ -24,7 +26,10 @@ namespace Ge
     public:
         void push(Command* command);
         Command* pop();
+        Command* tryPop();
         bool empty();
+        void waitUntil(std::chrono::steady_clock::time_point deadline, const std::atomic<bool>& running);
+        void wake();
     private:
         std::queue<Command*> queue_;
         std::mutex mutex_;

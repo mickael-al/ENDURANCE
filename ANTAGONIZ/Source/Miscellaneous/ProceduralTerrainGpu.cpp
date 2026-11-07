@@ -524,7 +524,7 @@ namespace ProceduralTerrain
             config.vertexBudgetMiB==0 || config.vertexBudgetMiB>4096 ||
             config.maxResidentChunks==0 || config.maxResidentChunks>65536 ||
             config.maxInFlight==0 || config.maxInFlight>16 ||
-            config.maxBiomeVariants==0 || config.maxBiomeVariants>128 ||
+            config.maxBiomeVariants==0 || config.maxBiomeVariants>256 ||
             config.maxParallelBiomeCompiles==0 || config.maxParallelBiomeCompiles>8 ||
             !validFieldParameters(config.field))
         { error=s.error="Invalid procedural terrain GPU configuration"; return false; }

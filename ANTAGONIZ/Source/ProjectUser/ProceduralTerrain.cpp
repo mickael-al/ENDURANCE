@@ -3,6 +3,7 @@
 #include "ProceduralGeneration.hpp"
 #include "Editor.hpp"
 #include "Engine.hpp"
+#include "RenderingEngine.hpp"
 #include "PointeurClass.hpp"
 #include "Debug.hpp"
 #include <algorithm>
@@ -131,6 +132,39 @@ void ProceduralTerrainComponent::onGUI()
                 "Apres une erreur GLSL, corrigez le fichier et cliquez a nouveau.");
     }
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
+    if (m_pc && m_pc->renderingEngine)
+    {
+        auto& rendering = *m_pc->renderingEngine;
+        bool timings = rendering.isFrameTimingsEnabled();
+        if (ImGui::Checkbox("Mesurer les saccades", &timings))
+            rendering.setFrameTimingsEnabled(timings);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Mesure les appels CPU et leurs attentes pendant drawFrame, pas le temps GPU.\n"
+                "Les comportements executes avant drawFrame ne sont pas inclus.\n"
+                "Desactiver fige les mesures. Remettre a zero apres le chargement pour isoler un nouveau pic.\n"
+                "Ne pas interrompre le debogueur pendant la capture : la pause serait comptee dans le pic.");
+        const auto& last = rendering.getLastFrameTimings();
+        const auto& peak = rendering.getPeakFrameTimings();
+        if (timings || peak.sampleNumber != 0)
+        {
+            if (ImGui::Button("Remettre les mesures a zero")) rendering.resetFrameTimings();
+            if (peak.sampleNumber != 0)
+            {
+                ImGui::Text("DrawFrame CPU/waits: last %.3f ms / peak %.3f ms (#%llu)",
+                    last.totalMilliseconds, peak.totalMilliseconds,
+                    static_cast<unsigned long long>(peak.sampleNumber));
+                ImGui::Text("Peak: camera/cascades %.3f / terrain preparation %.3f ms",
+                    peak.cameraMilliseconds, peak.prepareMilliseconds);
+                ImGui::Text("Peak: animation %.3f / render+HUD %.3f / swap %.3f ms",
+                    peak.animationMilliseconds, peak.renderMilliseconds, peak.swapMilliseconds);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Toutes les valeurs du pic appartiennent a la meme image.\n"
+                        "La preparation inclut tous les CustomRenderer, dont le terrain.\n"
+                        "Swap peut inclure l'attente VSync : ce n'est pas une mesure isolee du GPU.");
+            }
+            else ImGui::TextUnformatted("Waiting for a complete measured frame...");
+        }
+    }
     if (!m_generator) return;
     const auto& stats = m_generator->getStats();
     ImGui::Text("Coverage: %u meshes / %u selected / %u resident",

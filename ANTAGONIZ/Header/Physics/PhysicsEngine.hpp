@@ -32,6 +32,7 @@ class PhysicsEngine
 {
 public:
     bool Initialize(glm::vec3 const& gravity, CommandQueue* queue);
+    void ProcessCommands();
     void Update(float dt,bool engine = true);
     void setPaused(bool paused);
     bool isPaused() const;

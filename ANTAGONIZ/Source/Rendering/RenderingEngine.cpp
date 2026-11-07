@@ -25,6 +25,7 @@
 #include "Camera.hpp"
 #include "PostProcess.hpp"
 #include <algorithm>
+#include <chrono>
 #include <stack>
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -376,18 +377,63 @@ namespace Ge
 		callbacksTransparency.erase(owner);
 	}
 
+    bool RenderingEngine::isFrameTimingsEnabled() const noexcept
+    {
+        return m_frameTimingsEnabled;
+    }
+
+    void RenderingEngine::setFrameTimingsEnabled(bool enabled) noexcept
+    {
+        if (m_frameTimingsEnabled == enabled) return;
+        m_frameTimingsEnabled = enabled;
+        ++m_frameTimingEpoch;
+    }
+
+    void RenderingEngine::resetFrameTimings() noexcept
+    {
+        m_lastFrameTimings = FrameTimings{};
+        m_peakFrameTimings = FrameTimings{};
+        ++m_frameTimingEpoch;
+    }
+
+    const RenderingEngine::FrameTimings& RenderingEngine::getLastFrameTimings() const noexcept
+    {
+        return m_lastFrameTimings;
+    }
+
+    const RenderingEngine::FrameTimings& RenderingEngine::getPeakFrameTimings() const noexcept
+    {
+        return m_peakFrameTimings;
+    }
+
     void RenderingEngine::drawFrame()
     {
+        using Clock = std::chrono::steady_clock;
+        const bool measureFrame = m_frameTimingsEnabled;
+        const auto timingEpoch = m_frameTimingEpoch;
+        FrameTimings timings;
+        Clock::time_point frameStart{}, phaseStart{};
+        if (measureFrame) frameStart = phaseStart = Clock::now();
+        const auto endPhase = [&](double& milliseconds)
+        {
+            if (!measureFrame) return;
+            const auto now = Clock::now();
+            milliseconds = std::chrono::duration<double, std::milli>(now - phaseStart).count();
+            phaseStart = now;
+        };
 		if (m_skinnedTransformManager != nullptr && m_ptrClass != nullptr && m_ptrClass->time != nullptr)
 		{
 			m_skinnedTransformManager->updateAnimations(m_ptrClass->time->getDeltaTime());
 		}
+        endPhase(timings.animationMilliseconds);
 		m_cameraManager->updateFlyCam();
+        endPhase(timings.cameraMilliseconds);
 		const auto& customRenderers = m_graphiquePipelineManager->getCustomRenderer();
 		for (CustomRenderer* renderer : customRenderers)
 		{
 			if (renderer != nullptr) renderer->prepareRenderer();
 		}
+        endPhase(timings.prepareMilliseconds);
 		m_shaderDataMisc->update(m_cameraManager->getCurrentCamera());
 		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFrameBuffer());
 		glViewport(0, 0, m_graphicsDataMisc->str_width, m_graphicsDataMisc->str_height);
@@ -723,6 +769,20 @@ namespace Ge
 			glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFrameBuffer());
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, m_frameBuffer->getDepth(), 0);
 		}
+        endPhase(timings.renderMilliseconds);
 		glfwSwapBuffers(m_graphicsDataMisc->str_window);
+        endPhase(timings.swapMilliseconds);
+        // The inspector runs in m_hud->render above. Never publish a partial
+        // capture or overwrite a reset/frozen sample requested by that UI.
+        if (measureFrame && m_frameTimingsEnabled && timingEpoch == m_frameTimingEpoch)
+        {
+            timings.totalMilliseconds =
+                std::chrono::duration<double, std::milli>(phaseStart - frameStart).count();
+            timings.sampleNumber = m_lastFrameTimings.sampleNumber + 1;
+            m_lastFrameTimings = timings;
+            if (m_peakFrameTimings.sampleNumber == 0 ||
+                timings.totalMilliseconds > m_peakFrameTimings.totalMilliseconds)
+                m_peakFrameTimings = timings;
+        }
     }
 }

@@ -21,7 +21,7 @@ namespace ProceduralTerrain
         // Bounded cache pinned until shutdown. Generic programs remain available
         // while variants compile, when full, or without a shared compiler context.
         bool enableBiomeVariants = true;
-        std::uint32_t maxBiomeVariants = 32;
+        std::uint32_t maxBiomeVariants = 256;
         std::uint32_t maxParallelBiomeCompiles = 2;
         // Optional shared-context provider. Without one, runtime compilation
         // stays disabled rather than falling back to the rendering thread.

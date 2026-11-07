@@ -304,6 +304,18 @@ until after the mesher has shut down and joined its worker.
 
 ## Interpretation
 
+The engine physics worker now sleeps until a 60 Hz deadline or an incoming
+command. Its separate regression test checks exact Bullet steps, retained
+inter-tick forces, bounded catch-up after a debugger pause, immediate command
+and stop wake-ups, and absence of idle command-pump spinning:
+
+```bash
+bash Tests/run-physics-worker.sh <Bullet-build-directory>
+```
+
+The argument is the Bullet build directory containing the static libraries under
+`src/BulletDynamics`, `src/BulletCollision` and `src/LinearMath`.
+
 Development validation ran on Mesa 25.0.7 llvmpipe (LLVM 19.1.7), a software
 renderer. It verifies real shader execution and lifecycle correctness; its GPU
 query timings are not representative of a physical GPU. These checks do not
