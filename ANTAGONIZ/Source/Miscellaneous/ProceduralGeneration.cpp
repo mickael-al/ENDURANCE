@@ -40,11 +40,11 @@ namespace
     using KeySet = std::unordered_set<ChunkKey, KeyHash>;
 
     // Custom renderers must leave the enclosing material/shadow pass intact.
-    struct DrawState
+    struct TerrainRenderStateGuard
     {
         GLint program = 0, vao = 0, indirect = 0, storage = 0, descriptor = 0;
         GLint64 descriptorStart = 0, descriptorSize = 0;
-        DrawState()
+        TerrainRenderStateGuard()
         {
             glGetIntegerv(GL_CURRENT_PROGRAM, &program);
             glGetIntegerv(GL_VERTEX_ARRAY_BINDING, &vao);
@@ -54,7 +54,7 @@ namespace
             glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_START, 8, &descriptorStart);
             glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_SIZE, 8, &descriptorSize);
         }
-        ~DrawState()
+        ~TerrainRenderStateGuard()
         {
             glUseProgram(program);
             glBindVertexArray(vao);
@@ -474,7 +474,7 @@ void ProceduralGeneration::drawRenderer()
     const auto planes = frustumPlanes(camera->getProjectionMatrix() * camera->getViewMatrix());
     for (const auto& mesh : s.visible) if (inFrustum(mesh, planes)) s.culled.push_back(mesh);
     if (s.culled.empty()) return;
-    DrawState state;
+    TerrainRenderStateGuard state;
     glUseProgram(s.render->getProgram());
     glUniform1f(s.detailStrength, m_config.microDetailStrength);
     glUniform1f(s.detailScale, m_config.microDetailScale);
@@ -489,7 +489,7 @@ void ProceduralGeneration::drawRenderer()
 void ProceduralGeneration::drawShadowRenderer(unsigned int shadowIndex)
 {
     if (!m_impl || m_impl->visible.empty()) return;
-    DrawState state;
+    TerrainRenderStateGuard state;
     glUseProgram(m_impl->shadow->getProgram());
     glUniform1i(m_impl->shadowIndex, static_cast<GLint>(shadowIndex));
     m_impl->gpu.drawMany(m_impl->visible);
