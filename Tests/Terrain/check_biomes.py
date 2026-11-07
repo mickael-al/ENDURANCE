@@ -68,15 +68,15 @@ void main()
     else if(uProbeMode==2u)
     {
         vec4 relief=fieldBlendRelief(p,uProbeClimate.xy);
-        BiomeVolume profile=fieldBlendVolume(uProbeClimate);
+        BiomeVolume profile=fieldBlendVolume(uProbeClimate,p);
         outputValues[address]=ProbeSample(relief,profile.volume,profile.shape,profile.style);
     }
     else if(uProbeMode==3u)
     {
         uint biome=uint(round(uProbeClimate.x*4.0))+5u*uint(round(uProbeClimate.y*4.0));
         vec4 expected=fieldBiomeRelief(biome,p);
-        BiomeVolume direct=fieldBiomeVolume(biome);
-        BiomeVolume mixed=fieldBlendVolume(uProbeClimate);
+        BiomeVolume direct=fieldBiomeVolumeAt(biome,p);
+        BiomeVolume mixed=fieldBlendVolume(uProbeClimate,p);
         outputValues[address]=ProbeSample(fieldBlendRelief(p,uProbeClimate.xy)-expected,
             mixed.volume-direct.volume,mixed.shape-direct.shape,mixed.style-direct.style);
     }

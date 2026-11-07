@@ -24,14 +24,23 @@ namespace ProceduralTerrain
             "GPU structures must match std430 layout");
 
         bool readShader(const std::filesystem::path& path, std::string& source,
-            std::string& error, unsigned depth = 0)
+            std::vector<std::string>& files, std::string& error, unsigned depth = 0)
         {
             if (depth > 12) { error = "Recursive terrain shader include: " + path.string(); return false; }
             std::ifstream input(path, std::ios::binary);
             if (!input) { error = "Cannot read terrain shader: " + path.string(); return false; }
+            const auto name = path.lexically_normal().generic_string();
+            auto found = std::find(files.begin(), files.end(), name);
+            const auto sourceId = static_cast<unsigned>(found - files.begin());
+            if (found == files.end()) files.push_back(name);
+            // Root #version must remain the first directive. Includes use
+            // numeric source IDs supported by GLSL, with a path table in errors.
+            if (depth) source += "#line 1 " + std::to_string(sourceId) + "\n";
             std::string line;
+            unsigned lineNumber = 0;
             while (std::getline(input, line))
             {
+                ++lineNumber;
                 const auto first = line.find_first_not_of(" \t");
                 if (first != std::string::npos && line.compare(first, 8, "#include") == 0)
                 {
@@ -40,7 +49,9 @@ namespace ProceduralTerrain
                     if (begin == std::string::npos || end == std::string::npos)
                     { error = "Invalid terrain shader include: " + path.string(); return false; }
                     if (!readShader(path.parent_path() / line.substr(begin + 1, end - begin - 1),
-                        source, error, depth + 1)) return false;
+                        source, files, error, depth + 1)) return false;
+                    source += "#line " + std::to_string(lineNumber + 1) + " " +
+                        std::to_string(sourceId) + "\n";
                 }
                 else { source += line; source += '\n'; }
             }
@@ -50,11 +61,22 @@ namespace ProceduralTerrain
         GLuint makeProgram(const std::filesystem::path& path, const char* defines, std::string& error)
         {
             std::string source;
-            if (!readShader(path, source, error)) return 0;
+            std::vector<std::string> files;
+            // No source/program cache: restarting the mesher recompiles the
+            // current disk contents of every transitive biome include.
+            if (!readShader(path, source, files, error)) return 0;
             const auto newline = source.find('\n');
             if (newline == std::string::npos || source.compare(0, 8, "#version") != 0)
             { error = "Missing terrain shader version: " + path.string(); return 0; }
-            source.insert(newline + 1, defines);
+            source.insert(newline + 1, std::string(defines) + "#line 2 0\n");
+            const auto diagnostic = [&files, &path](const std::string& log)
+            {
+                std::string result = path.string() + ": " + log.c_str();
+                result += "\nGLSL source files (source ID : file):\n";
+                for (std::size_t i = 0; i < files.size(); ++i)
+                    result += std::to_string(i) + " : " + files[i] + "\n";
+                return result;
+            };
             const char* bytes = source.c_str();
             GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
             glShaderSource(shader, 1, &bytes, nullptr);
@@ -66,7 +88,7 @@ namespace ProceduralTerrain
                 GLint length = 0; glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
                 std::string log(static_cast<std::size_t>((std::max)(length, 1)), '\0');
                 glGetShaderInfoLog(shader, length, nullptr, &log[0]);
-                error = path.string() + ": " + log;
+                error = diagnostic(log);
                 glDeleteShader(shader); return 0;
             }
             GLuint program = glCreateProgram();
@@ -77,7 +99,7 @@ namespace ProceduralTerrain
                 GLint length = 0; glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
                 std::string log(static_cast<std::size_t>((std::max)(length, 1)), '\0');
                 glGetProgramInfoLog(program, length, nullptr, &log[0]);
-                error = path.string() + ": " + log;
+                error = diagnostic(log);
                 glDeleteProgram(program); return 0;
             }
             return program;

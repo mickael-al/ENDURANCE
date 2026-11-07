@@ -22,8 +22,24 @@ BiomeVolume volumeRecipe(float offset, float displacement, float carving, float 
     return result;
 }
 
-// Ice: broad basal chambers and angular crevasses under smooth snow surfaces.
-BiomeVolume polarIceVolume() { return volumeRecipe(-24,4,100,.30,vec3(.20,.70,.10),.17,vec4(.65,.45,.15,.65)); }
+// Polar activity keeps only extremes of a slow 2D field. Evaluated once per
+// column, before biome blending: quiet columns bypass all three volume noises.
+// Raising START reduces occupied areas; END controls the soft activation ramp.
+const float POLAR_VOLUME_SPACING = 224.0;
+const float POLAR_VOLUME_START = 0.32;
+const float POLAR_VOLUME_END = 0.52;
+
+float polarVolumeActivity(vec2 p)
+{
+    float n = abs(fieldNoise2(p / max(POLAR_VOLUME_SPACING,4.0), 105u));
+    float start = clamp(POLAR_VOLUME_START,0.0,0.999);
+    float end = max(start+0.001,clamp(POLAR_VOLUME_END,0.0,1.0));
+    float t = clamp((n-start)/(end-start),0.0,1.0);
+    return t*t*(3.0-2.0*t);
+}
+
+// Ice: shallow recesses and small buried chambers in rare active sectors.
+BiomeVolume polarIceVolume() { return volumeRecipe(-24,4,84,.65,vec3(.20,.70,.10),.09,vec4(.90,.45,.15,.20)); }
 BiomeVolume frozenTundraVolume() { return volumeRecipe(-20,3,72,.40,vec3(.35,.50,.15),.10,vec4(.85,.70,.15,.30)); }
 BiomeVolume tundraVolume() { return volumeRecipe(-30,2,52,.55,vec3(.65,.15,.20),.075,vec4(.95,.10,.10,.10)); }
 BiomeVolume taigaVolume() { return volumeRecipe(-30,6,90,.40,vec3(.35,.25,.40),.13,vec4(.80,.20,.30,.10)); }
@@ -87,6 +103,20 @@ BiomeVolume fieldBiomeVolume(uint biome)
     if(biome==23u) return burningJungleVolume();
     if(biome==24u) return tropicalMangroveVolume();
     return marineVolume();
+}
+
+BiomeVolume fieldBiomeVolumeAt(uint biome, vec2 p)
+{
+    BiomeVolume result = fieldBiomeVolume(biome);
+    if(biome==0u)
+    {
+        float activity = polarVolumeActivity(p);
+        result.volume.yz *= activity;
+        // Scaling carving strength alone does not remove its negative sign.
+        // Also close the cavity radius smoothly towards inactive columns.
+        result.shape.w *= activity;
+    }
+    return result;
 }
 
 #endif

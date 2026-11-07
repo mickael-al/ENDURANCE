@@ -114,7 +114,17 @@ void ProceduralTerrainComponent::onGUI()
     int selected = std::clamp<int>(biomeOverride, -1, 25) + 1;
     if (ImGui::Combo("Biome a tester", &selected, biomeNames, 27))
         biomeOverride = selected - 1;
-    if (m_generator && ImGui::Button("Regenerer avec ces reglages")) start();
+    // m_pc remains available after a shader error: fixing the file must not
+    // require Stop/Play just to make this button reappear. start() destroys the
+    // previous generator and recompiles all terrain shaders/includes from disk.
+    if (m_pc)
+    {
+        if (ImGui::Button("Regenerer avec ces reglages")) start();
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Relit et recompile les shaders de Asset/Shader/ProceduralTerrain,\n"
+                "y compris les fichiers de biomes, puis reconstruit le terrain.\n"
+                "Apres une erreur GLSL, corrigez le fichier et cliquez a nouveau.");
+    }
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
     if (!m_generator) return;
     const auto& stats = m_generator->getStats();

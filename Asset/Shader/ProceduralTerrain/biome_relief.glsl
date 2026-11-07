@@ -68,16 +68,30 @@ float fieldSurfaceDune(vec2 p, vec2 direction, float wavelength, uint salt)
 }
 
 // Coldest row ---------------------------------------------------------------
+// Polar tuning: dimensions before the scene's detailScale multiplier.
+// Spacing stays in world metres; depth/amplitudes are multiplied by detailScale.
+const float POLAR_BASIN_SPACING = 64.0;
+const float POLAR_BASIN_DEPTH = 24.0;
+const float POLAR_BASIN_FLOOR = 0.06;
+const float POLAR_BASIN_WARP = 0.65;
+const float POLAR_ROLL_AMPLITUDE = 18.0;
+const float POLAR_FINE_AMPLITUDE = 1.5;
+
 vec4 fieldReliefPolarIce(vec2 p)
 {
     vec2 q = fieldSurfaceRotate(p, vec2(0.8, 0.6));
-    float ice = fieldNoise2(q * vec2(0.00045, 0.00115), 100u) * 145.0;
-    float trough = 1.0 - smoothstep(0.035, 0.24,
-        abs(fieldNoise2(q * vec2(0.00032, 0.0018), 101u)));
-    float nunatak = fieldSurfaceLandmark(p, 512.0, 102u, 1.0, 0.22, 0.18, 0.52);
-    float h = fieldSurfaceTerrace(ice, 42.0, 0.86) - trough * 52.0;
-    h += nunatak * (300.0 + 55.0 * fieldNoise2(p * 0.0015, 103u));
-    return vec4(h, 120.0, -52.0, nunatak);
+    float spacing = max(POLAR_BASIN_SPACING, 4.0);
+    vec2 warp = vec2(fieldNoise2(q / (spacing * 3.0), 100u),
+                     fieldNoise2(q / (spacing * 3.0), 101u));
+    vec2 sites = fieldCellular2Distances(q / spacing + warp * POLAR_BASIN_WARP, 102u);
+    // At a cell boundary F1 == F2. The remap has zero slope there, so the
+    // depressed floors meet at rounded rims instead of sharp Voronoi ridges.
+    float bowl = smoothstep(clamp(POLAR_BASIN_FLOOR,0.0,0.95),1.0,
+                            clamp(sites.x / max(sites.y,0.0001),0.0,1.0));
+    float h = (bowl - 1.0) * POLAR_BASIN_DEPTH;
+    h += fieldNoise2(p * 0.0006, 103u) * POLAR_ROLL_AMPLITUDE;
+    h += fieldNoise2(p * 0.04, 104u) * POLAR_FINE_AMPLITUDE;
+    return vec4(h, 32.0, -40.0, 0.0);
 }
 
 vec4 fieldReliefFrozenTundra(vec2 p)

@@ -101,6 +101,28 @@ vec2 fieldCellular2Data(vec2 p, uint salt, float metric)
 // landmark support; never use it as an unmasked displacement at Voronoi edges.
 float fieldCellular2(vec2 p, uint salt, float metric) { return fieldCellular2Data(p,salt,metric).x; }
 
+// Squared distances to the nearest two Voronoi sites. The same bounded jitter
+// as the landmark primitive keeps the 3x3 search sufficient. Keeping squared
+// distances avoids two square roots when a relief uses their ratio.
+vec2 fieldCellular2Distances(vec2 p, uint salt)
+{
+    ivec2 cell = ivec2(floor(p));
+    vec2 f = fract(p);
+    vec2 nearest = vec2(100.0);
+    for (int z = -1; z <= 1; ++z)
+    for (int x = -1; x <= 1; ++x)
+    {
+        ivec2 q = ivec2(x,z);
+        uint h = fieldHash2(cell+q,salt);
+        vec2 jitter = 0.35 + 0.30 * vec2(h & 65535u,h >> 16u) * (1.0/65535.0);
+        vec2 delta = vec2(q)+jitter-f;
+        float d = dot(delta,delta);
+        nearest.y = min(nearest.y,max(nearest.x,d));
+        nearest.x = min(nearest.x,d);
+    }
+    return nearest;
+}
+
 float fieldVoronoi(vec2 p) { return fieldCellular2(p,0xb5297a4du,0.0); }
 float fieldRidge2(vec2 p, uint salt) { return 1.0-abs(fieldNoise2(p,salt)); }
 float fieldFade(float f) { return f*f*f*(f*(f*6.0-15.0)+10.0); }

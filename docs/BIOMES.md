@@ -36,7 +36,7 @@ Les formes ci-dessous sont produites par les recettes actuelles. Les tubes et ca
 
 | ID / biome | Relief 2D | Sculpture 3D |
 | --- | --- | --- |
-| 0 — Glace polaire | Nappes orientées, sillons, paliers et pics en diamant dispersés | Chambres basales, entailles angulaires et couches |
+| 0 — Glace polaire | Cuvettes de Voronoï déformées, fonds doux et rebords arrondis, petites ondulations | Petits renfoncements et chambres enterrées dans les rares secteurs où le bruit d’activité dépasse son seuil |
 | 1 — Toundra gelée | Sol polygonal bas et dômes isolés | Petites cavités angulaires enterrées |
 | 2 — Toundra | Ondulations allongées et rares affleurements arrondis | Tubes discrets sous le sol |
 | 3 — Taïga | Vallées larges, cordons allongés et dos rocheux | Cavernes et passages dans les masses |
@@ -65,6 +65,29 @@ Les formes ci-dessous sont produites par les recettes actuelles. Les tubes et ca
 
 Les monuments n’occupent pas systématiquement chaque cellule : leur présence, leur hauteur, leur rayon et leur couronne varient avec la seed. Une déformation 2D bornée casse les contours trop parfaits tout en conservant le rayon maximal de leur enveloppe.
 
+## Réglage de la glace polaire
+
+Pour isoler cette recette pendant Play, choisir **Glace polaire** dans « Biome a tester ». Modifier les fichiers GLSL ci-dessous, les enregistrer, puis cliquer sur **Regenerer avec ces reglages**. Le bouton relit et recompile les shaders de terrain et leurs includes depuis le disque, puis reconstruit les chunks. Il reste disponible après une erreur de compilation : corriger le fichier et réessayer. Le message fournit une table des fichiers GLSL et des identifiants de source associés aux numéros de ligne du compilateur. Les chemins sont ceux de `Asset/Shader/ProceduralTerrain`, à côté du dossier `Bin`.
+
+Les constantes `POLAR_*` regroupent les principaux réglages :
+
+| Fichier / réglage | Défaut | Effet |
+| --- | ---: | --- |
+| `biome_relief.glsl` — `POLAR_BASIN_SPACING` | 64 m | Espacement caractéristique des cuvettes. |
+| `POLAR_BASIN_DEPTH` | 24 | Profondeur avant `detailScale`, soit 8,4 m à 0,35. |
+| `POLAR_BASIN_FLOOR` | 0,06 | Part aplatie au fond du profil normalisé. |
+| `POLAR_BASIN_WARP` | 0,65 | Déformation lente des positions de Voronoï. |
+| `POLAR_ROLL_AMPLITUDE` / `POLAR_FINE_AMPLITUDE` | 18 / 1,5 | Ondulation large et relief fin, avant `detailScale`. |
+| `biome_volume.glsl` — `POLAR_VOLUME_SPACING` | 224 m | Échelle des secteurs où le champ 3D peut intervenir. |
+| `POLAR_VOLUME_START` | 0,32 | Seuil du bruit absolu ; l’augmenter réduit la présence du champ 3D. |
+| `POLAR_VOLUME_END` | 0,52 | Fin de la rampe d’activation ; conserver une valeur supérieure au seuil. |
+
+Le profil utilise le rapport des distances au carré aux deux sites de Voronoï les plus proches, avec une pente nulle aux rebords des cellules. Les distances restent continues quand le site le plus proche change. Le macrorelief global de la scène est toujours ajouté : mettre temporairement `heightAmplitude` à zéro permet d’inspecter les seules cuvettes.
+
+`fieldReliefPolarIce()` règle aussi l’épaisseur supplémentaire et le décalage de bande ; `polarIceVolume()` règle le décalage supplémentaire, la déformation, le creusement et le rayon. Le masque de rareté s’applique aux amplitudes **et au rayon des cavités** avant le mélange de biomes : réduire seulement une amplitude positive ne suffit pas à supprimer les valeurs négatives d’un champ creusant. Les secteurs inactifs retournent directement la hauteur sans calculer les trois bruits 3D. Ce masque ajoute un bruit 2D par colonne concernée et ne change ni les 64 octets de colonne, ni les sommets compressés.
+
+Cette révision concerne la recette polaire. Les cases climatiques, leur répartition et les 25 autres recettes forcées restent inchangées.
+
 ## Composition et coût GPU
 
 `Asset/Shader/ProceduralTerrain/biome_relief.glsl` contient les recettes 2D individuelles. Elles combinent des bruits de gradient, des crêtes, des profils orientés, des cellules et des paliers dont la largeur de transition est réglée. Les métriques cellulaires euclidienne, Manhattan et maximum produisent des masses rondes, en diamant ou carrées ; elles ne nécessitent pas un algorithme Diamond-Square récursif.
@@ -83,7 +106,7 @@ Ces valeurs sont des objectifs de composition. Elles ne garantissent pas encore 
 
 ## Atlas de diagnostic
 
-Ces images sont calculées à partir des shaders de production, avec la seed **1337**, les paramètres par défaut et chaque biome forcé séparément.
+Ces images ont été calculées à partir des shaders de production, avec la seed **1337**, les paramètres par défaut et chaque biome forcé séparément. Cet atlas précède la révision des cuvettes polaires ; sa case 0 représente encore l’ancienne recette. `Tests/Terrain/check_polar.py --preview /tmp/polar-relief.png` produit une vue mesurée de la nouvelle forme.
 
 - [Atlas des hauteurs](images/biome_height_atlas.jpg) : 1 536 × 1 536 m par case, échantillonnage de 8 m. La palette et l’éclairage sont normalisés par case pour lire les formes ; ce ne sont pas les matériaux du jeu.
 - [Coupes du champ 3D](images/biome_density_sections.png) : noir = solide, blanc = vide. Chaque coupe passe par le point culminant échantillonné de sa case ; son Z est indiqué. Les échelles verticales diffèrent entre cases.

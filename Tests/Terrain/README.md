@@ -116,6 +116,30 @@ framebuffer reattachment and destruction as the array changes between 0, 4, 8
 and 10 layers. It does not launch the complete editor/window/input loop or the
 physics queue.
 
+## Polar ice and shader reloading
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar.py
+# Optional diagnostic image from actual sampled shader heights:
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar.py --preview /tmp/polar-relief.png
+
+# Use the PIC GLEW object described in the backend section below:
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_reload.py --glew-object /tmp/endurance-glew-pic.o
+```
+
+The polar fixture checks repeated depressions, sampled slopes and continuity,
+sparse volume influence, conservative bounds, seed repeatability and matching
+chunk/LOD samples. `--reference-shaders /path/to/baseline/ProceduralTerrain`
+additionally compares the other 25 forced biome recipes against a saved baseline.
+The optional image requires NumPy and Matplotlib; it visualizes measured geometry,
+not final materials or a rendered game screenshot.
+
+The reload fixture changes nested biome files in a temporary shader copy and
+verifies that reinitialization changes actual meshed vertex positions without a
+process restart. An invalid included shader must report its source path/original
+line; fixing it or restoring a missing include must allow another successful
+initialization. The production shader directory is not edited by this fixture.
+
 ## Compute shaders
 
 Linux, Python 3.10+, a C++17 compiler, `libEGL.so.1`, `libGL.so.1`, and desktop

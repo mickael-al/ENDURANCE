@@ -57,7 +57,7 @@ vec4 fieldBlendRelief(vec2 p, vec2 climate)
     return clamp(result,vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,320.0,160.0,1.0));
 }
 
-BiomeVolume fieldBlendVolume(vec3 biomeCoordinates)
+BiomeVolume fieldBlendVolume(vec3 biomeCoordinates, vec2 p)
 {
     vec3 cell=clamp(biomeCoordinates,0.0,1.0)*4.0;
     uvec3 i=uvec3(floor(cell));
@@ -78,7 +78,7 @@ BiomeVolume fieldBlendVolume(vec3 biomeCoordinates)
     for(uint k=0u;k<FIELD_BIOME_COUNT;++k)
     {
         if(weights[k]<=0.0) continue;
-        BiomeVolume recipe=fieldBiomeVolume(k);
+        BiomeVolume recipe=fieldBiomeVolumeAt(k,p);
         result.volume+=recipe.volume*weights[k];
         result.shape+=recipe.shape*weights[k];
         result.style+=recipe.style*weights[k];
@@ -117,7 +117,7 @@ FieldColumn fieldColumnAt(vec2 p)
     {
         uint biome=uint(uBiomeOverride);
         if(uDetailScale>0.0) relief=fieldBiomeRelief(biome,p);
-        recipe=fieldBiomeVolume(biome);
+        recipe=fieldBiomeVolumeAt(biome,p);
         if(biome<FIELD_MARINE_BIOME)
             climate=vec2(biome%5u,biome/5u)*0.25;
     }
@@ -131,7 +131,7 @@ FieldColumn fieldColumnAt(vec2 p)
         }
         // The first altitude interval is the shoreline. Higher intervals keep
         // their paired land recipes; the explicit matrix can be edited later.
-        recipe=fieldBlendVolume(vec3(climate,clamp(coastCoordinate,0.0,4.0)*0.25));
+        recipe=fieldBlendVolume(vec3(climate,clamp(coastCoordinate,0.0,4.0)*0.25),p);
     }
     relief=clamp(relief,vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,320.0,160.0,1.0));
     float height=macroHeight+relief.x*uDetailScale;
