@@ -8,6 +8,7 @@
 #include "Debug.hpp"
 #include <algorithm>
 #include <exception>
+#include <iostream>
 
 // Register in this translation unit only, so including the component header
 // cannot create duplicate factories or duplicate JSON specializations.
@@ -36,7 +37,7 @@ void ProceduralTerrainComponent::start()
     if (scene == nullptr || m_pc == nullptr || m_pc->cameraManager == nullptr)
     {
         m_error = "Terrain requires an active scene and camera manager.";
-        Ge::Debug::Error("%s", m_error.c_str());
+        std::cerr << "[Terrain initialization] " << m_error << std::endl;
         return;
     }
 
@@ -82,7 +83,7 @@ void ProceduralTerrainComponent::start()
         m_generator.reset();
     }
     if (!m_generator)
-        Ge::Debug::Error("Procedural terrain initialization failed: %s", m_error.c_str());
+        std::cerr << "[Terrain initialization] Failed: " << m_error << std::endl;
 }
 
 void ProceduralTerrainComponent::fixedUpdate() {}

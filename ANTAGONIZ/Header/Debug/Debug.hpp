@@ -4,6 +4,7 @@
 #include <iostream>
 #include <fstream>
 #include <cstdarg>
+#include <string>
 
 #ifdef NDEBUG
 #if defined(_WIN32) || defined(_WIN64)
@@ -40,9 +41,6 @@ namespace Ge
 		private:
 			friend class Console;
 			static Console * console;
-        private:			
-            static char buffer[BUFFER_SIZE];
-            static char tempbuffer[BUFFER_SIZE];
     };
 }
 

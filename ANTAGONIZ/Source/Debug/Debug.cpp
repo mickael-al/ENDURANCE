@@ -1,31 +1,49 @@
 #include "Debug.hpp"
 #include "Console.hpp"
-#include <stdint.h>
+#include <cstdint>
+#include <cstdio>
+#include <string>
 #include "termcolor/termcolor.hpp"
 
 namespace Ge
 {
-        char Debug::buffer[BUFFER_SIZE];
-        char Debug::tempbuffer[BUFFER_SIZE];
+    namespace
+    {
+        // Shader diagnostics can be much longer than 1 KiB. Size the message
+        // before formatting, and keep its storage local to this call.
+        std::string formatMessage(const char* prefix, const char* format, va_list arguments)
+        {
+            if (!format) return std::string(prefix) + "(null log format)\n";
+            va_list measure;
+            va_copy(measure, arguments);
+            const int length = std::vsnprintf(nullptr, 0, format, measure);
+            va_end(measure);
+            if (length < 0) return std::string(prefix) + "(log formatting failed)\n";
+
+            std::string message(prefix);
+            const std::size_t offset = message.size();
+            message.resize(offset + static_cast<std::size_t>(length) + 1);
+            const int written = std::vsnprintf(&message[offset],
+                static_cast<std::size_t>(length) + 1, format, arguments);
+            if (written < 0 || written != length)
+                return std::string(prefix) + "(log formatting failed)\n";
+            message.back() = '\n';
+            return message;
+        }
+    }
 		Console * Debug::console = nullptr;
         void Debug::Log(const char *format, ...)
         {
                 va_list argList;
                 va_start(argList, format);
-#ifdef _WIN32
-                vsprintf(buffer, format, argList);
-                sprintf_s(tempbuffer, "[ENGINE][USER] : %s\n", buffer);
-#elif __unix__
-                vsprintf(buffer, format, argList);
-                sprintf(tempbuffer, "[ENGINE][USER] : %s\n", buffer);
-#endif
+                const auto message = formatMessage("[ENGINE][USER] : ", format, argList);
                 va_end(argList);
 
-                std::cout << tempbuffer;
+                std::cout << message;
 				if (console != nullptr)
 				{
 					console->setBaseColor(ImColor(1.0f, 1.0f, 1.0f, 1.0f));
-					console->AddLog("%s", tempbuffer);
+					console->AddLog("%s", message.c_str());
 				}
         }
 
@@ -33,20 +51,14 @@ namespace Ge
         {
                 va_list argList;
                 va_start(argList, format);
-#ifdef _WIN32
-                vsprintf(buffer, format, argList);
-                sprintf_s(tempbuffer, "[ENGINE][ERROR] : %s\n", buffer);
-#elif __unix__
-                vsprintf(buffer, format, argList);
-                sprintf(tempbuffer, "[ENGINE][ERROR] : %s\n", buffer);
-#endif
+                const auto message = formatMessage("[ENGINE][ERROR] : ", format, argList);
                 va_end(argList);
 
-                std::cerr << termcolor::red << tempbuffer << termcolor::reset;
+                std::cerr << termcolor::red << message << termcolor::reset;
 				if (console != nullptr)
 				{
 					console->setBaseColor(ImColor(0.5f, 0.0f, 0.0f, 1.0f));
-					console->AddLog("%s", tempbuffer);
+					console->AddLog("%s", message.c_str());
 				}
                 std::cin.ignore();
         }
@@ -70,20 +82,14 @@ namespace Ge
         {
                 va_list argList;
                 va_start(argList, format);
-#ifdef _WIN32
-                vsprintf(buffer, format, argList);
-                sprintf_s(tempbuffer, "[ENGINE][WARN] : %s\n", buffer);
-#elif __unix__
-                vsprintf(buffer, format, argList);
-                sprintf(tempbuffer, "[ENGINE][WARN] : %s\n", buffer);
-#endif
+                const auto message = formatMessage("[ENGINE][WARN] : ", format, argList);
                 va_end(argList);
 
-                std::cout << termcolor::yellow << tempbuffer << termcolor::reset;
+                std::cout << termcolor::yellow << message << termcolor::reset;
 				if (console != nullptr)
 				{
 					console->setBaseColor(ImColor(0.5f, 0.5f, 0.0f, 1.0f));
-					console->AddLog("%s", tempbuffer);
+					console->AddLog("%s", message.c_str());
 				}
         }
 
@@ -91,20 +97,14 @@ namespace Ge
         {
                 va_list argList;
                 va_start(argList, format);
-#ifdef _WIN32
-                vsprintf(buffer, format, argList);
-                sprintf_s(tempbuffer, "[ENGINE][INFO] : %s\n", buffer);
-#elif __unix__
-                vsprintf(buffer, format, argList);
-                sprintf(tempbuffer, "[ENGINE][INFO] : %s\n", buffer);
-#endif
+                const auto message = formatMessage("[ENGINE][INFO] : ", format, argList);
                 va_end(argList);
 
-                std::cout << termcolor::cyan << tempbuffer << termcolor::reset;
+                std::cout << termcolor::cyan << message << termcolor::reset;
 				if (console != nullptr)
 				{
 					console->setBaseColor(ImColor(0.0f, 0.4f, 0.4f, 1.0f));
-					console->AddLog("%s", tempbuffer);
+					console->AddLog("%s", message.c_str());
 				}
         }
 
@@ -112,20 +112,14 @@ namespace Ge
         {
                 va_list argList;
                 va_start(argList, format);
-#ifdef _WIN32
-                vsprintf(buffer, format, argList);
-                sprintf_s(tempbuffer, "[ENGINE][VLAYER] : %s\n", buffer);
-#elif __unix__
-                vsprintf(buffer, format, argList);
-                sprintf(tempbuffer, "[ENGINE][VLAYER] : %s\n", buffer);
-#endif
+                const auto message = formatMessage("[ENGINE][VLAYER] : ", format, argList);
                 va_end(argList);
 
-                std::cout << termcolor::magenta << tempbuffer << termcolor::reset;
+                std::cout << termcolor::magenta << message << termcolor::reset;
 				if (console != nullptr)
 				{
 					console->setBaseColor(ImColor(0.25f, 0.0f, 0.5f, 1.0f));
-					console->AddLog("%s", tempbuffer);
+					console->AddLog("%s", message.c_str());
 				}
         }
 

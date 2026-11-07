@@ -3,10 +3,12 @@
 #include "ProceduralTerrainBiomes.hpp"
 #include "ProceduralTransvoxelTables.hpp"
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <map>
 #include <numeric>
@@ -61,7 +63,25 @@ namespace ProceduralTerrain
             return true;
         }
 
-        GLuint makeProgram(const std::filesystem::path& path, const char* defines, std::string& error)
+        struct ShaderStartupTrace
+        {
+            using Clock = std::chrono::steady_clock;
+            std::string label;
+            Clock::time_point begin(const char* stage) const
+            {
+                std::cerr << "[Terrain shader " << label << "] " << stage << " begin" << std::endl;
+                return Clock::now();
+            }
+            void end(const char* stage, Clock::time_point start) const
+            {
+                const double milliseconds = std::chrono::duration<double, std::milli>(Clock::now() - start).count();
+                std::cerr << "[Terrain shader " << label << "] " << stage << " end ("
+                    << milliseconds << " ms)" << std::endl;
+            }
+        };
+
+        GLuint makeProgram(const std::filesystem::path& path, const char* defines,
+            const ShaderStartupTrace& trace, std::string& error)
         {
             std::string source;
             std::vector<std::string> files;
@@ -72,6 +92,8 @@ namespace ProceduralTerrain
             if (newline == std::string::npos || source.compare(0, 8, "#version") != 0)
             { error = "Missing terrain shader version: " + path.string(); return 0; }
             source.insert(newline + 1, std::string(defines) + "#line 2 0\n");
+            std::cerr << "[Terrain shader " << trace.label << "] source: " << source.size()
+                << " bytes" << std::endl;
             const auto diagnostic = [&files, &path](const std::string& log)
             {
                 std::string result = path.string() + ": " + log.c_str();
@@ -83,9 +105,13 @@ namespace ProceduralTerrain
             const char* bytes = source.c_str();
             GLuint shader = glCreateShader(GL_COMPUTE_SHADER);
             glShaderSource(shader, 1, &bytes, nullptr);
+            const auto compileStart = trace.begin("glCompileShader");
             glCompileShader(shader);
+            trace.end("glCompileShader", compileStart);
             GLint success = GL_FALSE;
+            const auto compileStatusStart = trace.begin("GL_COMPILE_STATUS");
             glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
+            trace.end("GL_COMPILE_STATUS", compileStatusStart);
             if (!success)
             {
                 GLint length = 0; glGetShaderiv(shader, GL_INFO_LOG_LENGTH, &length);
@@ -95,8 +121,14 @@ namespace ProceduralTerrain
                 glDeleteShader(shader); return 0;
             }
             GLuint program = glCreateProgram();
-            glAttachShader(program, shader); glLinkProgram(program); glDeleteShader(shader);
+            glAttachShader(program, shader);
+            const auto linkStart = trace.begin("glLinkProgram");
+            glLinkProgram(program);
+            trace.end("glLinkProgram", linkStart);
+            glDeleteShader(shader);
+            const auto linkStatusStart = trace.begin("GL_LINK_STATUS");
             glGetProgramiv(program, GL_LINK_STATUS, &success);
+            trace.end("GL_LINK_STATUS", linkStatusStart);
             if (!success)
             {
                 GLint length = 0; glGetProgramiv(program, GL_INFO_LOG_LENGTH, &length);
@@ -348,6 +380,14 @@ namespace ProceduralTerrain
             config.maxInFlight==0 || config.maxInFlight>16 ||
             !validFieldParameters(config.field))
         { error=s.error="Invalid procedural terrain GPU configuration"; return false; }
+        const auto driverString = [](GLenum name)
+        {
+            const auto* value = glGetString(name);
+            return value ? reinterpret_cast<const char*>(value) : "unavailable";
+        };
+        std::cerr << "[Terrain initialization] OpenGL " << driverString(GL_VERSION)
+            << "; vendor: " << driverString(GL_VENDOR)
+            << "; renderer: " << driverString(GL_RENDERER) << std::endl;
         GLint bindings=0, alignment=0;
         GLint64 maximumBlock=0;
         glGetIntegerv(GL_MAX_SHADER_STORAGE_BUFFER_BINDINGS,&bindings);
@@ -366,11 +406,19 @@ namespace ProceduralTerrain
             "transition.C.glsl","meshing.C.glsl","transition.C.glsl","meshing_finalize.C.glsl"};
         for (unsigned i=0;i<ProgramCount;++i)
         {
-            const char* define=(i==EmitRegular || i==EmitTransition)?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
+            const bool emitPass = i==EmitRegular || i==EmitTransition;
+            const char* define=emitPass?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
+            const ShaderStartupTrace trace{std::to_string(i+1)+"/"+std::to_string(ProgramCount)
+                +" "+files[i]+" EMIT_PASS="+(emitPass ? "1" : "0")};
             auto& program=s.programs[i];
-            program.id=makeProgram(std::filesystem::path(config.shaderDirectory)/files[i],define,s.error);
+            program.id=makeProgram(std::filesystem::path(config.shaderDirectory)/files[i],define,trace,s.error);
             if (!program.id) { error=s.error; shutdown(); s.error=error; return false; }
-            program.discover(); program.field(config);
+            const auto discoverStart = trace.begin("discover uniforms");
+            program.discover();
+            trace.end("discover uniforms", discoverStart);
+            const auto fieldStart = trace.begin("set field uniforms");
+            program.field(config);
+            trace.end("set field uniforms", fieldStart);
         }
         glCreateBuffers(1,&s.biomeCells);
         constexpr auto biomeCells=makeBiomeCellTable();
