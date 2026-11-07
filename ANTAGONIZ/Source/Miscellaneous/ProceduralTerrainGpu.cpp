@@ -2,7 +2,7 @@
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainBiomes.hpp"
 #include "ProceduralTransvoxelTables.hpp"
-#include "ParallelShaderCompiler.hpp"
+#include "BackgroundShaderCompiler.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -12,6 +12,7 @@
 #include <map>
 #include <numeric>
 #include <sstream>
+#include <stdexcept>
 #include <unordered_map>
 #include <utility>
 
@@ -168,6 +169,33 @@ namespace ProceduralTerrain
                 glUniform1ui(slot,meshSlot); glUniform1ui(first,firstVertex);
             }
         };
+
+        // This runs only in the compiler's shared worker context. A real tiny
+        // dispatch also moves first-use driver work away from the game frame.
+        // Neither production job buffers nor mutable main-context objects are
+        // touched. Scratch is bounded (~96 KiB at 64 cells), then released.
+        void warmBiomeProgram(const Program& program, const GpuConfig& config)
+        {
+            const std::size_t side=config.cells+3;
+            std::vector<std::uint32_t> columns(side*8*FieldColumnBytes/sizeof(std::uint32_t),0u);
+            constexpr auto mapping=makeBiomeCellTable();
+            GLuint buffers[3]{};
+            glCreateBuffers(3,buffers);
+            glNamedBufferData(buffers[0],static_cast<GLsizeiptr>(side*side*4*sizeof(float)),nullptr,GL_STREAM_DRAW);
+            glNamedBufferData(buffers[1],static_cast<GLsizeiptr>(columns.size()*sizeof(std::uint32_t)),columns.data(),GL_STREAM_DRAW);
+            glNamedBufferData(buffers[2],sizeof(mapping),mapping.data(),GL_STATIC_DRAW);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,buffers[0]);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,buffers[1]);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,buffers[2]);
+            program.request(ChunkRequest{});
+            glDispatchCompute(1,1,1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            glDeleteBuffers(3,buffers);
+            const auto status=glGetError();
+            if (status!=GL_NO_ERROR)
+                throw std::runtime_error("Biome shader warm-up failed (OpenGL "+std::to_string(status)+")");
+        }
+
         enum ProgramIndex { Columns, Density, Classify, CountRegular, CountTransition, EmitRegular, EmitTransition, Finalize, ProgramCount };
         enum class JobStage { Free, Classifying, Counting, Emitting };
     }
@@ -201,8 +229,8 @@ namespace ProceduralTerrain
         struct Variant
         {
             Program programs[2];
-            Ge::ParallelShaderCompiler::Ticket tickets[2]{};
-            std::uint64_t lastUse=0;
+            std::shared_ptr<Program> prepared[2];
+            Ge::BackgroundShaderCompiler::Ticket tickets[2]{};
             bool failed=false;
             bool ready() const noexcept { return programs[0].id && programs[1].id; }
         };
@@ -212,10 +240,9 @@ namespace ProceduralTerrain
         bool initialized=false, broken=false, flushPending=false;
         Program programs[ProgramCount];
         GLuint vertices=0, vao=0, tables=0, descriptors=0, commands=0, biomeCells=0;
-        Ge::ParallelShaderCompiler compiler;
+        Ge::BackgroundShaderCompiler compiler;
         std::unordered_map<std::uint64_t,Variant> variants;
         std::string biomeSources[2], biomeSourceLabels[2];
-        std::uint64_t variantClock=0;
         bool compileSubmittedThisPoll=false;
         std::vector<Job> jobs;
         std::vector<Slot> slots;
@@ -261,7 +288,7 @@ namespace ProceduralTerrain
                     const auto ticket=variant.tickets[i];
                     if (!ticket) continue;
                     const auto state=compiler.state(ticket);
-                    if (state==Ge::ParallelShaderCompiler::State::Failed)
+                    if (state==Ge::BackgroundShaderCompiler::State::Failed)
                     {
                         error=compiler.error(ticket);
                         releaseVariant(variant);
@@ -269,12 +296,14 @@ namespace ProceduralTerrain
                         ++statistics.biomeCompileFailures;
                         break;
                     }
-                    if (state==Ge::ParallelShaderCompiler::State::Ready)
+                    if (state==Ge::BackgroundShaderCompiler::State::Ready)
                     {
                         auto& program=variant.programs[i];
-                        program.id=compiler.takeProgram(ticket);
+                        const auto id=compiler.takeProgram(ticket);
+                        program=*variant.prepared[i];
+                        program.id=id;
+                        variant.prepared[i].reset();
                         variant.tickets[i]=0;
-                        program.discover(); program.field(config);
                     }
                 }
             }
@@ -289,11 +318,24 @@ namespace ProceduralTerrain
             auto found=variants.find(key);
             if (found!=variants.end())
             {
-                found->second.lastUse=++variantClock;
                 if (found->second.ready()) { ++statistics.biomeVariantHits; return &found->second; }
                 ++statistics.biomeVariantFallbacks;
                 return nullptr;
             }
+            // A previously compiled superset is also correct: extra biome
+            // calls have zero local weight and preserve the ordered sum.
+            Variant* covering=nullptr;
+            unsigned bestBits=65;
+            for (auto& entry:variants)
+            {
+                if (!entry.second.ready()) continue;
+                if ((entry.first & key)!=key) continue;
+                auto bits=entry.first;
+                unsigned count=0;
+                while (bits) { bits&=bits-1; ++count; }
+                if (count<bestBits) { bestBits=count; covering=&entry.second; }
+            }
+            if (covering) { ++statistics.biomeVariantHits; return covering; }
             ++statistics.biomeVariantFallbacks;
             // Submit at most one pair per poll; avoid a burst of driver work
             // when many classification fences finish together.
@@ -301,17 +343,13 @@ namespace ProceduralTerrain
                 return nullptr;
             if (variants.size()>=config.maxBiomeVariants)
             {
-                auto oldest=variants.end();
-                for (auto it=variants.begin();it!=variants.end();++it)
-                    if ((it->second.ready() || it->second.failed) &&
-                        (oldest==variants.end() || it->second.lastUse<oldest->second.lastUse)) oldest=it;
-                if (oldest==variants.end()) return nullptr;
-                // OpenGL retains executable storage still referenced by queued commands.
-                releaseVariant(oldest->second);
-                variants.erase(oldest);
+                // Pin admitted variants for this generation. Large stationary
+                // views must not repeatedly evict and recompile the same masks.
+                ++statistics.biomeVariantCacheFull;
+                return nullptr;
             }
             auto& variant=variants[key];
-            variant.lastUse=++variantClock;
+            ++statistics.biomeVariantCompiles;
             const auto defines=biomeDefines(masks);
             compileSubmittedThisPoll=true;
             for (unsigned i=0;i<2;++i)
@@ -319,7 +357,16 @@ namespace ProceduralTerrain
                 auto source=biomeSources[i];
                 const auto newline=source.find('\n');
                 source.insert(newline+1,defines+"#line 2 0\n");
-                variant.tickets[i]=compiler.submitCompute(source,biomeSourceLabels[i]);
+                variant.prepared[i]=std::make_shared<Program>();
+                const auto prepared=variant.prepared[i];
+                const auto settings=config;
+                variant.tickets[i]=compiler.submitCompute(source,biomeSourceLabels[i],
+                    [prepared,settings](unsigned int id)
+                    {
+                        prepared->id=id;
+                        prepared->discover(); prepared->field(settings);
+                        warmBiomeProgram(*prepared,settings);
+                    });
                 if (!variant.tickets[i])
                 {
                     error=compiler.lastError();
@@ -509,7 +556,8 @@ namespace ProceduralTerrain
         // Source snapshots are scoped to this initialization. Regenerate always
         // discards every variant and reloads every transitive include from disk.
         if (config.enableBiomeVariants)
-            s.statistics.parallelShaderCompilation=s.compiler.initialize(2*config.maxParallelBiomeCompiles,2);
+            s.statistics.parallelShaderCompilation=s.compiler.initialize(config.shaderCompilerContext,
+                2*config.maxParallelBiomeCompiles);
         s.variants.reserve(config.maxBiomeVariants);
         glCreateBuffers(1,&s.biomeCells);
         constexpr auto biomeCells=makeBiomeCellTable();
@@ -583,7 +631,7 @@ namespace ProceduralTerrain
         for (auto& entry:s.variants) s.releaseVariant(entry.second);
         s.variants.clear(); s.compiler.shutdown();
         for (unsigned i=0;i<2;++i) { s.biomeSources[i].clear(); s.biomeSourceLabels[i].clear(); }
-        s.variantClock=0; s.compileSubmittedThisPoll=false;
+        s.compileSubmittedThisPoll=false;
         if (s.vao) glDeleteVertexArrays(1,&s.vao);
         for (auto& entry:s.drawLists)
             if (entry.second.buffer) glDeleteBuffers(1,&entry.second.buffer);

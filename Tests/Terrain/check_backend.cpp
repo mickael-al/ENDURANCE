@@ -3,6 +3,7 @@
 #include "glcore.hpp"
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainBiomes.hpp"
+#include "SharedEglContext.hpp"
 #include <algorithm>
 #include <array>
 #include <chrono>
@@ -161,6 +162,29 @@ void checkBiomeVariants(GpuMesher& mesher,GpuConfig config)
     }
     if(parallel) require(mesher.stats().biomeVariantFallbacks>=3 && mesher.stats().biomeVariants==2,
         "Cache test did not exercise more masks than its bounded capacity");
+    const auto saturated=mesher.stats();
+    if(parallel)require(saturated.biomeVariantCompiles==2 && saturated.biomeVariantCacheFull>0,
+        "A full cache evicted/recompiled variants instead of retaining its two admitted programs");
+    request.origin={0,0,0};
+    const auto revisited=one(mesher,request,190);
+    require(revisited.status==CompletionStatus::Ready && meshBytes(mesher,revisited.mesh)==reference,
+        "Revisiting the first chunk changed its packed geometry after cache saturation");
+    if(parallel) require(mesher.stats().biomeVariantHits==saturated.biomeVariantHits+1 &&
+        mesher.stats().biomeVariantCompiles==saturated.biomeVariantCompiles,
+        "The first variant was evicted or recompiled after visiting more biome masks");
+    mesher.release(revisited.mesh);collectRetired(mesher);
+    const auto idle=mesher.stats();
+    std::vector<Completion> idleCompletions;
+    for(unsigned i=0;i<64;++i)mesher.poll(idleCompletions);
+    const auto afterIdle=mesher.stats();
+    require(idleCompletions.empty() && afterIdle.pendingJobs==0 &&
+        afterIdle.biomeVariants==idle.biomeVariants && afterIdle.pendingBiomeVariants==0 &&
+        afterIdle.biomeVariantHits==idle.biomeVariantHits &&
+        afterIdle.biomeVariantFallbacks==idle.biomeVariantFallbacks &&
+        afterIdle.biomeVariantCompiles==idle.biomeVariantCompiles &&
+        afterIdle.biomeVariantCacheFull==idle.biomeVariantCacheFull &&
+        afterIdle.biomeCompileFailures==idle.biomeCompileFailures,
+        "An idle terrain continued scheduling generation or shader work");
     // Generic-only mode must preserve the same world, and never enqueue a
     // runtime compilation even on a driver exposing parallel shader support.
     config.enableBiomeVariants=false;
@@ -171,8 +195,16 @@ void checkBiomeVariants(GpuMesher& mesher,GpuConfig config)
         "Disabling specialization changed terrain output");
     require(!mesher.stats().biomeVariants && !mesher.stats().pendingBiomeVariants,
         "Generic-only mode still allocated variants");
+    config.enableBiomeVariants=true;
+    config.shaderCompilerContext={};
+    require(mesher.initialize(config,error),error);
+    const auto noContext=one(mesher,request,201);
+    require(noContext.status==CompletionStatus::Ready && meshBytes(mesher,noContext.mesh)==reference,
+        "No-worker-context fallback changed terrain output");
+    require(!mesher.stats().parallelShaderCompilation && !mesher.stats().biomeVariants &&
+            !mesher.stats().pendingBiomeVariants,"Missing shared context caused render-thread compilation");
     mesher.shutdown();
-    std::cout<<"PASS biome backend: classification cancellation, generic fallback, idle compile polling, bounded cache eviction, identical packed meshes and 48-byte columns\n";
+    std::cout<<"PASS biome backend: classification cancellation, generic fallback, shared-context compilation, idle polling, stable full cache without recompilation, identical packed meshes and 48-byte columns\n";
 }
 }
 
@@ -187,8 +219,10 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         require(glewStatus==GLEW_OK || glewStatus==GLEW_ERROR_NO_GLX_DISPLAY,"GLEW initialization failed");
         require(GLEW_VERSION_4_5 && glCreateBuffers,"Backend requires desktop GL4.5 DSA");
         while (glGetError()!=GL_NO_ERROR) {}
+        SharedEglContext compilerContext;
         GpuMesher mesher;
         GpuConfig config;
+        config.shaderCompilerContext=compilerContext.hooks();
         config.cells=8;config.maxInFlight=2;config.maxResidentChunks=2;config.vertexBudgetMiB=1;
         config.shaderDirectory=shaderDirectory;config.field.mode=FieldMode::Plane;config.field.baseHeight=3.25f;
         std::string error;

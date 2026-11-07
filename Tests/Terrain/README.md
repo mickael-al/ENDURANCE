@@ -172,6 +172,8 @@ python3 Tests/Terrain/check_gpu.py --fields-only
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_variants.py
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_parallel_compiler.py \
   --glew-object /tmp/endurance-glew-pic.o
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_background_compiler.py \
+  --glew-object /tmp/endurance-glew-pic.o
 ```
 
 The variant fixture exports the production C++ matrices, packed cell records,
@@ -183,10 +185,15 @@ and identical emitted positions/normals. A temporary polar recipe is replaced
 with actual Voronoi 3D code: density must change while the 2D columns and another
 biome remain unchanged. Production sources are not modified by that fixture.
 
-The engine compiler fixture checks bounded asynchronous jobs, ownership and
-cancellation, GLSL diagnostics, linked compute output and unsupported-driver
-fallback. Driver support for the parallel-compilation extension is reported;
-the extension is a scheduling hint, not a guaranteed frame-time limit.
+The original parallel-extension fixture checks bounded jobs, nonblocking
+completion queries, ownership/cancellation, diagnostics, compute output and
+unsupported-driver fallback. The terrain now uses a separate background worker:
+the background fixture creates a shared EGL context and verifies that actual
+compile/link/preparation calls stay on that worker, while submit/poll remain
+CPU-only. It also checks shared program execution, bounded cancellation,
+diagnostics and hook failures. `ARB_parallel_shader_compile` remains available
+as an additive engine service; the extension alone does not guarantee that
+shader submission will avoid a driver stall on its caller.
 
 Runtime column storage is now 48 bytes: eight float32 controls followed by a
 four-word integer block. Density remains float32. The Python field runner uses
@@ -287,10 +294,13 @@ indirect commands and buffer guards; the production graphics path keeps density
 and mesh data on the GPU.
 
 The biome backend cases additionally cover classification cancellation,
-generic fallback on a cold variant, compilation progress without pending mesh
-jobs, reuse of ready variants, cache eviction under a two-variant limit, the
-48-byte transient column budget, and identical packed geometry when variants
-are disabled. Unsupported parallel compilation keeps the generic path working.
+generic fallback on a cold variant, shared-context compilation without pending
+mesh jobs, reuse of ready variants, bounded admission under a two-variant limit,
+revisiting the first variant after cache saturation without eviction or
+recompilation, idle polling without new work, the 48-byte transient column budget, and
+identical packed geometry when variants are disabled or no worker context is
+provided. `SharedEglContext.hpp` supplies test-only context ownership; it lives
+until after the mesher has shut down and joined its worker.
 
 ## Interpretation
 

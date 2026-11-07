@@ -23,7 +23,8 @@ def main():
                  "-I",str(ROOT/"ThirdParty"),str(ROOT/"Tests/Terrain/check_backend.cpp"),
                  str(ROOT/"ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
                  str(ROOT/"ANTAGONIZ/Source/Rendering/Shader/ParallelShaderCompiler.cpp"),
-                 str(args.glew_object.resolve()),"-l:libGL.so.1","-o",str(library)]
+                 str(ROOT/"ANTAGONIZ/Source/Rendering/Shader/BackgroundShaderCompiler.cpp"),
+                 str(args.glew_object.resolve()),"-pthread","-l:libGL.so.1","-l:libEGL.so.1","-o",str(library)]
         subprocess.run(command,check=True)
         with GL() as gl:
             print(f"OpenGL {gl.version}; renderer: {gl.renderer}",flush=True)

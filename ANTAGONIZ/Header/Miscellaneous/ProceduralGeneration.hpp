@@ -70,6 +70,7 @@ public:
         double lastClassificationMilliseconds = 0.0;
         std::uint64_t transientFieldBytes = 0;
         std::uint64_t biomeVariantHits = 0, biomeVariantFallbacks = 0, biomeCompileFailures = 0;
+        std::uint64_t biomeVariantCompiles = 0, biomeVariantCacheFull = 0;
         std::uint32_t biomeVariants = 0, pendingBiomeVariants = 0;
         bool parallelShaderCompilation = false;
         bool rebuilding = false;

@@ -155,7 +155,10 @@ void ProceduralTerrainComponent::onGUI()
         stats.budgetBytes / 1048576.0);
     ImGui::Text("Last generation: %.3f ms", stats.lastGenerationMilliseconds);
     ImGui::Text("Biome shaders: %u cached / %u compiling (%s)", stats.biomeVariants,
-        stats.pendingBiomeVariants, stats.parallelShaderCompilation ? "parallel" : "generic fallback");
+        stats.pendingBiomeVariants, stats.parallelShaderCompilation ? "background worker" : "generic fallback");
+    ImGui::Text("Compiler submissions: %llu / cache-full fallbacks: %llu",
+        static_cast<unsigned long long>(stats.biomeVariantCompiles),
+        static_cast<unsigned long long>(stats.biomeVariantCacheFull));
     ImGui::Text("Variant uses: %llu / fallback uses: %llu / compile errors: %llu",
         static_cast<unsigned long long>(stats.biomeVariantHits),
         static_cast<unsigned long long>(stats.biomeVariantFallbacks),
@@ -164,6 +167,10 @@ void ProceduralTerrainComponent::onGUI()
         stats.transientFieldBytes / 1048576.0, stats.lastClassificationMilliseconds);
     if (stats.rebuilding && stats.visibleChunks == 0)
         ImGui::TextWrapped("Preparing nearby terrain. Ready local coverage appears progressively.");
+    if (stats.rebuilding || stats.pendingJobs || stats.pendingBiomeVariants)
+        ImGui::TextUnformatted("Background terrain work is still active.");
+    else
+        ImGui::TextUnformatted("Terrain generation and shader compilation are idle.");
     if (stats.resourceLimited) ImGui::TextWrapped("Terrain memory or chunk budget reached.");
     if (!m_generator->getLastError().empty())
         ImGui::TextWrapped("%s", m_generator->getLastError().c_str());

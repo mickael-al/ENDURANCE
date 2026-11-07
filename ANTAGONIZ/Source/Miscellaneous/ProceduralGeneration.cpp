@@ -12,6 +12,7 @@
 #include "Camera.hpp"
 #include "GraphiquePipeline.hpp"
 #include "ShaderPair.hpp"
+#include "SharedShaderContext.hpp"
 #include <glm/mat4x4.hpp>
 #include <glm/geometric.hpp>
 #include <algorithm>
@@ -110,6 +111,7 @@ struct ProceduralGeneration::Impl
     Ge::GraphiquePipeline* render = nullptr;
     Ge::GraphiquePipeline* shadow = nullptr;
     ProceduralGeneration* registered = nullptr;
+    std::unique_ptr<Ge::SharedShaderContext> shaderCompilerContext;
     GpuMesher gpu;
     CollisionCache collision;
     LodConfig lod;
@@ -236,6 +238,13 @@ bool ProceduralGeneration::initialize(const Config& config)
     gpuConfig.enableBiomeVariants = config.enableBiomeVariants;
     gpuConfig.maxBiomeVariants = config.maxBiomeVariants;
     gpuConfig.maxParallelBiomeCompiles = config.maxParallelBiomeCompiles;
+    if (config.enableBiomeVariants)
+    {
+        std::string contextError;
+        impl->shaderCompilerContext = Ge::SharedShaderContext::create(contextError);
+        if (impl->shaderCompilerContext)
+            gpuConfig.shaderCompilerContext = impl->shaderCompilerContext->hooks();
+    }
     gpuConfig.baseSpacing = config.cellSize;
     gpuConfig.vertexBudgetMiB = config.vertexBudgetMiB;
     gpuConfig.maxResidentChunks = config.maxResidentChunks;
@@ -541,6 +550,8 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     m_stats.biomeVariantHits = gpu.biomeVariantHits;
     m_stats.biomeVariantFallbacks = gpu.biomeVariantFallbacks;
     m_stats.biomeCompileFailures = gpu.biomeCompileFailures;
+    m_stats.biomeVariantCompiles = gpu.biomeVariantCompiles;
+    m_stats.biomeVariantCacheFull = gpu.biomeVariantCacheFull;
     m_stats.biomeVariants = gpu.biomeVariants;
     m_stats.pendingBiomeVariants = gpu.pendingBiomeVariants;
     m_stats.parallelShaderCompilation = gpu.parallelShaderCompilation;
