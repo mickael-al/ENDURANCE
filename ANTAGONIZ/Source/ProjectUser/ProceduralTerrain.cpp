@@ -17,6 +17,7 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, baseHeight,
     heightAmplitude, heightFrequency, climateFrequency, bandThickness,
     bandVariation, bandOffset, bandOffsetVariation, detailScale,
+    seaLevel, seaBlendWidth, biomeOverride,
     microDetailStrength, microDetailScale, debugLod, collisionEnabled, collisionRadius);
 
 ProceduralTerrainComponent::ProceduralTerrainComponent() = default;
@@ -59,6 +60,9 @@ void ProceduralTerrainComponent::start()
     config.field.bandOffset = bandOffset;
     config.field.bandOffsetVariation = bandOffsetVariation;
     config.field.detailScale = detailScale;
+    config.field.seaLevel = seaLevel;
+    config.field.seaBlendWidth = seaBlendWidth;
+    config.field.biomeOverride = biomeOverride;
     config.microDetailStrength = microDetailStrength;
     config.microDetailScale = microDetailScale;
     config.debugLod = debugLod;
@@ -138,6 +142,18 @@ void ProceduralTerrainComponent::stop()
 void ProceduralTerrainComponent::onGUI()
 {
     ImGui::TextUnformatted("Procedural terrain");
+    static const char* biomeNames[] = {
+        "Automatique (matrices)", "Glace polaire", "Toundra gelee", "Toundra", "Taiga",
+        "Foret boreale marecageuse", "Toundra rocheuse", "Steppe froide", "Foret boreale",
+        "Foret froide", "Marecage froid", "Plaine seche", "Prairie", "Foret temperee",
+        "Foret temperee humide", "Marais tempere", "Desert de roche", "Savane seche",
+        "Savane", "Jungle seche", "Jungle tropicale", "Desert volcanique", "Desert rouge",
+        "Plateau aride", "Jungle brulante", "Mangrove tropicale", "Fond marin"
+    };
+    int selected = std::clamp<int>(biomeOverride, -1, 25) + 1;
+    if (ImGui::Combo("Biome a tester", &selected, biomeNames, 27))
+        biomeOverride = selected - 1;
+    if (m_generator && ImGui::Button("Regenerer avec ces reglages")) start();
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
     if (!m_generator) return;
     const auto& stats = m_generator->getStats();

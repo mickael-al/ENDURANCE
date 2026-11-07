@@ -19,6 +19,8 @@ from gl_headless import GL, GLUnavailable
 
 ROOT = Path(__file__).resolve().parents[2]
 SHADERS = ROOT / "Asset/Shader/ProceduralTerrain"
+COLUMN_WORDS = 16
+COLUMN_BYTES = COLUMN_WORDS * 4
 
 
 class FieldRunner:
@@ -32,7 +34,7 @@ class FieldRunner:
         side = cells + 3
         # NaNs reveal missing halo/boundary writes, including partial workgroups.
         nan = struct.pack("<I", 0x7FC00001)
-        columns = gl.buffer(nan * (side * side * 8), 1)
+        columns = gl.buffer(nan * (side * side * COLUMN_WORDS), 1)
         density = gl.buffer(nan * (side ** 3), 0)
         uniforms = {
             "uCells": ("1ui", cells),
@@ -49,6 +51,9 @@ class FieldRunner:
             "uBandOffset": ("1f", 0.0),
             "uBandOffsetVariation": ("1f", 0.0),
             "uDetailScale": ("1f", 0.35),
+            "uSeaLevel": ("1f", 0.0),
+            "uSeaBlendWidth": ("1f", 64.0),
+            "uBiomeOverride": ("1i", -1),
             "uFieldMode": ("1ui", mode),
             "uSphereCenter": ("3f", 4.0, 4.0, 4.0),
             "uSphereRadius": ("1f", 3.0),
@@ -62,13 +67,13 @@ class FieldRunner:
         gl.dispatch_extent(self.columns_program, side, side)
         gl.dispatch_extent(self.density_program, side, side, side)
         raw_density = gl.read(density, side ** 3 * 4)
-        raw_columns = gl.read(columns, side * side * 32)
+        raw_columns = gl.read(columns, side * side * COLUMN_BYTES)
         gl.check("field generation")
         return {
             "density_buffer": density, "column_buffer": columns,
             "density_raw": raw_density, "columns_raw": raw_columns,
             "density": struct.unpack(f"<{side ** 3}f", raw_density),
-            "columns": struct.unpack(f"<{side * side * 8}f", raw_columns),
+            "columns": struct.unpack(f"<{side * side * COLUMN_WORDS}f", raw_columns),
             "side": side, "cells": cells, "origin": origin, "lod": lod,
             "uniforms": uniforms,
         }
@@ -119,8 +124,8 @@ def check_fields(gl: GL):
     shared_neighbor = fine_values.keys() & neighbor_values.keys()
     assert shared_neighbor and all(fine_values[p] == neighbor_values[p] for p in shared_neighbor), "Adjacent chunks disagree"
     offset = fields.run(origin=(-8, -8, -8), seed=123456789, uBandOffset=-96.0)
-    assert first["columns"][0::8] == offset["columns"][0::8], "Band offset changed the base height map"
-    assert first["columns"][4::8] != offset["columns"][4::8], "Band offset was not recorded"
+    assert first["columns"][0::COLUMN_WORDS] == offset["columns"][0::COLUMN_WORDS], "Band offset changed the base height map"
+    assert first["columns"][4::COLUMN_WORDS] != offset["columns"][4::COLUMN_WORDS], "Band offset was not recorded"
     full = fields.run(cells=64, origin=(0, -32, 0), mode=1)
     flat = fields.run(origin=(-8, -4, -12), uBaseHeight=0.25,
                       uHeightAmplitude=0, uBandThickness=0, uBandVariation=0, uDetailScale=0)
@@ -342,9 +347,12 @@ def check_meshes(gl, fields):
     print("PASS Transvoxel corner: closed sphere across 15 chunks with three simultaneous transition faces")
     for height in (0.,-24.,24.):
         options=dict(cells=16,seed=1337,uBaseHeight=height)
-        union=[meshes.run(fields.run(lod=1,**options))]
+        survey=fields.run(lod=1,**options)
+        heights=sorted(survey["columns"][0::COLUMN_WORDS])
+        origin_y=32*math.floor(heights[len(heights)//2]/32)
+        union=[meshes.run(fields.run(lod=1,origin=(0,origin_y,0),**options))]
         for y,z in ((0,0),(16,0),(0,16),(16,16)):
-            union.append(meshes.run(fields.run(origin=(32,y,z),**options),mask=1))
+            union.append(meshes.run(fields.run(origin=(32,origin_y+y,z),**options),mask=1))
         edges,_=triangle_edges(union)
         assert edges,"Real terrain fixture did not produce a surface"
         for edge,count in edges.items():
@@ -353,7 +361,7 @@ def check_meshes(gl, fields):
             assert count==1,("Nonmanifold real terrain edge",edge,count)
             positions=[[coordinate*16/65534 for coordinate in point] for point in edge]
             outer=any(all(abs(point[axis]-bound)<1e-7 for point in positions)
-                      for axis,bounds in enumerate(((0,48),(0,32),(0,32))) for bound in bounds)
+                      for axis,bounds in enumerate(((0,48),(origin_y,origin_y+32),(0,32))) for bound in bounds)
             assert outer,("Real terrain contains an internal open edge",height,positions)
     print("PASS terrain noise: seed 1337, three height offsets; every open edge lies on the outer test boundary")
     # Chaotic finite densities exercise ambiguous sign configurations far more

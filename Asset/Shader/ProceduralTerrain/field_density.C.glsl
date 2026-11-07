@@ -5,7 +5,7 @@ layout(local_size_x=8,local_size_y=4,local_size_z=4) in;
 layout(std430,binding=0) writeonly buffer FieldDensity { float density[]; };
 layout(std430,binding=1) readonly buffer FieldColumns { FieldColumn columns[]; };
 
-// The four invocations in Y share their column data. Each 32-byte column is
+// The four invocations in Y share their column data. Each 64-byte column is
 // loaded once per group, rather than once per voxel.
 shared FieldColumn cachedColumns[32];
 

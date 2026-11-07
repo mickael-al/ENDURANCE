@@ -110,6 +110,8 @@ namespace ProceduralTerrain
                 set("uBandThickness",f.bandThickness); set("uBandVariation",f.bandVariation);
                 set("uBandOffset",f.bandOffset); set("uBandOffsetVariation",f.bandOffsetVariation);
                 set("uDetailScale",f.detailScale); set("uSphereRadius",f.sphereRadius);
+                set("uSeaLevel",f.seaLevel); set("uSeaBlendWidth",f.seaBlendWidth);
+                glUniform1i(glGetUniformLocation(id,"uBiomeOverride"),f.biomeOverride);
                 glUniform1ui(glGetUniformLocation(id,"uFieldMode"),static_cast<std::uint32_t>(f.mode));
                 glUniform3fv(glGetUniformLocation(id,"uSphereCenter"),1,f.sphereCenter.data());
             }
@@ -346,7 +348,7 @@ namespace ProceduralTerrain
             glCreateBuffers(1,&job.density);
             glNamedBufferData(job.density,static_cast<GLsizeiptr>(side*side*side*sizeof(float)),nullptr,GL_DYNAMIC_DRAW);
             glCreateBuffers(1,&job.columns);
-            glNamedBufferData(job.columns,static_cast<GLsizeiptr>(side*side*32),nullptr,GL_DYNAMIC_DRAW);
+            glNamedBufferData(job.columns,static_cast<GLsizeiptr>(side*side*64),nullptr,GL_DYNAMIC_DRAW);
             glCreateBuffers(1,&job.counter);
             const Counters zero{};
             glNamedBufferStorage(job.counter,sizeof(Counters),&zero,

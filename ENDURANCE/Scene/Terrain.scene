@@ -79,7 +79,7 @@
       "scripts": [
         {
           "pathName": "ProceduralTerrainComponent",
-          "data": "{\n  \"seed\": 1337,\n  \"cellSize\": 1.0,\n  \"maxLod\": 6,\n  \"viewDistance\": 4096.0,\n  \"lodDistanceFactor\": 1.25,\n  \"maxChunksPerFrame\": 2,\n  \"maxInFlight\": 2,\n  \"vertexBudgetMiB\": 256,\n  \"maxResidentChunks\": 2048,\n  \"maxSelectedChunks\": 1024,\n  \"baseHeight\": 0.0,\n  \"heightAmplitude\": 320.0,\n  \"heightFrequency\": 0.00015,\n  \"climateFrequency\": 0.0005,\n  \"bandThickness\": 64.0,\n  \"bandVariation\": 16.0,\n  \"bandOffset\": 0.0,\n  \"bandOffsetVariation\": 0.0,\n  \"detailScale\": 0.35,\n  \"microDetailStrength\": 0.15,\n  \"microDetailScale\": 2.0,\n  \"debugLod\": false,\n  \"collisionEnabled\": true,\n  \"collisionRadius\": 128.0\n}"
+          "data": "{\n  \"seed\": 1337,\n  \"cellSize\": 1.0,\n  \"maxLod\": 6,\n  \"viewDistance\": 4096.0,\n  \"lodDistanceFactor\": 1.25,\n  \"maxChunksPerFrame\": 2,\n  \"maxInFlight\": 2,\n  \"vertexBudgetMiB\": 256,\n  \"maxResidentChunks\": 2048,\n  \"maxSelectedChunks\": 1024,\n  \"baseHeight\": 0.0,\n  \"heightAmplitude\": 320.0,\n  \"heightFrequency\": 0.00015,\n  \"climateFrequency\": 0.0005,\n  \"bandThickness\": 64.0,\n  \"bandVariation\": 16.0,\n  \"bandOffset\": 0.0,\n  \"bandOffsetVariation\": 0.0,\n  \"detailScale\": 0.35,\n  \"microDetailStrength\": 0.15,\n  \"microDetailScale\": 2.0,\n  \"debugLod\": false,\n  \"collisionEnabled\": true,\n  \"collisionRadius\": 128.0,\n  \"seaLevel\": 0.0,\n  \"seaBlendWidth\": 64.0,\n  \"biomeOverride\": -1\n}"
         }
       ],
       "collisions": [],

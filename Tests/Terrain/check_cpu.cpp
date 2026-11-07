@@ -28,13 +28,27 @@ static void fields()
     FieldParameters p;
     require(validFieldParameters(p), "Default field parameters rejected");
     auto b=fieldHeightBounds(p);
-    require(b.minimumY==-797.5f && b.maximumY==479.0f, "Default conservative field bounds changed");
+    require(b.minimumY==-696.0f && b.maximumY==696.0f, "Default conservative field bounds changed");
     p.bandOffset=-200;
     b=fieldHeightBounds(p);
-    require(b.minimumY==-997.5f && b.maximumY==404.0f, "Negative offset bounds");
+    require(b.minimumY==-896.0f && b.maximumY==544.0f, "Negative offset bounds");
     p.bandOffset=200;
     b=fieldHeightBounds(p);
-    require(b.minimumY==-722.5f && b.maximumY==679.0f, "Positive offset bounds");
+    require(b.minimumY==-544.0f && b.maximumY==896.0f, "Positive offset bounds");
+    p=FieldParameters{};
+    for (int biome=-1;biome<=25;++biome)
+    {
+        p.biomeOverride=biome;
+        require(validFieldParameters(p), "Valid biome override rejected");
+    }
+    p.biomeOverride=26;
+    require(!validFieldParameters(p), "Unknown biome override accepted");
+    p.biomeOverride=-2;
+    require(!validFieldParameters(p), "Unknown automatic biome sentinel accepted");
+    p=FieldParameters{};p.seaBlendWidth=0;
+    require(!validFieldParameters(p), "Zero marine transition width accepted");
+    p=FieldParameters{};p.seaLevel=std::numeric_limits<float>::infinity();
+    require(!validFieldParameters(p), "Infinite sea level accepted");
     p=FieldParameters{};
     p.bandThickness=0;
     require(validFieldParameters(p), "Zero thickness must be supported");

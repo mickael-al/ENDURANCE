@@ -30,6 +30,10 @@ namespace ProceduralTerrain
         float bandOffset = 0.0f;
         float bandOffsetVariation = 0.0f;
         float detailScale = 0.35f;
+        float seaLevel = 0.0f;
+        float seaBlendWidth = 64.0f;
+        // -1 = climate/altitude matrix; 0..24 = matrix row-major; 25 = marine.
+        std::int32_t biomeOverride = -1;
         std::array<float, 3> sphereCenter{{0.0f, 0.0f, 0.0f}};
         float sphereRadius = 48.0f;
     };
@@ -41,7 +45,8 @@ namespace ProceduralTerrain
     };
 
     // Analytic conservative bounds, not extrema estimated from chunk corners.
-    // Biome height is clamped to [-1150,240], extra thickness to [0,200].
+    // Biome height is clamped to [-640,640], extra thickness to [0,320],
+    // and the combined recipe offset to [-160,160], before detailScale.
     inline FieldHeightBounds fieldHeightBounds(const FieldParameters& p) noexcept
     {
         if (p.mode == FieldMode::Plane)
@@ -49,12 +54,12 @@ namespace ProceduralTerrain
         if (p.mode == FieldMode::Sphere)
             return {p.sphereCenter[1] - p.sphereRadius, p.sphereCenter[1] + p.sphereRadius};
 
-        const float minimumHeight = p.baseHeight - p.heightAmplitude - 1150.0f * p.detailScale;
-        const float maximumHeight = p.baseHeight + p.heightAmplitude + 240.0f * p.detailScale;
-        const float halfThickness = 0.5f * (p.bandThickness + p.bandVariation + 200.0f * p.detailScale);
+        const float minimumHeight = p.baseHeight - p.heightAmplitude - 640.0f * p.detailScale;
+        const float maximumHeight = p.baseHeight + p.heightAmplitude + 640.0f * p.detailScale;
+        const float halfThickness = 0.5f * (p.bandThickness + p.bandVariation + 320.0f * p.detailScale);
         return {
-            minimumHeight + (std::min)(0.0f, p.bandOffset - p.bandOffsetVariation - halfThickness),
-            maximumHeight + (std::max)(0.0f, p.bandOffset + p.bandOffsetVariation + halfThickness)
+            minimumHeight + (std::min)(0.0f, p.bandOffset - p.bandOffsetVariation - 160.0f * p.detailScale - halfThickness),
+            maximumHeight + (std::max)(0.0f, p.bandOffset + p.bandOffsetVariation + 160.0f * p.detailScale + halfThickness)
         };
     }
 
@@ -86,14 +91,15 @@ namespace ProceduralTerrain
         constexpr float maximumMagnitude = 0x1p60f;
         const float values[] = {p.baseHeight, p.heightAmplitude, p.heightFrequency,
             p.climateFrequency, p.bandThickness, p.bandVariation, p.bandOffset,
-            p.bandOffsetVariation, p.detailScale, p.sphereCenter[0], p.sphereCenter[1],
+            p.bandOffsetVariation, p.detailScale, p.seaLevel, p.seaBlendWidth, p.sphereCenter[0], p.sphereCenter[1],
             p.sphereCenter[2], p.sphereRadius};
         for (float v : values)
             if (!finiteFieldValue(v) || v < -maximumMagnitude || v > maximumMagnitude) return false;
         if (static_cast<std::uint32_t>(p.mode) > 2 || p.heightAmplitude < 0.0f ||
             p.heightFrequency < 0.0f || p.climateFrequency < 0.0f ||
             p.bandThickness < 0.0f || p.bandVariation < 0.0f ||
-            p.bandOffsetVariation < 0.0f || p.detailScale < 0.0f || p.sphereRadius <= 0.0f)
+            p.bandOffsetVariation < 0.0f || p.detailScale < 0.0f || p.sphereRadius <= 0.0f ||
+            p.seaBlendWidth < 0.001f || p.biomeOverride < -1 || p.biomeOverride > 25)
             return false;
         const auto bounds = fieldHeightBounds(p);
         return finiteFieldValue(bounds.minimumY) && finiteFieldValue(bounds.maximumY) &&
@@ -110,11 +116,12 @@ namespace ProceduralTerrain
             return false;
         if (p.mode != FieldMode::Terrain) return true;
 
-        // 0.025 is the greatest fixed frequency in world_field.glsl. The two
+        // 0.25 conservatively bounds every fixed biome noise frequency and
+        // coordinate transform in the shared recipes. The two
         // configurable frequencies must obey the same range. 2^30 leaves a
         // large margin for float rounding and the +/-1 noise-cell neighbours
         // before every GLSL float-to-int conversion.
-        const double maximumFrequency = (std::max)(0.025,
+        const double maximumFrequency = (std::max)(0.25,
             (std::max)(static_cast<double>(p.heightFrequency), static_cast<double>(p.climateFrequency)));
         return maximumAbsoluteWorldCoordinate * maximumFrequency <= 0x1p30;
     }

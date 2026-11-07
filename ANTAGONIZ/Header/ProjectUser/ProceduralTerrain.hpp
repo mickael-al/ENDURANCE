@@ -45,6 +45,10 @@ public:
     float bandOffset = 0.0f;
     float bandOffsetVariation = 0.0f;
     float detailScale = 0.35f;
+    float seaLevel = 0.0f;
+    float seaBlendWidth = 64.0f;
+    // -1 uses the matrices; 0..24 follows the image row by row; 25 is marine.
+    std::int32_t biomeOverride = -1;
     float microDetailStrength = 0.15f;
     float microDetailScale = 2.0f;
     bool debugLod = false;

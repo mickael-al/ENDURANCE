@@ -48,6 +48,36 @@ To isolate field generation:
 python3 Tests/Terrain/check_gpu.py --fields-only
 ```
 
+## Complete biome matrix and diagnostic plots
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biomes.py
+```
+
+This test invokes the production GLSL for all 25 land recipes and the marine
+recipe. It checks finite/distinct height and volume signatures, real cavities
+inside the original solid, conservative vertical bounds, independent band
+offsets, all 25 paired matrix cells, smooth climate and shoreline transitions,
+and the exclusively marine lowest altitude slice. Every forced biome is also
+checked for bit-identical density samples shared by two LODs. A climate survey
+across ±16 km and four seeds checks that all 25 dominant matrix cells occur;
+it does not promise that every biome occurs near every spawn.
+
+Optional measured plots need NumPy and Matplotlib:
+
+```sh
+python3 Tests/Terrain/check_biomes.py --atlas out/biome-validation
+```
+
+The height atlas displays 1536 × 1536 metres per biome at 8-metre sample spacing,
+with a diagnostic hillshade and locally normalized colors. A separate atlas
+shows vertical solid/air slices through the actual density field, at the Z row
+containing each tile’s highest sampled point (the selected Z is labeled). The JSON
+contains sampled height ranges, interior cavity counts and a slope statistic.
+These are visual/debugging aids, not game screenshots. Finite sample coverage
+and low-slope fractions cannot prove a minimum traversable corridor width or a
+grapple route; those require route constraints and playtesting.
+
 ## G-buffer, shadows and world-coordinate decoding
 
 The rendering stages use GLSL 4.60, matching the engine. On a native OpenGL 4.6
@@ -67,7 +97,7 @@ MESA_GL_VERSION_OVERRIDE=4.6 MESA_GLSL_VERSION_OVERRIDE=460 \
 
 The test rasterizes an indirect triangle into four floating-point G-buffer
 attachments, checks the camera projection and descriptor index, and verifies a
-cascade's depth output. Transform feedback captures the real vertex shader's
+cascade's depth output. All 26 forced biome palettes must produce finite, distinct outputs. Transform feedback captures the real vertex shader's
 world positions: matched coarse/fine positions must have identical float32 bits
 at positive and negative coordinates through LOD20. An override is not evidence
 of native OpenGL 4.6 support on the host.

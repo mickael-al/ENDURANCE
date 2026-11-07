@@ -80,6 +80,9 @@ def check_render(gl, directory):
         gl.uniform(render,"microDetailScale","1f",1)
         gl.uniform(render,"worldSeed","1ui",1337)
         gl.uniform(render,"debugLod","1i",0)
+        gl.uniform(render,"terrainBiomeOverride","1i",-1)
+        gl.uniform(render,"terrainSeaLevel","1f",-1000.)
+        gl.uniform(render,"terrainSeaBlendWidth","1f",64.)
         for index in range(4):
             gl.glClearBufferfv(0x1800,index,(C.c_float*4)(-77,-77,-77,-77))
         gl.glClearBufferfv(0x1801,0,(C.c_float*1)(1))
@@ -95,6 +98,23 @@ def check_render(gl, directory):
         assert all(abs(a-b)<1e-5 for a,b in zip(normal[:3],(0,0,1))), ("G-buffer normal",normal)
         assert all(math.isfinite(v) and 0<=v<=1 for v in color) and color[3]==1,("G-buffer color",color)
         assert all(abs(a-b)<1e-5 for a,b in zip(material[:3],(0,.88,1))), ("G-buffer material",material)
+        palette=set()
+        for biome in range(26):
+            gl.uniform(render,"terrainBiomeOverride","1i",biome)
+            gl.glClearBufferfv(0x1801,0,(C.c_float*1)(1))
+            gl.glDrawArraysIndirect(0x0004,None)
+            biome_color=sample(2)
+            assert all(math.isfinite(v) and 0<=v<=1 for v in biome_color), ("Invalid biome palette",biome,biome_color)
+            palette.add(tuple(round(v,5) for v in biome_color[:3]))
+        assert len(palette)>=20,("Biome diagnostic selection has too few distinct palettes",len(palette))
+        forced_marine=biome_color
+        gl.uniform(render,"terrainBiomeOverride","1i",-1)
+        gl.uniform(render,"terrainSeaLevel","1f",1000.)
+        gl.glClearBufferfv(0x1801,0,(C.c_float*1)(1))
+        gl.glDrawArraysIndirect(0x0004,None)
+        automatic_marine=sample(2)
+        assert all(abs(a-b)<1e-5 for a,b in zip(forced_marine,automatic_marine)),("Automatic submerged terrain does not use marine palette",forced_marine,automatic_marine)
+        print(f"PASS biome rendering: 26 forced IDs produce {len(palette)} distinct finite palettes; submerged auto terrain uses marine colors")
         # Reuse the geometry through the exact cascade shadow path and check the
         # resulting depth. The invalid first cascade also catches offset errors.
         projection_view=projection.copy();projection_view[14]=-2.25

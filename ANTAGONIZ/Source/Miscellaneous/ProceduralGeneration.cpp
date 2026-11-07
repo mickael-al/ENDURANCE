@@ -141,6 +141,7 @@ struct ProceduralGeneration::Impl
     std::uint64_t nextToken = 1;
     bool planned = false, rebuilding = false;
     GLint detailStrength = -1, detailScale = -1, seed = -1, debug = -1, shadowIndex = -1;
+    GLint biomeOverride = -1, seaLevel = -1, seaBlendWidth = -1;
 
     ~Impl()
     {
@@ -247,6 +248,9 @@ bool ProceduralGeneration::initialize(const Config& config)
     impl->detailScale = glGetUniformLocation(render, "microDetailScale");
     impl->seed = glGetUniformLocation(render, "worldSeed");
     impl->debug = glGetUniformLocation(render, "debugLod");
+    impl->biomeOverride = glGetUniformLocation(render, "terrainBiomeOverride");
+    impl->seaLevel = glGetUniformLocation(render, "terrainSeaLevel");
+    impl->seaBlendWidth = glGetUniformLocation(render, "terrainSeaBlendWidth");
     impl->shadowIndex = glGetUniformLocation(impl->shadow->getProgram(), "offsetShadow");
 
     impl->lod.baseSpacing = config.cellSize;
@@ -476,6 +480,9 @@ void ProceduralGeneration::drawRenderer()
     glUniform1f(s.detailScale, m_config.microDetailScale);
     glUniform1ui(s.seed, m_seed);
     glUniform1i(s.debug, m_config.debugLod ? 1 : 0);
+    glUniform1i(s.biomeOverride, m_config.field.biomeOverride);
+    glUniform1f(s.seaLevel, m_config.field.seaLevel);
+    glUniform1f(s.seaBlendWidth, m_config.field.seaBlendWidth);
     s.gpu.drawMany(s.culled);
 }
 

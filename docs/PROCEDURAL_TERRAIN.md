@@ -15,9 +15,9 @@ world = (origin + (sampleIndex - 1) * 2^lod) * baseSpacing
 La génération se déroule en deux passes :
 
 1. `field_columns.C.glsl` calcule une fois par colonne XZ la hauteur, l'humidité, la température, l'épaisseur et le décalage de la bande 3D, ainsi que les coefficients de ses bruits. La matrice 2D humidité/température mélange les recettes de relief. Les occurrences d'un même biome sont regroupées avant d'évaluer sa recette.
-2. `field_density.C.glsl` produit le champ volumique. La matrice 3D humidité/température/hauteur du terrain choisit les coefficients de deux bruits 3D communs, précalculés par colonne. Cela conserve un mélange spatial continu sans réévaluer huit fonctions coûteuses par voxel. Les quatre invocations Y d'un groupe partagent les données de colonne en mémoire partagée.
+2. `field_density.C.glsl` produit le champ volumique à partir de profils 3D mélangés par colonne. Trois bruits 3D communs, aux fréquences mondiales fixes, composent des cavernes, feuillets, tubes, sections angulaires et strates. Une soustraction du relief initial creuse les cavités, avec une influence lissée aux bords de la bande. Les quatre invocations Y d'un groupe partagent les données de colonne en mémoire partagée ; la frontière de huit cases ne multiplie pas par huit les évaluations de bruit.
 
-Les recettes reprennent les principes du générateur précédent : bruits de gradient de type Perlin, masses cellulaires Voronoi, plateaux, terrasses adoucies, ravins et bandes 3D propres aux biomes. Les hachages et les proportions ont été remaniés ; une ancienne seed ne reproduit pas l'ancien paysage. Six recettes de prototype sont définies dans les matrices : roche, désert sec, forêt tempérée, terres humides, ravin et relief froid. Ce sont des règles de relief, pas une implémentation de végétation ou de matériaux définitifs.
+Les 25 cases de la matrice climatique disposent chacune d'une recette 2D et d'une recette 3D ; le fond marin ajoute une 26e paire. Leurs identifiants, références naturelles et artistiques, réglages et limites sont décrits dans [BIOMES.md](BIOMES.md). Les recettes combinent bruits de gradient, cellules euclidiennes ou angulaires, dunes orientées, terrasses adoucies et masses monumentales à placement borné. Le climat est remappé pour rendre accessibles les cases extrêmes. Les hachages et les proportions ont été remaniés ; une ancienne seed ne reproduit pas le paysage d'une version précédente des recettes.
 
 Le champ est positif dans le solide et négatif dans le vide ; sa surface est l'isovaleur zéro. Il ne représente pas une distance signée. Hors de la bande utile, la densité revient à la hauteur de surface et aucun bruit 3D n'est calculé. L'épaisseur dépend du bruit et des biomes ; son décalage vertical est indépendant. Un décalage négatif peut donc enfouir le volume de grottes sans abaisser la surface principale. Une bande d'épaisseur nulle, ou un biome sans bruit volumique, conserve le relief de hauteur seul.
 
@@ -35,26 +35,31 @@ Le contrat C++ se trouve dans `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainF
 | `bandVariation` | 16 | Variation positive d'épaisseur pilotée par le bruit. |
 | `bandOffset` | 0 | Décalage vertical de la zone 3D ; négatif pour l'enfouir. |
 | `bandOffsetVariation` | 0 | Amplitude de la variation signée du décalage. |
-| `detailScale` | 0,35 | Intensité du relief et de l'épaisseur supplémentaires propres aux biomes. |
+| `detailScale` | 0,35 | Intensité du relief, de l'épaisseur, du décalage et des amplitudes 3D propres aux biomes. |
+| `seaLevel` | 0 | Niveau de référence de la sélection marine. |
+| `seaBlendWidth` | 64 | Largeur totale de transition marine, centrée sur `seaLevel`. |
+| `biomeOverride` | -1 | Matrices automatiques ; 0–24 force une case ; 25 force le fond marin. |
 | `mode` | `Terrain` | `Plane` et `Sphere` fournissent des champs analytiques de diagnostic. |
 | `sphereCenter`, `sphereRadius` | (0, 0, 0), 48 | Paramètres du mode sphère. |
 
-`fieldHeightBounds()` fournit des bornes globales analytiques pour la sélection des chunks. Elles couvrent le relief et toute la bande déplacée, y compris les ravins. Avec les paramètres par défaut, elles valent environ [-797,5 ; 479] mètres. Elles sont volontairement plus larges que les hauteurs réellement atteintes ; il ne faut pas les remplacer par une estimation aux seuls coins d'un chunk. La sélection doit également tenir compte du halo et de la marge d'échantillonnage. `validFieldParameters()` rejette les valeurs non finies, même avec les options de compilation Release `-ffast-math`.
+`fieldHeightBounds()` fournit des bornes globales analytiques pour la sélection des chunks. Elles couvrent le relief et toute la bande déplacée, y compris les ravins. Avec les paramètres par défaut, elles valent [-696 ; 696] mètres. Elles sont volontairement plus larges que les hauteurs réellement atteintes ; il ne faut pas les remplacer par une estimation aux seuls coins d'un chunk. La sélection doit également tenir compte du halo et de la marge d'échantillonnage. `validFieldParameters()` rejette les valeurs non finies, même avec les options de compilation Release `-ffast-math`.
 
 Avant chaque travail, `validFieldDomain()` contrôle également les coordonnées maximales du halo, calculées en double. Le produit coordonnée × fréquence reste inférieur à 2³⁰ pour sécuriser les conversions en cellules entières des bruits. Les paramètres, les bornes et le domaine restent sous 2⁶⁰ afin d'éviter les débordements des intermédiaires flottants, notamment le calcul de distance du mode sphère. Ces contrôles empêchent les valeurs extrêmes d'atteindre les shaders ; ils ne compensent pas la perte progressive de précision des coordonnées `float` loin de l'origine.
 
 ## Mémoire et extraction
 
-Chaque chunk de N³ cellules utilise `(N+3)³` échantillons : les N+1 points nécessaires aux cellules et un halo d'un point de chaque côté pour les gradients. Pour N=64, le champ fait 67³ floats, soit 1 203 052 octets. Les 67² colonnes contiennent chacune deux `vec4`, soit 143 648 octets. Ces valeurs décrivent les données de génération, pas le budget total du terrain : il faut ajouter les buffers de classification, les maillages résidents et les commandes de rendu.
+Chaque chunk de N³ cellules utilise `(N+3)³` échantillons : les N+1 points nécessaires aux cellules et un halo d'un point de chaque côté pour les gradients. Pour N=64, le champ fait 67³ floats, soit 1 203 052 octets. Les 67² colonnes contiennent chacune quatre `vec4`, soit 287 296 octets. Ces valeurs décrivent les données de génération, pas le budget total du terrain : il faut ajouter les buffers de classification, les maillages résidents et les commandes de rendu.
 
 Contrat des passes de champ :
 
 | Buffer | Binding SSBO | Disposition |
 | --- | ---: | --- |
 | Densité | 0 | `float`, index `x + y*S + z*S*S`, `S=N+3`. |
-| Colonnes | 1 | Deux `vec4`, index `x + z*S`. |
+| Colonnes | 1 | Quatre `vec4` (64 octets), index `x + z*S`. |
 | `terrain` | — | Hauteur, humidité, température, épaisseur totale. |
-| `volume` | — | Décalage, poids du bruit 3D fin, poids du bruit 3D large, transition. |
+| `volume` | — | Décalage, amplitude de déformation, échelle de creusement, largeur relative de raccord. |
+| `shape` | — | Poids des trois bruits fixes et rayon des cavités. |
+| `style` | — | Tubes/feuillets, section angulaire, irrégularité et strates. |
 
 Les champs et les sommets restent sur le GPU pendant la génération et le rendu. La lecture de champs denses dans les tests est un outil de vérification ; elle ne fait pas partie du chemin d'exécution du jeu.
 
@@ -76,7 +81,7 @@ L'ancien et le nouveau jeu de chunks peuvent coexister pendant la préparation :
 
 Ouvrir `ENDURANCE/Scene/Terrain.scene` dans l'éditeur, puis lancer Play. L'objet vide « Procedural terrain » porte le script `ProceduralTerrainComponent`. La scène utilise la seed 1337 et une caméra à (80, 180, 120), au-dessus de la surface de départ. La scène principale et le réglage de démarrage du projet restent inchangés.
 
-Les paramètres du script sont sérialisés à plat dans la scène. Les modifier avant Play ; arrêter puis relancer Play pour appliquer une nouvelle configuration. La sauvegarde conserve les paramètres et la seed, sans enregistrer le maillage généré. Les statistiques de résidence, mémoire et génération sont visibles dans l'inspecteur pendant Play. Le composant augmente la distance de visibilité de la caméra pendant son exécution puis la restaure à l'arrêt.
+Les paramètres du script sont sérialisés à plat dans la scène. Les modifier avant Play ; arrêter puis relancer Play pour appliquer une nouvelle configuration. La sauvegarde conserve les paramètres et la seed, sans enregistrer le maillage généré. Les statistiques de résidence, mémoire et génération sont visibles dans l'inspecteur pendant Play. Le composant augmente la distance de visibilité de la caméra pendant son exécution puis la restaure à l'arrêt. Le sélecteur « Biome a tester » et le bouton « Regenerer avec ces reglages » permettent aussi de reconstruire le terrain pendant Play.
 
 Les contrôles de streaming sont `cellSize`, `maxLod`, `viewDistance`, `lodDistanceFactor`, `maxChunksPerFrame`, `maxInFlight`, `vertexBudgetMiB`, `maxResidentChunks` et `maxSelectedChunks`. `cellSize` désigne le pas d'échantillonnage du LOD le plus fin ; les chunks conservent 64 cellules par axe. La distance souhaitée doit rester compatible avec les budgets de résidence et de génération.
 
