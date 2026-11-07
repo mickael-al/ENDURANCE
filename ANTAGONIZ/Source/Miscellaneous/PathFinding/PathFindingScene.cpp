@@ -98,13 +98,13 @@ void calculateBounds(const std::vector<glm::vec3>& points, glm::vec3& boundsMin,
 
 	for (const glm::vec3& point : points) 
 	{	
-		boundsMin.x = std::min(boundsMin.x, point.x);
-		boundsMin.y = std::min(boundsMin.y, point.y);
-		boundsMin.z = std::min(boundsMin.z, point.z);
-
-		boundsMax.x = std::max(boundsMax.x, point.x);
-		boundsMax.y = std::max(boundsMax.y, point.y);
-		boundsMax.z = std::max(boundsMax.z, point.z);
+		boundsMin.x = (std::min)(boundsMin.x, point.x);
+		boundsMin.y = (std::min)(boundsMin.y, point.y);
+		boundsMin.z = (std::min)(boundsMin.z, point.z);
+					  
+		boundsMax.x = (std::max)(boundsMax.x, point.x);
+		boundsMax.y = (std::max)(boundsMax.y, point.y);
+		boundsMax.z = (std::max)(boundsMax.z, point.z);
 	}
 	const float eps = 0.0001f;
 	if (abs(boundsMax.x - boundsMin.x) <= eps) { boundsMin.x -= eps; boundsMax.x += eps; }
