@@ -27,8 +27,10 @@ def main():
                    "-fPIC", "-shared", "-DGLEW_NO_GLU",
                    "-I", str(ROOT / "ANTAGONIZ/Header/Struct"),
                    "-I", str(ROOT / "ANTAGONIZ/Header/Miscellaneous"),
+                   "-I", str(ROOT / "ANTAGONIZ/Header/Rendering/Shader"),
                    "-I", str(ROOT / "ThirdParty"), str(ROOT / "Tests/Terrain/check_reload.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
+                   str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ParallelShaderCompiler.cpp"),
                    str(args.glew_object.resolve()), "-l:libGL.so.1", "-o", str(library)]
         subprocess.run(command, check=True)
         with GL() as gl:

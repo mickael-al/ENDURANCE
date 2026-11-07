@@ -74,8 +74,8 @@ namespace
     struct ComputeState
     {
         GLint program = 0, storage = 0;
-        std::array<GLint, 6> bindings{};
-        std::array<GLint64, 6> starts{}, sizes{};
+        std::array<GLint, 8> bindings{};
+        std::array<GLint64, 8> starts{}, sizes{};
         ComputeState()
         {
             glGetIntegerv(GL_CURRENT_PROGRAM, &program);
@@ -233,6 +233,9 @@ bool ProceduralGeneration::initialize(const Config& config)
     impl->pipelines = impl->engine->graphiquePipelineManager;
     ComputeState computeState;
     GpuConfig gpuConfig;
+    gpuConfig.enableBiomeVariants = config.enableBiomeVariants;
+    gpuConfig.maxBiomeVariants = config.maxBiomeVariants;
+    gpuConfig.maxParallelBiomeCompiles = config.maxParallelBiomeCompiles;
     gpuConfig.baseSpacing = config.cellSize;
     gpuConfig.vertexBudgetMiB = config.vertexBudgetMiB;
     gpuConfig.maxResidentChunks = config.maxResidentChunks;
@@ -332,11 +335,14 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         return;
     }
     // Idle terrain needs neither binding queries nor a full selection walk.
-    // poll() can emit geometry only while compute jobs are in flight.
+    // Poll may also finish a program and initialize its uniforms while no
+    // generation job is active; preserve application bindings in that case.
     std::optional<ComputeState> computeState;
-    if (s.gpu.stats().pendingJobs) computeState.emplace();
+    if (s.gpu.stats().pendingJobs || s.gpu.stats().pendingBiomeVariants) computeState.emplace();
     s.completions.clear();
     s.gpu.poll(s.completions);
+    if (s.gpu.stats().biomeCompileFailures > m_stats.biomeCompileFailures)
+        m_lastError = s.gpu.lastError();
     bool failed = false;
     for (const auto& result : s.completions)
     {
@@ -530,6 +536,14 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     m_stats.emptyJobs = gpu.emptyJobs;
     m_stats.failedJobs = gpu.failedJobs;
     m_stats.lastGenerationMilliseconds = gpu.lastGenerationMilliseconds;
+    m_stats.lastClassificationMilliseconds = gpu.lastClassificationMilliseconds;
+    m_stats.transientFieldBytes = gpu.transientFieldBytes;
+    m_stats.biomeVariantHits = gpu.biomeVariantHits;
+    m_stats.biomeVariantFallbacks = gpu.biomeVariantFallbacks;
+    m_stats.biomeCompileFailures = gpu.biomeCompileFailures;
+    m_stats.biomeVariants = gpu.biomeVariants;
+    m_stats.pendingBiomeVariants = gpu.pendingBiomeVariants;
+    m_stats.parallelShaderCompilation = gpu.parallelShaderCompilation;
     m_stats.drawListUploads = gpu.drawListUploads;
     m_stats.drawListUploadBytes = gpu.drawListUploadBytes;
     m_stats.rebuilding = s.active || s.planner->busy() || (!s.converged && !s.blocked);

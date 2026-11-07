@@ -136,4 +136,32 @@ float fieldTerraces(float value, float levels, float softness)
 }
 
 
+// 3D Voronoi F1 distance and stable cell value. The 27-site search uses
+// bounded jitter; no texture/volume storage is allocated. This helper costs
+// nothing unless an independent biome function actually calls it.
+vec2 fieldCellular3Data(vec3 p,uint salt)
+{
+    ivec3 cell=ivec3(floor(p));
+    vec3 f=fract(p);
+    float best=100.0;
+    float site=0.0;
+    for(int z=-1;z<=1;++z)
+    for(int y=-1;y<=1;++y)
+    for(int x=-1;x<=1;++x)
+    {
+        ivec3 q=ivec3(x,y,z);
+        uint h=fieldHash3(cell+q,salt);
+        uint h2=fieldHash(h^0x68bc21ebu);
+        vec3 jitter=0.35+0.30*vec3(h&65535u,h>>16u,h2&65535u)*(1.0/65535.0);
+        vec3 delta=vec3(q)+jitter-f;
+        float d=dot(delta,delta);
+        if(d<best)
+        {
+            best=d;
+            site=float(h2>>8u)*(1.0/16777215.0);
+        }
+    }
+    return vec2(sqrt(best),site);
+}
+float fieldCellular3(vec3 p,uint salt) { return fieldCellular3Data(p,salt).x; }
 #endif

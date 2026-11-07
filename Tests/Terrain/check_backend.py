@@ -19,8 +19,10 @@ def main():
         library=Path(temporary)/"check_backend.so"
         command=[os.environ.get("CXX","c++"),"-std=c++17","-O3","-ffast-math","-fPIC","-shared","-DGLEW_NO_GLU",
                  "-I",str(ROOT/"ANTAGONIZ/Header/Struct"),"-I",str(ROOT/"ANTAGONIZ/Header/Miscellaneous"),
+                 "-I",str(ROOT/"ANTAGONIZ/Header/Rendering/Shader"),
                  "-I",str(ROOT/"ThirdParty"),str(ROOT/"Tests/Terrain/check_backend.cpp"),
                  str(ROOT/"ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
+                 str(ROOT/"ANTAGONIZ/Source/Rendering/Shader/ParallelShaderCompiler.cpp"),
                  str(args.glew_object.resolve()),"-l:libGL.so.1","-o",str(library)]
         subprocess.run(command,check=True)
         with GL() as gl:

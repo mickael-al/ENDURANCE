@@ -12,7 +12,7 @@
 // cannot create duplicate factories or duplicate JSON specializations.
 REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     viewDistance, lodDistanceFactor, maxChunksPerFrame, maxInFlight,
-    vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, baseHeight,
+    vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, enableBiomeVariants, baseHeight,
     heightAmplitude, heightFrequency, climateFrequency, bandThickness,
     bandVariation, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
@@ -49,6 +49,7 @@ void ProceduralTerrainComponent::start()
     config.vertexBudgetMiB = vertexBudgetMiB;
     config.maxResidentChunks = maxResidentChunks;
     config.maxSelectedChunks = maxSelectedChunks;
+    config.enableBiomeVariants = enableBiomeVariants;
     config.field.baseHeight = baseHeight;
     config.field.heightAmplitude = heightAmplitude;
     config.field.heightFrequency = heightFrequency;
@@ -114,6 +115,10 @@ void ProceduralTerrainComponent::onGUI()
     int selected = std::clamp<int>(biomeOverride, -1, 25) + 1;
     if (ImGui::Combo("Biome a tester", &selected, biomeNames, 27))
         biomeOverride = selected - 1;
+    ImGui::Checkbox("Specialiser les shaders de biomes", &enableBiomeVariants);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Applique au prochain clic sur Regenerer.\n"
+            "Desactiver permet de comparer avec le shader generique, a terrain identique.");
     // m_pc remains available after a shader error: fixing the file must not
     // require Stop/Play just to make this button reappear. start() destroys the
     // previous generator and recompiles all terrain shaders/includes from disk.
@@ -149,6 +154,14 @@ void ProceduralTerrainComponent::onGUI()
     ImGui::Text("Mesh memory: %.1f / %.1f MiB", stats.allocatedBytes / 1048576.0,
         stats.budgetBytes / 1048576.0);
     ImGui::Text("Last generation: %.3f ms", stats.lastGenerationMilliseconds);
+    ImGui::Text("Biome shaders: %u cached / %u compiling (%s)", stats.biomeVariants,
+        stats.pendingBiomeVariants, stats.parallelShaderCompilation ? "parallel" : "generic fallback");
+    ImGui::Text("Variant uses: %llu / fallback uses: %llu / compile errors: %llu",
+        static_cast<unsigned long long>(stats.biomeVariantHits),
+        static_cast<unsigned long long>(stats.biomeVariantFallbacks),
+        static_cast<unsigned long long>(stats.biomeCompileFailures));
+    ImGui::Text("Field scratch: %.2f MiB / classification: %.3f ms",
+        stats.transientFieldBytes / 1048576.0, stats.lastClassificationMilliseconds);
     if (stats.rebuilding && stats.visibleChunks == 0)
         ImGui::TextWrapped("Preparing nearby terrain. Ready local coverage appears progressively.");
     if (stats.resourceLimited) ImGui::TextWrapped("Terrain memory or chunk budget reached.");

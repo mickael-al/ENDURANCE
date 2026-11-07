@@ -166,6 +166,34 @@ To isolate field generation:
 python3 Tests/Terrain/check_gpu.py --fields-only
 ```
 
+## CPU biome layout and specialized shaders
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_variants.py
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_parallel_compiler.py \
+  --glew-object /tmp/endurance-glew-pic.o
+```
+
+The variant fixture exports the production C++ matrices, packed cell records,
+mask reduction and define strings through `check_biome_layout.cpp`; it does not
+maintain separate Python/GLSL matrices. It checks all 64 climate/altitude cells,
+duplicate corner weight normalization, marine selection, complete halo
+classification, generic/specialized bitwise fields, adjacent chunks and LODs,
+and identical emitted positions/normals. A temporary polar recipe is replaced
+with actual Voronoi 3D code: density must change while the 2D columns and another
+biome remain unchanged. Production sources are not modified by that fixture.
+
+The engine compiler fixture checks bounded asynchronous jobs, ownership and
+cancellation, GLSL diagnostics, linked compute output and unsupported-driver
+fallback. Driver support for the parallel-compilation extension is reported;
+the extension is a scheduling hint, not a guaranteed frame-time limit.
+
+Runtime column storage is now 48 bytes: eight float32 controls followed by a
+four-word integer block. Density remains float32. The Python field runner uses
+the same classify → columns → density passes and binds the CPU table at SSBO 7.
+`biome_profile_probe.glsl` contains legacy parameter-blend diagnostics only;
+production generation blends independently evaluated biome densities.
+
 ## Complete biome matrix and diagnostic plots
 
 ```sh
@@ -176,7 +204,9 @@ This test invokes the production GLSL for all 25 land recipes and the marine
 recipe. It checks finite/distinct height and volume signatures, real cavities
 inside the original solid, conservative vertical bounds, independent band
 offsets, all 25 paired matrix cells, smooth climate and shoreline transitions,
-and the exclusively marine lowest altitude slice. Every forced biome is also
+and the exclusively marine lowest altitude slice. Actual independent density
+blends are checked across matrix boundaries in addition to profile diagnostics.
+Every forced biome is also
 checked for bit-identical density samples shared by two LODs. A climate survey
 across ±16 km and four seeds checks that all 25 dominant matrix cells occur;
 it does not promise that every biome occurs near every spawn.
@@ -255,6 +285,12 @@ budgets, fence retirement, stale handles after reuse/reinitialization, empty
 chunks, shutdown with work in flight, and restart. Test-only readbacks inspect
 indirect commands and buffer guards; the production graphics path keeps density
 and mesh data on the GPU.
+
+The biome backend cases additionally cover classification cancellation,
+generic fallback on a cold variant, compilation progress without pending mesh
+jobs, reuse of ready variants, cache eviction under a two-variant limit, the
+48-byte transient column budget, and identical packed geometry when variants
+are disabled. Unsupported parallel compilation keeps the generic path working.
 
 ## Interpretation
 

@@ -17,6 +17,11 @@ namespace ProceduralTerrain
         std::uint32_t vertexBudgetMiB = 256;
         std::uint32_t maxResidentChunks = 2048;
         std::uint32_t maxInFlight = 2;
+        // Bounded, disposable program cache. Generic programs remain available
+        // while variants compile, or when the driver has no parallel compiler.
+        bool enableBiomeVariants = true;
+        std::uint32_t maxBiomeVariants = 32;
+        std::uint32_t maxParallelBiomeCompiles = 2;
         std::string shaderDirectory = "../Asset/Shader/ProceduralTerrain";
         FieldParameters field;
     };
@@ -70,6 +75,13 @@ namespace ProceduralTerrain
         std::uint64_t drawListUploads = 0;
         std::uint64_t drawListUploadBytes = 0;
         double lastGenerationMilliseconds = 0.0;
+        double lastClassificationMilliseconds = 0.0;
+        std::uint64_t transientFieldBytes = 0;
+        std::uint64_t biomeMetadataBytes = 0;
+        std::uint64_t biomeVariantHits = 0, biomeVariantFallbacks = 0;
+        std::uint64_t biomeCompileFailures = 0;
+        std::uint32_t biomeVariants = 0, pendingBiomeVariants = 0;
+        bool parallelShaderCompilation = false;
     };
 
     // All calls, including destruction, belong to the owning OpenGL context.

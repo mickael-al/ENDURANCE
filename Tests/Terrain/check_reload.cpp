@@ -35,7 +35,7 @@ void write(const std::filesystem::path& path, const std::string& source)
 }
 std::string planeRelief(std::string source, const char* height)
 {
-    const auto function = source.find("vec4 fieldBiomeRelief(");
+    const auto function = source.find("vec4 fieldReliefPolarIce(");
     require(function != std::string::npos, "Production biome relief entry point missing");
     const auto body = source.find('{', function);
     require(body != std::string::npos, "Production biome relief body missing");

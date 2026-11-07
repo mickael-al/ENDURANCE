@@ -15,7 +15,7 @@ import statistics
 import struct
 import sys
 
-from check_gpu import FieldRunner, COLUMN_WORDS, SHADERS, lattice_values
+from check_gpu import FieldRunner, COLUMN_WORDS, SHADERS, lattice_values, finite_columns, packed_biome_cells
 from gl_headless import GL, GLUnavailable, shader_source
 
 BIOMES = (
@@ -27,51 +27,54 @@ BIOMES = (
     "Fond marin",
 )
 
+
+def profile_probe_source():
+    return shader_source(Path(__file__).with_name("biome_profile_probe.glsl"))
+
 PROBE = r"""
 layout(local_size_x=8,local_size_y=8) in;
 struct ProbeSample { vec4 terrain; vec4 volume; vec4 samples; vec4 shape; };
 layout(std430,binding=6) writeonly buffer ProbeOutput { ProbeSample outputValues[]; };
 uniform uint uProbeSize;
 uniform uint uProbeMode;
+uniform uint uProbeSample;
 uniform vec2 uProbeOrigin;
 uniform float uProbeSpacing;
 uniform float uProbeMinY;
 uniform float uProbeStepY;
 uniform vec3 uProbeClimate;
+BiomeVolume diagnosticProfile(vec2 p, FieldColumn column)
+{
+    if(uBiomeOverride>=0) return fieldBiomeVolumeAt(uint(uBiomeOverride),p);
+    float macroHeight=uBaseHeight;
+    if(uHeightAmplitude>0.0)
+        macroHeight+=fieldNoise2(p*uHeightFrequency,0x13198a2eu)*uHeightAmplitude;
+    float altitude=clamp((macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5,0.0,4.0)*0.25;
+    return fieldBlendVolume(vec3(column.terrain.yz,altitude),p);
+}
+vec4 diagnosticVolume(FieldColumn column,BiomeVolume profile)
+{
+    vec4 volume=profile.volume;
+    volume.x=column.blend.y+clamp(column.blend.z+volume.x,-160.0,160.0)*uDetailScale;
+    volume.yz*=uDetailScale;
+    volume.y*=mix(0.55,1.0,column.blend.w);
+    volume.z*=mix(0.85,1.0,column.blend.w);
+    return volume;
+}
 void main()
 {
     uvec2 index=gl_GlobalInvocationID.xy;
     if(any(greaterThanEqual(index,uvec2(uProbeSize)))) return;
     vec2 p=uProbeOrigin+vec2(index)*uProbeSpacing;
     uint address=index.x+index.y*uProbeSize;
-    FieldColumn column;
-    if(uProbeMode==0u)
-    {
-        column=fieldColumnAt(p);
-        float center=column.terrain.x+column.volume.x;
-        float halfBand=max(column.terrain.w*0.5,0.001);
-        float a=fieldDensityAt(vec3(p.x,center-halfBand*.65,p.y),column);
-        float b=fieldDensityAt(vec3(p.x,center-halfBand*.2,p.y),column);
-        float c=fieldDensityAt(vec3(p.x,center+halfBand*.2,p.y),column);
-        float d=fieldDensityAt(vec3(p.x,center+halfBand*.65,p.y),column);
-        outputValues[address]=ProbeSample(column.terrain,column.volume,vec4(a,b,c,d),column.shape);
-    }
-    else if(uProbeMode==1u)
-    {
-        p=vec2(p.x,uProbeOrigin.y);
-        column=fieldColumnAt(p);
-        float y=uProbeMinY+float(index.y)*uProbeStepY;
-        float value=fieldDensityAt(vec3(p.x,y,p.y),column);
-        outputValues[address]=ProbeSample(vec4(column.terrain.x,y,column.volume.x,column.terrain.w),
-            column.volume,vec4(value),column.shape);
-    }
-    else if(uProbeMode==2u)
+    if(uProbeMode==2u)
     {
         vec4 relief=fieldBlendRelief(p,uProbeClimate.xy);
         BiomeVolume profile=fieldBlendVolume(uProbeClimate,p);
         outputValues[address]=ProbeSample(relief,profile.volume,profile.shape,profile.style);
+        return;
     }
-    else if(uProbeMode==3u)
+    if(uProbeMode==3u)
     {
         uint biome=uint(round(uProbeClimate.x*4.0))+5u*uint(round(uProbeClimate.y*4.0));
         vec4 expected=fieldBiomeRelief(biome,p);
@@ -79,11 +82,46 @@ void main()
         BiomeVolume mixed=fieldBlendVolume(uProbeClimate,p);
         outputValues[address]=ProbeSample(fieldBlendRelief(p,uProbeClimate.xy)-expected,
             mixed.volume-direct.volume,mixed.shape-direct.shape,mixed.style-direct.style);
+        return;
     }
-    else
+    if(uProbeMode==4u)
     {
         outputValues[address]=ProbeSample(vec4(fieldClimateAt(p),0.0,0.0),vec4(0.0),vec4(0.0),vec4(0.0));
+        return;
     }
+    if(uProbeMode==1u) p.y=uProbeOrigin.y;
+    FieldColumn raw=fieldClassifyColumn(p);
+    if(uProbeMode==5u)
+    {
+        raw.terrain.yz=uProbeClimate.xy;
+        vec3 grid=clamp(uProbeClimate,0.0,1.0)*4.0;
+        uvec3 cell=min(uvec3(floor(grid)),uvec3(3u));
+        raw.blend=vec4(fieldFade(grid-vec3(cell)),0.0);
+        raw.detail.w=cell.x+4u*cell.y+16u*cell.z;
+    }
+    FieldColumn column=fieldColumnFromClimate(p,raw);
+    BiomeVolume profile=diagnosticProfile(p,column);
+    vec4 volume=diagnosticVolume(column,profile);
+    float y=uProbeMinY;
+    if(uProbeMode==0u)
+    {
+        const float offsets[4]=float[4](-.65,-.2,.2,.65);
+        y=column.terrain.x+volume.x+max(column.terrain.w*0.5,0.001)*offsets[uProbeSample];
+    }
+    else if(uProbeMode==1u) y+=float(index.y)*uProbeStepY;
+    // One density call in the compiled probe. Four cheap dispatches collect
+    // the same four cross-section samples without duplicating the full shader.
+    float value=fieldDensityAt(vec3(p.x,y,p.y),column);
+    if(uProbeMode==0u)
+    {
+        if(uProbeSample==0u)
+            outputValues[address]=ProbeSample(column.terrain,volume,vec4(0),profile.shape);
+        outputValues[address].samples[uProbeSample]=value;
+    }
+    else if(uProbeMode==1u)
+        outputValues[address]=ProbeSample(vec4(column.terrain.x,y,volume.x,column.terrain.w),volume,vec4(value),profile.shape);
+    else
+        outputValues[address]=ProbeSample(column.terrain,vec4(value),vec4(0),vec4(0));
 }
 """
 
@@ -91,13 +129,16 @@ void main()
 class BiomeProbe:
     def __init__(self, gl):
         self.gl=gl
-        self.program=gl.compile([(0x91B9,"#version 450 core\n"+shader_source(SHADERS/"world_field.glsl")+PROBE)],"biome production probe")
+        self.mapping=gl.buffer(packed_biome_cells(),7)
+        self.density_passes=True
+        self.program=gl.compile([(0x91B9,"#version 450 core\n"+shader_source(SHADERS/"world_field.glsl")+profile_probe_source()+PROBE)],"biome production probe")
         self.buffer=gl.buffer(0)
         self.capacity=0
 
     def run(self, biome=-1, size=17, origin=(-347.25,-591.75), spacing=39.5, mode=0,
             min_y=-800., step_y=10., climate=(.5,.5,.5), **overrides):
         gl=self.gl
+        if hasattr(self,"mapping"):gl.bind(self.mapping,7)
         defaults={
             "uCells":("1ui",64),"uOrigin":("3i",0,0,0),"uLod":("1ui",0),
             "uBaseSpacing":("1f",1.),"uSeed":("1ui",1337),"uFieldMode":("1ui",0),
@@ -123,7 +164,9 @@ class BiomeProbe:
         gl.bind(self.buffer,6)
         nan=struct.pack("<I",0x7fc00001)
         gl.write(self.buffer,nan*(byte_count//4))
-        gl.dispatch_extent(self.program,size,size)
+        for sample in range(4 if mode==0 and getattr(self,"density_passes",False) else 1):
+            gl.uniform(self.program,"uProbeSample","1ui",sample)
+            gl.dispatch_extent(self.program,size,size)
         data=gl.read(self.buffer,byte_count)
         gl.check("biome probe")
         values=struct.unpack(f"<{size*size*16}f",data)
@@ -202,6 +245,21 @@ def check_matrix_continuity(probe):
         ocean.append(data[4:16])
     assert all(ocean[0]==row for row in ocean[1:]),"Lowest volume slice is not exclusively marine"
     print(f"PASS matrices: all 25 climate cells select paired recipes; continuous 2D/3D boundaries; complete marine altitude slice; largest epsilon jump {largest:.6g}")
+    # The profiles above are diagnostic compatibility helpers. Independently
+    # exercise the actual per-biome density blend, which is intentionally no
+    # longer a density evaluated from those blended profiles.
+    largest_density=0.
+    for axis in range(3):
+        for boundary in (.25,.5,.75):
+            left=[.37,.63,.59];right=left.copy()
+            left[axis]=boundary-1e-6;right[axis]=boundary+1e-6
+            for height in (-48.,0.,48.):
+                a=probe.run(mode=5,size=2,climate=tuple(left),min_y=height)["values"]
+                b=probe.run(mode=5,size=2,climate=tuple(right),min_y=height)["values"]
+                jump=max(abs(x-y) for x,y in zip(a,b))
+                largest_density=max(largest_density,jump)
+                assert jump<.05,("Actual density blend jumps across a matrix boundary",axis,boundary,height,jump)
+    print(f"PASS independent density interpolation: continuous matrix boundaries, largest epsilon jump {largest_density:.6g}")
 
 
 
@@ -245,7 +303,7 @@ def check_forced_lod(gl):
         shared=a.keys()&b.keys()
         assert len(shared)>=125
         assert all(a[p]==b[p] for p in shared),("Forced biome samples changed with LOD",biome)
-        assert all(math.isfinite(v) for v in fine["columns"]+fine["density"]),("Unwritten forced biome",biome)
+        assert finite_columns(fine["columns"]) and all(math.isfinite(v) for v in fine["density"]),("Unwritten forced biome",biome)
     print(f"PASS forced biome LOD: all {len(BIOMES)} recipes agree bitwise on shared samples and complete every halo")
 
 

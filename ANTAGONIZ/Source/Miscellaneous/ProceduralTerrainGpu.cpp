@@ -1,6 +1,8 @@
 #include "glcore.hpp"
 #include "ProceduralTerrainGpu.hpp"
+#include "ProceduralTerrainBiomes.hpp"
 #include "ProceduralTransvoxelTables.hpp"
+#include "ParallelShaderCompiler.hpp"
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -10,6 +12,7 @@
 #include <map>
 #include <numeric>
 #include <sstream>
+#include <unordered_map>
 #include <utility>
 
 namespace ProceduralTerrain
@@ -17,10 +20,14 @@ namespace ProceduralTerrain
     namespace
     {
         constexpr std::uint32_t VertexBytes = 12;
-        struct Counters { std::uint32_t total, cursor, overflow, padding; };
+        struct Counters
+        {
+            std::uint32_t total, cursor, overflow, padding;
+            std::uint32_t cellsLow, cellsHigh, reserved0, reserved1;
+        };
         struct Command { std::uint32_t count, instances, first, baseInstance; };
         struct Descriptor { float originExtent[4]; std::uint32_t metadata[4]; };
-        static_assert(sizeof(Counters) == 16 && sizeof(Command) == 16 && sizeof(Descriptor) == 32,
+        static_assert(sizeof(Counters) == 32 && sizeof(Command) == 16 && sizeof(Descriptor) == 32,
             "GPU structures must match std430 layout");
 
         bool readShader(const std::filesystem::path& path, std::string& source,
@@ -58,7 +65,8 @@ namespace ProceduralTerrain
             return true;
         }
 
-        GLuint makeProgram(const std::filesystem::path& path, const char* defines, std::string& error)
+        GLuint makeProgram(const std::filesystem::path& path, const char* defines, std::string& error,
+            std::string* sourceSnapshot=nullptr, std::string* labelSnapshot=nullptr)
         {
             std::string source;
             std::vector<std::string> files;
@@ -68,6 +76,15 @@ namespace ProceduralTerrain
             const auto newline = source.find('\n');
             if (newline == std::string::npos || source.compare(0, 8, "#version") != 0)
             { error = "Missing terrain shader version: " + path.string(); return 0; }
+            // Fallback and variants must use exactly the same expanded source,
+            // even if a file is saved while startup compilation is in progress.
+            if (sourceSnapshot) *sourceSnapshot=source;
+            if (labelSnapshot)
+            {
+                *labelSnapshot=path.string()+"\nGLSL source files (source ID : file):\n";
+                for (std::size_t i=0;i<files.size();++i)
+                    *labelSnapshot+=std::to_string(i)+" : "+files[i]+"\n";
+            }
             source.insert(newline + 1, std::string(defines) + "#line 2 0\n");
             const auto diagnostic = [&files, &path](const std::string& log)
             {
@@ -151,8 +168,8 @@ namespace ProceduralTerrain
                 glUniform1ui(slot,meshSlot); glUniform1ui(first,firstVertex);
             }
         };
-        enum ProgramIndex { Columns, Density, CountRegular, CountTransition, EmitRegular, EmitTransition, Finalize, ProgramCount };
-        enum class JobStage { Free, Counting, Emitting };
+        enum ProgramIndex { Columns, Density, Classify, CountRegular, CountTransition, EmitRegular, EmitTransition, Finalize, ProgramCount };
+        enum class JobStage { Free, Classifying, Counting, Emitting };
     }
 
     struct GpuMesher::Impl
@@ -161,7 +178,7 @@ namespace ProceduralTerrain
         {
             GLuint density=0, columns=0, counter=0;
             const volatile Counters* mapped=nullptr;
-            GLuint timers[2]{};
+            GLuint timers[3]{};
             GLsync fence=nullptr;
             JobStage stage=JobStage::Free;
             std::uint64_t token=0;
@@ -181,12 +198,25 @@ namespace ProceduralTerrain
             GLuint buffer=0;
             std::vector<Command> commands;
         };
+        struct Variant
+        {
+            Program programs[2];
+            Ge::ParallelShaderCompiler::Ticket tickets[2]{};
+            std::uint64_t lastUse=0;
+            bool failed=false;
+            bool ready() const noexcept { return programs[0].id && programs[1].id; }
+        };
         GpuConfig config;
         GpuStats statistics;
         std::string error;
         bool initialized=false, broken=false, flushPending=false;
         Program programs[ProgramCount];
-        GLuint vertices=0, vao=0, tables=0, descriptors=0, commands=0;
+        GLuint vertices=0, vao=0, tables=0, descriptors=0, commands=0, biomeCells=0;
+        Ge::ParallelShaderCompiler compiler;
+        std::unordered_map<std::uint64_t,Variant> variants;
+        std::string biomeSources[2], biomeSourceLabels[2];
+        std::uint64_t variantClock=0;
+        bool compileSubmittedThisPoll=false;
         std::vector<Job> jobs;
         std::vector<Slot> slots;
         std::vector<std::uint32_t> freeSlots;
@@ -198,6 +228,110 @@ namespace ProceduralTerrain
         // Deliberately survives shutdown/reinitialize, unlike the slot array.
         std::uint32_t nextGeneration=0;
         std::uint64_t maximumStorageBlock=0;
+
+        void releaseVariant(Variant& variant)
+        {
+            for (unsigned i=0;i<2;++i)
+            {
+                if (variant.tickets[i]) compiler.cancel(variant.tickets[i]);
+                if (variant.programs[i].id) glDeleteProgram(variant.programs[i].id);
+            }
+            variant=Variant{};
+        }
+
+        void updateVariantStatistics()
+        {
+            statistics.biomeVariants=static_cast<std::uint32_t>(variants.size());
+            statistics.pendingBiomeVariants=0;
+            for (const auto& entry:variants)
+                if (!entry.second.failed && !entry.second.ready()) ++statistics.pendingBiomeVariants;
+        }
+
+        void pollVariants()
+        {
+            compileSubmittedThisPoll=false;
+            if (!statistics.pendingBiomeVariants) return;
+            compiler.poll();
+            for (auto& entry:variants)
+            {
+                auto& variant=entry.second;
+                if (variant.failed || variant.ready()) continue;
+                for (unsigned i=0;i<2;++i)
+                {
+                    const auto ticket=variant.tickets[i];
+                    if (!ticket) continue;
+                    const auto state=compiler.state(ticket);
+                    if (state==Ge::ParallelShaderCompiler::State::Failed)
+                    {
+                        error=compiler.error(ticket);
+                        releaseVariant(variant);
+                        variant.failed=true;
+                        ++statistics.biomeCompileFailures;
+                        break;
+                    }
+                    if (state==Ge::ParallelShaderCompiler::State::Ready)
+                    {
+                        auto& program=variant.programs[i];
+                        program.id=compiler.takeProgram(ticket);
+                        variant.tickets[i]=0;
+                        program.discover(); program.field(config);
+                    }
+                }
+            }
+            updateVariantStatistics();
+        }
+
+        Variant* selectVariant(BiomeMasks masks)
+        {
+            if (!config.enableBiomeVariants || !compiler.supported() || config.field.mode!=FieldMode::Terrain)
+                return nullptr;
+            const auto key=masks.key(); // Collision-free canonical defines key; never includes weights or position.
+            auto found=variants.find(key);
+            if (found!=variants.end())
+            {
+                found->second.lastUse=++variantClock;
+                if (found->second.ready()) { ++statistics.biomeVariantHits; return &found->second; }
+                ++statistics.biomeVariantFallbacks;
+                return nullptr;
+            }
+            ++statistics.biomeVariantFallbacks;
+            // Submit at most one pair per poll; avoid a burst of driver work
+            // when many classification fences finish together.
+            if (compileSubmittedThisPoll || compiler.jobCount()+2>2*config.maxParallelBiomeCompiles)
+                return nullptr;
+            if (variants.size()>=config.maxBiomeVariants)
+            {
+                auto oldest=variants.end();
+                for (auto it=variants.begin();it!=variants.end();++it)
+                    if ((it->second.ready() || it->second.failed) &&
+                        (oldest==variants.end() || it->second.lastUse<oldest->second.lastUse)) oldest=it;
+                if (oldest==variants.end()) return nullptr;
+                // OpenGL retains executable storage still referenced by queued commands.
+                releaseVariant(oldest->second);
+                variants.erase(oldest);
+            }
+            auto& variant=variants[key];
+            variant.lastUse=++variantClock;
+            const auto defines=biomeDefines(masks);
+            compileSubmittedThisPoll=true;
+            for (unsigned i=0;i<2;++i)
+            {
+                auto source=biomeSources[i];
+                const auto newline=source.find('\n');
+                source.insert(newline+1,defines+"#line 2 0\n");
+                variant.tickets[i]=compiler.submitCompute(source,biomeSourceLabels[i]);
+                if (!variant.tickets[i])
+                {
+                    error=compiler.lastError();
+                    releaseVariant(variant);
+                    variant.failed=true;
+                    ++statistics.biomeCompileFailures;
+                    break;
+                }
+            }
+            updateVariantStatistics();
+            return nullptr;
+        }
 
         bool allocate(std::uint32_t count, MeshHandle& mesh, const ChunkRequest& request)
         {
@@ -262,6 +396,7 @@ namespace ProceduralTerrain
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,job.columns);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,tables);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,job.counter);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,biomeCells);
         }
 
         void regular(const Program& program, const Job& job)
@@ -276,6 +411,31 @@ namespace ProceduralTerrain
             program.request(job.request,job.mesh.slot,job.mesh.firstVertex,job.mesh.vertexCount);
             const auto faceCells=(config.cells/2)*(config.cells/2);
             glDispatchCompute((faceCells+63)/64,6,1);
+        }
+
+        void count(Job& job, BiomeMasks masks)
+        {
+            bindJob(job);
+            const auto* variant=selectVariant(masks);
+            const auto& columns=variant ? variant->programs[0] : programs[Columns];
+            const auto& density=variant ? variant->programs[1] : programs[Density];
+            const auto side=config.cells+3;
+            glBeginQuery(GL_TIME_ELAPSED,job.timers[0]);
+            columns.request(job.request);
+            glDispatchCompute((side+7)/8,(side+7)/8,1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            density.request(job.request);
+            glDispatchCompute((side+7)/8,(side+3)/4,(side+3)/4);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            regular(programs[CountRegular],job);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            transition(programs[CountTransition],job);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+            glEndQuery(GL_TIME_ELAPSED);
+            job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+            flushPending=true;
+            job.stage=JobStage::Counting;
+            if (!job.fence) { broken=true; error="Cannot create terrain generation fence"; }
         }
 
         void emit(Job& job)
@@ -316,7 +476,10 @@ namespace ProceduralTerrain
             config.baseSpacing<(std::numeric_limits<float>::min)()*65534.0f/config.cells ||
             config.vertexBudgetMiB==0 || config.vertexBudgetMiB>4096 ||
             config.maxResidentChunks==0 || config.maxResidentChunks>65536 ||
-            config.maxInFlight==0 || config.maxInFlight>16 || !validFieldParameters(config.field))
+            config.maxInFlight==0 || config.maxInFlight>16 ||
+            config.maxBiomeVariants==0 || config.maxBiomeVariants>128 ||
+            config.maxParallelBiomeCompiles==0 || config.maxParallelBiomeCompiles>8 ||
+            !validFieldParameters(config.field))
         { error=s.error="Invalid procedural terrain GPU configuration"; return false; }
         GLint bindings=0, alignment=0;
         GLint64 maximumBlock=0;
@@ -332,16 +495,26 @@ namespace ProceduralTerrain
         if (vertexCapacity==0) { error=s.error="Terrain vertex budget is too small"; return false; }
         s.statistics.budgetBytes=static_cast<std::uint64_t>(vertexCapacity)*VertexBytes;
 
-        const char* files[ProgramCount]={"field_columns.C.glsl","field_density.C.glsl","meshing.C.glsl",
+        const char* files[ProgramCount]={"field_columns.C.glsl","field_density.C.glsl","field_classify.C.glsl","meshing.C.glsl",
             "transition.C.glsl","meshing.C.glsl","transition.C.glsl","meshing_finalize.C.glsl"};
         for (unsigned i=0;i<ProgramCount;++i)
         {
             const char* define=(i==EmitRegular || i==EmitTransition)?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
             auto& program=s.programs[i];
-            program.id=makeProgram(std::filesystem::path(config.shaderDirectory)/files[i],define,s.error);
+            program.id=makeProgram(std::filesystem::path(config.shaderDirectory)/files[i],define,s.error,
+                i<2 ? &s.biomeSources[i] : nullptr, i<2 ? &s.biomeSourceLabels[i] : nullptr);
             if (!program.id) { error=s.error; shutdown(); s.error=error; return false; }
             program.discover(); program.field(config);
         }
+        // Source snapshots are scoped to this initialization. Regenerate always
+        // discards every variant and reloads every transitive include from disk.
+        if (config.enableBiomeVariants)
+            s.statistics.parallelShaderCompilation=s.compiler.initialize(2*config.maxParallelBiomeCompiles,2);
+        s.variants.reserve(config.maxBiomeVariants);
+        glCreateBuffers(1,&s.biomeCells);
+        constexpr auto biomeCells=makeBiomeCellTable();
+        glNamedBufferStorage(s.biomeCells,sizeof(biomeCells),biomeCells.data(),0);
+        s.statistics.biomeMetadataBytes=sizeof(biomeCells)+config.maxInFlight*sizeof(Counters);
 
         glCreateBuffers(1,&s.vertices);
         glNamedBufferData(s.vertices,static_cast<GLsizeiptr>(s.statistics.budgetBytes),nullptr,GL_DYNAMIC_DRAW);
@@ -368,20 +541,22 @@ namespace ProceduralTerrain
         s.freeRanges.emplace(0,vertexCapacity);
 
         const std::uint64_t side=config.cells+3;
+        s.statistics.transientFieldBytes=config.maxInFlight*
+            (side*side*side*sizeof(float)+side*side*FieldColumnBytes);
         s.jobs.resize(config.maxInFlight);
         for (auto& job:s.jobs)
         {
             glCreateBuffers(1,&job.density);
             glNamedBufferData(job.density,static_cast<GLsizeiptr>(side*side*side*sizeof(float)),nullptr,GL_DYNAMIC_DRAW);
             glCreateBuffers(1,&job.columns);
-            glNamedBufferData(job.columns,static_cast<GLsizeiptr>(side*side*64),nullptr,GL_DYNAMIC_DRAW);
+            glNamedBufferData(job.columns,static_cast<GLsizeiptr>(side*side*FieldColumnBytes),nullptr,GL_DYNAMIC_DRAW);
             glCreateBuffers(1,&job.counter);
             const Counters zero{};
             glNamedBufferStorage(job.counter,sizeof(Counters),&zero,
                 GL_MAP_READ_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT|GL_DYNAMIC_STORAGE_BIT);
             job.mapped=static_cast<const volatile Counters*>(glMapNamedBufferRange(job.counter,0,sizeof(Counters),
                 GL_MAP_READ_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT));
-            glGenQueries(2,job.timers);
+            glGenQueries(3,job.timers);
             if (!job.mapped)
             { error="Cannot map terrain counter buffer"; shutdown(); s.error=error; return false; }
         }
@@ -399,19 +574,23 @@ namespace ProceduralTerrain
         {
             if (job.fence) glDeleteSync(job.fence);
             if (job.mapped) glUnmapNamedBuffer(job.counter);
-            if (job.timers[0]) glDeleteQueries(2,job.timers);
+            if (job.timers[0]) glDeleteQueries(3,job.timers);
             const GLuint buffers[]={job.density,job.columns,job.counter};
             glDeleteBuffers(3,buffers);
         }
         for (auto& item:s.retired) if (item.fence) glDeleteSync(item.fence);
         for (auto& program:s.programs) { if (program.id) glDeleteProgram(program.id); program=Program{}; }
+        for (auto& entry:s.variants) s.releaseVariant(entry.second);
+        s.variants.clear(); s.compiler.shutdown();
+        for (unsigned i=0;i<2;++i) { s.biomeSources[i].clear(); s.biomeSourceLabels[i].clear(); }
+        s.variantClock=0; s.compileSubmittedThisPoll=false;
         if (s.vao) glDeleteVertexArrays(1,&s.vao);
         for (auto& entry:s.drawLists)
             if (entry.second.buffer) glDeleteBuffers(1,&entry.second.buffer);
         s.drawLists.clear();
-        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.commands};
-        if (s.vertices || s.tables || s.descriptors || s.commands) glDeleteBuffers(4,buffers);
-        s.vertices=s.vao=s.tables=s.descriptors=s.commands=0;
+        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.commands,s.biomeCells};
+        if (s.vertices || s.tables || s.descriptors || s.commands || s.biomeCells) glDeleteBuffers(5,buffers);
+        s.vertices=s.vao=s.tables=s.descriptors=s.commands=s.biomeCells=0;
         s.jobs.clear(); s.slots.clear(); s.freeSlots.clear(); s.retired.clear(); s.freeRanges.clear();
         s.drawScratch.clear();
         s.initialized=false; s.broken=false; s.flushPending=false; s.statistics=GpuStats{};
@@ -451,25 +630,31 @@ namespace ProceduralTerrain
         const Counters zero{};
         glNamedBufferSubData(job.counter,0,sizeof(Counters),&zero);
         s.bindJob(job);
-        glBeginQuery(GL_TIME_ELAPSED,job.timers[0]);
-        s.programs[Columns].request(request);
+        glBeginQuery(GL_TIME_ELAPSED,job.timers[2]);
+        s.programs[Classify].request(request);
         const auto side=s.config.cells+3;
         glDispatchCompute((side+7)/8,(side+7)/8,1);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-        s.programs[Density].request(request);
-        glDispatchCompute((side+7)/8,(side+3)/4,(side+3)/4);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-        s.regular(s.programs[CountRegular],job);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-        s.transition(s.programs[CountTransition],job);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
         glEndQuery(GL_TIME_ELAPSED);
-        job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
-        s.flushPending=true;
-        job.stage=JobStage::Counting;
         ++s.statistics.pendingJobs;
-        if (!job.fence)
-        { s.broken=true; s.error="Cannot create terrain generation fence"; return false; }
+        if (s.config.enableBiomeVariants && s.compiler.supported() &&
+            s.config.field.mode==FieldMode::Terrain && s.config.field.biomeOverride<0)
+        {
+            job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+            s.flushPending=true;
+            job.stage=JobStage::Classifying;
+            if (!job.fence) { s.broken=true; s.error="Cannot create terrain classification fence"; }
+        }
+        else
+        {
+            // Known/forced biome and unsupported-driver paths need no CPU
+            // readback stage. Their classification data flows directly on GPU.
+            BiomeMasks masks{AllBiomes,AllBiomes};
+            if (s.config.field.biomeOverride>=0)
+                masks.surface=masks.volume=1u<<static_cast<unsigned>(s.config.field.biomeOverride);
+            s.count(job,masks);
+        }
+        if (s.broken) return false;
         return true;
     }
 
@@ -494,6 +679,7 @@ namespace ProceduralTerrain
             s.statistics.pendingJobs=0;
         };
         if (s.broken) { failPending(); return; }
+        s.pollVariants();
         // One submission for all newly queued generation/retirement fences.
         // In particular, retirement must progress even when no jobs remain.
         if (s.flushPending) { glFlush(); s.flushPending=false; }
@@ -520,6 +706,15 @@ namespace ProceduralTerrain
             {
                 if (job.mesh.slot!=UINT32_MAX) s.freeSlot(job.mesh.slot);
                 completion.status=CompletionStatus::Cancelled;
+            }
+            else if (job.stage==JobStage::Classifying)
+            {
+                // Fence is signaled: these eight bytes are available without
+                // waiting. Local floating-point weights never leave the GPU.
+                const auto masks=biomeMasksForCells(job.mapped->cellsLow,job.mapped->cellsHigh);
+                s.count(job,masks);
+                if (s.broken) { failPending(); return; }
+                continue;
             }
             else if (job.stage==JobStage::Counting)
             {
@@ -552,15 +747,18 @@ namespace ProceduralTerrain
                     ++s.statistics.completedJobs;
                     // Timing is diagnostic only. Never make mesh publication
                     // wait for a driver's delayed query-result delivery.
-                    GLint available0=GL_FALSE,available1=GL_FALSE;
+                    GLint available0=GL_FALSE,available1=GL_FALSE,available2=GL_FALSE;
                     glGetQueryObjectiv(job.timers[0],GL_QUERY_RESULT_AVAILABLE,&available0);
                     glGetQueryObjectiv(job.timers[1],GL_QUERY_RESULT_AVAILABLE,&available1);
-                    if (available0 && available1)
+                    glGetQueryObjectiv(job.timers[2],GL_QUERY_RESULT_AVAILABLE,&available2);
+                    if (available0 && available1 && available2)
                     {
-                        GLuint64 time0=0,time1=0;
+                        GLuint64 time0=0,time1=0,time2=0;
                         glGetQueryObjectui64v(job.timers[0],GL_QUERY_RESULT,&time0);
                         glGetQueryObjectui64v(job.timers[1],GL_QUERY_RESULT,&time1);
-                        s.statistics.lastGenerationMilliseconds=static_cast<double>(time0+time1)/1000000.0;
+                        glGetQueryObjectui64v(job.timers[2],GL_QUERY_RESULT,&time2);
+                        s.statistics.lastClassificationMilliseconds=static_cast<double>(time2)/1000000.0;
+                        s.statistics.lastGenerationMilliseconds=static_cast<double>(time0+time1+time2)/1000000.0;
                     }
                 }
             }

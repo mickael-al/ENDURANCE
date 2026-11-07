@@ -15,19 +15,22 @@ import sys
 import tempfile
 
 from gl_headless import GL, GLUnavailable
+from biome_test_support import packed_biome_cells
 
 
 ROOT = Path(__file__).resolve().parents[2]
 SHADERS = ROOT / "Asset/Shader/ProceduralTerrain"
-COLUMN_WORDS = 16
+COLUMN_WORDS = 12
 COLUMN_BYTES = COLUMN_WORDS * 4
 
 
 class FieldRunner:
-    def __init__(self, gl: GL):
+    def __init__(self, gl: GL, defines="", directory=SHADERS):
         self.gl = gl
-        self.columns_program = gl.compute(SHADERS / "field_columns.C.glsl")
-        self.density_program = gl.compute(SHADERS / "field_density.C.glsl")
+        self.mapping = gl.buffer(packed_biome_cells())
+        self.classify_program = gl.compute(directory / "field_classify.C.glsl")
+        self.columns_program = gl.compute(directory / "field_columns.C.glsl", defines)
+        self.density_program = gl.compute(directory / "field_density.C.glsl", defines)
 
     def run(self, cells=8, origin=(0, 0, 0), lod=0, seed=0, mode=0, **overrides):
         gl = self.gl
@@ -36,6 +39,8 @@ class FieldRunner:
         nan = struct.pack("<I", 0x7FC00001)
         columns = gl.buffer(nan * (side * side * COLUMN_WORDS), 1)
         density = gl.buffer(nan * (side ** 3), 0)
+        counters = gl.buffer(bytes(32), 3)
+        gl.bind(self.mapping, 7)
         uniforms = {
             "uCells": ("1ui", cells),
             "uOrigin": ("3i", *origin),
@@ -61,9 +66,12 @@ class FieldRunner:
         for name, value in overrides.items():
             suffix = uniforms[name][0]
             uniforms[name] = (suffix, *(value if isinstance(value, tuple) else (value,)))
-        for program in (self.columns_program, self.density_program):
+        for program in (self.classify_program, self.columns_program, self.density_program):
             for name, values in uniforms.items():
                 gl.uniform(program, name, *values)
+        gl.dispatch_extent(self.classify_program, side, side)
+        classification = struct.unpack("<8I", gl.read(counters, 32))
+        raw_classification = gl.read(columns, side * side * COLUMN_BYTES)
         gl.dispatch_extent(self.columns_program, side, side)
         gl.dispatch_extent(self.density_program, side, side, side)
         raw_density = gl.read(density, side ** 3 * 4)
@@ -71,6 +79,8 @@ class FieldRunner:
         gl.check("field generation")
         return {
             "density_buffer": density, "column_buffer": columns,
+            "classification_raw": raw_classification,
+            "cell_mask": classification[4:6],
             "density_raw": raw_density, "columns_raw": raw_columns,
             "density": struct.unpack(f"<{side ** 3}f", raw_density),
             "columns": struct.unpack(f"<{side * side * COLUMN_WORDS}f", raw_columns),
@@ -125,7 +135,7 @@ def check_fields(gl: GL):
     assert shared_neighbor and all(fine_values[p] == neighbor_values[p] for p in shared_neighbor), "Adjacent chunks disagree"
     offset = fields.run(origin=(-8, -8, -8), seed=123456789, uBandOffset=-96.0)
     assert first["columns"][0::COLUMN_WORDS] == offset["columns"][0::COLUMN_WORDS], "Band offset changed the base height map"
-    assert first["columns"][4::COLUMN_WORDS] != offset["columns"][4::COLUMN_WORDS], "Band offset was not recorded"
+    assert first["columns"][5::COLUMN_WORDS] != offset["columns"][5::COLUMN_WORDS], "Band offset was not recorded"
     full = fields.run(cells=64, origin=(0, -32, 0), mode=1)
     flat = fields.run(origin=(-8, -4, -12), uBaseHeight=0.25,
                       uHeightAmplitude=0, uBandThickness=0, uBandVariation=0, uDetailScale=0)
@@ -136,9 +146,16 @@ def check_fields(gl: GL):
         assert (value > 0) == (position[1] < 0.25) and value != 0, ("flat field sign", position, value)
     for result in (plane, sphere, first, again, different, coarse, neighbor, offset, full, flat):
         assert all(math.isfinite(value) for value in result["density"]), "Non-finite or unwritten density value"
-        assert all(math.isfinite(value) for value in result["columns"]), "Non-finite or unwritten column value"
+        assert finite_columns(result["columns"]), "Non-finite or unwritten column value"
     print(f"PASS fields: plane, sphere, seed, {len(shared)} shared LOD samples, adjacent halo, band offset and 64³ cells")
     return fields
+
+
+def finite_columns(values):
+    # The final uvec4 contains bit-packed biome IDs, not floats. Its NaN-like
+    # bit patterns are valid metadata; all eight numeric floats must be finite.
+    return all(math.isfinite(value) for index, value in enumerate(values)
+               if index % COLUMN_WORDS < 8)
 
 
 def check_render_stages(gl):

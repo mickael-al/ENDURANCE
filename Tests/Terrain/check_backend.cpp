@@ -2,6 +2,9 @@
 // production C++ scheduler/allocation lifecycle, not a duplicate implementation.
 #include "glcore.hpp"
 #include "ProceduralTerrainGpu.hpp"
+#include "ProceduralTerrainBiomes.hpp"
+#include <algorithm>
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <iostream>
@@ -91,6 +94,85 @@ void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& 
     require(glGetError()==GL_NO_ERROR,"OpenGL error during cached indirect draws");
     glUseProgram(0);glBindFramebuffer(GL_FRAMEBUFFER,0);
     glDeleteProgram(program);glDeleteFramebuffers(1,&framebuffer);glDeleteRenderbuffers(1,&color);
+}
+
+std::vector<std::array<std::uint32_t,3>> meshBytes(GpuMesher& mesher,const MeshHandle& mesh)
+{
+    std::vector<std::array<std::uint32_t,3>> vertices(mesh.vertexCount);
+    glGetNamedBufferSubData(mesher.vertexBuffer(),static_cast<GLintptr>(mesh.firstVertex)*12,
+        static_cast<GLsizeiptr>(vertices.size()*12),vertices.data());
+    std::sort(vertices.begin(),vertices.end());
+    return vertices;
+}
+void finishCompiles(GpuMesher& mesher)
+{
+    std::vector<Completion> ignored;
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(30);
+    while(mesher.stats().pendingBiomeVariants && std::chrono::steady_clock::now()<deadline)
+    {
+        mesher.poll(ignored);
+        std::this_thread::yield();
+    }
+    require(ignored.empty(),"Idle shader compilation produced a duplicate mesh completion");
+    require(!mesher.stats().pendingBiomeVariants,"Parallel biome compilation failed to complete while no mesh jobs were pending");
+    require(!mesher.stats().biomeCompileFailures,"Biome variant compilation failed: "+mesher.lastError());
+}
+void checkBiomeVariants(GpuMesher& mesher,GpuConfig config)
+{
+    config.cells=8;config.maxInFlight=2;config.maxResidentChunks=4;config.vertexBudgetMiB=1;
+    config.maxBiomeVariants=2;config.maxParallelBiomeCompiles=1;
+    config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
+    config.field.heightAmplitude=0;config.field.detailScale=0;
+    config.field.biomeOverride=-1;
+    std::string error;
+    require(mesher.initialize(config,error),error);
+    const std::uint64_t side=config.cells+3;
+    require(mesher.stats().transientFieldBytes==config.maxInFlight*(side*side*side*4+side*side*FieldColumnBytes),
+        "Transient fields no longer use the expected 48-byte columns and float density");
+    ChunkRequest request;request.seed=1337;
+    require(mesher.submit(request,100),mesher.lastError());
+    mesher.cancel(100); // Cancel while the CPU is waiting for classification.
+    const auto cancelled=finish(mesher,1).front();
+    require(cancelled.status==CompletionStatus::Cancelled && mesher.stats().allocatedBytes==0,
+        "Classification cancellation leaked a job/allocation");
+    const auto first=one(mesher,request,101);
+    require(first.status==CompletionStatus::Ready,"Automatic terrain fallback did not produce a mesh");
+    const auto reference=meshBytes(mesher,first.mesh);
+    const bool parallel=mesher.stats().parallelShaderCompilation;
+    if(parallel) require(mesher.stats().biomeVariantFallbacks>0,"First unseen biome mask did not use generic fallback");
+    mesher.release(first.mesh);collectRetired(mesher);
+    finishCompiles(mesher);
+    const auto hits=mesher.stats().biomeVariantHits;
+    const auto second=one(mesher,request,102);
+    require(second.status==CompletionStatus::Ready && meshBytes(mesher,second.mesh)==reference,
+        "Cached specialized program changes actual packed geometry/normals/climate");
+    if(parallel)require(mesher.stats().biomeVariantHits==hits+1,"Ready biome variant was not reused");
+    mesher.release(second.mesh);collectRetired(mesher);
+    const std::array<std::array<int,2>,5> origins{{{{4096,0}},{{-4096,4096}},{{8192,-8192}},{{-16384,8192}},{{24576,16384}}}};
+    std::uint64_t token=103;
+    for(const auto& origin:origins)
+    {
+        request.origin[0]=origin[0];request.origin[2]=origin[1];
+        const auto mesh=one(mesher,request,token++);
+        require(mesh.status==CompletionStatus::Ready,"Variant cache pressure interrupted terrain generation");
+        require(mesher.stats().biomeVariants<=config.maxBiomeVariants &&
+                mesher.stats().pendingBiomeVariants<=config.maxParallelBiomeCompiles,"Variant cache or compile budget exceeded");
+        mesher.release(mesh.mesh);collectRetired(mesher);finishCompiles(mesher);
+    }
+    if(parallel) require(mesher.stats().biomeVariantFallbacks>=3 && mesher.stats().biomeVariants==2,
+        "Cache test did not exercise more masks than its bounded capacity");
+    // Generic-only mode must preserve the same world, and never enqueue a
+    // runtime compilation even on a driver exposing parallel shader support.
+    config.enableBiomeVariants=false;
+    require(mesher.initialize(config,error),error);
+    request.origin={0,0,0};
+    const auto generic=one(mesher,request,200);
+    require(generic.status==CompletionStatus::Ready && meshBytes(mesher,generic.mesh)==reference,
+        "Disabling specialization changed terrain output");
+    require(!mesher.stats().biomeVariants && !mesher.stats().pendingBiomeVariants,
+        "Generic-only mode still allocated variants");
+    mesher.shutdown();
+    std::cout<<"PASS biome backend: classification cancellation, generic fallback, idle compile polling, bounded cache eviction, identical packed meshes and 48-byte columns\n";
 }
 }
 
@@ -189,6 +271,7 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         std::cout << "PASS backend vertex budget: three 64³ planes fit, fourth fails without exceeding its allocation\n";
         std::cout << "Software-driver GPU query for last 64³ plane: " << mesher.stats().lastGenerationMilliseconds << " ms (not hardware performance)\n";
         mesher.shutdown();
+        checkBiomeVariants(mesher,config);
         require(glGetError()==GL_NO_ERROR,"OpenGL error after shutdown");
         return 0;
     }

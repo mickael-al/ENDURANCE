@@ -13,12 +13,12 @@ import random
 import struct
 import sys
 
-from check_biomes import BiomeProbe
-from check_gpu import FieldRunner, SHADERS, lattice_values
+from check_biomes import BiomeProbe, profile_probe_source
+from check_gpu import FieldRunner, SHADERS, lattice_values, packed_biome_cells
 from gl_headless import GL, GLUnavailable, shader_source
 
 
-PROBE = r"""
+LEGACY_PROBE = r"""
 layout(local_size_x=8,local_size_y=8) in;
 struct ProbeSample { vec4 terrain; vec4 volume; vec4 samples; vec4 shape; };
 layout(std430,binding=6) writeonly buffer ProbeOutput { ProbeSample outputValues[]; };
@@ -59,12 +59,44 @@ void main()
 }
 """
 
+# Keep the diagnostics in metre units, independent of the runtime column ABI.
+# The 48-byte column stores local blend factors and packed biome identifiers;
+# profile inspection below reconstructs the same forced-biome band and strengths
+# that the production density function uses.
+PROBE = LEGACY_PROBE.replace(
+    "    float h=column.terrain.x;",
+    """    BiomeVolume profile=fieldBiomeVolumeAt(uint(max(uBiomeOverride,0)),p);
+    vec4 diagnosticVolume=profile.volume;
+    diagnosticVolume.x=column.blend.y+
+        clamp(column.blend.z+profile.volume.x,-160.0,160.0)*uDetailScale;
+    diagnosticVolume.y*=uDetailScale*mix(0.55,1.0,column.blend.w);
+    diagnosticVolume.z*=uDetailScale*mix(0.85,1.0,column.blend.w);
+    float h=column.terrain.x;""").replace(
+    "ProbeSample(column.terrain,column.volume,samples,column.shape)",
+    "ProbeSample(column.terrain,diagnosticVolume,samples,profile.shape)")
+
 
 class PolarProbe(BiomeProbe):
-    def __init__(self, gl, directory=SHADERS, source=PROBE):
+    def __init__(self, gl, directory=SHADERS, source=None, polar_only=True):
         self.gl = gl
-        self.program = gl.compile([(0x91B9, "#version 450 core\n" +
-            shader_source(directory / "world_field.glsl") + source)], "polar production probe")
+        field_source = shader_source(directory / "world_field.glsl")
+        modern = "uvec4 detail" in field_source
+        if source is None:
+            # Optional comparisons can still load the former 64-byte generator.
+            source = PROBE if modern else LEGACY_PROBE
+        defines = ""
+        if modern and polar_only:
+            # Four density samples per invocation are useful for diagnostics,
+            # but compiling all 26 recipes four times would test compiler size
+            # instead of this polar fixture. The generic path is tested below
+            # for the other biomes and by the variant/mesher suites.
+            defines = ("#define FIELD_SPECIALIZED_BIOMES 1\n"
+                       "#define BIOME_SURFACE_POLAR_ICE 1\n"
+                       "#define BIOME_VOLUME_POLAR_ICE 1\n")
+            source = source.replace("uint(max(uBiomeOverride,0))", "0u")
+        self.program = gl.compile([(0x91B9, "#version 450 core\n" + defines +
+            field_source + (profile_probe_source() if modern else "") + source)], "polar production probe")
+        self.mapping = gl.buffer(packed_biome_cells(), 7)
         self.buffer = gl.buffer(0)
         self.capacity = 0
 
@@ -147,15 +179,25 @@ def check_repeat_and_lod(gl):
 
 
 def check_other_biomes(gl, directory):
-    old = PolarProbe(gl, directory=directory)
-    new = PolarProbe(gl)
+    old = PolarProbe(gl, directory=directory, polar_only=False)
+    new = PolarProbe(gl, polar_only=False)
     for biome in range(1, 26):
         for seed in (1337, 98765):
             options = dict(biome=biome, size=13, origin=(-493.25, 271.75),
                            spacing=73.5, uSeed=seed)
             before, after = old.run(**options), new.run(**options)
-            assert before["raw"] == after["raw"], ("An unrelated biome changed", biome, seed)
-    print("PASS scope: all 25 non-polar forced recipes retain identical sampled heights/profiles/densities")
+            assert before["values"][0::16] == after["values"][0::16], (
+                "An unrelated biome height changed", biome, seed)
+            # The free-function path blends density deltas; mathematically
+            # identical forced profiles can round differently from the former
+            # single-formula path. Require a small numerical tolerance, never
+            # merely a matching silhouette or sign.
+            for index, (a, b) in enumerate(zip(before["values"], after["values"])):
+                tolerance = 2e-5 * max(1.0, abs(a), abs(b))
+                assert abs(a-b) <= tolerance, (
+                    "An unrelated biome profile or density changed",
+                    biome, seed, index, a, b, tolerance)
+    print("PASS scope: all 25 non-polar forced recipes retain identical heights and numerically equivalent profiles/densities")
 
 
 def check_relief(probe):

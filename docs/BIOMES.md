@@ -14,6 +14,8 @@ Les lignes vont du très froid au très chaud ; les colonnes vont du très sec a
 | Chaud | **15** Désert de roche | **16** Savane sèche | **17** Savane | **18** Jungle sèche | **19** Jungle tropicale |
 | Très chaud | **20** Désert volcanique | **21** Désert rouge | **22** Plateau aride | **23** Jungle brûlante | **24** Mangrove tropicale |
 
+Les matrices qui font autorité sont `BiomeMatrix2D` et `BiomeMatrix3D`, dans `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainBiomes.hpp`. La première contient 5 × 5 identifiants ; la seconde 5 × 5 × 5. Son troisième axe représente la hauteur macro relativement au rivage, **pas l’altitude du voxel**. Modifier ces tableaux demande une recompilation C++ ; le bouton de régénération ne recharge que les sources GLSL et les réglages de scène. La table compacte de leurs 64 cellules d’interpolation est envoyée une fois au GPU. Les fractions locales et les poids bilinéaires/trilinéaires sont calculés sur le GPU pour chaque colonne XZ, sans aller-retour de carte climatique vers le CPU.
+
 **25 : fond marin.** La mer est sélectionnée à partir de la hauteur de référence, avant ajout du relief propre aux biomes. Elle se mélange progressivement avec la terre autour de `seaLevel`, suivant `seaBlendWidth`. Une grotte terrestre ne change donc pas de biome uniquement parce que son échantillon 3D descend sous le niveau marin. Ce biome génère la géométrie du fond ; il ne constitue pas un rendu d’eau ni un système de nage.
 
 ## Direction du terrain
@@ -84,19 +86,40 @@ Les constantes `POLAR_*` regroupent les principaux réglages :
 
 Le profil utilise le rapport des distances au carré aux deux sites de Voronoï les plus proches, avec une pente nulle aux rebords des cellules. Les distances restent continues quand le site le plus proche change. Le macrorelief global de la scène est toujours ajouté : mettre temporairement `heightAmplitude` à zéro permet d’inspecter les seules cuvettes.
 
-`fieldReliefPolarIce()` règle aussi l’épaisseur supplémentaire et le décalage de bande ; `polarIceVolume()` règle le décalage supplémentaire, la déformation, le creusement et le rayon. Le masque de rareté s’applique aux amplitudes **et au rayon des cavités** avant le mélange de biomes : réduire seulement une amplitude positive ne suffit pas à supprimer les valeurs négatives d’un champ creusant. Les secteurs inactifs retournent directement la hauteur sans calculer les trois bruits 3D. Ce masque ajoute un bruit 2D par colonne concernée et ne change ni les 64 octets de colonne, ni les sommets compressés.
+`fieldReliefPolarIce()` renvoie quatre valeurs, avant application de `detailScale` :
 
-Cette révision concerne la recette polaire. Les cases climatiques, leur répartition et les 25 autres recettes forcées restent inchangées.
+| Composante | Rôle |
+| --- | --- |
+| `.x` | Hauteur ajoutée au macrorelief. |
+| `.y` | Épaisseur totale supplémentaire de la bande 3D. |
+| `.z` | Décalage vertical supplémentaire de cette bande. |
+| `.w` | Masque de roche de 0 à 1, modulant les amplitudes du helper volumique commun ; 0 ne désactive pas la 3D. |
+
+La fonction 3D à éditer librement est désormais **`fieldVolumePolarIce(vec3 p, FieldColumn column, inout FieldVolumeNoise cache)`**, dans `biome_volume.glsl`. `polarIceVolume()` conserve les paramètres de la recette commune employée par défaut ; modifier uniquement cette fonction suffit pour régler son décalage, sa déformation, son creusement et son rayon. Remplacer le corps de `fieldVolumePolarIce()` permet d’utiliser une autre construction 3D, sans modifier les autres biomes.
+
+Dans la recette polaire actuelle, le masque de rareté s’applique aux amplitudes **et au rayon des cavités** avant le calcul de sa densité : réduire seulement une amplitude positive ne suffit pas à supprimer les valeurs négatives d’un champ creusant. Les secteurs inactifs renvoient directement `column.terrain.x - p.y` sans demander les trois bruits 3D communs. L’activité est précalculée en 2D pour les colonnes concernées. Les sommets compressés restent inchangés.
 
 ## Composition et coût GPU
 
 `Asset/Shader/ProceduralTerrain/biome_relief.glsl` contient les recettes 2D individuelles. Elles combinent des bruits de gradient, des crêtes, des profils orientés, des cellules et des paliers dont la largeur de transition est réglée. Les métriques cellulaires euclidienne, Manhattan et maximum produisent des masses rondes, en diamant ou carrées ; elles ne nécessitent pas un algorithme Diamond-Square récursif.
 
-`biome_volume.glsl` contient les recettes 3D individuelles. Leurs paramètres sont mélangés dans la passe de colonnes, puis évalués avec des bruits 3D communs. Il n’y a pas huit générateurs de bruit complets exécutés par voxel à la frontière de huit cases. Les fréquences restent fixées dans le repère mondial : interpoler une fréquence puis la multiplier par une position mondiale éloignée ferait varier trop rapidement la phase du bruit.
+`biome_volume.glsl` contient une fonction **`fieldVolume*` indépendante par biome**. Chacune reçoit la position mondiale, la colonne déjà préparée et un cache de bruits facultatif. Elle renvoie une densité complète, positive dans le solide et négative dans le vide ; zéro définit la surface. Le champ n’est pas une distance signée. La production mélange désormais les **densités obtenues**, et non les paramètres de `BiomeVolume` : les zones de transition peuvent donc changer d’apparence par rapport à l’ancienne méthode. Les anciens helpers `fieldBlendVolume()`, `fieldBiomeVolume()` et `fieldBiomeVolumeAt()` sont réservés à l’inspection dans `Tests/Terrain/biome_profile_probe.glsl` et ne font plus partie des shaders de production.
 
-Une colonne occupe **64 octets**, contre 32 auparavant. Pour un chunk de 64³ cellules avec halo, cela ajoute **143 648 octets par travail GPU**, soit environ 140 KiB. Le champ reste en `float32`, et les colonnes sont partagées par les quatre invocations Y d’un groupe. Cette dépense évite de refaire les mélanges de biomes et les bruits de relief à chaque voxel. Les sommets restent à 12 octets et les champs ne sont pas rapatriés vers le CPU.
+Les fonctions actuelles peuvent utiliser `fieldVolumeFromRecipe()` et `fieldSharedVolumeNoise()` pour conserver la base commune. Le cache local au voxel calcule ses trois bruits seulement à la première demande, puis les partage entre recettes. Ce cache suppose la même position mondiale `p` pour tous ses utilisateurs ; des bruits sur des coordonnées déformées doivent être calculés séparément. Un biome peut ignorer ce helper, combiner d’autres bruits ou appeler `fieldCellular3(p, salt)` pour un Voronoï 3D ; `fieldCellular3Data()` fournit également une valeur stable de cellule. Ce Voronoï n’alloue aucune texture et n’est évalué que lorsqu’une recette l’appelle. Les coûts propres aux recettes et les mélanges de plusieurs fonctions restent à mesurer : la spécialisation ne rend pas ces calculs gratuits.
+
+La classification GPU couvre toutes les colonnes et leur halo, puis réduit les cellules de matrice rencontrées en **un masque de 64 bits**. Le CPU lit ces 8 octets après une fence signalée et construit deux masques de biomes, pour la surface et le volume. Une variante de shader ne conserve alors que les appels autorisés, avec des defines comme `BIOME_SURFACE_POLAR_ICE` et `BIOME_VOLUME_POLAR_ICE`. Elle utilise toujours les poids **locaux GPU**, jamais un pourcentage constant par chunk ; les poids nuls évitent les appels et les identifiants répétés sont regroupés. Le masque est conservateur : un biome retenu pour le chunk peut avoir un poids nul à un point donné.
+
+Le cache contient au plus 32 variantes par défaut, chacune formée d’un programme de colonnes et d’un programme de densité. Sa clé canonique réunit les deux masques, sans position ni poids. La génération emploie le shader générique lorsqu’une variante manque, compile encore ou a échoué. Au plus deux paires sont en compilation à la fois, avec l’aide du pilote si `ARB/KHR_parallel_shader_compile` est disponible. Sans cette extension, le chemin générique reste actif. L’extension est une indication de parallélisme, pas une garantie d’absence de délai dans le pilote. Régénérer efface les variantes et le cache de sources, relit les includes sur disque et reconstruit les programmes.
+
+Une colonne occupe maintenant **48 octets**, contre 64 dans la version à paramètres mélangés. Pour 67² colonnes, cela représente 215 472 octets et économise 71 824 octets par travail GPU. Le champ reste en `float32`, et les colonnes ainsi que les fractions climatiques sont partagées par les quatre invocations Y d’un groupe. La table de cellules ajoute 1 KiB pour le générateur et le buffer de compteurs passe de 16 à 32 octets par travail. Les programmes compilés et leur cache consomment aussi de la mémoire, dont la taille dépend du pilote : cette réduction des colonnes n’est donc pas une mesure du gain mémoire total. Les sommets restent à 12 octets ; ni champs denses ni poids locaux ne sont rapatriés vers le CPU.
 
 Les transitions climatiques sont adoucies avant l’interpolation. La seed, les positions mondiales et les fréquences ne dépendent pas du LOD. Une modification de ces recettes change le monde produit par rapport à la version précédente : reproduire un monde demande la seed, les paramètres **et la même version du générateur**.
+
+## Contrat d’une fonction 3D personnalisée
+
+La liberté de calcul conserve les bornes nécessaires au streaming. Une fonction `fieldVolume*` doit renvoyer le champ de base `column.terrain.x - p.y` hors de sa bande, avec un raccord continu. L’épaisseur totale est `column.terrain.w`. Le décalage global est `column.blend.y` ; le décalage relatif combinant le relief et la recette doit rester dans **[-160 ; 160] × `uDetailScale`**. `fieldVolumeFromRecipe()` borne automatiquement cette somme. Une implémentation entièrement personnalisée doit respecter le même contrat ; sinon, adapter ensemble le rejet anticipé de `fieldDensityAtPrepared()` et `fieldHeightBounds()` côté C++ avant d’élargir son domaine.
+
+Conserver une échelle de densité cohérente avec les autres biomes pour que leur mélange reste prévisible. Définir les bruits dans le repère mondial avec la seed commune ; ne pas dépendre de l’origine du chunk, de son LOD, de la variante compilée ou du temps. Une région sans détail 3D peut simplement renvoyer le champ de base. Les tests de raccords et de champs finis décrits dans `Tests/Terrain/README.md` doivent accompagner une modification des recettes ou de leurs bornes.
 
 ## Espaces de déplacement
 
@@ -116,6 +139,8 @@ Les hauteurs montrent le relief avant sculpture 3D ; les coupes montrent les év
 ## Essayer chaque biome
 
 Ouvrir `ENDURANCE/Scene/Terrain.scene`, puis lancer Play. Dans l’interface du composant, **« Biome a tester »** permet de choisir les matrices automatiques ou un biome forcé. **« Regenerer avec ces reglages »** reconstruit le terrain avec les paramètres actuels.
+
+**« Specialiser les shaders de biomes »** active ou désactive les variantes à la prochaine régénération. Pour comparer sur la carte cible, garder la même seed, les mêmes paramètres et le même parcours avec la case cochée puis décochée. Observer séparément le premier passage, où des variantes sont encore compilées, et les utilisations suivantes du cache. Comparer le temps de génération GPU, le temps de classification, les utilisations du repli et la cadence d’affichage ; les compteurs GPU ne mesurent pas à eux seuls le délai CPU ou le coût de compilation. Régénérer remet le cache à zéro. Le résultat des densités doit rester le même entre les deux chemins ; aucun gain de FPS n’est garanti par cette option.
 
 Les paramètres sont enregistrés avec le script :
 

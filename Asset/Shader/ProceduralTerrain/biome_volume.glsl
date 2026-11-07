@@ -1,10 +1,9 @@
 #ifndef ENDURANCE_BIOME_VOLUME_GLSL
 #define ENDURANCE_BIOME_VOLUME_GLSL
 
-// Every biome has its own volume recipe, paired with its 2D relief recipe.
-// Recipes are blended once per XZ column. Their three noise fields have fixed
-// world-space phases: interpolating a frequency and multiplying it by world
-// position would distort biome boundaries increasingly far from the origin.
+// Optional shared recipe helpers for the independent density functions below.
+// These parameters are no longer blended to construct the production field.
+// A biome may replace its density function with any bounded 3D construction.
 struct BiomeVolume
 {
     vec4 volume; // additional offset, displacement metres, carving scale metres, feather
@@ -75,48 +74,190 @@ BiomeVolume burningJungleVolume() { return volumeRecipe(-64,18,180,.30,vec3(.25,
 BiomeVolume tropicalMangroveVolume() { return volumeRecipe(-18,3,52,.70,vec3(.15,.75,.10),.10,vec4(.90,.10,.15,.35)); }
 BiomeVolume marineVolume() { return volumeRecipe(-44,12,148,.40,vec3(.35,.40,.25),.16,vec4(.60,.30,.45,.70)); }
 
-BiomeVolume fieldBiomeVolume(uint biome)
+// Shared lazily within one voxel: recipes using this basis pay for three
+// noises once, even at a boundary. A custom biome can ignore this cache and use
+// fieldCellular3 or arbitrary other deterministic 3D functions instead.
+struct FieldVolumeNoise { vec3 values; bool ready; };
+
+vec3 fieldSharedVolumeNoise(vec3 p,inout FieldVolumeNoise cache)
 {
-    if(biome==0u) return polarIceVolume();
-    if(biome==1u) return frozenTundraVolume();
-    if(biome==2u) return tundraVolume();
-    if(biome==3u) return taigaVolume();
-    if(biome==4u) return borealBogVolume();
-    if(biome==5u) return rockyTundraVolume();
-    if(biome==6u) return coldSteppeVolume();
-    if(biome==7u) return borealForestVolume();
-    if(biome==8u) return coldForestVolume();
-    if(biome==9u) return coldMarshVolume();
-    if(biome==10u) return dryPlainVolume();
-    if(biome==11u) return meadowVolume();
-    if(biome==12u) return temperateForestVolume();
-    if(biome==13u) return temperateRainforestVolume();
-    if(biome==14u) return temperateMarshVolume();
-    if(biome==15u) return rockDesertVolume();
-    if(biome==16u) return drySavannaVolume();
-    if(biome==17u) return savannaVolume();
-    if(biome==18u) return dryJungleVolume();
-    if(biome==19u) return tropicalJungleVolume();
-    if(biome==20u) return volcanicDesertVolume();
-    if(biome==21u) return redDesertVolume();
-    if(biome==22u) return aridPlateauVolume();
-    if(biome==23u) return burningJungleVolume();
-    if(biome==24u) return tropicalMangroveVolume();
-    return marineVolume();
+    if(!cache.ready)
+    {
+        cache.values=vec3(fieldNoise3(p*0.0125,0x299f31d0u),
+            fieldNoise3(p*vec3(0.00625,0.020,0.00625),0x082efa98u),
+            fieldNoise3(p*vec3(0.018,0.005,0.018),0xec4e6c89u));
+        cache.ready=true;
+    }
+    return cache.values;
 }
 
-BiomeVolume fieldBiomeVolumeAt(uint biome, vec2 p)
+// Density contract: positive solid, negative air, world metres of density.
+// Return the base height field outside the finite band; keep the combined
+// relative band offset within [-160,160]*uDetailScale for CPU culling bounds.
+float fieldVolumeFromRecipe(vec3 p,FieldColumn column,BiomeVolume recipe,inout FieldVolumeNoise cache)
 {
-    BiomeVolume result = fieldBiomeVolume(biome);
-    if(biome==0u)
-    {
-        float activity = polarVolumeActivity(p);
-        result.volume.yz *= activity;
-        // Scaling carving strength alone does not remove its negative sign.
-        // Also close the cavity radius smoothly towards inactive columns.
-        result.shape.w *= activity;
-    }
-    return result;
+    float base=column.terrain.x-p.y;
+    float halfThickness=column.terrain.w*0.5;
+    recipe.volume.yz*=uDetailScale;
+    recipe.volume.y*=mix(0.55,1.0,column.blend.w);
+    recipe.volume.z*=mix(0.85,1.0,column.blend.w);
+    if(halfThickness<=0.0001 || recipe.volume.y+recipe.volume.z<=0.0) return base;
+    float offset=column.blend.y+clamp(column.blend.z+recipe.volume.x,-160.0,160.0)*uDetailScale;
+    float edgeDistance=halfThickness-abs(p.y-(column.terrain.x+offset));
+    if(edgeDistance<=0.0) return base;
+    float influence=smoothstep(0.0,max(0.0001,halfThickness*recipe.volume.w),edgeDistance);
+    vec3 n=fieldSharedVolumeNoise(p,cache);
+    float a=dot(recipe.shape.xyz,n);
+    float displacement=mix(a,0.6*a+0.4*n.x,recipe.style.z)*recipe.volume.y;
+    float density=base+influence*displacement;
+    if(recipe.volume.z<=0.0) return density;
+    float b=0.75*n.y-0.65*n.z;
+    vec2 d=abs(vec2(a,b));
+    float tube=mix(length(d),(d.x+d.y)*0.75,clamp(recipe.style.y*2.0,0.0,1.0));
+    tube=mix(tube,max(d.x,d.y),clamp(recipe.style.y*2.0-1.0,0.0,1.0));
+    float cavity=mix(abs(a),tube,recipe.style.x);
+    float layer=abs(2.0*fract(p.y*0.025+0.08*n.x)-1.0);
+    float layerWidth=mix(0.55,1.35,smoothstep(0.2,0.8,layer));
+    float radius=recipe.shape.w*mix(1.0,layerWidth,recipe.style.w);
+    float cavityDensity=(cavity-radius)*recipe.volume.z;
+    return mix(density,min(density,cavityDensity),influence);
+}
+
+// Independent editable functions, paired by ID with fieldRelief* functions.
+// Each returns a complete scalar density. The caller blends density deltas
+// against the common height field, and never evaluates a zero-weight biome.
+float fieldVolumePolarIce(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    BiomeVolume recipe=polarIceVolume();
+    float activity=uintBitsToFloat(column.detail.x);
+    recipe.volume.yz*=activity;
+    recipe.shape.w*=activity;
+    return fieldVolumeFromRecipe(p,column,recipe,cache);
+}
+
+float fieldVolumeFrozenTundra(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,frozenTundraVolume(),cache);
+}
+
+float fieldVolumeTundra(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,tundraVolume(),cache);
+}
+
+float fieldVolumeTaiga(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,taigaVolume(),cache);
+}
+
+float fieldVolumeBorealBog(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,borealBogVolume(),cache);
+}
+
+float fieldVolumeRockyTundra(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,rockyTundraVolume(),cache);
+}
+
+float fieldVolumeColdSteppe(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,coldSteppeVolume(),cache);
+}
+
+float fieldVolumeBorealForest(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,borealForestVolume(),cache);
+}
+
+float fieldVolumeColdForest(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,coldForestVolume(),cache);
+}
+
+float fieldVolumeColdMarsh(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,coldMarshVolume(),cache);
+}
+
+float fieldVolumeDryPlain(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,dryPlainVolume(),cache);
+}
+
+float fieldVolumeMeadow(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,meadowVolume(),cache);
+}
+
+float fieldVolumeTemperateForest(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,temperateForestVolume(),cache);
+}
+
+float fieldVolumeTemperateRainforest(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,temperateRainforestVolume(),cache);
+}
+
+float fieldVolumeTemperateMarsh(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,temperateMarshVolume(),cache);
+}
+
+float fieldVolumeRockDesert(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,rockDesertVolume(),cache);
+}
+
+float fieldVolumeDrySavanna(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,drySavannaVolume(),cache);
+}
+
+float fieldVolumeSavanna(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,savannaVolume(),cache);
+}
+
+float fieldVolumeDryJungle(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,dryJungleVolume(),cache);
+}
+
+float fieldVolumeTropicalJungle(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,tropicalJungleVolume(),cache);
+}
+
+float fieldVolumeVolcanicDesert(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,volcanicDesertVolume(),cache);
+}
+
+float fieldVolumeRedDesert(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,redDesertVolume(),cache);
+}
+
+float fieldVolumeAridPlateau(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,aridPlateauVolume(),cache);
+}
+
+float fieldVolumeBurningJungle(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,burningJungleVolume(),cache);
+}
+
+float fieldVolumeTropicalMangrove(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,tropicalMangroveVolume(),cache);
+}
+
+float fieldVolumeMarine(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
+{
+    return fieldVolumeFromRecipe(p,column,marineVolume(),cache);
 }
 
 #endif

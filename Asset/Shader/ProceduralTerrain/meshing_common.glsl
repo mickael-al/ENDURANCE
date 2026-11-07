@@ -1,8 +1,8 @@
 #ifndef PROCEDURAL_TERRAIN_MESHING_COMMON
 #define PROCEDURAL_TERRAIN_MESHING_COMMON
 
-// Match the 64-byte production FieldColumn, including preblended 3D recipes.
-struct MeshColumn { vec4 terrain; vec4 volume; vec4 shape; vec4 style; };
+// Match the 48-byte production FieldColumn. Meshing only reads climate.
+struct MeshColumn { vec4 terrain; vec4 blend; uvec4 detail; };
 layout(std430,binding=0) readonly buffer FieldDensity { float density[]; };
 layout(std430,binding=1) readonly buffer FieldColumns { MeshColumn columns[]; };
 layout(std430,binding=2) readonly buffer TransvoxelTables { uint tables[]; };
