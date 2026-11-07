@@ -18,6 +18,9 @@
 #include "PostProcess.hpp"
 #include "Skybox.hpp"
 #include "SkinnedTransformManager.hpp"
+#if ENDURANCE_ENABLE_NETWORK
+#include "OnlineSessionManager.hpp"
+#endif
 
 using namespace Ge;
 namespace Ge
@@ -39,6 +42,9 @@ struct ptrClass
 	SceneManager * sceneManager;
 	PhysicsWraper* physicsEngine;
 	SoundManager* soundManager;
+#if ENDURANCE_ENABLE_NETWORK
+	OnlineSessionManager* onlineSessionManager;
+#endif
 	Hud * hud;
 	GraphiquePipelineManager * graphiquePipelineManager;
 	RenderingEngine * renderingEngine;

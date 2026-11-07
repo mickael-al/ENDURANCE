@@ -1,5 +1,7 @@
 # Origine du moteur
 
+Ce document décrit l'extraction initiale du moteur de BellGrave. Le socle Steam et réseau a ensuite été ajouté depuis Parasite : voir [NETWORKING.md](NETWORKING.md) pour sa provenance et sa configuration actuelles.
+
 ## Source figée
 
 - Dépôt : `mickael-al/BellGrave`.

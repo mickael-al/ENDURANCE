@@ -6,6 +6,7 @@ Le dépôt contient le moteur, ses dépendances nécessaires et un projet d'édi
 
 - [Idées retenues pour le prototype](docs/PROTOTYPE.md)
 - [Origine du moteur et périmètre de l'import](docs/ENGINE_ORIGIN.md)
+- [Steam et réseau : intégration et utilisation](docs/NETWORKING.md)
 - [Créer une extension de l'éditeur](ANTAGONIZ/Documentation/EditorExtensions.md)
 
 ## Organisation
@@ -20,7 +21,7 @@ Le dépôt contient le moteur, ses dépendances nécessaires et un projet d'édi
 | `Tests/` | Vérifications générales du moteur reprises de BellGrave. |
 | `docs/` | Notes du prototype et traçabilité de l'import. |
 
-Le projet ne dépend pas d'une installation de BellGrave. Ses scènes, ses ressources artistiques, ses systèmes de combat et ses menus ne sont pas inclus. Le bootstrap fonctionne hors ligne, sans Steamworks ni libhv.
+Le projet ne dépend pas d'une installation de BellGrave. Ses scènes, ses ressources artistiques, ses systèmes de combat et ses menus ne sont pas inclus. Le socle Steam et réseau de Parasite est intégré séparément pour préparer le futur multijoueur. L'éditeur et les connexions par IP directe restent utilisables lorsque le client Steam est indisponible.
 
 ## Compiler
 
@@ -51,7 +52,16 @@ cmake --build build/Debug
 
 GLEW est compilé depuis les sources embarquées, sans bibliothèque précompilée à ajouter. `CMakeSettings.json` propose également des configurations pour Visual Studio.
 
-L'exécutable ouvre le projet `ENDURANCE` dans l'éditeur, sur une scène vide, sans lancer de gameplay. Les préférences locales et `ENDURANCE/Setting.json` sont générés au premier lancement et ignorés par Git. Les scènes et les futures ressources du jeu restent versionnées.
+L'exécutable ouvre le projet `ENDURANCE` dans l'éditeur, sur la scène du projet, sans lancer de gameplay. Les préférences locales sont générées au premier lancement. Les scènes et les ressources du jeu restent versionnées.
+
+Steam et le réseau sont compilés par défaut. Pour une version sans ces dépendances :
+
+```bash
+cmake -S . -B build/Offline -DENDURANCE_ENABLE_NETWORK=OFF -DCMAKE_BUILD_TYPE=Debug
+cmake --build build/Offline
+```
+
+L'AppID de développement est `480` (Spacewar), configurable avec `-DENDURANCE_STEAM_APP_ID=<appid>`. Les salons ENDURANCE disposent de leur propre identification pour ne pas se mélanger avec ceux de Parasite. Le menu multijoueur et la synchronisation du gameplay restent à développer ; voir la [documentation réseau](docs/NETWORKING.md).
 
 ## Vérifications sans fenêtre graphique
 

@@ -14,6 +14,9 @@
 #include "Editor.hpp"
 #include "PathManager.hpp"
 #include "CommandQueue.hpp"
+#if ENDURANCE_ENABLE_NETWORK
+#include "OnlineSessionManager.hpp"
+#endif
 #if defined(_WIN32) || defined(_WIN64)
 #include <Windows.h>
 #elif defined(__unix__) || defined(__unix)
@@ -42,6 +45,9 @@ namespace Ge
 		m_physicsEngine = new PhysicsEngine();
 		m_pointeurClass.physicsEngine = m_physicsEngineWraper = new PhysicsWraper(m_physicsEngine,m_queue);
 		m_pointeurClass.soundManager = m_soundManager = new SoundManager();
+#if ENDURANCE_ENABLE_NETWORK
+		m_pointeurClass.onlineSessionManager = m_onlineSessionManager = new OnlineSessionManager();
+#endif
 		m_editor = new Editor();
 		m_renderingEngine = new RenderingEngine(m_graphicsDataMisc);		
 		m_pointeurClass.gdm = m_graphicsDataMisc;
@@ -64,6 +70,10 @@ namespace Ge
 		delete m_physicsEngine;
 		delete m_physicsEngineWraper;
 		delete m_soundManager;
+#if ENDURANCE_ENABLE_NETWORK
+		delete m_onlineSessionManager;
+		m_pointeurClass.onlineSessionManager = nullptr;
+#endif
 		delete m_editor;
 		delete m_renderingEngine;
 	}
@@ -81,6 +91,11 @@ namespace Ge
     bool Engine::initialize()
     {
 		PathManager::initDirectory();
+#if ENDURANCE_ENABLE_NETWORK
+		// Initialize Steam before the graphics context so its overlay can hook it.
+		// Steam being unavailable keeps the editor and direct-IP transport usable.
+		m_onlineSessionManager->initialize();
+#endif
         if(!m_renderingEngine->initialize(&m_pointeurClass))
         {
             Debug::INITFAILED("RenderingEngine");
@@ -103,6 +118,9 @@ namespace Ge
     {        
         m_sceneManager->release();
         m_behaviourManager->release();
+#if ENDURANCE_ENABLE_NETWORK
+		m_onlineSessionManager->release();
+#endif
 		m_renderingEngine->release();
         m_time->release();
         m_inputManager->release();
@@ -166,6 +184,9 @@ namespace Ge
 			{
 				m_time->updateTime();
 				m_inputManager->updateAxis();
+#if ENDURANCE_ENABLE_NETWORK
+				m_onlineSessionManager->update();
+#endif
 				m_behaviourManager->update();
 				m_renderingEngine->drawFrame();
 				m_lag -= 1.0/m_settingManager->getFps();

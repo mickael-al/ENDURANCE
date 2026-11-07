@@ -3,6 +3,9 @@
 #include "Version.hpp"
 #include "PathManager.hpp"
 #include "ProcessGuard.hpp"
+#if ENDURANCE_ENABLE_NETWORK
+#include "SteamLaunchArguments.hpp"
+#endif
 #include <cstdlib>
 using namespace Ge;
 
@@ -35,6 +38,13 @@ int main(int argc, char *argv[])
 
 	try
 	{
+#if ENDURANCE_ENABLE_NETWORK
+		const std::uint64_t invitedLobby = parseSteamLobbyLaunchArguments(argc, argv);
+		if (invitedLobby != 0)
+		{
+			e.onlineSessionManager->requestLobbyInvite(invitedLobby);
+		}
+#endif
 		engine.start();
 	}
 	catch (std::runtime_error& e)

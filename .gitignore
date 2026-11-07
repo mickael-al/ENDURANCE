@@ -15,6 +15,12 @@
 *.ilk
 *.exp
 *.log
+__pycache__/
+*.py[cod]
+
+# Steam redistributables are source dependencies, not local build products.
+!/ThirdParty/steamworks_sdk/redistributable_bin/**/*.dll
+!/ThirdParty/steamworks_sdk/redistributable_bin/**/*.so
 
 # Local editor preferences and generated project settings
 /ENDURANCE.editor.json

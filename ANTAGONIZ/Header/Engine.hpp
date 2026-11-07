@@ -8,6 +8,9 @@
 
 struct GraphicsDataMisc;
 struct ptrClass;
+#if ENDURANCE_ENABLE_NETWORK
+class OnlineSessionManager;
+#endif
 namespace Ge
 {
 	class RenderingEngine;			
@@ -52,6 +55,9 @@ namespace Ge
 		SoundManager* m_soundManager;
 		Editor * m_editor;
 		CommandQueue * m_queue;
+#if ENDURANCE_ENABLE_NETWORK
+		OnlineSessionManager* m_onlineSessionManager;
+#endif
 
 		std::thread m_fixedThread;
 		std::atomic<bool> m_fixedThreadRuning{false};

@@ -7,6 +7,9 @@ INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/ANTAGONIZ/Header/Setting)
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/ANTAGONIZ/Header/User)
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/ANTAGONIZ/Header/User/Input)
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/ANTAGONIZ/Header/ProjectUser)
+IF(ENDURANCE_ENABLE_NETWORK)
+    INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/ANTAGONIZ/Header/Network)
+ENDIF()
 
 #Render
 INCLUDE_DIRECTORIES(${CMAKE_SOURCE_DIR}/ANTAGONIZ/Header/Rendering)
@@ -48,6 +51,11 @@ ELSE()
     FILE(GLOB_RECURSE ENGINE_HEADERS CONFIGURE_DEPENDS *.hpp *.h *.inl)
 ENDIF()
 
+# The offline configuration does not require Steamworks or libhv headers/libs.
+IF(NOT ENDURANCE_ENABLE_NETWORK)
+    LIST(FILTER ENGINE_SOURCES EXCLUDE REGEX "/Source/Network/")
+ENDIF()
+
 # Keep the cloth hot paths optimized in Debug without changing the CRT,
 # symbols, definitions, or optimization of the rest of the engine. Disable the
 # option when stepping through the solver or cloth reconstruction itself.
@@ -78,6 +86,8 @@ IF(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
 ENDIF()
 
 ADD_EXECUTABLE(ANTAGONIZ ${ENGINE_SOURCES} ${ENGINE_HEADERS})
+TARGET_COMPILE_DEFINITIONS(ANTAGONIZ PRIVATE
+    ENDURANCE_ENABLE_NETWORK=$<BOOL:${ENDURANCE_ENABLE_NETWORK}>)
 SET_TARGET_PROPERTIES(ANTAGONIZ PROPERTIES
     OUTPUT_NAME ENDURANCE
     VS_DEBUGGER_WORKING_DIRECTORY "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}")
@@ -88,8 +98,34 @@ ENDIF()
 
 find_package(OpenGL REQUIRED)
 
-# ENDURANCE is a standalone, offline editor bootstrap.
+# Core engine dependencies are available in both network and offline builds.
 TARGET_LINK_LIBRARIES(ANTAGONIZ PRIVATE
     Threads::Threads GLEW::GLEW glfw termcolor tinyobjloader OpenFBX stb glm ImGUI
     OpenAL BulletSoftBody BulletInverseDynamics BulletDynamics BulletCollision
     Bullet3Common LinearMath ${OPENGL_LIBRARIES} ${COMPILER_DEPENDENCIES})
+
+IF(ENDURANCE_ENABLE_NETWORK)
+    TARGET_LINK_LIBRARIES(ANTAGONIZ PRIVATE Steamworks::Steamworks hv_static)
+    TARGET_COMPILE_DEFINITIONS(ANTAGONIZ PRIVATE ENDURANCE_STEAM_APP_ID=${ENDURANCE_STEAM_APP_ID})
+    # Ship the runtime next to the executable, including for an up-to-date build.
+    ADD_CUSTOM_TARGET(ANTAGONIZ_SteamRuntime
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "$<TARGET_FILE:Steamworks::Steamworks>" "${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        VERBATIM)
+    ADD_DEPENDENCIES(ANTAGONIZ ANTAGONIZ_SteamRuntime)
+    IF(UNIX)
+        SET_PROPERTY(TARGET ANTAGONIZ APPEND PROPERTY BUILD_RPATH "$ORIGIN")
+    ENDIF()
+ENDIF()
+
+# Always remove a stale development AppID when switching to Release or offline.
+ADD_CUSTOM_TARGET(ANTAGONIZ_SteamAppId
+    COMMAND ${CMAKE_COMMAND}
+        "-DBUILD_CONFIG=$<CONFIG>"
+        "-DDEPLOY_APP_ID=$<AND:$<BOOL:${ENDURANCE_ENABLE_NETWORK}>,$<BOOL:${ENDURANCE_DEPLOY_STEAM_APP_ID}>>"
+        "-DSTEAM_APP_ID=${ENDURANCE_STEAM_APP_ID}"
+        "-DOUTPUT_DIRECTORY=${CMAKE_RUNTIME_OUTPUT_DIRECTORY}"
+        -P "${CMAKE_SOURCE_DIR}/CMake/DeploySteamAppId.cmake"
+    VERBATIM)
+ADD_DEPENDENCIES(ANTAGONIZ ANTAGONIZ_SteamAppId)

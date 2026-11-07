@@ -48,3 +48,8 @@ add_subdirectory(glm)
 add_subdirectory(imgui-cmake)
 add_subdirectory(Bullet3)
 add_subdirectory(openal-soft)
+
+if(ENDURANCE_ENABLE_NETWORK)
+    add_subdirectory(hv)
+    add_subdirectory(steamworks_sdk)
+endif()
