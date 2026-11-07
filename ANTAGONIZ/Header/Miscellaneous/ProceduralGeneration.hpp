@@ -37,6 +37,11 @@ public:
     {
         std::uint32_t selectedChunks = 0;
         std::uint32_t visibleChunks = 0;
+        std::uint32_t cameraDrawChunks = 0;
+        std::uint32_t cameraCulledChunks = 0;
+        std::uint32_t shadowDrawChunks = 0;
+        std::uint32_t shadowCulledChunks = 0;
+        std::uint32_t pendingLodGroups = 0;
         std::uint32_t queuedChunks = 0;
         std::uint32_t pendingJobs = 0;
         std::uint32_t residentChunks = 0;
@@ -49,6 +54,8 @@ public:
         std::uint64_t completedJobs = 0;
         std::uint64_t emptyJobs = 0;
         std::uint64_t failedJobs = 0;
+        std::uint64_t lodSelections = 0;
+        std::uint64_t publishedLodGroups = 0;
         double lastGenerationMilliseconds = 0.0;
         bool rebuilding = false;
         bool resourceLimited = false;
@@ -64,6 +71,7 @@ public:
     bool initialize(const Config& config);
     void update(const glm::vec3& cameraWorldPosition);
     void shutdown() noexcept;
+    void prepareRenderer() override;
     void drawRenderer() override;
     void drawShadowRenderer(unsigned int shadowIndex) override;
     bool isInitialized() const noexcept;

@@ -6,7 +6,6 @@
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
-#include "MemoryManager.hpp"
 
 namespace Ge
 {
@@ -43,8 +42,9 @@ namespace Ge
 		void destroyLight(Lights *light);
 		const std::vector<glm::mat4> getShadowMatrix();
 		void getShadowMatrix(std::vector<glm::mat4> * mats);
+		// Same packed index as the shadow SSBO and framebuffer layer; CPU data only.
+		bool getShadowMatrix(unsigned int shadowIndex, glm::mat4& matrix) const;
     private:
-		MemoryPool<Lights> m_pool;
 		GraphicsDataMisc * m_gdm;
 		std::vector<Lights *> m_lights;		
 		std::vector<unsigned int> m_frameBufferDepthShadow;

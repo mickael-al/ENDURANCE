@@ -2,6 +2,8 @@
 #include "ProceduralGeneration.hpp"
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainLod.hpp"
+#include "ProceduralTerrainFrustum.hpp"
+#include "ProceduralTerrainStreaming.hpp"
 #include "ProceduralTerrainCollision.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
@@ -95,30 +97,7 @@ namespace
         }
     };
 
-    std::array<glm::vec4, 6> frustumPlanes(const glm::mat4& matrix)
-    {
-        std::array<glm::vec4, 6> planes;
-        for (int axis = 0; axis < 3; ++axis)
-        {
-            glm::vec4 row(matrix[0][axis], matrix[1][axis], matrix[2][axis], matrix[3][axis]);
-            glm::vec4 last(matrix[0][3], matrix[1][3], matrix[2][3], matrix[3][3]);
-            planes[2 * axis] = last + row;
-            planes[2 * axis + 1] = last - row;
-        }
-        return planes;
-    }
 
-    bool inFrustum(const MeshHandle& mesh, const std::array<glm::vec4, 6>& planes)
-    {
-        const float half = mesh.extent * 0.5f;
-        const glm::vec3 center(mesh.origin[0] + half, mesh.origin[1] + half, mesh.origin[2] + half);
-        for (const auto& p : planes)
-        {
-            const float radius = half * (std::abs(p.x) + std::abs(p.y) + std::abs(p.z));
-            if (glm::dot(glm::vec3(p), center) + p.w + radius < 0.0f) return false;
-        }
-        return true;
-    }
 }
 
 struct ProceduralGeneration::Impl
@@ -134,6 +113,17 @@ struct ProceduralGeneration::Impl
     std::unordered_map<ChunkKey, MeshHandle, KeyHash> ready;
     std::unordered_map<std::uint64_t, ChunkKey> pending;
     KeySet submitted, wanted, visibleKeys, collisionKeys;
+    struct PendingLodGroup
+    {
+        std::vector<ChunkKey> remove, add;
+    };
+    struct CameraRange
+    {
+        Ge::Camera* camera;
+        float originalFar, appliedFar;
+    };
+    std::vector<CameraRange> cameraRanges;
+    std::vector<PendingLodGroup> groups;
     std::vector<ChunkKey> target;
     std::vector<MeshHandle> visible, culled, collisionCandidates;
     std::vector<Completion> completions;
@@ -148,6 +138,14 @@ struct ProceduralGeneration::Impl
         if (registered && pipelines) pipelines->removeCustomRenderer(registered);
         collision.shutdown();
         gpu.shutdown();
+        const auto liveObjects = Ge::GObject::GetGObjects();
+        for (const auto& range : cameraRanges)
+        {
+            const auto found = std::find(liveObjects.begin(), liveObjects.end(), range.camera);
+            if (found == liveObjects.end()) continue;
+            auto* camera = dynamic_cast<Ge::Camera*>(*found);
+            if (camera && camera->getFar() == range.appliedFar) camera->setFar(range.originalFar);
+        }
         // These pairs were created exclusively for this generator. The engine
         // manager destroys the GL pipeline but deliberately retains its pair.
         auto destroy = [this](Ge::GraphiquePipeline*& p)
@@ -179,6 +177,7 @@ struct ProceduralGeneration::Impl
         submitted.clear();
         wanted.clear();
         target.clear();
+        groups.clear();
         rebuilding = false;
         discardUnused();
     }
@@ -287,6 +286,27 @@ void ProceduralGeneration::shutdown() noexcept
     m_stats = {};
 }
 
+void ProceduralGeneration::prepareRenderer()
+{
+    if (!m_impl) return;
+    auto& s = *m_impl;
+    m_stats.cameraDrawChunks = m_stats.cameraCulledChunks = 0;
+    m_stats.shadowDrawChunks = m_stats.shadowCulledChunks = 0;
+    auto* camera = s.engine->cameraManager ? s.engine->cameraManager->getCurrentCamera() : nullptr;
+    if (!camera) return;
+    const auto saved = std::find_if(s.cameraRanges.begin(), s.cameraRanges.end(),
+        [camera](const Impl::CameraRange& range) { return range.camera == camera; });
+    const float requiredFar = m_config.viewDistance
+        + std::ldexp(64.0f * m_config.cellSize, static_cast<int>(m_config.maxLod));
+    if (saved == s.cameraRanges.end() && camera->getFar() < requiredFar)
+    {
+        ComputeState bindings;
+        s.cameraRanges.push_back({camera, camera->getFar(), requiredFar});
+        camera->setFar(requiredFar);
+    }
+    update(camera->getPosition());
+}
+
 void ProceduralGeneration::update(const glm::vec3& cameraPosition)
 {
     if (!m_impl) return;
@@ -319,20 +339,18 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     }
     if (failed)
     {
-        // Preserve the last complete coverage. Never publish a partial LOD
-        // switch, silently drop geometry or repeatedly retry an exhausted pool.
+        // Preserve the last published coverage. Never publish an incomplete
+        // group, silently drop geometry or repeatedly retry an exhausted pool.
         s.abandonTarget();
         s.plannedPosition = cameraPosition;
         m_stats.resourceLimited = true;
     }
 
     const glm::vec3 delta = cameraPosition - s.plannedPosition;
-    const float distanceSquared = glm::dot(delta, delta);
-    const float replanDistance = 32.0f * m_config.cellSize;
-    if (s.rebuilding && distanceSquared > m_config.viewDistance * m_config.viewDistance * 0.25f)
-        s.abandonTarget(); // A teleport makes the old pending work irrelevant.
-
-    if (!s.rebuilding && (!s.planned || distanceSquared >= replanDistance * replanDistance))
+    const double distanceSquared = static_cast<double>(delta.x) * delta.x
+        + static_cast<double>(delta.y) * delta.y + static_cast<double>(delta.z) * delta.z;
+    const double replanDistance = 32.0 * m_config.cellSize;
+    if (!s.planned || distanceSquared >= replanDistance * replanDistance)
     {
         std::vector<LodChunk> selection;
         std::string error;
@@ -340,16 +358,60 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         s.plannedPosition = cameraPosition;
         if (selectLodChunks(cameraPosition, s.lod, selection, error))
         {
+            ++m_stats.lodSelections;
+            // Compare with what is actually on screen, which may already contain
+            // completed groups from the previous destination. Keep common jobs.
+            std::vector<LodChunk> previous;
+            previous.reserve(s.visibleKeys.size());
+            for (const auto& key : s.visibleKeys)
+                previous.push_back({key.origin, key.lod, key.mask});
+            std::sort(previous.begin(), previous.end(), [](const LodChunk& a, const LodChunk& b)
+            {
+                if (a.origin != b.origin) return a.origin < b.origin;
+                if (a.lod != b.lod) return a.lod < b.lod;
+                return a.transitionMask < b.transitionMask;
+            });
             s.target.clear();
             s.wanted.clear();
             s.target.reserve(selection.size());
             for (const auto& chunk : selection)
             {
-                ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
+                const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
                 s.target.push_back(key);
                 s.wanted.insert(key);
             }
-            s.rebuilding = true;
+            for (auto job = s.pending.begin(); job != s.pending.end();)
+            {
+                if (s.wanted.count(job->second)) { ++job; continue; }
+                s.gpu.cancel(job->first);
+                s.submitted.erase(job->second);
+                job = s.pending.erase(job);
+            }
+            s.groups.clear();
+            if (previous.empty() && !selection.empty())
+            {
+                // The first coverage is published whole. Later replacements are
+                // independent, crack-free groups rather than one global barrier.
+                Impl::PendingLodGroup group;
+                group.add = s.target;
+                s.groups.push_back(std::move(group));
+            }
+            else
+            {
+                const auto changes = groupLodChanges(previous, selection, s.lod.cells);
+                for (const auto& change : changes)
+                {
+                    Impl::PendingLodGroup group;
+                    for (auto index : change.previousIndices)
+                    {
+                        const auto& old = previous[index];
+                        group.remove.push_back({old.origin, old.lod, old.transitionMask});
+                    }
+                    for (auto index : change.nextIndices) group.add.push_back(s.target[index]);
+                    s.groups.push_back(std::move(group));
+                }
+            }
+            s.rebuilding = !s.groups.empty();
             m_stats.resourceLimited = false;
             m_lastError.clear();
             s.discardUnused();
@@ -362,11 +424,9 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     }
 
     std::uint32_t queued = 0, dispatched = 0;
-    bool complete = s.rebuilding;
     for (const auto& key : s.target)
     {
         if (s.ready.count(key)) continue;
-        complete = false;
         if (s.submitted.count(key)) continue;
         ++queued;
         if (dispatched >= m_config.maxChunksPerFrame
@@ -399,21 +459,39 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         m_stats.resourceLimited = true;
         queued = 0;
     }
-    else if (complete)
+    else
     {
-        std::vector<MeshHandle> nextVisible;
-        nextVisible.reserve(s.target.size());
-        for (const auto& key : s.target)
+        bool changed = false;
+        for (auto group = s.groups.begin(); group != s.groups.end();)
         {
-            const auto& mesh = s.ready.at(key);
-            if (mesh.vertexCount != 0) nextVisible.push_back(mesh);
+            const bool complete = std::all_of(group->add.begin(), group->add.end(),
+                [&s](const ChunkKey& key) { return s.ready.count(key) != 0; });
+            if (!complete) { ++group; continue; }
+            // Overlap and incompatible boundary dependencies belong to the same
+            // group, so every intermediate visible octree remains consistent.
+            for (const auto& key : group->remove) s.visibleKeys.erase(key);
+            for (const auto& key : group->add) s.visibleKeys.insert(key);
+            group = s.groups.erase(group);
+            ++m_stats.publishedLodGroups;
+            changed = true;
         }
-        s.visible.swap(nextVisible);
-        s.visibleKeys = s.wanted;
-        s.wanted.clear();
-        s.target.clear();
-        s.rebuilding = false;
-        s.discardUnused();
+        if (changed)
+        {
+            s.visible.clear();
+            s.visible.reserve(s.visibleKeys.size());
+            for (const auto& key : s.visibleKeys)
+            {
+                const auto& mesh = s.ready.at(key);
+                if (mesh.vertexCount) s.visible.push_back(mesh);
+            }
+        }
+        s.rebuilding = !s.groups.empty();
+        if (!s.rebuilding)
+        {
+            s.wanted.clear();
+            s.target.clear();
+        }
+        if (changed || !s.rebuilding) s.discardUnused();
     }
 
     if (m_config.collisionEnabled)
@@ -462,6 +540,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     m_stats.failedJobs = gpu.failedJobs;
     m_stats.lastGenerationMilliseconds = gpu.lastGenerationMilliseconds;
     m_stats.rebuilding = s.rebuilding;
+    m_stats.pendingLodGroups = static_cast<std::uint32_t>(s.groups.size());
 }
 
 void ProceduralGeneration::drawRenderer()
@@ -471,8 +550,11 @@ void ProceduralGeneration::drawRenderer()
     s.culled.clear();
     auto* camera = s.engine->cameraManager ? s.engine->cameraManager->getCurrentCamera() : nullptr;
     if (!camera) return;
-    const auto planes = frustumPlanes(camera->getProjectionMatrix() * camera->getViewMatrix());
-    for (const auto& mesh : s.visible) if (inFrustum(mesh, planes)) s.culled.push_back(mesh);
+    const auto frustum = makeFrustum(camera->getProjectionMatrix() * camera->getViewMatrix());
+    for (const auto& mesh : s.visible)
+        if (intersectsFrustum(frustum, mesh.origin, mesh.extent)) s.culled.push_back(mesh);
+    m_stats.cameraDrawChunks = static_cast<std::uint32_t>(s.culled.size());
+    m_stats.cameraCulledChunks = static_cast<std::uint32_t>(s.visible.size() - s.culled.size());
     if (s.culled.empty()) return;
     TerrainRenderStateGuard state;
     glUseProgram(s.render->getProgram());
@@ -489,10 +571,20 @@ void ProceduralGeneration::drawRenderer()
 void ProceduralGeneration::drawShadowRenderer(unsigned int shadowIndex)
 {
     if (!m_impl || m_impl->visible.empty()) return;
+    auto& s = *m_impl;
+    glm::mat4 lightMatrix;
+    if (!s.engine->lightManager || !s.engine->lightManager->getShadowMatrix(shadowIndex, lightMatrix)) return;
+    const auto frustum = makeFrustum(lightMatrix);
+    s.culled.clear();
+    for (const auto& mesh : s.visible)
+        if (intersectsFrustum(frustum, mesh.origin, mesh.extent)) s.culled.push_back(mesh);
+    m_stats.shadowDrawChunks += static_cast<std::uint32_t>(s.culled.size());
+    m_stats.shadowCulledChunks += static_cast<std::uint32_t>(s.visible.size() - s.culled.size());
+    if (s.culled.empty()) return;
     TerrainRenderStateGuard state;
-    glUseProgram(m_impl->shadow->getProgram());
-    glUniform1i(m_impl->shadowIndex, static_cast<GLint>(shadowIndex));
-    m_impl->gpu.drawMany(m_impl->visible);
+    glUseProgram(s.shadow->getProgram());
+    glUniform1i(s.shadowIndex, static_cast<GLint>(shadowIndex));
+    s.gpu.drawMany(s.culled);
 }
 
 bool ProceduralGeneration::isInitialized() const noexcept { return m_impl != nullptr; }

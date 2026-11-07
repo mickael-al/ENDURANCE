@@ -90,11 +90,12 @@ namespace Ge
 		{
 			return;
 		}
-					
+		Camera* currentCamera = m_gdm->current_camera;
+		if (currentCamera == nullptr) return;
+
 		if (m_ubl.status == 0 || m_ubl.status == 2)
 		{
 			m_ubl.direction = getDirection();
-			Camera* currentCamera = m_gdm->current_camera;
 			float cascadeSplits[SHADOW_MAP_CASCADE_COUNT];
 
 			float nearClip = currentCamera->getNear();
@@ -116,6 +117,12 @@ namespace Ge
 				cascadeSplits[i] = (d - nearClip) / clipRange;
 			}
 
+			// Avoid a singular lookAt basis when the sun is directly overhead.
+			const glm::vec3 lightDirection = glm::normalize(m_ubl.direction);
+			const glm::vec3 lightUp = std::abs(lightDirection.y) > 0.99f
+				? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
+			const glm::mat4 invCam = glm::inverse(currentCamera->getProjectionMatrix() * currentCamera->getViewMatrix());
+
 			// Calculate orthographic projection matrix for each cascade
 			float lastSplitDist = 0.0;
 			for (uint32_t i = 0; i < SHADOW_MAP_CASCADE_COUNT; i++)
@@ -131,7 +138,6 @@ namespace Ge
 				frustumCorners[6] = glm::vec3(1.0f, -1.0f, 1.0f);
 				frustumCorners[7] = glm::vec3(-1.0f, -1.0f, 1.0f);
 
-				glm::mat4 invCam = glm::inverse(currentCamera->getProjectionMatrix() * currentCamera->getViewMatrix());
 				for (uint32_t i = 0; i < 8; i++)
 				{
 					glm::vec4 invCorner = invCam * glm::vec4(frustumCorners[i], 1.0f);
@@ -164,8 +170,8 @@ namespace Ge
 				glm::vec3 maxExtents = glm::vec3(radius);
 				glm::vec3 minExtents = -maxExtents;
 
-				m_shadowMatrix[i].pos = frustumCenter - glm::normalize(m_ubl.direction) * -minExtents.z;
-				glm::mat4 lightViewMatrix = glm::lookAt(m_shadowMatrix[i].pos, frustumCenter, glm::vec3(0.0f, 1.0f, 0.0f));
+				m_shadowMatrix[i].pos = frustumCenter - lightDirection * -minExtents.z;
+				glm::mat4 lightViewMatrix = glm::lookAt(m_shadowMatrix[i].pos, frustumCenter, lightUp);
 				glm::mat4 lightOrthoMatrix = glm::ortho(minExtents.x, maxExtents.x, maxExtents.y, minExtents.y, 0.0f, maxExtents.z - minExtents.z);
 
 				m_shadowMatrix[i].splitDepth = (nearClip + splitDist * clipRange) * -1.0f;
@@ -194,11 +200,10 @@ namespace Ge
 				glm::vec3(0.0f, 1.0f, 0.0f), // Positive Z
 				glm::vec3(0.0f, 1.0f, 0.0f)  // Negative Z
 			};
-			Camera* currentCamera = m_gdm->current_camera;
 			for (uint32_t i = 0; i < SHADOW_MAP_CUBE_COUNT; i++)
 			{
 				m_shadowMatrix[i].splitDepth = 0.0f;
-				glm::mat4 lightPerMatrix = glm::perspective(90.0f,1.0f, currentCamera->getNear(), currentCamera->getFar());
+				glm::mat4 lightPerMatrix = glm::perspective(glm::radians(90.0f), 1.0f, currentCamera->getNear(), currentCamera->getFar());
 				m_shadowMatrix[i].projview = lightPerMatrix * glm::lookAt(m_ubl.position, m_ubl.position+directions[i], ups[i]);
 				m_shadowMatrix[i].pos = m_ubl.position;
 			}

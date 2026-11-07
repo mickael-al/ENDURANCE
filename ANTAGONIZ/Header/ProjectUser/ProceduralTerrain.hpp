@@ -5,11 +5,9 @@
 #include <cstdint>
 #include <memory>
 #include <string>
-#include <vector>
 
 class ProceduralGeneration;
 struct ptrClass;
-namespace Ge { class Camera; }
 
 // Scene-owned runtime component. Parameters are saved in the editor's script
 // JSON; runtime buffers and generated geometry never become scene assets.
@@ -56,16 +54,8 @@ public:
     float collisionRadius = 128.0f;
 
 private:
-    struct CameraRange
-    {
-        Ge::Camera* camera;
-        float originalFar;
-        float appliedFar;
-    };
-    void extendCameraRange(Ge::Camera* camera);
     std::unique_ptr<ProceduralGeneration> m_generator;
     const ptrClass* m_pc = nullptr;
-    std::vector<CameraRange> m_cameraRanges;
     std::string m_error;
 };
 

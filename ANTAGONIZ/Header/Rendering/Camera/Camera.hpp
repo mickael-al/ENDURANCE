@@ -14,7 +14,7 @@ namespace Ge
 	{		
 	public:
 		Camera(GraphicsDataMisc * gdm,int priority);
-		~Camera();
+		virtual ~Camera();
 		void setFieldOfView(float fov);
 		void setNear(float near);
 		void setFar(float far);

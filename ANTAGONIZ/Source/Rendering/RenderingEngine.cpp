@@ -382,8 +382,13 @@ namespace Ge
 		{
 			m_skinnedTransformManager->updateAnimations(m_ptrClass->time->getDeltaTime());
 		}
-		m_shaderDataMisc->update(m_cameraManager->getCurrentCamera());
 		m_cameraManager->updateFlyCam();
+		const auto& customRenderers = m_graphiquePipelineManager->getCustomRenderer();
+		for (CustomRenderer* renderer : customRenderers)
+		{
+			if (renderer != nullptr) renderer->prepareRenderer();
+		}
+		m_shaderDataMisc->update(m_cameraManager->getCurrentCamera());
 		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFrameBuffer());
 		glViewport(0, 0, m_graphicsDataMisc->str_width, m_graphicsDataMisc->str_height);
 		const glm::vec4 & clear = m_ptrClass->settingManager->getClearColor();
@@ -408,7 +413,6 @@ namespace Ge
 		{
 			call.second(-1);
 		}
-		const auto& customRenderers = m_graphiquePipelineManager->getCustomRenderer();
 		for (CustomRenderer* renderer : customRenderers)
 		{
 			if (renderer != nullptr)
@@ -511,6 +515,10 @@ namespace Ge
 		
 		glDisable(GL_CULL_FACE);
 		glEnable(GL_DEPTH_TEST);
+		glDepthMask(GL_TRUE);
+		glDepthFunc(GL_LESS);
+		glClearDepth(1.0);
+		currentDepthTest = true;
 		glDisable(GL_BLEND);		
 		const std::vector<unsigned int>& frameBufferDepthShadow = m_lightManager->getFrameShadowBuffer();
 		for (int i = 0; i < frameBufferDepthShadow.size(); i++)
@@ -533,14 +541,7 @@ namespace Ge
 				{
 					continue;
 				}
-				if (material->getDepthTest() != currentDepthTest)
-				{
-					currentDepthTest = material->getDepthTest();
-					if (!currentDepthTest)
-					{
-						continue;
-					}
-				}
+				if (!material->getDepthTest()) continue;
 				GraphiquePipeline* sp = material->getShadowPipeline();
 				if (sp != currentPipeline && sp != nullptr)
 				{

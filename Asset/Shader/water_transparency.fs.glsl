@@ -140,46 +140,38 @@ layout(location = 6) flat in int imaterial;
 
 float calculateBias(vec4 shadowCoord, vec3 normal, vec3 lightDir)
 {
-	float bias = 0.005;
-	float angle = max(dot(normal, lightDir), 0.0);
-	return bias * tan(acos(angle));
+	// Finite slope bias, including grazing incidence and slight dot overshoot.
+	float cosine = clamp(dot(normal, lightDir), 0.0, 1.0);
+	float slope = sqrt(max(1.0 - cosine * cosine, 0.0)) / max(cosine, 0.1);
+	return min(0.005 * slope, 0.01);
 }
 
 float textureProj(vec4 shadowCoord, vec2 offset, uint cascadeIndex, float bias)
 {
-	float shadow = 1.0;
-
-	if (shadowCoord.z > -1.0 && shadowCoord.z < 1.0)
-	{
-		float dist = texture(shadowDepth, vec3(vec2(shadowCoord.st + offset), cascadeIndex)).r;
-		if (shadowCoord.w > 0 && dist < shadowCoord.z - bias)
-		{
-			shadow = 0.0;
-		}
-	}
-	return shadow;
+	vec2 uv = shadowCoord.xy + offset;
+	// biasMat has already mapped clip coordinates to [0,1]. Outside taps
+	// are lit; clamping them to the edge would repeat unrelated occluders.
+	if (shadowCoord.z < 0.0 || shadowCoord.z > 1.0 ||
+		any(lessThan(uv, vec2(0.0))) || any(greaterThan(uv, vec2(1.0))))
+		return 1.0;
+	float depth = texture(shadowDepth, vec3(uv, cascadeIndex)).r;
+	return depth < shadowCoord.z - bias ? 0.0 : 1.0;
 }
 
 float filterPCF(vec4 sc, uint cascadeIndex, float bias)
 {
-	ivec3 texDim = textureSize(shadowDepth, 0);
-	float scale = 0.5;
-	float dx = scale * 1.0 / float(texDim.x);
-	float dy = scale * 1.0 / float(texDim.y);
-
+	// Keep homogeneous W until this check: dividing at the call site loses
+	// the sign needed to reject receivers behind perspective shadow cameras.
+	if (!(sc.w > 0.0)) return 1.0;
+	sc /= sc.w;
+	if (any(lessThan(sc.xyz, vec3(0.0))) || any(greaterThan(sc.xyz, vec3(1.0))))
+		return 1.0;
+	vec2 texel = 1.0 / vec2(textureSize(shadowDepth, 0).xy);
 	float shadowFactor = 0.0;
-	int count = 0;
-	int range = 1;
-
-	for (int x = -range; x <= range; x++)
-	{
-		for (int y = -range; y <= range; y++)
-		{
-			shadowFactor += textureProj(sc, vec2(dx * x, dy * y), cascadeIndex, bias);
-			count++;
-		}
-	}
-	return shadowFactor / count;
+	for (int x = -1; x <= 1; ++x)
+		for (int y = -1; y <= 1; ++y)
+			shadowFactor += textureProj(sc, vec2(x, y) * texel, cascadeIndex, bias);
+	return shadowFactor / 9.0;
 }
 
 vec2 gradientNoise_dir(vec2 p)
@@ -326,7 +318,7 @@ void main()
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(WorldPos, 1.0);
 					float bias = calculateBias(shadowCoord, normal.rgb, L);
-					shadow = filterPCF(shadowCoord / shadowCoord.w, ubl.ubl[i].shadowID + cascadeIndex, bias);
+					shadow = filterPCF(shadowCoord, ubl.ubl[i].shadowID + cascadeIndex, bias);
 				}
 				Lo += ((kD * color / PI + specular) * ubl.ubl[i].color * (ubl.ubl[i].range / 10.0) * NdotL) * mix(ab, 1.0, shadow);
 			}
@@ -338,7 +330,7 @@ void main()
 					{
 						vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + k].projview) * vec4(WorldPos, 1.0);
 						float bias = calculateBias(shadowCoord, normal.rgb, L);
-						shadow *= filterPCF(shadowCoord / shadowCoord.w, ubl.ubl[i].shadowID + k, bias);
+						shadow *= filterPCF(shadowCoord, ubl.ubl[i].shadowID + k, bias);
 					}
 				}
 				Lo += (kD * color / PI + specular) * radiance * NdotL * mix(ab,1.0, shadow);

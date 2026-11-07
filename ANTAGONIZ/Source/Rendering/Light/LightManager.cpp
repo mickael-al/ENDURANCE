@@ -26,7 +26,9 @@ bool LightManager::initialize(GraphicsDataMisc * gdm)
 	glGenTextures(1, &m_textureShadowArray);
 	glBindTexture(GL_TEXTURE_2D_ARRAY, m_textureShadowArray);	
 	glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32, TEXTURE_DIM, TEXTURE_DIM, 1, 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	// PCF compares individual depth samples before averaging visibility.
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	
@@ -56,11 +58,13 @@ const std::vector<unsigned int>& LightManager::getFrameShadowBuffer() const
 
 void LightManager::release()
 {
-	for (int i = 0; i < m_lights.size(); i++)
+	while (!m_lights.empty())
 	{
-		m_pool.deleteObject(m_lights[i]);
+		Lights* light = m_lights.back();
+		// Destruction may rebuild shadow storage; only live lights may remain.
+		m_lights.pop_back();
+		delete light;
 	}
-	m_lights.clear();
 	m_gdm->str_dataMisc.lightCount = 0;
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, 0);
 	glDeleteBuffers(1, &m_ssbo);
@@ -104,7 +108,9 @@ void LightManager::updateStorageShadow()
 	glBindTexture(GL_TEXTURE_2D_ARRAY, m_textureShadowArray);
 
 	glTexImage3D(GL_TEXTURE_2D_ARRAY, 0, GL_DEPTH_COMPONENT32, TEXTURE_DIM, TEXTURE_DIM, std::max(1, countTotal), 0, GL_DEPTH_COMPONENT, GL_FLOAT, nullptr);
-	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	// PCF compares individual depth samples before averaging visibility.
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D_ARRAY, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 
@@ -125,21 +131,20 @@ void LightManager::updateStorageShadow()
 		if (i >= m_frameBufferDepthShadow.size())
 		{
 			glGenFramebuffers(1, &frameBufferID);
-			glBindFramebuffer(GL_FRAMEBUFFER, frameBufferID);
-
-			glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, m_textureShadowArray,0, i);
-
-			GLenum status = glCheckFramebufferStatus(GL_FRAMEBUFFER);
-			if (status != GL_FRAMEBUFFER_COMPLETE)
-			{
-				Debug::Error("Erreur lors de la creation du framebuffer.");
-			}
-
-			glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
 			m_frameBufferDepthShadow.push_back(frameBufferID);
-		}	
+		}
+		// The depth texture was replaced above. Reattach every existing FBO too,
+		// otherwise changing shadow-casting lights leaves it on the old texture.
+		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBufferDepthShadow[i]);
+		glFramebufferTextureLayer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, m_textureShadowArray, 0, i);
+		glDrawBuffer(GL_NONE);
+		glReadBuffer(GL_NONE);
+		if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
+		{
+			Debug::Error("Erreur lors de la creation du framebuffer d'ombre.");
+		}
 	}
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
 	glBindTexture(GL_TEXTURE_2D_ARRAY, m_textureShadowArray);
 }
@@ -247,9 +252,26 @@ void LightManager::getShadowMatrix(std::vector<glm::mat4>* mats)
 	}
 }
 
+bool LightManager::getShadowMatrix(unsigned int shadowIndex, glm::mat4& matrix) const
+{
+	for (Lights* light : m_lights)
+	{
+		if (!light->isActive() || !light->getshadow() || light->getShadowIndex() < 0)
+			continue;
+		const unsigned int first = static_cast<unsigned int>(light->getShadowIndex());
+		const auto& matrices = light->getShadowMatrix();
+		if (shadowIndex >= first && shadowIndex - first < matrices.size())
+		{
+			matrix = matrices[shadowIndex - first].projview;
+			return true;
+		}
+	}
+	return false;
+}
+
 SpotLight * LightManager::createSpotLight(glm::vec3 position, glm::vec3 color, glm::vec3 euler, float angle, std::string name)
 {
-	SpotLight * light = m_pool.newDerivedObject<SpotLight>(m_lights.size(), m_gdm);
+	SpotLight * light = new SpotLight(static_cast<int>(m_lights.size()), m_gdm);
 	m_lights.push_back(light);
 	updateStorage();
 	light->setPosition(position);
@@ -262,7 +284,7 @@ SpotLight * LightManager::createSpotLight(glm::vec3 position, glm::vec3 color, g
 
 DirectionalLight * LightManager::createDirectionalLight(glm::vec3 euler, glm::vec3 color, std::string name)
 {	
-	DirectionalLight * light = m_pool.newDerivedObject<DirectionalLight>(m_lights.size(), m_gdm);
+	DirectionalLight * light = new DirectionalLight(static_cast<int>(m_lights.size()), m_gdm);
 	m_lights.push_back(light);
 	updateStorage();
 	light->setColors(color);
@@ -273,7 +295,7 @@ DirectionalLight * LightManager::createDirectionalLight(glm::vec3 euler, glm::ve
 
 PointLight * LightManager::createPointLight(glm::vec3 position, glm::vec3 color, std::string name)
 {	
-	PointLight * light = m_pool.newDerivedObject<PointLight>(m_lights.size(), m_gdm);
+	PointLight * light = new PointLight(static_cast<int>(m_lights.size()), m_gdm);
 	m_lights.push_back(light);
 	updateStorage();
 	light->setPosition(position);
@@ -284,7 +306,9 @@ PointLight * LightManager::createPointLight(glm::vec3 position, glm::vec3 color,
 
 void LightManager::destroyLight(Lights *light)
 {
-	m_lights.erase(std::remove(m_lights.begin(), m_lights.end(), light), m_lights.end());
-	m_pool.deleteObject(light);
+	const auto found = std::find(m_lights.begin(), m_lights.end(), light);
+	if (found == m_lights.end()) return;
+	m_lights.erase(found);
+	delete light;
 	updateStorage();
 }

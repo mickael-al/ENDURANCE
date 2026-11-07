@@ -8,6 +8,8 @@ class CustomRenderer
 {
 public:
 	virtual ~CustomRenderer() = default;
+	// Once per frame, after the active camera has moved and before any render pass.
+	virtual void prepareRenderer() {}
 	// SSBO 0 contains UniformBufferCamera.
 	virtual void drawRenderer() = 0;
 	// SSBO 0 contains the engine's StructShadow array. Optional for older renderers.

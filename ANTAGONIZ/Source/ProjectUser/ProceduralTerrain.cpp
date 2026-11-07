@@ -1,13 +1,11 @@
 #include "ProceduralTerrain.hpp"
 #define CLEAR_REGISTRY
 #include "ProceduralGeneration.hpp"
-#include "Camera.hpp"
 #include "Editor.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
 #include "Debug.hpp"
 #include <algorithm>
-#include <cmath>
 #include <exception>
 
 // Register in this translation unit only, so including the component header
@@ -88,30 +86,10 @@ void ProceduralTerrainComponent::start()
 
 void ProceduralTerrainComponent::fixedUpdate() {}
 
-void ProceduralTerrainComponent::extendCameraRange(Ge::Camera* camera)
-{
-    const auto existing = std::find_if(m_cameraRanges.begin(), m_cameraRanges.end(),
-        [camera](const CameraRange& range) { return range.camera == camera; });
-    if (existing != m_cameraRanges.end()) return;
-
-    // Selection uses chunk boxes: a selected distant box can extend beyond
-    // viewDistance by one root chunk. Save the user's projection for Stop.
-    const auto& config = m_generator->getConfig();
-    const float requiredFar = config.viewDistance
-        + std::ldexp(64.0f * config.cellSize, static_cast<int>(config.maxLod));
-    const float previousFar = camera->getFar();
-    if (requiredFar <= previousFar) return;
-    m_cameraRanges.push_back({camera, previousFar, requiredFar});
-    camera->setFar(requiredFar);
-}
-
 void ProceduralTerrainComponent::update()
 {
-    if (!m_generator || !m_pc) return;
-    Ge::Camera* camera = m_pc->cameraManager->getCurrentCamera();
-    if (camera == nullptr) return;
-    extendCameraRange(camera);
-    m_generator->update(camera->getPosition());
+    // The renderer prepares streaming after the active camera moves, including
+    // editor pause frames where Behaviour::update is suspended.
 }
 
 void ProceduralTerrainComponent::stop()
@@ -119,23 +97,6 @@ void ProceduralTerrainComponent::stop()
     // Unregister before releasing geometry/programs. shutdown() is idempotent,
     // so an explicit Stop followed by component destruction is safe.
     m_generator.reset();
-    if (!m_cameraRanges.empty())
-    {
-        const auto liveObjects = Ge::GObject::GetGObjects();
-        for (const CameraRange& range : m_cameraRanges)
-        {
-            // A camera can be deleted or replaced while the scene is running.
-            const auto found = std::find(liveObjects.begin(), liveObjects.end(), range.camera);
-            if (found != liveObjects.end())
-            {
-                auto* camera = dynamic_cast<Ge::Camera*>(*found);
-                // Preserve an explicit camera edit made by another component/user.
-                if (camera != nullptr && camera->getFar() == range.appliedFar)
-                    camera->setFar(range.originalFar);
-            }
-        }
-    }
-    m_cameraRanges.clear();
     m_pc = nullptr;
 }
 
@@ -157,9 +118,15 @@ void ProceduralTerrainComponent::onGUI()
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
     if (!m_generator) return;
     const auto& stats = m_generator->getStats();
-    ImGui::Text("Chunks: %u visible / %u selected / %u resident",
+    ImGui::Text("Coverage: %u meshes / %u selected / %u resident",
         stats.visibleChunks, stats.selectedChunks, stats.residentChunks);
-    ImGui::Text("Queue: %u / GPU jobs: %u", stats.queuedChunks, stats.pendingJobs);
+    ImGui::Text("Camera: %u drawn / %u culled", stats.cameraDrawChunks, stats.cameraCulledChunks);
+    ImGui::Text("Shadow passes: %u drawn / %u culled", stats.shadowDrawChunks, stats.shadowCulledChunks);
+    ImGui::Text("Queue: %u / GPU jobs: %u / LOD groups: %u",
+        stats.queuedChunks, stats.pendingJobs, stats.pendingLodGroups);
+    ImGui::Text("LOD selections: %llu / published groups: %llu",
+        static_cast<unsigned long long>(stats.lodSelections),
+        static_cast<unsigned long long>(stats.publishedLodGroups));
     ImGui::Text("Collisions: %u chunks / %u pending / %llu failed", stats.collisionChunks,
         stats.pendingCollisionJobs, static_cast<unsigned long long>(stats.failedCollisionJobs));
     ImGui::Text("Mesh memory: %.1f / %.1f MiB", stats.allocatedBytes / 1048576.0,
