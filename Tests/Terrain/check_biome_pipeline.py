@@ -42,12 +42,12 @@ def check_pipeline(gl):
     # One linked pair must support every biome without recompiling programs.
     for biome in range(26):
         options=dict(cells=8,origin=(-8,-8,-8),uBiomeOverride=biome,
-                     uHeightAmplitude=0.,uBandThickness=256.,seed=31)
+                     uHeightAmplitude=0.,seed=31)
         field=generic.run(**options)
         assert finite_columns(field["columns"]) and all(math.isfinite(x) for x in field["density"])
         compare(field,generic.run(**options),f"Repeated biome {biome}")
     options=dict(cells=8,origin=(-8,0,-8),uBiomeOverride=11,
-                 uHeightAmplitude=0.,uBandThickness=0.,uBandVariation=0.,seed=31)
+                 uHeightAmplitude=0.,seed=31)
     surface=generic.run(**options)
     options["origin"]=(-8,math.floor(surface["columns"][0]/8)*8,-8)
     mesh=MeshRunner(gl)
@@ -84,18 +84,18 @@ void main()
                 for y in (-256,-96,-48,-16,0,32,128):
                     cases.append(dict(cells=8,origin=(-24,y,-16),lod=lod,seed=31,
                         uBiomeOverride=biome,uHeightAmplitude=0.,uBaseHeight=0.,
-                        uBandThickness=32.,uBandVariation=0.,uBandOffset=-7.5,
+                        uBandOffset=-7.5,
                         uBandOffsetVariation=16.,uDetailScale=.35,uClimateFrequency=.04))
         # Non-power-of-two spacing, empty volumes and the last partial Y group.
         for scale,spacing in ((0.,1.),(.35,.3),(.35,3.7)):
             cases.append(dict(cells=9,origin=(-32,-24,-16),seed=19,
                 uBaseSpacing=spacing,uDetailScale=scale,uBiomeOverride=0,
-                uHeightAmplitude=0.,uBandThickness=0.,uBandVariation=0.))
+                uHeightAmplitude=0.))
         for height in (-1048576.,1048576.):
             for offset in (-80,0,80):
                 cases.append(dict(cells=9,origin=(-24,int(height)+offset,-16),lod=1,seed=31,
                     uBiomeOverride=19,uBaseHeight=height,uHeightAmplitude=0.,
-                    uBandThickness=32.,uBandVariation=0.,uDetailScale=.35))
+                    uDetailScale=.35))
         samples=0
         for index,options in enumerate(cases):
             actual=generic.run(**options)
@@ -107,7 +107,7 @@ void main()
 
 def check_volume_table_edit(gl, generic):
     options = dict(cells=8, origin=(-8,-8,-8), seed=1337, uBiomeOverride=0,
-                   uHeightAmplitude=0., uBandThickness=256., uBandVariation=0.)
+                   uHeightAmplitude=0.)
     before = generic.run(**options)
     other_before = generic.run(**dict(options,uBiomeOverride=11))
     with tempfile.TemporaryDirectory(prefix="terrain-free-volume-") as temporary:
@@ -136,7 +136,7 @@ def check_volume_table_edit(gl, generic):
 
 def check_free_surface(gl, generic):
     options=dict(cells=8,origin=(-8,-8,-8),seed=1337,uBiomeOverride=0,
-                 uHeightAmplitude=0.,uBandThickness=0.,uBandVariation=0.)
+                 uHeightAmplitude=0.)
     before=generic.run(**options)
     other_before=generic.run(**dict(options,uBiomeOverride=11))
     with tempfile.TemporaryDirectory(prefix="terrain-free-surface-") as temporary:
@@ -162,48 +162,61 @@ def check_free_surface(gl, generic):
 
 
 def check_reference(gl, generic, directory):
-    """Preserve all 2D data and forced-biome density; mixed 3D intentionally changes."""
+    """Compare a prior evaluator, allowing the explicit global-band migration."""
     old=FieldRunner(gl,directory=directory)
     parameter_reference="FIELD_BIOME_VOLUME" in (directory/"biome_volume.glsl").read_text()
+    legacy_band="uBandThickness" in (directory/"field_common.glsl").read_text()
+    if legacy_band:
+        gl.uniform(old.columns_program,"uBandThickness","1f",64.)
+        gl.uniform(old.columns_program,"uBandVariation","1f",16.)
     cases=[]
     for biome in range(26):
         for seed in (1337,98765):
             cases.append(dict(cells=8,origin=(-40,-12,24),lod=3,seed=seed,
                 uBaseSpacing=4.,uBiomeOverride=biome,uHeightAmplitude=0.,
-                uBandThickness=256.,uBandVariation=16.,uDetailScale=.35))
+                uDetailScale=.35))
     for lod in (0,1,3):
         for seed in (17,1337):
             cases.append(dict(cells=8,origin=(-48,-64,16),lod=lod,seed=seed,
                 uClimateFrequency=.04,uHeightAmplitude=240.,uHeightFrequency=.03,
-                uBandThickness=256.,uBandOffset=-32.,uSeaLevel=16.))
+                uBandOffset=-32.,uSeaLevel=16.))
     cases += [dict(cells=8,origin=(-8,-4,-12),mode=mode,seed=31)
               for mode in (1,2)]
     samples=0
     largest_error=0.
     changed_mixed=0
     def live_columns(raw):
-        return b"".join(raw[i:i+32]+raw[i+36:i+48] for i in range(0,len(raw),48))
+        return b"".join(raw[i:i+12]+(b"" if legacy_band else raw[i+12:i+16])+
+                        raw[i+16:i+32]+raw[i+36:i+48] for i in range(0,len(raw),48))
     for index,options in enumerate(cases):
         before,after=old.run(**options),generic.run(**options)
-        # The unused polar-activity metadata word is now reserved/zero. Every
-        # height, band, climate, local ratio and packed biome ID must be exact.
+        # The unused polar-activity word is reserved/zero. Height, climate,
+        # offset and biome IDs stay exact; migrated band widths are checked below.
         assert live_columns(before["columns_raw"])==live_columns(after["columns_raw"]), ("Reference column changed",index)
-        if parameter_reference or options.get("uBiomeOverride",-1)>=0 or options.get("mode",0)!=0:
+        if legacy_band:
+            for a,b in zip(before["columns"][3::12],after["columns"][3::12]):
+                assert abs(a-b)<8.101,("Retuned biome band changed beyond removed global variation",index,a,b)
+            assert all(math.isfinite(v) for v in after["density"])
+            samples+=len(after["density"])
+        elif parameter_reference or options.get("uBiomeOverride",-1)>=0 or options.get("mode",0)!=0:
             for a,b in zip(before["density"],after["density"]):
                 largest_error=max(largest_error,abs(a-b))
                 assert math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5), ("Forced biome density changed",index,a,b)
             samples+=len(after["density"])
         elif before["density_raw"]!=after["density_raw"]:
             changed_mixed+=1
-    if not parameter_reference:
+    if not parameter_reference and not legacy_band:
         assert changed_mixed>0, "Mixed density still follows the former per-biome blend"
+    if legacy_band:
+        print(f"PASS biome band migration reference: {len(cases)} cases preserve height/climate/offset/IDs exactly; retuned bands stay within 8.101 m of their former defaults; {samples} finite densities")
+        return
     print(f"PASS table refactor reference: {len(cases)} unchanged 2D-column cases; {samples} forced/analytic density samples within tolerance (max error {largest_error:.6g}); {changed_mixed} mixed cases now blend parameters")
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-shaders",type=Path,
-        help="Saved ProceduralTerrain directory: exact 2D data, tolerant forced-density comparison; mixed volumes intentionally change")
+        help="Saved shader revision: exact unchanged column data, bounded legacy-band migration or tolerant density comparison")
     args=parser.parse_args()
     subprocess.run([str(biome_exporter())],check=True)
     with GL() as gl:

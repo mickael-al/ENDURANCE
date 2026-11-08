@@ -49,8 +49,6 @@ class FieldRunner:
             "uHeightAmplitude": ("1f", 320.0),
             "uHeightFrequency": ("1f", 0.00015),
             "uClimateFrequency": ("1f", 0.0005),
-            "uBandThickness": ("1f", 64.0),
-            "uBandVariation": ("1f", 16.0),
             "uBandOffset": ("1f", 0.0),
             "uBandOffsetVariation": ("1f", 0.0),
             "uDetailScale": ("1f", 0.35),
@@ -131,7 +129,7 @@ def check_fields(gl: GL):
     assert first["columns"][5::COLUMN_WORDS] != offset["columns"][5::COLUMN_WORDS], "Band offset was not recorded"
     full = fields.run(cells=64, origin=(0, -32, 0), mode=1)
     flat = fields.run(origin=(-8, -4, -12), uBaseHeight=0.25,
-                      uHeightAmplitude=0, uBandThickness=0, uBandVariation=0, uDetailScale=0)
+                      uHeightAmplitude=0, uDetailScale=0)
     # With all amplitudes disabled, the terrain path must reduce to a plane.
     # Its saturated density need not match the analytic plane's magnitude.
     for position, raw in lattice_values(flat).items():

@@ -50,7 +50,6 @@ namespace ProceduralTerrain
                 const auto set=[&](const char* name,float value){ glUniform1f(glGetUniformLocation(id,name),value); };
                 set("uBaseHeight",f.baseHeight); set("uHeightAmplitude",f.heightAmplitude);
                 set("uHeightFrequency",f.heightFrequency); set("uClimateFrequency",f.climateFrequency);
-                set("uBandThickness",f.bandThickness); set("uBandVariation",f.bandVariation);
                 set("uBandOffset",f.bandOffset); set("uBandOffsetVariation",f.bandOffsetVariation);
                 set("uDetailScale",f.detailScale); set("uSphereRadius",f.sphereRadius);
                 set("uSeaLevel",f.seaLevel); set("uSeaBlendWidth",f.seaBlendWidth);

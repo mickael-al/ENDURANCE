@@ -99,7 +99,6 @@ def check_biome_masks(gl):
     mapping = gl.buffer(64 * 16, 7)
     gl.uniform(program, "uFieldMode", "1ui", 0)
     gl.uniform(program, "uDetailScale", "1f", 1.0)
-    gl.uniform(program, "uBandThickness", "1f", 256.0)
 
     # Four surface corners plus sea; eight genuinely different volume corners.
     # The latter cannot be covered by the current repeated production layers.

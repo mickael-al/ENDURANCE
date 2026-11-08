@@ -12,8 +12,6 @@ uniform float uBaseHeight;
 uniform float uHeightAmplitude;
 uniform float uHeightFrequency;
 uniform float uClimateFrequency;
-uniform float uBandThickness;
-uniform float uBandVariation;
 uniform float uBandOffset;
 uniform float uBandOffsetVariation;
 uniform float uDetailScale;

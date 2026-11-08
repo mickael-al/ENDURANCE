@@ -116,6 +116,21 @@ framebuffer reattachment and destruction as the array changes between 0, 4, 8
 and 10 layers. It does not launch the complete editor/window/input loop or the
 physics queue.
 
+## Biome-owned volume thickness
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_band_control.py
+```
+
+This fixture edits a temporary polar relief and exercises the actual column and
+shared density passes. Twenty-four width/scale combinations cover negative,
+zero, fractional and clamped widths. The entire band must be exactly the biome's
+clamped `.y` multiplied by `detailScale`, with no additive base or global noise.
+A spatial-noise recipe must contain both closed and active columns; all density
+samples in closed columns equal the unchanged height field. The C++ reload
+fixture also enables/disables the band by editing only the 2D shader and checks
+that the density program is reused from its binary cache.
+
 ## Polar ice and shader reloading
 
 ```sh
@@ -207,12 +222,19 @@ table. Each edit must affect its intended output while leaving other biomes
 unchanged, and the 3D table edit must preserve all 2D columns. Setting detailScale
 to zero suppresses both edits. Production sources are not modified.
 
-`--reference-shaders` compares 60 cases against a saved shader revision. It checks
-unchanged 2D output and live column words (the former polar-activity word is now
-reserved and ignored in this comparison). The 26 forced biomes across two seeds,
-plus analytical fields, retain their densities within floating-point tolerance.
-The six mixed-climate cases compare columns only: blending parameters before a
-nonlinear density evaluation intentionally differs from blending old densities.
+`--reference-shaders` compares 60 cases against a saved shader revision. Height,
+climate, band offset and biome IDs must remain exact; the former polar-activity
+word is reserved and ignored. A revision with the old global band uses its former
+defaults (64 m base, 0–16 m variation). The converted biome widths must stay within
+8.101 m of those bands at detailScale=0.35, with finite densities. Its band widths
+and densities intentionally change when the global variation is removed.
+
+Against a revision already using biome-owned bands, live column words must match.
+If it uses the common volume table, all densities must match within floating-point
+tolerance. For an older evaluator with separate biome functions, the 26 forced
+biomes across two seeds and the analytical fields retain their densities; six
+mixed-climate cases compare columns only because blending parameters before a
+nonlinear density evaluation differs from blending the resulting densities.
 
 The CPU table checks also verify that every fourth word is exactly the mask of
 its distinct volume corner IDs, with no undefined bits and no change in layout.

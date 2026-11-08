@@ -159,7 +159,7 @@ def check_other_biomes(gl, directory):
         for seed in (1337,98765):
             options=dict(cells=8,origin=(-40,-12,24),lod=3,seed=seed,
                          uBaseSpacing=4.,uBiomeOverride=biome,uHeightAmplitude=0.,
-                         uBandThickness=256.,uBandVariation=16.,uDetailScale=.35)
+                         uDetailScale=.35)
             before,after=old.run(**options),new.run(**options)
             assert before["columns_raw"]==after["columns_raw"],("Unrelated columns changed",biome,seed)
             assert all(math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5)
@@ -191,7 +191,7 @@ def check_relief(probe):
     epsilon_jump = max(abs(values[i*16+j]-heights[i])
                        for i in range(size*size) for j in range(8, 12))
     assert epsilon_jump < .1, ("Polar relief has a discontinuous local jump", epsilon_jump)
-    assert all(-696.001 <= h <= 696.001 for h in heights)
+    assert all(-700.801 <= h <= 700.801 for h in heights)
     print(f"PASS polar relief: {minima} local minima in 512x512 m, "
           f"height span {span:.3f} m, {gentle:.2%} of slopes below30deg, "
           f"{steep:.2%} above45deg, "
@@ -210,8 +210,8 @@ def check_volume(probe):
         values = sample["values"]
         for i in range(sample["size"]**2):
             h, band, offset = values[16*i], values[16*i+3], values[16*i+4]
-            assert min(h, h+offset-.5*band) >= -696.001
-            assert max(h, h+offset+.5*band) <= 696.001
+            assert min(h, h+offset-.5*band) >= -700.801
+            assert max(h, h+offset+.5*band) <= 700.801
             total += 1
             for j, base in enumerate((.25, 4., 16., 40.)):
                 density = values[16*i+8+j]
@@ -233,7 +233,7 @@ def check_scene_height(probe):
     sample = probe.run(biome=0, size=65, origin=(-12000., -12000.), spacing=375.,
                        uHeightAmplitude=420.)
     values = sample["values"]
-    bound = 420.+640.*.35+.5*(64.+16.+320.*.35)+160.*.35
+    bound = 420.+640.*.35+.5*(576.*.35)+160.*.35
     for i in range(sample["size"]**2):
         height, band, offset = values[i*16], values[i*16+3], values[i*16+4]
         assert min(height, height+offset-band*.5) >= -bound

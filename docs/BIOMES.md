@@ -82,14 +82,18 @@ Le relief 2D reste dans **`fieldReliefPolarIce()`**, dans `biome_relief.glsl`. L
 
 Le code actif prend la distance au carré au site le plus proche (`sites.x`), multipliée par 10, puis ajoute les deux bruits. `POLAR_BASIN_DEPTH` (14) et `POLAR_BASIN_FLOOR` (0,06) ne servent qu’à l’ancienne formule laissée en commentaire ; les modifier ne change pas le profil actif. Le macrorelief global de la scène s’ajoute toujours au résultat.
 
-`fieldReliefPolarIce()` renvoie actuellement `vec4(h, 35, -40, 0)` :
+`fieldReliefPolarIce()` renvoie actuellement `vec4(h, 241, -40, 0)` :
 
 | Composante | Rôle |
 | --- | --- |
 | `.x` | Hauteur ajoutée au macrorelief, multipliée par `detailScale`. |
-| `.y` | Épaisseur **totale** supplémentaire de la bande 3D, multipliée par `detailScale`. |
+| `.y` | Épaisseur **totale** de la bande 3D, multipliée par `detailScale`. Zéro désactive la bande locale. |
 | `.z` | Décalage vertical supplémentaire de cette bande, combiné au décalage volumique avant `detailScale`. |
 | `.w` | Masque de roche entre 0 et 1, modulant les amplitudes du champ commun ; 0 ne désactive pas la 3D. |
+
+L’épaisseur n’a plus de base ni de variation globale ajoutée : `épaisseur = relief.y × detailScale`, après interpolation des biomes. Les 26 valeurs `.y` sont maintenant des épaisseurs complètes, bornées entre 0 et 576 avant multiplication. Avec `detailScale = 0,35`, la glace polaire possède donc une bande de 84,35 m ; mettre son `.y` à zéro la ferme complètement lorsqu’elle est le seul biome contributeur. À une transition, les épaisseurs des biomes voisins se mélangent normalement.
+
+Les nouvelles valeurs ont été ajustées pour approcher l’ancienne épaisseur moyenne avec les réglages par défaut (base 64 m, variation 0–16 m, `detailScale = 0,35`). Cette conversion est inscrite dans chaque valeur littérale du biome ; aucune addition cachée n’est conservée. L’ancien bruit global de variation disparaît, donc la géométrie près des bords de bande peut légèrement changer. Pour une épaisseur variable, écrire directement une expression de bruit dans le `.y` du biome ; ses zones à zéro restent sans 3D.
 
 Les réglages 3D se trouvent à la **ligne de biome 0** de `FIELD_BIOME_VOLUME`, dans `biome_volume.glsl` :
 

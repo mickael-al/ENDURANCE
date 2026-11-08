@@ -145,7 +145,6 @@ class BiomeProbe:
             "uBaseSpacing":("1f",1.),"uSeed":("1ui",1337),"uFieldMode":("1ui",0),
             "uBaseHeight":("1f",0.),"uHeightAmplitude":("1f",320.),
             "uHeightFrequency":("1f",.00015),"uClimateFrequency":("1f",.0005),
-            "uBandThickness":("1f",64.),"uBandVariation":("1f",16.),
             "uBandOffset":("1f",0.),"uBandOffsetVariation":("1f",0.),
             "uDetailScale":("1f",.35),"uSeaLevel":("1f",0.),"uSeaBlendWidth":("1f",64.),
             "uBiomeOverride":("1i",biome),"uSphereCenter":("3f",0.,0.,0.),"uSphereRadius":("1f",48.),
@@ -191,8 +190,8 @@ def check_recipes(gl):
         assert all(value>=0 for value in data[3::16]),("Negative volume band",biome)
         for i in range(sample["size"]**2):
             height,band,offset=data[i*16],data[i*16+3],data[i*16+4]
-            assert min(height,height+offset-band*.5)>=-696.0001,("Biome escaped conservative lower bound",biome,height,band,offset)
-            assert max(height,height+offset+band*.5)<=696.0001,("Biome escaped conservative upper bound",biome,height,band,offset)
+            assert min(height,height+offset-band*.5)>=-700.8001,("Biome escaped conservative lower bound",biome,height,band,offset)
+            assert max(height,height+offset+band*.5)<=700.8001,("Biome escaped conservative upper bound",biome,height,band,offset)
         heights.add(tuple(round(v,4) for v in h))
         carved=0
         for i in range(sample["size"]**2):

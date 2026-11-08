@@ -28,13 +28,13 @@ static void fields()
     FieldParameters p;
     require(validFieldParameters(p), "Default field parameters rejected");
     auto b=fieldHeightBounds(p);
-    require(b.minimumY==-696.0f && b.maximumY==696.0f, "Default conservative field bounds changed");
+    require(std::abs(b.minimumY+700.8f)<0.001f && std::abs(b.maximumY-700.8f)<0.001f, "Default conservative field bounds changed");
     p.bandOffset=-200;
     b=fieldHeightBounds(p);
-    require(b.minimumY==-896.0f && b.maximumY==544.0f, "Negative offset bounds");
+    require(std::abs(b.minimumY+900.8f)<0.001f && b.maximumY==544.0f, "Negative offset bounds");
     p.bandOffset=200;
     b=fieldHeightBounds(p);
-    require(b.minimumY==-544.0f && b.maximumY==896.0f, "Positive offset bounds");
+    require(b.minimumY==-544.0f && std::abs(b.maximumY-900.8f)<0.001f, "Positive offset bounds");
     p=FieldParameters{};
     for (int biome=-1;biome<=25;++biome)
     {
@@ -50,8 +50,8 @@ static void fields()
     p=FieldParameters{};p.seaLevel=std::numeric_limits<float>::infinity();
     require(!validFieldParameters(p), "Infinite sea level accepted");
     p=FieldParameters{};
-    p.bandThickness=0;
-    require(validFieldParameters(p), "Zero thickness must be supported");
+    p.detailScale=0;
+    require(validFieldParameters(p), "Zero detail scale must be supported");
     p.heightAmplitude=-1;
     require(!validFieldParameters(p), "Negative amplitude accepted");
     p=FieldParameters{};

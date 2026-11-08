@@ -25,8 +25,6 @@ namespace ProceduralTerrain
         float heightAmplitude = 320.0f;
         float heightFrequency = 0.00015f;
         float climateFrequency = 0.0005f;
-        float bandThickness = 64.0f;
-        float bandVariation = 16.0f;
         float bandOffset = 0.0f;
         float bandOffsetVariation = 0.0f;
         float detailScale = 0.35f;
@@ -45,7 +43,7 @@ namespace ProceduralTerrain
     };
 
     // Analytic conservative bounds, not extrema estimated from chunk corners.
-    // Biome height is clamped to [-640,640], extra thickness to [0,320],
+    // Biome height is clamped to [-640,640], total biome thickness to [0,576],
     // and the combined recipe offset to [-160,160], before detailScale.
     inline FieldHeightBounds fieldHeightBounds(const FieldParameters& p) noexcept
     {
@@ -56,7 +54,7 @@ namespace ProceduralTerrain
 
         const float minimumHeight = p.baseHeight - p.heightAmplitude - 640.0f * p.detailScale;
         const float maximumHeight = p.baseHeight + p.heightAmplitude + 640.0f * p.detailScale;
-        const float halfThickness = 0.5f * (p.bandThickness + p.bandVariation + 320.0f * p.detailScale);
+        const float halfThickness = 0.5f * (576.0f * p.detailScale);
         return {
             minimumHeight + (std::min)(0.0f, p.bandOffset - p.bandOffsetVariation - 160.0f * p.detailScale - halfThickness),
             maximumHeight + (std::max)(0.0f, p.bandOffset + p.bandOffsetVariation + 160.0f * p.detailScale + halfThickness)
@@ -90,14 +88,13 @@ namespace ProceduralTerrain
         // height differences by a half-thickness no smaller than 1e-4.
         constexpr float maximumMagnitude = 0x1p60f;
         const float values[] = {p.baseHeight, p.heightAmplitude, p.heightFrequency,
-            p.climateFrequency, p.bandThickness, p.bandVariation, p.bandOffset,
+            p.climateFrequency, p.bandOffset,
             p.bandOffsetVariation, p.detailScale, p.seaLevel, p.seaBlendWidth, p.sphereCenter[0], p.sphereCenter[1],
             p.sphereCenter[2], p.sphereRadius};
         for (float v : values)
             if (!finiteFieldValue(v) || v < -maximumMagnitude || v > maximumMagnitude) return false;
         if (static_cast<std::uint32_t>(p.mode) > 2 || p.heightAmplitude < 0.0f ||
             p.heightFrequency < 0.0f || p.climateFrequency < 0.0f ||
-            p.bandThickness < 0.0f || p.bandVariation < 0.0f ||
             p.bandOffsetVariation < 0.0f || p.detailScale < 0.0f || p.sphereRadius <= 0.0f ||
             p.seaBlendWidth < 0.001f || p.biomeOverride < -1 || p.biomeOverride > 25)
             return false;

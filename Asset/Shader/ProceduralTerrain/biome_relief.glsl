@@ -1,6 +1,6 @@
 // Terrain signatures for the 5x5 temperature/humidity matrix, plus seafloor.
 // Each recipe is evaluated once per XZ column, never once per density sample.
-// X: relative height (m); Y: extra 3D band thickness (m);
+// X: relative height (m); Y: total 3D band thickness before detailScale (m);
 // Z: biome band offset (m); W: landmark influence [0,1].
 // The caller applies detailScale to XYZ and blends recipes continuously.
 #ifndef ENDURANCE_BIOME_RELIEF_GLSL
@@ -68,7 +68,7 @@ float fieldSurfaceDune(vec2 p, vec2 direction, float wavelength, uint salt)
 }
 
 //x — hauteur	Ajoutée à la hauteur générale du terrain, après multiplication par detailScale.
-//y — épaisseur	Ajoutée à bandThickness, après multiplication par detailScale.C’est une épaisseur totale, pas une demi - épaisseur.
+//y — épaisseur totale de la bande 3D, multipliée par detailScale. Zéro désactive la 3D ; aucune épaisseur globale ne s’ajoute.
 //z — décalage	Déplace la bande 3D par rapport à la surface.Négatif = enfouissement, positif = déplacement vers le haut.Il s’ajoute aux décalages du profil 3D et des réglages globaux.
 //w — masque rocheux	Valeur entre 0 et 1, initialement prévue pour renforcer la sculpture 3D sur les formations rocheuses. 0 ne désactive pas la 3D.
 
@@ -106,7 +106,7 @@ vec4 fieldReliefPolarIce(vec2 p)
     h += fieldNoise2(p * 0.04, 104u) * POLAR_FINE_AMPLITUDE;
 
 
-    return vec4(h, 35, -40.0, 0.0);
+    return vec4(h, 241.0, -40.0, 0.0);
 }
 
 vec4 fieldReliefFrozenTundra(vec2 p)
@@ -117,7 +117,7 @@ vec4 fieldReliefFrozenTundra(vec2 p)
     float pingo = fieldSurfaceLandmark(p, 256.0, 111u, 0.0, 0.21, 0.0, 0.70);
     float h = fieldSurfaceFbm(p * 0.0015, 112u) * 38.0;
     h += raisedRim * 8.0 - smoothstep(0.1, 0.32, polygon) * 12.0 + pingo * 125.0;
-    return vec4(h, 64.0, -36.0, pingo);
+    return vec4(h, 270.0, -36.0, pingo);
 }
 
 vec4 fieldReliefTundra(vec2 p)
@@ -126,7 +126,7 @@ vec4 fieldReliefTundra(vec2 p)
     float h = fieldSurfaceFbm(q * vec2(0.0011, 0.0025), 120u) * 95.0;
     float tor = fieldSurfaceLandmark(p, 384.0, 123u, 0.0, 0.20, 0.0, 0.60);
     h += tor * 150.0 + fieldNoise2(q * vec2(0.002, 0.006), 124u) * 10.0;
-    return vec4(h, 72.0, -44.0, tor);
+    return vec4(h, 278.0, -44.0, tor);
 }
 
 vec4 fieldReliefTaiga(vec2 p)
@@ -140,7 +140,7 @@ vec4 fieldReliefTaiga(vec2 p)
     float shield = fieldSurfaceLandmark(p, 384.0, 132u, 0.0, 0.22, 0.0, 0.68);
     float h = fieldNoise2(p * 0.0012, 133u) * 75.0 - valley * 72.0;
     h += esker * 35.0 + shield * 250.0;
-    return vec4(h, 136.0, -68.0, shield);
+    return vec4(h, 342.0, -68.0, shield);
 }
 
 vec4 fieldReliefBorealWetland(vec2 p)
@@ -150,7 +150,7 @@ vec4 fieldReliefBorealWetland(vec2 p)
     float rib = fieldRidge2(q * vec2(0.0008, 0.007), 143u);
     float island = fieldSurfaceLandmark(p, 384.0, 144u, 0.0, 0.21, 0.0, 0.58);
     float h = fieldSurfaceTerrace(basin, 10.0, 0.80) + rib * rib * 15.0 + island * 145.0;
-    return vec4(h, 80.0, -42.0, island);
+    return vec4(h, 286.0, -42.0, island);
 }
 
 // Cold row ------------------------------------------------------------------
@@ -162,7 +162,7 @@ vec4 fieldReliefRockyTundra(vec2 p)
     float h = fieldSurfaceTerrace((ridge * ridge - 0.45) * 170.0, 30.0, 0.68);
     h += block * (420.0 + 40.0 * fieldNoise2(p * 0.002, 152u));
     h += fieldNoise2(p * 0.006, 153u) * 10.0;
-    return vec4(h, 200.0, -56.0, block);
+    return vec4(h, 406.0, -56.0, block);
 }
 
 vec4 fieldReliefColdSteppe(vec2 p)
@@ -172,7 +172,7 @@ vec4 fieldReliefColdSteppe(vec2 p)
     float mesa = fieldSurfaceLandmark(p, 512.0, 163u, 0.0, 0.21, 0.36, 0.50);
     h = mix(h, fieldSurfaceTerrace(h, 26.0, 0.85), 0.42);
     h += mesa * 190.0;
-    return vec4(h, 88.0, -50.0, mesa);
+    return vec4(h, 294.0, -50.0, mesa);
 }
 
 vec4 fieldReliefBorealForest(vec2 p)
@@ -182,7 +182,7 @@ vec4 fieldReliefBorealForest(vec2 p)
     float shield = fieldSurfaceLandmark(p, 384.0, 171u, 0.0, 0.22, 0.0, 0.65);
     float h = fieldSurfaceFbm(p * 0.0013, 172u) * 65.0 + drumlin * 32.0;
     h += shield * 270.0;
-    return vec4(h, 170.0, -76.0, shield);
+    return vec4(h, 376.0, -76.0, shield);
 }
 
 vec4 fieldReliefColdForest(vec2 p)
@@ -193,7 +193,7 @@ vec4 fieldReliefColdForest(vec2 p)
     float buttress = fieldSurfaceLandmark(p, 384.0, 181u, 1.0, 0.22, 0.12, 0.68);
     float h = (1.0 - valley) * 145.0 - valley * 120.0;
     h += fieldNoise2(p * 0.0025, 182u) * 35.0 + buttress * 360.0;
-    return vec4(h, 240.0, -96.0, buttress);
+    return vec4(h, 446.0, -96.0, buttress);
 }
 
 vec4 fieldReliefColdMarsh(vec2 p)
@@ -203,7 +203,7 @@ vec4 fieldReliefColdMarsh(vec2 p)
     float pingo = fieldSurfaceLandmark(p, 512.0, 191u, 0.0, 0.18, 0.0, 0.55);
     float h = fieldSurfaceFbm(p * 0.0014, 192u) * 18.0 - basin * 42.0;
     h += pingo * 110.0;
-    return vec4(h, 72.0, -40.0, pingo);
+    return vec4(h, 278.0, -40.0, pingo);
 }
 
 // Temperate row -------------------------------------------------------------
@@ -212,7 +212,7 @@ vec4 fieldReliefDryPlain(vec2 p)
     float h = fieldNoise2(p * 0.0009, 200u) * 44.0 + fieldNoise2(p * 0.003, 201u) * 10.0;
     float butte = fieldSurfaceLandmark(p, 512.0, 202u, 0.0, 0.20, 0.45, 0.52);
     h += butte * (360.0 + fieldNoise2(p * 0.0011, 203u) * 65.0);
-    return vec4(h, 136.0, -60.0, butte);
+    return vec4(h, 342.0, -60.0, butte);
 }
 
 vec4 fieldReliefPrairie(vec2 p)
@@ -222,7 +222,7 @@ vec4 fieldReliefPrairie(vec2 p)
     float knoll = fieldSurfaceLandmark(p, 512.0, 213u, 0.0, 0.22, 0.0, 0.55);
     float h = waves + knoll * 125.0;
     h += fieldNoise2(q * vec2(0.0012, 0.004), 214u) * 10.0;
-    return vec4(h, 96.0, -52.0, knoll);
+    return vec4(h, 302.0, -52.0, knoll);
 }
 
 vec4 fieldReliefTemperateForest(vec2 p)
@@ -230,7 +230,7 @@ vec4 fieldReliefTemperateForest(vec2 p)
     float hills = fieldSurfaceFbm(p * 0.0016, 220u) * 115.0;
     float tor = fieldSurfaceLandmark(p, 384.0, 223u, 0.0, 0.22, 0.0, 0.65);
     float h = hills + tor * (270.0 + 45.0 * fieldNoise2(p * 0.001, 224u));
-    return vec4(h, 220.0, -80.0, tor);
+    return vec4(h, 426.0, -80.0, tor);
 }
 
 vec4 fieldReliefHumidTemperateForest(vec2 p)
@@ -239,7 +239,7 @@ vec4 fieldReliefHumidTemperateForest(vec2 p)
     float tower = fieldSurfaceLandmark(p, 256.0, 233u, 0.0, 0.15, 0.32, 0.75);
     float benches = fieldSurfaceTerrace(valley, 30.0, 0.65);
     float h = mix(valley, benches, 0.55) + tower * (480.0 + 55.0 * fieldNoise2(p * 0.001, 234u));
-    return vec4(h, 300.0, -110.0, tower);
+    return vec4(h, 506.0, -110.0, tower);
 }
 
 vec4 fieldReliefTemperateMarsh(vec2 p)
@@ -249,7 +249,7 @@ vec4 fieldReliefTemperateMarsh(vec2 p)
     h -= (1.0 - smoothstep(0.025, 0.13, abs(channels))) * 20.0;
     float island = fieldSurfaceLandmark(p, 384.0, 242u, 0.0, 0.22, 0.0, 0.60);
     h += island * 80.0;
-    return vec4(h, 64.0, -38.0, island);
+    return vec4(h, 270.0, -38.0, island);
 }
 
 // Warm row ------------------------------------------------------------------
@@ -259,7 +259,7 @@ vec4 fieldReliefRockDesert(vec2 p)
     float mesa = fieldSurfaceLandmark(p, 640.0, 251u, 0.0, 0.22, 0.58, 0.64);
     float layers = fieldSurfaceTerrace(mesa * 570.0, 54.0, 0.42);
     float h = floorWaves + layers + fieldNoise2(p * 0.002, 252u) * 8.0;
-    return vec4(h, 300.0, -90.0, mesa);
+    return vec4(h, 506.0, -90.0, mesa);
 }
 
 vec4 fieldReliefDrySavanna(vec2 p)
@@ -268,7 +268,7 @@ vec4 fieldReliefDrySavanna(vec2 p)
     float inselberg = fieldSurfaceLandmark(p, 512.0, 263u, 0.0, 0.22, 0.0, 0.55);
     float h = mix(pediment, fieldSurfaceTerrace(pediment, 32.0, 0.80), 0.35);
     h += inselberg * (470.0 + 55.0 * fieldNoise2(p * 0.001, 264u));
-    return vec4(h, 180.0, -72.0, inselberg);
+    return vec4(h, 386.0, -72.0, inselberg);
 }
 
 vec4 fieldReliefSavanna(vec2 p)
@@ -277,7 +277,7 @@ vec4 fieldReliefSavanna(vec2 p)
     float floorWaves = fieldSurfaceFbm(q * vec2(0.0009, 0.0016), 270u) * 85.0;
     float kopje = fieldSurfaceLandmark(p, 384.0, 273u, 0.0, 0.20, 0.0, 0.60);
     float h = floorWaves + kopje * (330.0 + 45.0 * fieldNoise2(p * 0.0015, 274u));
-    return vec4(h, 184.0, -74.0, kopje);
+    return vec4(h, 390.0, -74.0, kopje);
 }
 
 vec4 fieldReliefDryJungle(vec2 p)
@@ -286,7 +286,7 @@ vec4 fieldReliefDryJungle(vec2 p)
     float tower = fieldSurfaceLandmark(p, 128.0, 283u, 1.0, 0.22, 0.18, 0.88);
     float h = fieldSurfaceTerrace(floorWaves, 22.0, 0.78);
     h += tower * (480.0 + 75.0 * fieldNoise2(p * 0.002, 284u));
-    return vec4(h, 300.0, -100.0, tower);
+    return vec4(h, 506.0, -100.0, tower);
 }
 
 vec4 fieldReliefTropicalJungle(vec2 p)
@@ -294,7 +294,7 @@ vec4 fieldReliefTropicalJungle(vec2 p)
     float floorWaves = fieldSurfaceFbm(p * 0.0010, 290u) * 65.0;
     float tower = fieldSurfaceLandmark(p, 128.0, 293u, 0.0, 0.22, 0.36, 0.90);
     float h = floorWaves + tower * (560.0 + 65.0 * fieldNoise2(p * 0.0017, 294u));
-    return vec4(h, 320.0, -112.0, tower);
+    return vec4(h, 526.0, -112.0, tower);
 }
 
 // Hottest row ---------------------------------------------------------------
@@ -307,7 +307,7 @@ vec4 fieldReliefVolcanicDesert(vec2 p)
     float basalt = fieldSurfaceLandmark(p, 512.0, 302u, 2.0, 0.14, 0.55, 0.60);
     float h = fieldSurfaceTerrace(shield * 460.0 - caldera * 240.0 + flow, 28.0, 0.70);
     h += basalt * 110.0;
-    return vec4(h, 320.0, -120.0, max(shield, basalt));
+    return vec4(h, 526.0, -120.0, max(shield, basalt));
 }
 
 vec4 fieldReliefRedDesert(vec2 p)
@@ -317,7 +317,7 @@ vec4 fieldReliefRedDesert(vec2 p)
     float monument = fieldSurfaceLandmark(p, 768.0, 312u, 1.0, 0.22, 0.34, 0.52);
     float h = dune * 150.0 + secondary * 13.0;
     h += fieldSurfaceTerrace(monument * 440.0, 48.0, 0.40);
-    return vec4(h, 230.0, -78.0, monument);
+    return vec4(h, 436.0, -78.0, monument);
 }
 
 vec4 fieldReliefAridPlateau(vec2 p)
@@ -325,7 +325,7 @@ vec4 fieldReliefAridPlateau(vec2 p)
     float mesa = fieldSurfaceLandmark(p, 512.0, 320u, 2.0, 0.15, 0.62, 0.68);
     float floorWaves = fieldSurfaceFbm(p * 0.0010, 321u) * 45.0;
     float h = floorWaves + fieldSurfaceTerrace(mesa * 540.0, 60.0, 0.32);
-    return vec4(h, 280.0, -90.0, mesa);
+    return vec4(h, 486.0, -90.0, mesa);
 }
 
 vec4 fieldReliefBurningJungle(vec2 p)
@@ -335,7 +335,7 @@ vec4 fieldReliefBurningJungle(vec2 p)
     float basalt = fieldSurfaceLandmark(p, 128.0, 333u, 2.0, 0.15, 0.40, 0.82);
     float h = fieldSurfaceTerrace(flow, 32.0, 0.62);
     h += basalt * (520.0 + 55.0 * fieldNoise2(p * 0.0015, 334u));
-    return vec4(h, 320.0, -108.0, basalt);
+    return vec4(h, 526.0, -108.0, basalt);
 }
 
 vec4 fieldReliefTropicalMangrove(vec2 p)
@@ -345,7 +345,7 @@ vec4 fieldReliefTropicalMangrove(vec2 p)
         abs(fieldNoise2(p * vec2(0.0024, 0.0046), 341u)));
     float island = fieldSurfaceLandmark(p, 384.0, 342u, 0.0, 0.21, 0.0, 0.55);
     float h = fieldSurfaceTerrace(tide, 6.0, 0.88) - channel * 25.0 + island * 100.0;
-    return vec4(h, 104.0, -52.0, island);
+    return vec4(h, 310.0, -52.0, island);
 }
 
 vec4 fieldReliefMarine(vec2 p)
@@ -355,7 +355,7 @@ vec4 fieldReliefMarine(vec2 p)
         abs(fieldNoise2(p * vec2(0.0005, 0.0017), 351u)));
     float seamount = fieldSurfaceLandmark(p, 768.0, 352u, 0.0, 0.22, 0.0, 0.50);
     float h = -235.0 + shelf - canyon * 145.0 + seamount * 275.0;
-    return vec4(h, 280.0, -96.0, seamount);
+    return vec4(h, 486.0, -96.0, seamount);
 }
 
 vec4 fieldBiomeRelief(uint biome, vec2 p)
@@ -391,7 +391,7 @@ vec4 fieldBiomeRelief(uint biome, vec2 p)
         default: result = fieldReliefMarine(p); break;
     }
     return clamp(result, vec4(-640.0, 0.0, -160.0, 0.0),
-                         vec4(640.0, 320.0, 160.0, 1.0));
+                         vec4(640.0, 576.0, 160.0, 1.0));
 }
 
 #endif

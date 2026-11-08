@@ -15,8 +15,7 @@
 REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     viewDistance, lodDistanceFactor, maxChunksPerFrame, maxInFlight,
     vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, baseHeight,
-    heightAmplitude, heightFrequency, climateFrequency, bandThickness,
-    bandVariation, bandOffset, bandOffsetVariation, detailScale,
+    heightAmplitude, heightFrequency, climateFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
     microDetailStrength, microDetailScale, debugLod, collisionEnabled, collisionRadius);
 
@@ -55,8 +54,6 @@ void ProceduralTerrainComponent::start()
     config.field.heightAmplitude = heightAmplitude;
     config.field.heightFrequency = heightFrequency;
     config.field.climateFrequency = climateFrequency;
-    config.field.bandThickness = bandThickness;
-    config.field.bandVariation = bandVariation;
     config.field.bandOffset = bandOffset;
     config.field.bandOffsetVariation = bandOffsetVariation;
     config.field.detailScale = detailScale;

@@ -57,13 +57,13 @@ void write(const std::filesystem::path& path, const std::string& source)
     file << source;
     require(file.good(), "Cannot write test shader " + path.string());
 }
-std::string planeRelief(std::string source, const char* height)
+std::string planeRelief(std::string source, const char* height, const char* thickness="0.0")
 {
     const auto function = source.find("vec4 fieldReliefPolarIce(");
     require(function != std::string::npos, "Production biome relief entry point missing");
     const auto body = source.find('{', function);
     require(body != std::string::npos, "Production biome relief body missing");
-    source.insert(body + 1, std::string("\n    return vec4(") + height + ", 0.0, 0.0, 0.0);\n");
+    source.insert(body + 1, std::string("\n    return vec4(") + height + ", " + thickness + ", 0.0, 0.0);\n");
     return source;
 }
 std::string planeDensity(std::string source)
@@ -142,7 +142,6 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         config.cells = 8; config.maxInFlight = 1; config.maxResidentChunks = 2;
         config.vertexBudgetMiB = 1; config.shaderDirectory = directory.string();
         config.field.heightAmplitude = 0; config.field.detailScale = 1;
-        config.field.bandThickness = 0; config.field.bandVariation = 0;
         config.field.bandOffsetVariation = 0; config.field.biomeOverride = 0;
         GpuMesher mesher;
         std::string error;
@@ -193,17 +192,24 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         // invalidate only its owning program, never its sibling pass.
         write(noise2Path,originalNoise2+"\n// 2D-only dependency edit\n");
         isolatedReload("2D noise",6.25f,12);
-        config.field.bandThickness=256.0f;
         const auto customVolume=planeDensity(originalVolume);
+        write(volumePath,customVolume);
+        isolatedReload("3D evaluator with zero biome band",6.25f,13);
+        // Only the 2D biome owns thickness: enabling it must reach the 3D pass
+        // without recompiling that pass or changing any global field setting.
+        write(reliefPath,planeRelief(originalRelief,"6.25","256.0"));
+        isolatedReload("2D biome enables volume band",6.35f,16);
         write(volumePath,polarRadius(customVolume,"0.5"));
-        isolatedReload("3D evaluator fixture",6.75f,13);
+        isolatedReload("3D radius",6.75f,17);
         // Only a parameter changes here: the common evaluator stays identical.
         // This exercises the same nested dependency as an in-editor table edit.
         write(volumePath,polarRadius(customVolume,"0.75"));
         isolatedReload("3D parameter table",7.0f,15);
         write(noise3Path,originalNoise3+"\n// 3D-only dependency edit\n");
         isolatedReload("3D noise",7.0f,14);
-        config.field.bandThickness=0.0f;
+        write(reliefPath,planeRelief(originalRelief,"6.25"));
+        require(mesher.initialize(config,error),error);
+        finishPlane(mesher,6.25f,18);
 
         const auto invalidLine = std::count(originalVolume.begin(), originalVolume.end(), '\n') + 2;
         write(volumePath, originalVolume + "\nPOLAR_RELOAD_SYNTAX_ERROR\n");

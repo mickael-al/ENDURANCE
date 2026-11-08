@@ -1,0 +1,84 @@
+#!/usr/bin/env python3
+"""A biome's 2D thickness alone must own the complete 3D band."""
+import math
+from pathlib import Path
+import shutil
+import struct
+import tempfile
+
+from biome_mask_probe import replace_body
+from check_gpu import FieldRunner, SHADERS, COLUMN_WORDS
+from gl_headless import GL
+
+
+def f32(value):
+    return struct.unpack('<f', struct.pack('<f', value))[0]
+
+
+def verify_zero_columns(field):
+    side=field['side']
+    tested=0
+    for z in range(side):
+        for x in range(side):
+            offset=(x+z*side)*COLUMN_WORDS
+            height,band=field['columns'][offset],field['columns'][offset+3]
+            if band!=0.0:
+                continue
+            for y in range(side):
+                world_y=field['origin'][1]+(y-1)*(1<<field['lod'])
+                value=field['density'][x+y*side+z*side*side]
+                assert value==f32(height-world_y),('Zero biome band still sculpts terrain',x,y,z,value,height)
+                tested+=1
+    return tested
+
+
+def main():
+    with tempfile.TemporaryDirectory(prefix='terrain-biome-band-') as temporary, GL() as gl:
+        directory=Path(temporary)/'shaders'
+        shutil.copytree(SHADERS,directory)
+        path=directory/'biome_relief.glsl'
+        source=path.read_text()
+        source='uniform float probeThickness;\nuniform int probeSpatialBand;\n'+source
+        source=replace_body(source,'fieldReliefPolarIce', '''
+    float width=probeSpatialBand==0 ? probeThickness
+        : max(0.0,fieldNoise2(p*0.05,715u)-0.1)*128.0;
+    return vec4(8.0,width,-10.0,0.5);
+''')
+        path.write_text(source)
+        runner=FieldRunner(gl,directory)
+        for obsolete in ('uBandThickness','uBandVariation'):
+            assert gl.glGetUniformLocation(runner.columns_program,obsolete.encode())==-1,obsolete
+        gl.uniform(runner.columns_program,'probeSpatialBand','1i',0)
+        options=dict(cells=9,origin=(-16,-24,-16),seed=1337,
+                     uBiomeOverride=0,uHeightAmplitude=0.,uBaseHeight=3.)
+        disabled_samples=0
+        for scale in (0.,.35,1.,2.):
+            for raw in (-12.25,0.,12.25,35.,576.,800.):
+                gl.uniform(runner.columns_program,'probeThickness','1f',raw)
+                field=runner.run(**options,uDetailScale=scale)
+                expected=f32(min(max(raw,0.),576.)*f32(scale))
+                assert all(math.isclose(v,expected,rel_tol=2e-7,abs_tol=1e-6)
+                           for v in field['columns'][3::COLUMN_WORDS]),('Thickness has hidden addition',raw,scale)
+                disabled_samples+=verify_zero_columns(field)
+
+        # Author-controlled spatial noise can turn 3D off in entire columns;
+        # no independent global variation may reopen them.
+        gl.uniform(runner.columns_program,'probeSpatialBand','1i',1)
+        field=runner.run(**dict(options,cells=32,origin=(-16,-24,-16)),uDetailScale=.35)
+        bands=field['columns'][3::COLUMN_WORDS]
+        assert any(v==0 for v in bands) and any(v>0 for v in bands)
+        assert max(bands)<=128.*.35
+        assert all(math.isfinite(v) for v in field['density'])
+        disabled_samples+=verify_zero_columns(field)
+        assert any(abs(value-f32(field['columns'][(x+z*field['side'])*COLUMN_WORDS]
+                     -(field['origin'][1]+y-1)))>1e-5
+                   for z in range(field['side']) for y in range(field['side'])
+                   for x in range(field['side'])
+                   for value in [field['density'][x+y*field['side']+z*field['side']**2]])
+        gl.check('biome-owned volume thickness')
+        print(f'PASS biome-owned thickness: 24 scale/width cases, negative and zero widths, '
+              f'upper clamp, locally noise-driven bands; {disabled_samples} unsculpted samples verified')
+
+
+if __name__=='__main__':
+    main()

@@ -60,7 +60,7 @@ vec4 fieldSurfaceRecipes(vec2 p,uvec4 ids,vec4 ratios,float marine)
         result+=fieldBiomeRelief(biome,p)*weight;
     }
     // Preserve the conservative column bounds even after blend rounding.
-    return clamp(result,vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,320.0,160.0,1.0));
+    return clamp(result,vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,576.0,160.0,1.0));
 }
 
 FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
@@ -107,9 +107,8 @@ FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
         relief=fieldSurfaceRecipes(p,surfaceIDs,surfaceRatios,marine);
     }
     float height=raw.terrain.x+relief.x*uDetailScale;
-    float thickness=uBandThickness+relief.y*uDetailScale;
-    if(uBandVariation>0.0)
-        thickness+=uBandVariation*fieldUnsignedNoise(p*0.0001,0x03707344u);
+    // The biome owns the entire band: zero stays zero, with no global floor.
+    float thickness=relief.y*uDetailScale;
     float globalOffset=uBandOffset;
     if(uBandOffsetVariation>0.0)
         globalOffset+=uBandOffsetVariation*fieldNoise2(p*0.0004,0xa4093822u);
