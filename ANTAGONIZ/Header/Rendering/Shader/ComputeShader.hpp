@@ -2,13 +2,15 @@
 #define __ENGINE_COMPUTE_SHADER__
 
 #include <string>
+#include "ShaderCompilation.hpp"
 
 namespace Ge
 {
 	class ComputeShader
 	{
 	public:
-		ComputeShader(std::string filename, std::string define = "", std::string traceLabel = "");
+		ComputeShader(std::string filename, std::string define = "", std::string traceLabel = "",
+			const ShaderCacheOptions& cache = {});
 		~ComputeShader();
 		ComputeShader(const ComputeShader&) = delete;
 		ComputeShader& operator=(const ComputeShader&) = delete;

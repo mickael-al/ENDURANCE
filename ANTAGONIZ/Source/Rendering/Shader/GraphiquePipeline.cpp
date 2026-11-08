@@ -6,14 +6,15 @@
 
 namespace Ge
 {
-    GraphiquePipeline::GraphiquePipeline(GraphicsDataMisc* gdm, ShaderPair* sp, std::string define)
+    GraphiquePipeline::GraphiquePipeline(GraphicsDataMisc* gdm, ShaderPair* sp, std::string define,
+        const ShaderCacheOptions& cache)
         : m_shaderPair(sp), m_gdm(gdm)
     {
         if (!sp)
             m_error = "Cannot build a graphics pipeline without shader files";
         else
             m_program = buildShaderProgram({{GL_VERTEX_SHADER, sp->Vert, define},
-                {GL_FRAGMENT_SHADER, sp->Frag, define}}, m_error);
+                {GL_FRAGMENT_SHADER, sp->Frag, define}}, m_error, {}, cache);
         if (!isValid()) std::cerr << "[Graphics shader] " << m_error << std::endl;
     }
 

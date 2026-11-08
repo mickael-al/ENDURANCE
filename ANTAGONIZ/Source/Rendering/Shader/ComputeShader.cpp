@@ -6,10 +6,11 @@
 
 namespace Ge
 {
-	ComputeShader::ComputeShader(std::string filename, std::string define, std::string traceLabel)
+	ComputeShader::ComputeShader(std::string filename, std::string define, std::string traceLabel,
+		const ShaderCacheOptions& cache)
 	{
 		m_computeProgram = buildShaderProgram({{GL_COMPUTE_SHADER, std::move(filename), std::move(define)}},
-			m_error, traceLabel);
+			m_error, traceLabel, cache);
 		if (!isValid()) std::cerr << "[Compute shader] " << m_error << std::endl;
 	}
 

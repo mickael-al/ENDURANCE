@@ -3,6 +3,7 @@
 
 #include "Initializer.hpp"
 #include "Manager.hpp"
+#include "ShaderCompilation.hpp"
 #include <map>
 #include <vector>
 #include <string>
@@ -24,7 +25,8 @@ namespace Ge
 		bool initialize(GraphicsDataMisc *gdm);
 		void release();
 	public:
-		GraphiquePipeline * createPipeline(const std::string & frag, const std::string & vert, bool back = false, bool multiS = true, bool transparency = false, int cullmode = 1, std::string define = "");
+		GraphiquePipeline * createPipeline(const std::string & frag, const std::string & vert, bool back = false, bool multiS = true, bool transparency = false, int cullmode = 1, std::string define = "",
+			const ShaderCacheOptions& cache = {});
 		void destroyPipeline(GraphiquePipeline * pipeline);
 		std::vector<GraphiquePipeline *> & GetPipelines();
 		std::vector<CustomRenderer*> & getCustomRenderer();

@@ -2,6 +2,7 @@
 #define __ENGINE_GRAPHIQUE_PIPELINE__
 
 #include <string>
+#include "ShaderCompilation.hpp"
 
 struct GraphicsDataMisc;
 namespace Ge
@@ -22,7 +23,8 @@ namespace Ge
 	class GraphiquePipeline
 	{
 	public:
-		GraphiquePipeline(GraphicsDataMisc * gdm, ShaderPair * sp, std::string define);
+		GraphiquePipeline(GraphicsDataMisc * gdm, ShaderPair * sp, std::string define,
+			const ShaderCacheOptions& cache = {});
 		~GraphiquePipeline();
 		GraphiquePipeline(const GraphiquePipeline&) = delete;
 		GraphiquePipeline& operator=(const GraphiquePipeline&) = delete;

@@ -16,6 +16,7 @@ def main():
     parser.add_argument("--glew-object",required=True,type=Path,help="PIC object or static archive from the existing project build")
     args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="terrain-backend-") as temporary:
+        os.environ["ENDURANCE_SHADER_CACHE_DIR"] = str(Path(temporary)/"program-cache")
         library=Path(temporary)/"check_backend.so"
         command=[os.environ.get("CXX","c++"),"-std=c++17","-O3","-ffast-math","-fPIC","-shared","-DGLEW_NO_GLU",
                  "-I",str(ROOT/"ANTAGONIZ/Header/Struct"),"-I",str(ROOT/"ANTAGONIZ/Header/Miscellaneous"),
@@ -23,6 +24,7 @@ def main():
                  "-I",str(ROOT/"ThirdParty"),str(ROOT/"Tests/Terrain/check_backend.cpp"),
                  str(ROOT/"ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
                  str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp"),
+                 str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp"),
                  str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp"),
                  str(args.glew_object.resolve()),"-pthread","-l:libGL.so.1","-o",str(library)]
         subprocess.run(command,check=True)

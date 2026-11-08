@@ -49,10 +49,10 @@ namespace Ge
 		m_customRenderers.erase(std::remove(m_customRenderers.begin(), m_customRenderers.end(), c), m_customRenderers.end());
 	}
 
-	GraphiquePipeline * GraphiquePipelineManager::createPipeline(const std::string &frag, const std::string &vert, bool back, bool multiS, bool transparency, int cullmode,std::string define)
+	GraphiquePipeline * GraphiquePipelineManager::createPipeline(const std::string &frag, const std::string &vert, bool back, bool multiS, bool transparency, int cullmode,std::string define, const ShaderCacheOptions& cache)
 	{
 		ShaderPair * sp = new ShaderPair(frag, vert, back, multiS, transparency, cullmode);
-		GraphiquePipeline * gp = new GraphiquePipeline(m_gdm, sp, define);
+		GraphiquePipeline * gp = new GraphiquePipeline(m_gdm, sp, define, cache);
 		m_graphiquePipeline.push_back(gp);
 	
 		return gp;

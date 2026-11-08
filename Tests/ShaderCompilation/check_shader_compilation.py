@@ -20,7 +20,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='engine-shader-test-') as temporary:
         directory = Path(temporary)
         library = directory / 'shader_tests.so'
-        sources = ['ShaderCompilation.cpp', 'ComputeShader.cpp',
+        sources = ['ShaderCompilation.cpp', 'ShaderBinaryCache.cpp', 'ComputeShader.cpp',
                    'GraphiquePipeline.cpp', 'ShaderPair.cpp']
         command = [os.environ.get('CXX', 'c++'), '-std=c++17', '-O2', '-Wall', '-Wextra',
                    '-fPIC', '-shared', '-DGLEW_NO_GLU',

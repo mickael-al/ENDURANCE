@@ -136,9 +136,16 @@ not final materials or a rendered game screenshot.
 
 The reload fixture changes nested biome files in a temporary shader copy and
 verifies that reinitialization changes actual meshed vertex positions without a
-process restart. An invalid included shader must report its source path/original
-line; fixing it or restoring a missing include must allow another successful
-initialization. The production shader directory is not edited by this fixture.
+process restart. It uses an isolated temporary `ENDURANCE_SHADER_CACHE_DIR`.
+With program binaries supported, the first initialization compiles six programs;
+unchanged regeneration and settings-only changes must load six binaries without
+compile/link calls. Changing a nested relief include must recompile the two field
+programs and load the four unchanged meshing programs. Actual vertex heights
+verify that uniforms are reapplied after binary loads and source edits reach the
+geometry. An invalid included shader must report its source path/original line,
+not reuse an obsolete binary; fixing it or restoring a missing include must allow
+another successful initialization. The production shader directory and user cache
+are not edited by this fixture.
 
 ## Compute shaders
 
@@ -313,10 +320,11 @@ climate regions and a return to the first one with identical packed geometry,
 idle polling without new work, the 48-byte transient column budget and 16-byte
 job counters. Intercepted GL compilation/link entry points verify that no
 runtime shader compilation occurs during streaming, revisits or idle polling.
-The backend fixtures link the production `ComputeShader` and shared shader
-compiler, without either parallel/background compiler service. Shared loader,
-program ownership and graphics-pipeline coverage is documented separately in
-[Tests/ShaderCompilation](../ShaderCompilation/README.md).
+The backend fixtures link the production `ComputeShader`, shared shader
+compiler and `ShaderBinaryCache.cpp`, without either parallel/background compiler
+service. They use isolated temporary disk caches. Shared loader, persistent binary
+cache, program ownership and graphics-pipeline coverage is documented separately
+in [Tests/ShaderCompilation](../ShaderCompilation/README.md).
 
 ## Interpretation
 

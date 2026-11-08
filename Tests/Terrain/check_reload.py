@@ -20,6 +20,7 @@ def main():
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="terrain-shader-reload-") as temporary:
         directory = Path(temporary)
+        os.environ["ENDURANCE_SHADER_CACHE_DIR"] = str(directory / "program-cache")
         shaders = directory / "shaders"
         shutil.copytree(ROOT / "Asset/Shader/ProceduralTerrain", shaders)
         library = directory / "check_reload.so"
@@ -31,6 +32,7 @@ def main():
                    "-I", str(ROOT / "ThirdParty"), str(ROOT / "Tests/Terrain/check_reload.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp"),
+                   str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp"),
                    str(args.glew_object.resolve()), "-pthread", "-l:libGL.so.1", "-o", str(library)]
         subprocess.run(command, check=True)

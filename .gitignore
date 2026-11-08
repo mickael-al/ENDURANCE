@@ -18,6 +18,9 @@
 __pycache__/
 *.py[cod]
 
+# Fallback location for locally compiled shader programs.
+/Cache/ShaderPrograms/
+
 # Steam redistributables are source dependencies, not local build products.
 !/ThirdParty/steamworks_sdk/redistributable_bin/**/*.dll
 !/ThirdParty/steamworks_sdk/redistributable_bin/**/*.so

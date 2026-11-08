@@ -243,8 +243,12 @@ bool ProceduralGeneration::initialize(const Config& config)
     if (!impl->gpu.initialize(gpuConfig, m_lastError)) return false;
 
     const auto path = [&config](const char* name) { return config.shaderDirectory + "/" + name; };
-    impl->render = impl->pipelines->createPipeline(path("render.fs.glsl"), path("render.vs.glsl"));
-    impl->shadow = impl->pipelines->createPipeline(path("shadow.fs.glsl"), path("shadow.vs.glsl"));
+    Ge::ShaderCacheOptions shaderCache;
+    shaderCache.enabled = true;
+    impl->render = impl->pipelines->createPipeline(path("render.fs.glsl"), path("render.vs.glsl"),
+        false, true, false, 1, "", shaderCache);
+    impl->shadow = impl->pipelines->createPipeline(path("shadow.fs.glsl"), path("shadow.vs.glsl"),
+        false, true, false, 1, "", shaderCache);
     for (auto* pipeline : {impl->render, impl->shadow})
     {
         if (!pipeline || !pipeline->isValid())

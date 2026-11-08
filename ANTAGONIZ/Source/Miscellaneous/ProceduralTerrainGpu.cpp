@@ -297,13 +297,15 @@ namespace ProceduralTerrain
 
         const char* files[ProgramCount]={"field_columns.C.glsl","field_density.C.glsl","meshing.C.glsl",
             "transition.C.glsl","meshing.C.glsl","transition.C.glsl"};
+        Ge::ShaderCacheOptions shaderCache;
+        shaderCache.enabled=true;
         for (unsigned i=0;i<ProgramCount;++i)
         {
             const bool emitPass = i==EmitRegular || i==EmitTransition;
             const char* define=emitPass?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
             const std::string label="Terrain "+std::to_string(i+1)+"/"+std::to_string(ProgramCount)
                 +" "+files[i]+" EMIT_PASS="+(emitPass ? "1" : "0");
-            Ge::ComputeShader shader(config.shaderDirectory+"/"+files[i],define,label);
+            Ge::ComputeShader shader(config.shaderDirectory+"/"+files[i],define,label,shaderCache);
             if (!shader.isValid())
             { error=shader.getLastError(); shutdown(); s.error=error; return false; }
             auto& program=s.programs[i];

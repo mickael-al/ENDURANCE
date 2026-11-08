@@ -1,5 +1,6 @@
 #include "glcore.hpp"
 #include "ShaderCompilation.hpp"
+#include "ShaderBinaryCache.hpp"
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
@@ -194,7 +195,7 @@ namespace Ge
     }
 
     unsigned int buildShaderProgram(const std::vector<ShaderFile>& stages,
-        std::string& error, const std::string& traceLabel)
+        std::string& error, const std::string& traceLabel, const ShaderCacheOptions& cache)
     {
         error.clear();
         if (stages.empty()) { error = "Cannot build a shader program without stages"; return 0; }
@@ -210,9 +211,20 @@ namespace Ge
             if (source.text.size() > static_cast<std::size_t>((std::numeric_limits<GLint>::max)()))
             { error = "Shader source is too large: " + stage.filename; return 0; }
             const std::string stageLabel = traceLabel.empty() ? std::string{} : traceLabel + " " + stage.filename;
-            const BuildTrace trace{stageLabel};
             if (!stageLabel.empty())
                 std::cerr << "[Shader " << stageLabel << "] source: " << source.text.size() << " bytes" << std::endl;
+        }
+        // Includes are always reloaded before hashing: edits and missing files
+        // cannot be hidden by a previously cached executable.
+        detail::ShaderBinaryCache binaryCache(stages,sources,cache,
+            traceLabel.empty() ? stages.front().filename : traceLabel);
+        if (const auto program=binaryCache.load()) return program;
+        for (std::size_t i = 0; i < stages.size(); ++i)
+        {
+            const auto& stage=stages[i];
+            const auto& source=sources[i];
+            const std::string stageLabel=traceLabel.empty() ? std::string{} : traceLabel+" "+stage.filename;
+            const BuildTrace trace{stageLabel};
             const GLuint shader = glCreateShader(stage.stage);
             if (!shader) { error = "Cannot create shader: " + stage.filename; return 0; }
             objects.shaders.push_back(shader);
@@ -228,6 +240,8 @@ namespace Ge
         objects.program = glCreateProgram();
         if (!objects.program) { error = "Cannot create shader program: " + stages.front().filename; return 0; }
         for (auto shader : objects.shaders) glAttachShader(objects.program, shader);
+        if (binaryCache.available())
+            glProgramParameteri(objects.program,GL_PROGRAM_BINARY_RETRIEVABLE_HINT,GL_TRUE);
         const BuildTrace trace{traceLabel};
         trace.run("glLinkProgram", [&] { glLinkProgram(objects.program); });
         GLint success = GL_FALSE;
@@ -238,6 +252,7 @@ namespace Ge
             for (const auto& source : sources) error += sourceTable(source);
             return 0;
         }
+        binaryCache.store(objects.program);
         for (auto shader : objects.shaders) glDetachShader(objects.program, shader);
         return std::exchange(objects.program, 0u);
     }

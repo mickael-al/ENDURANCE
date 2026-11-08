@@ -17,6 +17,30 @@
 using namespace ProceduralTerrain;
 namespace
 {
+unsigned compileCalls=0, linkCalls=0, binaryCalls=0;
+PFNGLCOMPILESHADERPROC originalCompile=nullptr;
+PFNGLLINKPROGRAMPROC originalLink=nullptr;
+PFNGLPROGRAMBINARYPROC originalBinary=nullptr;
+void GLAPIENTRY observeCompile(GLuint shader) { ++compileCalls; originalCompile(shader); }
+void GLAPIENTRY observeLink(GLuint program) { ++linkCalls; originalLink(program); }
+void GLAPIENTRY observeBinary(GLuint program,GLenum format,const void* binary,GLsizei size)
+{ ++binaryCalls; originalBinary(program,format,binary,size); }
+struct CompileObserver
+{
+    CompileObserver()
+    {
+        compileCalls=linkCalls=binaryCalls=0;
+        originalCompile=__glewCompileShader; originalLink=__glewLinkProgram;
+        originalBinary=__glewProgramBinary;
+        __glewCompileShader=observeCompile; __glewLinkProgram=observeLink;
+        if(originalBinary) __glewProgramBinary=observeBinary;
+    }
+    ~CompileObserver()
+    {
+        __glewCompileShader=originalCompile; __glewLinkProgram=originalLink;
+        __glewProgramBinary=originalBinary;
+    }
+};
 void require(bool condition, const std::string& message)
 {
     if (!condition) throw std::runtime_error(message);
@@ -92,13 +116,38 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         config.field.bandOffsetVariation = 0; config.field.biomeOverride = 0;
         GpuMesher mesher;
         std::string error;
+        GLint binaryFormats=0;
+        glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS,&binaryFormats);
+        const bool binariesSupported=binaryFormats>0 && glProgramBinary && glGetProgramBinary;
+        CompileObserver observer;
 
         write(reliefPath, planeRelief(originalRelief, "2.25"));
         require(mesher.initialize(config, error), error);
         const auto first = finishPlane(mesher, 2.25f, 1);
+        const auto coldCompiles=compileCalls, coldLinks=linkCalls, coldBinaries=binaryCalls;
+        require(coldCompiles==6 && coldLinks==6,"Cold terrain initialization did not compile six programs");
+        require(mesher.initialize(config,error),error);
+        finishPlane(mesher,2.25f,10);
+        if(binariesSupported)
+            require(compileCalls==coldCompiles && linkCalls==coldLinks && binaryCalls==coldBinaries+6,
+                "Unchanged regeneration did not load all six cached programs");
+        // Settings are uniforms, not source changes. A binary load resets
+        // uniforms: this also checks that reinitialization reapplies them.
+        config.field.baseHeight=1.0f;
+        const auto warmCompiles=compileCalls, warmLinks=linkCalls, warmBinaries=binaryCalls;
+        require(mesher.initialize(config,error),error);
+        finishPlane(mesher,3.25f,11);
+        if(binariesSupported)
+            require(compileCalls==warmCompiles && linkCalls==warmLinks && binaryCalls==warmBinaries+6,
+                "Changing terrain settings unnecessarily recompiled cached programs");
+        config.field.baseHeight=0;
+        const auto editCompiles=compileCalls, editLinks=linkCalls, editBinaries=binaryCalls;
         write(reliefPath, planeRelief(originalRelief, "6.25"));
         require(mesher.initialize(config, error), error);
         const auto second = finishPlane(mesher, 6.25f, 2);
+        if(binariesSupported)
+            require(compileCalls==editCompiles+2 && linkCalls==editLinks+2 && binaryCalls==editBinaries+4,
+                "Nested biome edit must rebuild fields and reuse unchanged meshing programs");
         require(!mesher.valid(first) && mesher.valid(second), "Reload retained an obsolete mesh handle");
 
         const auto invalidLine = std::count(originalVolume.begin(), originalVolume.end(), '\n') + 2;
@@ -123,6 +172,8 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         mesher.shutdown();
         require(glGetError() == GL_NO_ERROR, "OpenGL error after failed/recovered reload");
         std::cout << "PASS shader reload: nested biome edit changes real vertices without process restart\n";
+        if(binariesSupported)
+            std::cout << "PASS terrain binary cache: unchanged/settings-only regeneration loads six binaries; nested edit recompiles only two field programs\n";
         std::cout << "PASS shader diagnostics: original include path/line, missing file and corrected-file retry\n";
         return 0;
     }

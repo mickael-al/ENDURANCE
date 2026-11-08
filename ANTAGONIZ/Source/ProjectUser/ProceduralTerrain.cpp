@@ -118,13 +118,15 @@ void ProceduralTerrainComponent::onGUI()
         biomeOverride = selected - 1;
     // m_pc remains available after a shader error: fixing the file must not
     // require Stop/Play just to make this button reappear. start() destroys the
-    // previous generator and recompiles all terrain shaders/includes from disk.
+    // previous generator and rereads sources/includes. Unchanged programs load
+    // their disk binaries; changed or rejected entries compile from source.
     if (m_pc)
     {
         if (ImGui::Button("Regenerer avec ces reglages")) start();
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Relit et recompile les shaders de Asset/Shader/ProceduralTerrain,\n"
-                "y compris les fichiers de biomes, puis reconstruit le terrain.\n"
+            ImGui::SetTooltip("Applique les reglages et reconstruit le terrain.\n"
+                "Relit les shaders et les biomes : seuls les programmes modifies\n"
+                "ou absents du cache doivent etre recompiles.\n"
                 "Apres une erreur GLSL, corrigez le fichier et cliquez a nouveau.");
     }
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
