@@ -55,14 +55,11 @@ float fieldVolumeFromRecipe(vec3 p,FieldColumn column,vec4 volume,vec4 shape,vec
     return mix(density,min(density,cavityDensity),influence);
 }
 
-// Independent editable functions, paired by ID with fieldRelief* functions.
-// Each returns a complete scalar density. The caller blends density deltas
-// against the common height field, and never evaluates a zero-weight biome.
-// Ice: shallow recesses and small buried chambers in rare active sectors.
+
+//float base = column.terrain.x - p.y;
+
 float fieldVolumePolarIce(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
 {
-    //float base = column.terrain.x - p.y;
-    //return base;
     return fieldVolumeFromRecipe(p, column, vec4(-20, 3, 72, .40),
         vec4(.35, .50, .15, .10), vec4(.85, .70, .15, .30), cache);
 }

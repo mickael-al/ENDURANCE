@@ -91,9 +91,9 @@ float polarVolumeActivity(vec2 p)
 const float POLAR_BASIN_SPACING = 64.0;
 const float POLAR_BASIN_DEPTH = 14.0;
 const float POLAR_BASIN_FLOOR = 0.06;
-const float POLAR_BASIN_WARP = 0.65;
+const float POLAR_BASIN_WARP = 1.618;
 const float POLAR_ROLL_AMPLITUDE = 18.0;
-const float POLAR_FINE_AMPLITUDE = 1.5;
+const float POLAR_FINE_AMPLITUDE = 2.5;
 
 vec4 fieldReliefPolarIce(vec2 p)
 {
@@ -110,7 +110,19 @@ vec4 fieldReliefPolarIce(vec2 p)
     h += fieldNoise2(p * 0.0006, 103u) * POLAR_ROLL_AMPLITUDE;
     h += fieldNoise2(p * 0.04, 104u) * POLAR_FINE_AMPLITUDE;
     return vec4(h, 32.0, -40.0, 0.0);*/
-    return vec4(0, 32, -40.0, 0.0);
+
+    vec2 q = fieldSurfaceRotate(p, vec2(0.8, 0.6));
+    float spacing = max(POLAR_BASIN_SPACING, 4.0);
+    vec2 warp = vec2(fieldNoise2(q / (spacing * 3.0), 100u),
+        fieldNoise2(q / (spacing * 3.0), 101u));
+    vec2 sites = fieldCellular2Distances(q / spacing + warp * POLAR_BASIN_WARP, 102u) * 10.0;
+
+    float h = sites.x;
+    h += fieldNoise2(p * 0.0006, 103u) * POLAR_ROLL_AMPLITUDE;
+    h += fieldNoise2(p * 0.04, 104u) * POLAR_FINE_AMPLITUDE;
+
+
+    return vec4(h, 35, -40.0, 0.0);
 }
 
 vec4 fieldReliefFrozenTundra(vec2 p)
