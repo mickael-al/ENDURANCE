@@ -1,4 +1,4 @@
-// Seeded 3D primitives for voxel density and independently editable volume biomes.
+// Seeded 3D primitives for the common parameterized volume field.
 #ifndef ENDURANCE_FIELD_NOISE_3D_GLSL
 #define ENDURANCE_FIELD_NOISE_3D_GLSL
 
@@ -36,7 +36,7 @@ float fieldNoise3(vec3 p, uint salt)
 
 // 3D Voronoi F1 distance and stable cell value. The 27-site search uses
 // bounded jitter; no texture/volume storage is allocated. This helper costs
-// nothing unless an independent biome function actually calls it.
+// nothing unless the common volume evaluator actually calls it.
 vec2 fieldCellular3Data(vec3 p,uint salt)
 {
     ivec3 cell=ivec3(floor(p));

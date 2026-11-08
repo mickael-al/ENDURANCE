@@ -67,26 +67,10 @@ float fieldSurfaceDune(vec2 p, vec2 direction, float wavelength, uint salt)
                         : 1.0 - smoothstep(0.76, 1.0, phase);
 }
 
-// Polar activity keeps only extremes of a slow 2D field. Evaluated once per
-// column, before biome blending: quiet columns bypass all three volume noises.
-// Raising START reduces occupied areas; END controls the soft activation ramp.
-const float POLAR_VOLUME_SPACING = 224.0;
-const float POLAR_VOLUME_START = 0.32;
-const float POLAR_VOLUME_END = 0.52;
-
-float polarVolumeActivity(vec2 p)
-{
-    float n = abs(fieldNoise2(p / max(POLAR_VOLUME_SPACING,4.0), 105u));
-    float start = clamp(POLAR_VOLUME_START,0.0,0.999);
-    float end = max(start+0.001,clamp(POLAR_VOLUME_END,0.0,1.0));
-    float t = clamp((n-start)/(end-start),0.0,1.0);
-    return t*t*(3.0-2.0*t);
-}
-
-//x — hauteur	Ajoutée à la hauteur générale du terrain, après multiplication par detailScale.
-//y — épaisseur	Ajoutée à bandThickness, après multiplication par detailScale.C’est une épaisseur totale, pas une demi - épaisseur.
-//z — décalage	Déplace la bande 3D par rapport à la surface.Négatif = enfouissement, positif = déplacement vers le haut.Il s’ajoute aux décalages du profil 3D et des réglages globaux.
-//w — masque rocheux	Valeur entre 0 et 1, initialement prévue pour renforcer la sculpture 3D sur les formations rocheuses. 0 ne désactive pas la 3D.
+//x â€” hauteur	AjoutÃ©e Ã  la hauteur gÃ©nÃ©rale du terrain, aprÃ¨s multiplication par detailScale.
+//y â€” Ã©paisseur	AjoutÃ©e Ã  bandThickness, aprÃ¨s multiplication par detailScale.Câ€™est une Ã©paisseur totale, pas une demi - Ã©paisseur.
+//z â€” dÃ©calage	DÃ©place la bande 3D par rapport Ã  la surface.NÃ©gatif = enfouissement, positif = dÃ©placement vers le haut.Il sâ€™ajoute aux dÃ©calages du profil 3D et des rÃ©glages globaux.
+//w â€” masque rocheux	Valeur entre 0 et 1, initialement prÃ©vue pour renforcer la sculpture 3D sur les formations rocheuses. 0 ne dÃ©sactive pas la 3D.
 
 const float POLAR_BASIN_SPACING = 64.0;
 const float POLAR_BASIN_DEPTH = 14.0;

@@ -66,6 +66,32 @@ std::string planeRelief(std::string source, const char* height)
     source.insert(body + 1, std::string("\n    return vec4(") + height + ", 0.0, 0.0, 0.0);\n");
     return source;
 }
+std::string planeDensity(std::string source)
+{
+    const auto function = source.find("float fieldDensityAtPrepared(");
+    require(function != std::string::npos, "Production volume evaluator missing");
+    const auto body = source.find('{', function);
+    require(body != std::string::npos, "Production volume evaluator body missing");
+    // A deterministic fixture makes the table's radius observable directly in
+    // the mesh, independently of the current artistic noise parameters.
+    source.insert(body + 1, "\n    return terrain.x-p.y+shape.w;\n");
+    return source;
+}
+std::string polarRadius(std::string source, const char* radius)
+{
+    const auto table = source.find("const vec4 FIELD_BIOME_VOLUME");
+    require(table != std::string::npos, "Production volume parameter table missing");
+    const auto volume = source.find("vec4(", table);
+    require(volume != std::string::npos, "Polar volume parameters missing");
+    const auto shape = source.find("vec4(", volume + 5);
+    require(shape != std::string::npos, "Polar shape parameters missing");
+    const auto end = source.find(')', shape);
+    require(end != std::string::npos, "Polar shape parameter terminator missing");
+    const auto comma = source.rfind(',', end);
+    require(comma != std::string::npos && comma > shape, "Polar radius parameter missing");
+    source.replace(comma + 1, end - comma - 1, radius);
+    return source;
+}
 MeshHandle finishPlane(GpuMesher& mesher, float height, std::uint64_t token)
 {
     ChunkRequest request;
@@ -167,17 +193,16 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         // invalidate only its owning program, never its sibling pass.
         write(noise2Path,originalNoise2+"\n// 2D-only dependency edit\n");
         isolatedReload("2D noise",6.25f,12);
-        auto customVolume=originalVolume;
-        const auto polar=customVolume.find("float fieldVolumePolarIce(");
-        require(polar!=std::string::npos,"Polar volume entry point missing");
-        const auto body=customVolume.find('{',polar);
-        require(body!=std::string::npos,"Polar volume body missing");
-        customVolume.insert(body+1,"\n    return column.terrain.x-p.y+0.5;\n");
         config.field.bandThickness=256.0f;
-        write(volumePath,customVolume);
-        isolatedReload("3D biome",6.75f,13);
+        const auto customVolume=planeDensity(originalVolume);
+        write(volumePath,polarRadius(customVolume,"0.5"));
+        isolatedReload("3D evaluator fixture",6.75f,13);
+        // Only a parameter changes here: the common evaluator stays identical.
+        // This exercises the same nested dependency as an in-editor table edit.
+        write(volumePath,polarRadius(customVolume,"0.75"));
+        isolatedReload("3D parameter table",7.0f,15);
         write(noise3Path,originalNoise3+"\n// 3D-only dependency edit\n");
-        isolatedReload("3D noise",6.75f,14);
+        isolatedReload("3D noise",7.0f,14);
         config.field.bandThickness=0.0f;
 
         const auto invalidLine = std::count(originalVolume.begin(), originalVolume.end(), '\n') + 2;
@@ -203,7 +228,7 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(glGetError() == GL_NO_ERROR, "OpenGL error after failed/recovered reload");
         std::cout << "PASS shader reload: nested biome edit changes real vertices without process restart\n";
         if(binariesSupported)
-            std::cout << "PASS terrain binary cache: unchanged/settings-only regeneration loads six binaries; isolated relief/volume/2D-noise/3D-noise edits each recompile one program and load five binaries\n";
+            std::cout << "PASS terrain binary cache: unchanged/settings-only regeneration loads six binaries; isolated relief/volume-table/2D-noise/3D-noise edits each recompile one program and load five binaries\n";
         std::cout << "PASS shader diagnostics: original include path/line, missing file and corrected-file retry\n";
         return 0;
     }

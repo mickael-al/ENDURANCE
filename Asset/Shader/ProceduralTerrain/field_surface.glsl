@@ -113,13 +113,9 @@ FieldColumn fieldColumnFromClimate(vec2 p,FieldColumn raw)
     float globalOffset=uBandOffset;
     if(uBandOffsetVariation>0.0)
         globalOffset+=uBandOffsetVariation*fieldNoise2(p*0.0004,0xa4093822u);
-    float polarActivity=0.0;
-    if(uDetailScale>0.0 && (uBiomeOverride==0 ||
-        (uBiomeOverride<0 && fieldMappedVolumeWeight(volumeIDs,raw.blend.xyz,0u)>0.0)))
-        polarActivity=polarVolumeActivity(p);
     column.terrain=vec4(height,climate,max(0.0,thickness));
     column.blend=vec4(raw.blend.z,globalOffset,relief.z,relief.w);
-    column.detail=uvec4(floatBitsToUint(polarActivity),volumeIDs,volumeMask);
+    column.detail=uvec4(0u,volumeIDs,volumeMask);
     return column;
 }
 

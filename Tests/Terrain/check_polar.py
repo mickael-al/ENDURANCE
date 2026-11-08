@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the production polar relief and sparse volume field in headless GL.
+"""Measure the current polar relief and parameterized volume field in headless GL.
 
 The optional preview shows sampled geometry, not textures or generated artwork.
 Readbacks are diagnostic only and never enter the runtime terrain path.
@@ -18,7 +18,7 @@ from check_gpu import FieldRunner, SHADERS, lattice_values, packed_biome_cells
 from gl_headless import GL, GLUnavailable, shader_source
 
 
-LEGACY_PROBE = r"""
+PROBE = r"""
 layout(local_size_x=8,local_size_y=8) in;
 struct ProbeSample { vec4 terrain; vec4 volume; vec4 samples; vec4 shape; };
 layout(std430,binding=6) writeonly buffer ProbeOutput { ProbeSample outputValues[]; };
@@ -33,6 +33,12 @@ void main()
     if(any(greaterThanEqual(index,uvec2(uProbeSize)))) return;
     vec2 p=uProbeOrigin+vec2(index)*uProbeSpacing;
     FieldColumn column=fieldColumnAt(p);
+    ProbeBiomeVolume profile=fieldBiomeVolumeAt(uint(max(uBiomeOverride,0)),p);
+    vec4 diagnosticVolume=profile.volume;
+    diagnosticVolume.x=column.blend.y+
+        clamp(column.blend.z+profile.volume.x,-160.0,160.0)*uDetailScale;
+    diagnosticVolume.y*=uDetailScale*mix(0.55,1.0,column.blend.w);
+    diagnosticVolume.z*=uDetailScale*mix(0.85,1.0,column.blend.w);
     float h=column.terrain.x;
     vec4 samples;
     if(uProbeMode==1u)
@@ -55,37 +61,16 @@ void main()
                      fieldDensityAt(vec3(p.x,h-40.0,p.y),column));
     }
     outputValues[index.x+index.y*uProbeSize]=
-        ProbeSample(column.terrain,column.volume,samples,column.shape);
+        ProbeSample(column.terrain,diagnosticVolume,samples,profile.shape);
 }
 """
-
-# Keep the diagnostics in metre units, independent of the runtime column ABI.
-# The 48-byte column stores local blend factors and packed biome identifiers;
-# profile inspection below uses the frozen legacy profile table for diagnostic
-# band/strength displays; height and density samples execute production code.
-PROBE = LEGACY_PROBE.replace(
-    "    float h=column.terrain.x;",
-    """    ProbeBiomeVolume profile=fieldBiomeVolumeAt(uint(max(uBiomeOverride,0)),p);
-    vec4 diagnosticVolume=profile.volume;
-    diagnosticVolume.x=column.blend.y+
-        clamp(column.blend.z+profile.volume.x,-160.0,160.0)*uDetailScale;
-    diagnosticVolume.y*=uDetailScale*mix(0.55,1.0,column.blend.w);
-    diagnosticVolume.z*=uDetailScale*mix(0.85,1.0,column.blend.w);
-    float h=column.terrain.x;""").replace(
-    "ProbeSample(column.terrain,column.volume,samples,column.shape)",
-    "ProbeSample(column.terrain,diagnosticVolume,samples,profile.shape)")
-
 
 class PolarProbe(BiomeProbe):
     def __init__(self, gl, directory=SHADERS, source=None):
         self.gl = gl
         field_source = shader_source(directory / "world_field.glsl")
-        modern = "uvec4 detail" in field_source
-        if source is None:
-            # Optional comparisons can still load the former 64-byte generator.
-            source = PROBE if modern else LEGACY_PROBE
         self.program = gl.compile([(0x91B9, "#version 450 core\n" +
-            field_source + (profile_probe_source() if modern else "") + source)], "polar production probe")
+            field_source + profile_probe_source() + (source or PROBE))], "polar production probe")
         self.mapping = gl.buffer(packed_biome_cells(), 7)
         self.buffer = gl.buffer(0)
         self.capacity = 0
@@ -169,25 +154,17 @@ def check_repeat_and_lod(gl):
 
 
 def check_other_biomes(gl, directory):
-    old = PolarProbe(gl, directory=directory)
-    new = PolarProbe(gl)
-    for biome in range(1, 26):
-        for seed in (1337, 98765):
-            options = dict(biome=biome, size=13, origin=(-493.25, 271.75),
-                           spacing=73.5, uSeed=seed)
-            before, after = old.run(**options), new.run(**options)
-            assert before["values"][0::16] == after["values"][0::16], (
-                "An unrelated biome height changed", biome, seed)
-            # The free-function path blends density deltas; mathematically
-            # identical forced profiles can round differently from the former
-            # single-formula path. Require a small numerical tolerance, never
-            # merely a matching silhouette or sign.
-            for index, (a, b) in enumerate(zip(before["values"], after["values"])):
-                tolerance = 2e-5 * max(1.0, abs(a), abs(b))
-                assert abs(a-b) <= tolerance, (
-                    "An unrelated biome profile or density changed",
-                    biome, seed, index, a, b, tolerance)
-    print("PASS scope: all 25 non-polar forced recipes retain identical heights and numerically equivalent profiles/densities")
+    old,new=FieldRunner(gl,directory=directory),FieldRunner(gl)
+    for biome in range(1,26):
+        for seed in (1337,98765):
+            options=dict(cells=8,origin=(-40,-12,24),lod=3,seed=seed,
+                         uBaseSpacing=4.,uBiomeOverride=biome,uHeightAmplitude=0.,
+                         uBandThickness=256.,uBandVariation=16.,uDetailScale=.35)
+            before,after=old.run(**options),new.run(**options)
+            assert before["columns_raw"]==after["columns_raw"],("Unrelated columns changed",biome,seed)
+            assert all(math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5)
+                       for a,b in zip(before["density"],after["density"])), ("Unrelated density changed",biome,seed)
+    print("PASS scope: all 25 non-polar forced biomes retain exact columns and equivalent densities")
 
 
 def check_relief(probe):
@@ -195,8 +172,8 @@ def check_relief(probe):
                        uHeightAmplitude=0., mode=1, step_y=.002)
     values, size = sample["values"], sample["size"]
     heights = values[0::16]
-    # A regional geometric contract: numerous gentle depressions, not a single
-    # broad slope or a mostly flat plane with a handful of isolated high towers.
+    # Report geometry without imposing the obsolete basin recipe or sparse
+    # activity mask: these are now deliberately user-controlled settings.
     minima = 0
     slopes = []
     for z in range(1, size-1):
@@ -208,11 +185,9 @@ def check_relief(probe):
             slopes.append(math.hypot(heights[i+1]-heights[i-1],
                                      heights[i+size]-heights[i-size]) / 4.)
     span = max(heights)-min(heights)
-    assert minima >= 8, ("Polar relief lacks repeated local basins", minima)
-    assert .5 < span < 80, ("Polar basin relief is flat or dominated by high towers", span)
+    assert span > .01 and all(math.isfinite(h) for h in heights), ("Invalid polar relief",span)
     gentle = sum(s < math.tan(math.radians(30)) for s in slopes) / len(slopes)
     steep = sum(s > math.tan(math.radians(45)) for s in slopes) / len(slopes)
-    assert gentle > .60 and steep < .10, ("Polar basins lack broad traversable slopes", gentle, steep)
     epsilon_jump = max(abs(values[i*16+j]-heights[i])
                        for i in range(size*size) for j in range(8, 12))
     assert epsilon_jump < .1, ("Polar relief has a discontinuous local jump", epsilon_jump)
@@ -224,7 +199,7 @@ def check_relief(probe):
     return sample
 
 
-def check_sparse_volume(probe):
+def check_volume(probe):
     changed = [0]*4
     carved = [0]*4
     total = 0
@@ -246,10 +221,8 @@ def check_sparse_volume(probe):
                 carved[j] += density < 0
     affected = [n/total for n in changed]
     holes = [n/total for n in carved]
-    assert max(affected) < .25, ("Polar 3D detail is not sparse", affected)
-    assert holes[0] < .03, ("Polar surface is still widely perforated", holes[0])
     assert sum(changed) > 0, "Polar 3D detail was disabled entirely"
-    print(f"PASS sparse polar volume at depths0.25/4/16/40m: "
+    print(f"PASS bounded polar volume at depths0.25/4/16/40m: "
           f"affected fractions {affected}; air fractions {holes}; "
           f"maximum density changes {maximum}")
 
@@ -313,7 +286,7 @@ def main():
             check_voronoi(gl)
             probe = PolarProbe(gl)
             relief = check_relief(probe)
-            check_sparse_volume(probe)
+            check_volume(probe)
             check_scene_height(probe)
             check_repeat_and_lod(gl)
             if args.reference_shaders:

@@ -27,14 +27,4 @@ uvec2 fieldRepeatedVolumeID(uint biome)
     return uvec2(low,biome|(biome<<5u));
 }
 
-// Column-only activity checks should not evaluate a mask noise merely because
-// a zero-weight corner names that biome (for example polar ice above ocean).
-float fieldMappedVolumeWeight(uvec2 encoded,vec3 ratios,uint biome)
-{
-    uvec4 lo=uvec4(encoded.x,encoded.x>>5u,encoded.x>>10u,encoded.x>>15u)&31u;
-    uvec4 hi=uvec4(encoded.x>>20u,encoded.x>>25u,encoded.y,encoded.y>>5u)&31u;
-    vec4 quad=fieldQuadWeights(ratios.xy);
-    return dot(vec4(equal(lo,uvec4(biome))),quad)*(1.0-ratios.z)+
-           dot(vec4(equal(hi,uvec4(biome))),quad)*ratios.z;
-}
 #endif

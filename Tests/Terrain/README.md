@@ -127,9 +127,10 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar.py --preview /tmp/pol
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_reload.py --glew-object /tmp/endurance-glew-pic.o
 ```
 
-The polar fixture checks repeated depressions, sampled slopes and continuity,
-sparse volume influence, conservative bounds, seed repeatability and matching
-chunk/LOD samples. `--reference-shaders /path/to/baseline/ProceduralTerrain`
+The polar fixture measures the current polar relief and volume, checks the
+Voronoi primitive against an independent oracle, continuity, finite values,
+conservative bounds, seed repeatability and matching chunk/LOD samples. It does
+not impose the former sparse-volume mask or an older artistic shape. `--reference-shaders /path/to/baseline/ProceduralTerrain`
 additionally compares the other 25 forced biome recipes against a saved baseline.
 The optional image requires NumPy and Matplotlib; it visualizes measured geometry,
 not final materials or a rendered game screenshot.
@@ -140,10 +141,13 @@ process restart. It uses an isolated temporary `ENDURANCE_SHADER_CACHE_DIR`.
 With program binaries supported, the first initialization compiles six programs;
 unchanged regeneration and settings-only changes must load six binaries without
 compile/link calls. Changing a nested relief or 2D noise include recompiles only the column
-program; changing a volume recipe or 3D noise include recompiles only the density
+program; changing a volume table row or 3D noise include recompiles only the density
 program. Each isolated change loads the other five cached programs. Actual vertex heights
 verify that uniforms are reapplied after binary loads and both relief and volume
-source edits reach the geometry. An invalid included shader must report its source path/original line,
+source edits reach the geometry. A temporary common evaluator makes the polar
+row’s cave-radius parameter directly observable as a plane offset: changing only
+that table value from 0.5 to 0.75 moves the measured plane from 6.75 to 7.0 while
+recompiling only the density program. An invalid included shader must report its source path/original line,
 not reuse an obsolete binary; fixing it or restoring a missing include must allow
 another successful initialization. The production shader directory and user cache
 are not edited by this fixture.
@@ -195,21 +199,40 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_background_compiler.py \
 The biome pipeline fixture exports the production C++ matrices and packed cell
 records through `check_biome_layout.cpp`; it does not maintain separate
 Python/GLSL matrices. It checks all 64 climate/altitude cells, duplicate corner
-weight normalization, the marine slice, all 26 recipes through a single generic
+weight normalization, the marine slice, all 26 biomes through a single generic
 program pair, repeated bitwise fields, adjacent chunks/LOD halos and identical
-emitted positions/normals. Temporary polar recipes are replaced with Manhattan
-Voronoi 2D and Voronoi 3D code: the intended columns/density must change while
-other biomes remain unchanged. Setting detailScale to zero must suppress both
-edits. Production sources are not modified by that fixture.
+emitted positions/normals. A temporary polar relief is replaced with Manhattan
+Voronoi 2D code; a separate edit changes only the polar row of the 3D parameter
+table. Each edit must affect its intended output while leaving other biomes
+unchanged, and the 3D table edit must preserve all 2D columns. Setting detailScale
+to zero suppresses both edits. Production sources are not modified.
+
+`--reference-shaders` compares 60 cases against a saved shader revision. It checks
+unchanged 2D output and live column words (the former polar-activity word is now
+reserved and ignored in this comparison). The 26 forced biomes across two seeds,
+plus analytical fields, retain their densities within floating-point tolerance.
+The six mixed-climate cases compare columns only: blending parameters before a
+nonlinear density evaluation intentionally differs from blending old densities.
 
 The CPU table checks also verify that every fourth word is exactly the mask of
 its distinct volume corner IDs, with no undefined bits and no change in layout.
-`biome_mask_probe.py` replaces recipe bodies only in memory with known outputs
-and invocation counters. An independent CPU corner-blending oracle checks five
-surface contributors, eight distinct volume contributors, duplicate IDs including
-marine, zero-weight candidates, pure sea, empty surface masks and all 26 forced
-biomes. It verifies that each positive-weight recipe runs exactly once and that
-the prepared column receives the correct normal or forced mask.
+`biome_mask_probe.py` replaces surface bodies only in memory with known outputs
+and invocation counters. It checks five surface contributors, duplicate IDs,
+zero-weight candidates, pure sea, empty surface masks and all forced biomes.
+For 3D, an independent CPU corner-weight oracle compares all twelve interpolated
+parameters over 33 cases, including eight distinct contributors and repeated IDs.
+The instrumented common density entry must run once per sampled voxel rather
+than once per contributing biome. Normal and forced column masks are checked.
+A second probe instruments the real `fieldNoise3` entry without changing its
+calculation: an active band must evaluate three gradient noises, while samples
+outside the band, disabled volumes, zero thickness and analytical plane/sphere
+modes must evaluate none.
+
+The shared density kernel is also compared bit for bit with a scalar-per-voxel
+reference that does no group rejection: 65 cases cover band edges, distant
+positive/negative Y, partial workgroups, LODs, non-unit spacings and large
+coordinates. This guards the conservative early-out without duplicating its
+bounds logic in the oracle.
 
 The parallel-extension and background-worker fixtures remain independent engine
 service tests. Terrain generation no longer uses either compiler. The former
@@ -225,9 +248,15 @@ the production columns → density passes and binds the CPU table at SSBO 7.
 Climate classification is local to the columns pass; no classification buffer
 or GPU-to-CPU cell mask is used. The CPU-precomputed candidate mask occupies the
 existing fourth table word and `detail.w` in the completed column; float weights
-remain local to the GPU. `biome_profile_probe.glsl` contains test-only
-matrix inspection and legacy parameter-blend diagnostics; production generation
-blends independently evaluated biome densities. The mesh runner checks the
+remain local to the GPU. The former polar-activity word is reserved at zero.
+Prepared volume parameters occupy shared memory only: 32 columns × 14 floats
+(1,792 bytes per workgroup), reused by four Y invocations.
+Before preparation, a conservative interval test skips table interpolation when
+all valid Y samples of that group lie outside every permitted band position; its
+endpoints use the same integer world lattice as density sampling.
+`biome_profile_probe.glsl` contains test-only matrix inspection and reads the
+production 3D parameter table. Production generation interpolates those parameters
+and evaluates one common density function. The mesh runner checks the
 count/emit counters and overflow before constructing a CPU draw command; there
 is no finalization compute pass or per-slot GPU command buffer.
 
@@ -241,8 +270,8 @@ This test invokes the production GLSL for all 25 land recipes and the marine
 recipe. It checks finite/distinct height and volume signatures, real cavities
 inside the original solid, conservative vertical bounds, independent band
 offsets, all 25 paired matrix cells, smooth climate and shoreline transitions,
-and the exclusively marine lowest altitude slice. Actual independent density
-blends are checked across matrix boundaries in addition to profile diagnostics.
+and the exclusively marine lowest altitude slice. The common density field
+is checked across matrix boundaries in addition to parameter-profile diagnostics.
 Every forced biome is also
 checked for bit-identical density samples shared by two LODs. A climate survey
 across ±16 km and four seeds checks that all 25 dominant matrix cells occur;

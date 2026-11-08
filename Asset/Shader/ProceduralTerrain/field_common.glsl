@@ -29,7 +29,7 @@ struct FieldColumn
 {
     vec4 terrain; // surface height, humidity, temperature, total volume band
     vec4 blend;   // altitude ratio, global offset, relief offset, rock mask
-    uvec4 detail; // floatBits(polar activity), volume IDs 0..5, IDs 6..7, candidate mask
+    uvec4 detail; // reserved (zero), volume IDs 0..5, IDs 6..7, candidate mask
 };
 
 #include "field_noise_common.glsl"

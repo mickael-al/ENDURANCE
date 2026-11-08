@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
-"""Verify the generic biome pipeline, packed CPU matrices and editable 2D/3D recipes."""
+"""Verify the generic biome pipeline, packed CPU matrices, editable reliefs and 3D parameters."""
 import argparse
 import math
+import re
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 
 from biome_test_support import biome_exporter
-from biome_mask_probe import check_biome_masks
+from biome_mask_probe import check_biome_masks, check_volume_noise_budget
 from check_gpu import FieldRunner, MeshRunner, SHADERS, lattice_values, finite_columns
 from gl_headless import GL
 
@@ -57,7 +58,54 @@ def check_pipeline(gl):
     return generic
 
 
-def check_free_volume(gl, generic):
+def check_shared_volume(gl,generic):
+    """Verify shared preparation and whole-group rejection against scalar GLSL."""
+    with tempfile.TemporaryDirectory(prefix="terrain-direct-volume-") as temporary:
+        directory=Path(temporary)/"shaders"
+        shutil.copytree(SHADERS,directory)
+        (directory/"field_density.C.glsl").write_text("""#version 450 core
+#include "field_volume.glsl"
+layout(local_size_x=8,local_size_y=4,local_size_z=4) in;
+layout(std430,binding=0) writeonly buffer FieldDensity { float density[]; };
+layout(std430,binding=1) readonly buffer FieldColumns { FieldColumn columns[]; };
+void main()
+{
+    uvec3 p=gl_GlobalInvocationID;
+    uint side=uCells+3u;
+    if(any(greaterThanEqual(p,uvec3(side)))) return;
+    density[p.x+p.y*side+p.z*side*side]=fieldDensityAt(
+        fieldWorldPosition(ivec3(p)),columns[p.x+p.z*side]);
+}
+""")
+        direct=FieldRunner(gl,directory=directory)
+        cases=[]
+        for biome in (-1,0,19,25):
+            for lod in (0,2):
+                for y in (-256,-96,-48,-16,0,32,128):
+                    cases.append(dict(cells=8,origin=(-24,y,-16),lod=lod,seed=31,
+                        uBiomeOverride=biome,uHeightAmplitude=0.,uBaseHeight=0.,
+                        uBandThickness=32.,uBandVariation=0.,uBandOffset=-7.5,
+                        uBandOffsetVariation=16.,uDetailScale=.35,uClimateFrequency=.04))
+        # Non-power-of-two spacing, empty volumes and the last partial Y group.
+        for scale,spacing in ((0.,1.),(.35,.3),(.35,3.7)):
+            cases.append(dict(cells=9,origin=(-32,-24,-16),seed=19,
+                uBaseSpacing=spacing,uDetailScale=scale,uBiomeOverride=0,
+                uHeightAmplitude=0.,uBandThickness=0.,uBandVariation=0.))
+        for height in (-1048576.,1048576.):
+            for offset in (-80,0,80):
+                cases.append(dict(cells=9,origin=(-24,int(height)+offset,-16),lod=1,seed=31,
+                    uBiomeOverride=19,uBaseHeight=height,uHeightAmplitude=0.,
+                    uBandThickness=32.,uBandVariation=0.,uDetailScale=.35))
+        samples=0
+        for index,options in enumerate(cases):
+            actual=generic.run(**options)
+            expected=direct.run(**options)
+            compare(actual,expected,f"Shared versus scalar volume {index}")
+            samples+=len(actual["density"])
+    print(f"PASS shared volume preparation/rejection: {len(cases)} cases / {samples} densities bitwise equal to per-voxel evaluation; band edges, distant negative/positive origins, partial groups, LODs and nonbinary spacing")
+
+
+def check_volume_table_edit(gl, generic):
     options = dict(cells=8, origin=(-8,-8,-8), seed=1337, uBiomeOverride=0,
                    uHeightAmplitude=0., uBandThickness=256., uBandVariation=0.)
     before = generic.run(**options)
@@ -67,27 +115,23 @@ def check_free_volume(gl, generic):
         shutil.copytree(SHADERS, directory)
         path = directory/"biome_volume.glsl"
         source = path.read_text()
-        start = source.index("float fieldVolumePolarIce(")
-        body = source.index("{", start)
-        # A genuinely different 3D algorithm, with a bounded envelope, proves
-        # that the biome function controls density beyond parameter selection.
-        injected = """
-    float customBase=column.terrain.x-p.y;
-    float customBand=max(column.terrain.w*0.5,0.001);
-    float customWeight=1.0-smoothstep(0.0,customBand,abs(customBase));
-    return customBase+customWeight*(fieldCellular3(p*0.03125,713u)-0.5)*24.0;
-"""
-        path.write_text(source[:body+1] + injected + source[body+1:])
+        start=source.index("FIELD_BIOME_VOLUME")
+        row=re.search(r"vec4\s*\([^()]*\)",source[start:])
+        assert row, "Missing polar volume row"
+        first,last=start+row.start(),start+row.end()
+        # Change only polar offset/displacement/carving. Other table rows and
+        # the common evaluator stay identical, as during ordinary shader tuning.
+        path.write_text(source[:first]+"vec4(0.0,32.0,0.0,0.40)"+source[last:])
         edited = FieldRunner(gl,directory=directory)
         after = edited.run(**options)
-        assert before["columns_raw"] == after["columns_raw"], "Editing a volume recipe changed the 2D preparation"
-        assert before["density_raw"] != after["density_raw"], "Custom Voronoi 3D recipe did not change the density"
+        assert before["columns_raw"] == after["columns_raw"], "Editing the volume table changed the 2D preparation"
+        assert before["density_raw"] != after["density_raw"], "Editing polar volume parameters did not change density"
         assert all(math.isfinite(x) for x in after["density"])
         other_after = edited.run(**dict(options,uBiomeOverride=11))
         compare(other_before,other_after,"Unedited biome after polar 3D edit")
         disabled=dict(options,uDetailScale=0.)
         compare(generic.run(**disabled),edited.run(**disabled),"Disabled 3D details after recipe edit")
-    print("PASS free 3D recipe: temporary polar Voronoi code changes actual density, preserves 2D columns and leaves another biome unchanged")
+    print("PASS editable 3D table: polar parameter edit changes density, preserves 2D columns and leaves another biome unchanged")
 
 
 def check_free_surface(gl, generic):
@@ -118,8 +162,9 @@ def check_free_surface(gl, generic):
 
 
 def check_reference(gl, generic, directory):
-    """Compare actual column/density passes against a saved shader revision."""
+    """Preserve all 2D data and forced-biome density; mixed 3D intentionally changes."""
     old=FieldRunner(gl,directory=directory)
+    parameter_reference="FIELD_BIOME_VOLUME" in (directory/"biome_volume.glsl").read_text()
     cases=[]
     for biome in range(26):
         for seed in (1337,98765):
@@ -134,27 +179,43 @@ def check_reference(gl, generic, directory):
     cases += [dict(cells=8,origin=(-8,-4,-12),mode=mode,seed=31)
               for mode in (1,2)]
     samples=0
+    largest_error=0.
+    changed_mixed=0
+    def live_columns(raw):
+        return b"".join(raw[i:i+32]+raw[i+36:i+48] for i in range(0,len(raw),48))
     for index,options in enumerate(cases):
         before,after=old.run(**options),generic.run(**options)
-        compare(before,after,f"Reference field {index}")
-        samples+=len(after["density"])
-    print(f"PASS shader refactor reference: {len(cases)} cases / {samples} densities and all packed columns bitwise unchanged; 26 biomes, two seeds, mixed climates and LODs")
+        # The unused polar-activity metadata word is now reserved/zero. Every
+        # height, band, climate, local ratio and packed biome ID must be exact.
+        assert live_columns(before["columns_raw"])==live_columns(after["columns_raw"]), ("Reference column changed",index)
+        if parameter_reference or options.get("uBiomeOverride",-1)>=0 or options.get("mode",0)!=0:
+            for a,b in zip(before["density"],after["density"]):
+                largest_error=max(largest_error,abs(a-b))
+                assert math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5), ("Forced biome density changed",index,a,b)
+            samples+=len(after["density"])
+        elif before["density_raw"]!=after["density_raw"]:
+            changed_mixed+=1
+    if not parameter_reference:
+        assert changed_mixed>0, "Mixed density still follows the former per-biome blend"
+    print(f"PASS table refactor reference: {len(cases)} unchanged 2D-column cases; {samples} forced/analytic density samples within tolerance (max error {largest_error:.6g}); {changed_mixed} mixed cases now blend parameters")
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference-shaders",type=Path,
-        help="Optional saved ProceduralTerrain directory for bitwise field equivalence")
+        help="Saved ProceduralTerrain directory: exact 2D data, tolerant forced-density comparison; mixed volumes intentionally change")
     args=parser.parse_args()
     subprocess.run([str(biome_exporter())],check=True)
     with GL() as gl:
         print(f"OpenGL {gl.version}; renderer: {gl.renderer}",flush=True)
         check_biome_masks(gl)
+        check_volume_noise_budget(gl)
         generic=check_pipeline(gl)
+        check_shared_volume(gl,generic)
         if args.reference_shaders:
             check_reference(gl,generic,args.reference_shaders)
         check_free_surface(gl,generic)
-        check_free_volume(gl,generic)
+        check_volume_table_edit(gl,generic)
         gl.check("generic biome pipeline")
     return 0
 

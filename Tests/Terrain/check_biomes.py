@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Exercise every production biome recipe and optionally render diagnostic atlases.
 
-Terrain heights and densities come from the actual GLSL implementation. Former
-parameter-blend diagnostics use a frozen test-only profile table. Readbacks here
+Terrain heights, densities and parameter diagnostics come from the actual GLSL
+implementation and production parameter table. Readbacks here
 are test instrumentation and never enter the terrain runtime path.
 """
 from __future__ import annotations
@@ -178,7 +178,6 @@ class BiomeProbe:
 def check_recipes(gl):
     probe=BiomeProbe(gl)
     heights=set()
-    profiles=set()
     records=[]
     carved_biomes=[]
     for biome,name in enumerate(BIOMES):
@@ -195,7 +194,6 @@ def check_recipes(gl):
             assert min(height,height+offset-band*.5)>=-696.0001,("Biome escaped conservative lower bound",biome,height,band,offset)
             assert max(height,height+offset+band*.5)<=696.0001,("Biome escaped conservative upper bound",biome,height,band,offset)
         heights.add(tuple(round(v,4) for v in h))
-        profiles.add(tuple(round(v,5) for n in range(4,16) for v in data[n::16]))
         carved=0
         for i in range(sample["size"]**2):
             band,offset=data[i*16+3],data[i*16+4]
@@ -207,14 +205,13 @@ def check_recipes(gl):
                         "height_span":height_span,"average_band":statistics.fmean(data[3::16]),"carved_interior_samples":carved})
     assert len(carved_biomes)==len(BIOMES),("Some volume recipes never carve the solid in the diagnostic region",carved_biomes)
     assert len(heights)==len(BIOMES),f"Only {len(heights)} distinct height recipes for {len(BIOMES)} biomes"
-    assert len(profiles)==len(BIOMES),f"Only {len(profiles)} distinct volume/profile signatures"
     a=probe.run(biome=19)
     b=probe.run(biome=19)
     assert a["raw"]==b["raw"],"Forced biome is not deterministic"
     shifted=probe.run(biome=19,uBandOffset=-96.)
     assert a["values"][0::16]==shifted["values"][0::16],"Band offset changed the initial height surface"
     assert all(abs((y-x)+96.)<2e-5 for x,y in zip(a["values"][4::16],shifted["values"][4::16])),"Band offset was not applied independently"
-    print(f"PASS all biomes: {len(BIOMES)} distinct finite 2D/3D recipes with interior carving; forced seed and independent volume offset")
+    print(f"PASS all biomes: {len(BIOMES)} distinct finite reliefs and parameterized volumes with interior carving; forced seed and independent volume offset")
     return probe,records
 
 
@@ -246,9 +243,8 @@ def check_matrix_continuity(probe):
         ocean.append(data[4:16])
     assert all(ocean[0]==row for row in ocean[1:]),"Lowest volume slice is not exclusively marine"
     print(f"PASS matrices: all 25 climate cells select paired recipes; continuous 2D/3D boundaries; complete marine altitude slice; largest epsilon jump {largest:.6g}")
-    # The profiles above are diagnostic compatibility helpers. Independently
-    # exercise the actual per-biome density blend, which is intentionally no
-    # longer a density evaluated from those blended profiles.
+    # Also exercise actual densities: the common nonlinear formula must remain
+    # continuous when its locally interpolated parameters cross matrix cells.
     largest_density=0.
     for axis in range(3):
         for boundary in (.25,.5,.75):
@@ -260,7 +256,7 @@ def check_matrix_continuity(probe):
                 jump=max(abs(x-y) for x,y in zip(a,b))
                 largest_density=max(largest_density,jump)
                 assert jump<.05,("Actual density blend jumps across a matrix boundary",axis,boundary,height,jump)
-    print(f"PASS independent density interpolation: continuous matrix boundaries, largest epsilon jump {largest_density:.6g}")
+    print(f"PASS parameterized density evaluation: continuous matrix boundaries, largest epsilon jump {largest_density:.6g}")
 
 
 
