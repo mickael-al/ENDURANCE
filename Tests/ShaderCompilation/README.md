@@ -49,3 +49,25 @@ directory blocked by a regular file. The last case remains effective when the
 test runs as root. Fixture-local GL query wrappers simulate the renderer and
 format cases; all ordinary queries use the real driver. No elapsed-time limit or
 GPU performance claim is derived from these correctness tests.
+
+## Fixed startup program batches
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/ShaderCompilation/check_batch.py \
+  --glew-object /tmp/endurance-glew-pic.o
+```
+
+`--glew-object` also accepts a GLEW shared library. The batch fixture additionally
+links `ShaderProgramBatch` and the existing `ParallelShaderCompiler`. It builds
+eleven independently included compute programs, exceeding the eight-program
+pending queue, and executes every result in request order. GL entry-point
+counters check that binary-retrieval hints precede links, cold requests compile
+once, warm requests only load binaries, and changing one selected include or
+one request's definitions recompiles exactly one program.
+
+The failure cases verify that a missing include cannot be hidden by an old
+binary, a GLSL failure retains the numbered include source map, and no partial
+result or program/shader object survives a failed batch. Disabling the exposed
+parallel-compile extension flags exercises the synchronous startup fallback
+and its cache reuse. The previous driver compiler-thread hint must be restored.
+These checks use a real OpenGL context; they do not estimate GPU performance.

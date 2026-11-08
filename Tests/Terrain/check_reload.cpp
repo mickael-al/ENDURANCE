@@ -66,30 +66,15 @@ std::string planeRelief(std::string source, const char* height, const char* thic
     source.insert(body + 1, std::string("\n    return vec4(") + height + ", " + thickness + ", 0.0, 0.0);\n");
     return source;
 }
-std::string planeDensity(std::string source)
+std::string constantDelta(std::string source,const char* delta)
 {
-    const auto function = source.find("float fieldDensityAtPrepared(");
-    require(function != std::string::npos, "Production volume evaluator missing");
+    const auto function = source.find("float fieldVolumePolarIce(");
+    require(function != std::string::npos, "Independent polar volume function missing");
     const auto body = source.find('{', function);
     require(body != std::string::npos, "Production volume evaluator body missing");
-    // A deterministic fixture makes the table's radius observable directly in
-    // the mesh, independently of the current artistic noise parameters.
-    source.insert(body + 1, "\n    return terrain.x-p.y+shape.w;\n");
-    return source;
-}
-std::string polarRadius(std::string source, const char* radius)
-{
-    const auto table = source.find("const vec4 FIELD_BIOME_VOLUME");
-    require(table != std::string::npos, "Production volume parameter table missing");
-    const auto volume = source.find("vec4(", table);
-    require(volume != std::string::npos, "Polar volume parameters missing");
-    const auto shape = source.find("vec4(", volume + 5);
-    require(shape != std::string::npos, "Polar shape parameters missing");
-    const auto end = source.find(')', shape);
-    require(end != std::string::npos, "Polar shape parameter terminator missing");
-    const auto comma = source.rfind(',', end);
-    require(comma != std::string::npos && comma > shape, "Polar radius parameter missing");
-    source.replace(comma + 1, end - comma - 1, radius);
+    // A completely custom function proves the per-biome API is a density
+    // contribution, rather than an entry in a shared parameter interpolation.
+    source.insert(body + 1, std::string("\n    return ")+delta+";\n");
     return source;
 }
 MeshHandle finishPlane(GpuMesher& mesher, float height, std::uint64_t token)
@@ -97,7 +82,7 @@ MeshHandle finishPlane(GpuMesher& mesher, float height, std::uint64_t token)
     ChunkRequest request;
     require(mesher.submit(request, token), mesher.lastError());
     std::vector<Completion> completed;
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(10);
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
     while (completed.empty() && std::chrono::steady_clock::now() < deadline)
     {
         mesher.poll(completed);
@@ -130,8 +115,8 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(GLEW_VERSION_4_5 && glCreateBuffers, "Reload test requires desktop OpenGL 4.5");
         while (glGetError() != GL_NO_ERROR) {}
         const std::filesystem::path directory(shaderDirectory);
-        const auto reliefPath = directory / "biome_relief.glsl";
-        const auto volumePath = directory / "biome_volume.glsl";
+        const auto reliefPath = directory / "biomes/PolarIce/relief.glsl";
+        const auto volumePath = directory / "biomes/PolarIce/volume.glsl";
         const auto originalRelief = read(reliefPath);
         const auto originalVolume = read(volumePath);
         const auto noise2Path = directory / "field_noise_2d.glsl";
@@ -149,17 +134,18 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS,&binaryFormats);
         const bool binariesSupported=binaryFormats>0 && glProgramBinary && glGetProgramBinary;
         CompileObserver observer;
+        constexpr unsigned programs=60; // 26 2D + 26 3D + 4 field + 4 extraction.
 
         write(reliefPath, planeRelief(originalRelief, "2.25"));
         require(mesher.initialize(config, error), error);
         const auto first = finishPlane(mesher, 2.25f, 1);
         const auto coldCompiles=compileCalls, coldLinks=linkCalls, coldBinaries=binaryCalls;
-        require(coldCompiles==6 && coldLinks==6,"Cold terrain initialization did not compile six programs");
+        require(coldCompiles==programs && coldLinks==programs,"Cold terrain initialization did not compile the fixed 60-program family");
         require(mesher.initialize(config,error),error);
         finishPlane(mesher,2.25f,10);
         if(binariesSupported)
-            require(compileCalls==coldCompiles && linkCalls==coldLinks && binaryCalls==coldBinaries+6,
-                "Unchanged regeneration did not load all six cached programs");
+            require(compileCalls==coldCompiles && linkCalls==coldLinks && binaryCalls==coldBinaries+programs,
+                "Unchanged regeneration did not load the full fixed family from cache");
         // Settings are uniforms, not source changes. A binary load resets
         // uniforms: this also checks that reinitialization reapplies them.
         config.field.baseHeight=1.0f;
@@ -167,7 +153,7 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(mesher.initialize(config,error),error);
         finishPlane(mesher,3.25f,11);
         if(binariesSupported)
-            require(compileCalls==warmCompiles && linkCalls==warmLinks && binaryCalls==warmBinaries+6,
+            require(compileCalls==warmCompiles && linkCalls==warmLinks && binaryCalls==warmBinaries+programs,
                 "Changing terrain settings unnecessarily recompiled cached programs");
         config.field.baseHeight=0;
         const auto editCompiles=compileCalls, editLinks=linkCalls, editBinaries=binaryCalls;
@@ -175,38 +161,37 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(mesher.initialize(config, error), error);
         const auto second = finishPlane(mesher, 6.25f, 2);
         if(binariesSupported)
-            require(compileCalls==editCompiles+1 && linkCalls==editLinks+1 && binaryCalls==editBinaries+5,
-                "Relief edit must rebuild columns and reuse density plus meshing programs");
+            require(compileCalls==editCompiles+1 && linkCalls==editLinks+1 && binaryCalls==editBinaries+programs-1,
+                "Polar relief edit must rebuild only its 2D specialization");
         require(!mesher.valid(first) && mesher.valid(second), "Reload retained an obsolete mesh handle");
 
-        auto isolatedReload = [&](const char* label, float expectedHeight, std::uint64_t token)
+        auto isolatedReload = [&](const char* label, float expectedHeight, std::uint64_t token,unsigned expectedCompiles=1)
         {
             const auto beforeCompiles=compileCalls, beforeLinks=linkCalls, beforeBinaries=binaryCalls;
             require(mesher.initialize(config,error),error);
             finishPlane(mesher,expectedHeight,token);
             if(binariesSupported)
-                require(compileCalls==beforeCompiles+1 && linkCalls==beforeLinks+1 &&
-                    binaryCalls==beforeBinaries+5,std::string(label)+": edit escaped its own field pass");
+                require(compileCalls==beforeCompiles+expectedCompiles && linkCalls==beforeLinks+expectedCompiles &&
+                    binaryCalls==beforeBinaries+programs-expectedCompiles,
+                    std::string(label)+": edit escaped its dependencies (compiled "+
+                    std::to_string(compileCalls-beforeCompiles)+", binaries "+std::to_string(binaryCalls-beforeBinaries)+")");
         };
         // Comments also change the exact source hash. Each dimension must
-        // invalidate only its owning program, never its sibling pass.
+        // invalidate its own users, never unrelated biome or meshing sources.
         write(noise2Path,originalNoise2+"\n// 2D-only dependency edit\n");
-        isolatedReload("2D noise",6.25f,12);
-        const auto customVolume=planeDensity(originalVolume);
-        write(volumePath,customVolume);
+        isolatedReload("2D noise",6.25f,12,27); // classification + 26 reliefs.
+        write(volumePath,constantDelta(originalVolume,"0.1"));
         isolatedReload("3D evaluator with zero biome band",6.25f,13);
         // Only the 2D biome owns thickness: enabling it must reach the 3D pass
         // without recompiling that pass or changing any global field setting.
         write(reliefPath,planeRelief(originalRelief,"6.25","256.0"));
         isolatedReload("2D biome enables volume band",6.35f,16);
-        write(volumePath,polarRadius(customVolume,"0.5"));
-        isolatedReload("3D radius",6.75f,17);
-        // Only a parameter changes here: the common evaluator stays identical.
-        // This exercises the same nested dependency as an in-editor table edit.
-        write(volumePath,polarRadius(customVolume,"0.75"));
-        isolatedReload("3D parameter table",7.0f,15);
+        write(volumePath,constantDelta(originalVolume,"0.5"));
+        isolatedReload("Polar 3D function",6.75f,17);
+        write(volumePath,constantDelta(originalVolume,"0.75"));
+        isolatedReload("Polar 3D contribution",7.0f,15);
         write(noise3Path,originalNoise3+"\n// 3D-only dependency edit\n");
-        isolatedReload("3D noise",7.0f,14);
+        isolatedReload("3D noise",7.0f,14,26);
         write(reliefPath,planeRelief(originalRelief,"6.25"));
         require(mesher.initialize(config,error),error);
         finishPlane(mesher,6.25f,18);
@@ -214,7 +199,7 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         const auto invalidLine = std::count(originalVolume.begin(), originalVolume.end(), '\n') + 2;
         write(volumePath, originalVolume + "\nPOLAR_RELOAD_SYNTAX_ERROR\n");
         require(!mesher.initialize(config, error), "Invalid nested biome GLSL unexpectedly compiled");
-        require(error.find("biome_volume.glsl") != std::string::npos &&
+        require(error.find("biomes/PolarIce/volume.glsl") != std::string::npos &&
             error.find("GLSL source files") != std::string::npos &&
             error.find(std::to_string(invalidLine)) != std::string::npos,
             "Compiler error did not identify the nested source and original line: " + error);
@@ -224,17 +209,17 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(mesher.initialize(config, error), error);
         finishPlane(mesher, 6.25f, 3);
 
-        std::filesystem::rename(volumePath, directory / "biome_volume.saved");
-        require(!mesher.initialize(config, error) && error.find("biome_volume.glsl") != std::string::npos,
+        std::filesystem::rename(volumePath, directory / "polar_volume.saved");
+        require(!mesher.initialize(config, error) && error.find("biomes/PolarIce/volume.glsl") != std::string::npos,
             "Missing nested include did not report its path");
-        std::filesystem::rename(directory / "biome_volume.saved", volumePath);
+        std::filesystem::rename(directory / "polar_volume.saved", volumePath);
         require(mesher.initialize(config, error), error);
         finishPlane(mesher, 6.25f, 4);
         mesher.shutdown();
         require(glGetError() == GL_NO_ERROR, "OpenGL error after failed/recovered reload");
         std::cout << "PASS shader reload: nested biome edit changes real vertices without process restart\n";
         if(binariesSupported)
-            std::cout << "PASS terrain binary cache: unchanged/settings-only regeneration loads six binaries; isolated relief/volume-table/2D-noise/3D-noise edits each recompile one program and load five binaries\n";
+            std::cout << "PASS terrain binary cache: 60 fixed programs; unchanged/settings-only regeneration loads all binaries; biome-local 2D/3D edits rebuild one program; shared noise edits rebuild only their dimension\n";
         std::cout << "PASS shader diagnostics: original include path/line, missing file and corrected-file retry\n";
         return 0;
     }

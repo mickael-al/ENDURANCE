@@ -3,10 +3,18 @@
 #define ENDURANCE_FIELD_COMMON_GLSL
 
 uniform uint uCells;
+#ifdef FIELD_BATCHED
+// Each invocation selects a GPU job before evaluating any world-space noise.
+// The same recipes also work in diagnostic shaders using ordinary uniforms.
+ivec3 uOrigin;
+uint uLod;
+uint uSeed;
+#else
 uniform ivec3 uOrigin;
 uniform uint uLod;
-uniform float uBaseSpacing;
 uniform uint uSeed;
+#endif
+uniform float uBaseSpacing;
 uniform uint uFieldMode;
 uniform float uBaseHeight;
 uniform float uHeightAmplitude;
@@ -27,7 +35,7 @@ struct FieldColumn
 {
     vec4 terrain; // surface height, humidity, temperature, total volume band
     vec4 blend;   // altitude ratio, global offset, relief offset, rock mask
-    uvec4 detail; // reserved (zero), volume IDs 0..5, IDs 6..7, candidate mask
+    uvec4 detail; // surface IDs + matrix cell, volume IDs 0..5, IDs 6..7, candidate mask
 };
 
 #include "field_noise_common.glsl"

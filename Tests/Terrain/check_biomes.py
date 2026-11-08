@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Exercise every production biome recipe and optionally render diagnostic atlases.
 
-Terrain heights, densities and parameter diagnostics come from the actual GLSL
-implementation and production parameter table. Readbacks here
+Terrain heights and densities use the scalar reference over the actual guarded
+GLSL recipes. Parameters describe their optional default helper. Readbacks here
 are test instrumentation and never enter the terrain runtime path.
 """
 from __future__ import annotations
@@ -210,7 +210,7 @@ def check_recipes(gl):
     shifted=probe.run(biome=19,uBandOffset=-96.)
     assert a["values"][0::16]==shifted["values"][0::16],"Band offset changed the initial height surface"
     assert all(abs((y-x)+96.)<2e-5 for x,y in zip(a["values"][4::16],shifted["values"][4::16])),"Band offset was not applied independently"
-    print(f"PASS all biomes: {len(BIOMES)} distinct finite reliefs and parameterized volumes with interior carving; forced seed and independent volume offset")
+    print(f"PASS all biomes: {len(BIOMES)} distinct finite reliefs and default volume recipes with interior carving; forced seed and independent volume offset")
     return probe,records
 
 
@@ -242,8 +242,8 @@ def check_matrix_continuity(probe):
         ocean.append(data[4:16])
     assert all(ocean[0]==row for row in ocean[1:]),"Lowest volume slice is not exclusively marine"
     print(f"PASS matrices: all 25 climate cells select paired recipes; continuous 2D/3D boundaries; complete marine altitude slice; largest epsilon jump {largest:.6g}")
-    # Also exercise actual densities: the common nonlinear formula must remain
-    # continuous when its locally interpolated parameters cross matrix cells.
+    # Also exercise actual densities: the weighted independent contributions
+    # must remain continuous as the local weights cross matrix cells.
     largest_density=0.
     for axis in range(3):
         for boundary in (.25,.5,.75):
@@ -255,7 +255,7 @@ def check_matrix_continuity(probe):
                 jump=max(abs(x-y) for x,y in zip(a,b))
                 largest_density=max(largest_density,jump)
                 assert jump<.05,("Actual density blend jumps across a matrix boundary",axis,boundary,height,jump)
-    print(f"PASS parameterized density evaluation: continuous matrix boundaries, largest epsilon jump {largest_density:.6g}")
+    print(f"PASS accumulated density evaluation: continuous matrix boundaries, largest epsilon jump {largest_density:.6g}")
 
 
 

@@ -1,4 +1,4 @@
-"""Check sparse 2D dispatch and the common 3D table against CPU corner sums.
+"""Check scalar diagnostic dispatch and default controls against CPU corner sums.
 
 Only relief/evaluator bodies are instrumented in memory. Production column
 preparation, packed ID decoding, table and interpolation remain untouched.
@@ -12,9 +12,9 @@ from gl_headless import shader_source
 
 
 RELIEF_NAMES = """
-PolarIce FrozenTundra Tundra Taiga BorealWetland RockyTundra ColdSteppe
-BorealForest ColdForest ColdMarsh DryPlain Prairie TemperateForest
-HumidTemperateForest TemperateMarsh RockDesert DrySavanna Savanna DryJungle
+PolarIce FrozenTundra Tundra Taiga BorealBog RockyTundra ColdSteppe
+BorealForest ColdForest ColdMarsh DryPlain Meadow TemperateForest
+TemperateRainforest TemperateMarsh RockDesert DrySavanna Savanna DryJungle
 TropicalJungle VolcanicDesert RedDesert AridPlateau BurningJungle
 TropicalMangrove Marine
 """.split()
@@ -79,6 +79,14 @@ def volume_table(source):
     declaration=source[start:source.index(";",start)]
     values=[tuple(float(v.strip()) for v in row.split(","))
             for row in re.findall(r"vec4\s*\(([^()]*)\)",declaration)]
+    if not values:
+        # The diagnostic table now references constants in independent biome
+        # source files. Resolve those values as data, preserving the separate
+        # CPU corner-sum oracle below.
+        constants={name:tuple(float(v.strip()) for v in row.split(","))
+                   for name,row in re.findall(
+                       r"const\s+vec4\s+(FIELD_(?:VOLUME|SHAPE|STYLE)_\w+)\s*=\s*vec4\(([^()]*)\)",source)}
+        values=[constants[name] for name in re.findall(r"FIELD_(?:VOLUME|SHAPE|STYLE)_\w+",declaration)]
     assert len(values)==26*3 and all(len(row)==4 for row in values)
     return [sum(values[biome*3:biome*3+3],()) for biome in range(26)]
 
@@ -90,8 +98,8 @@ def check_biome_masks(gl):
             f"++surfaceCalls[{biome}]; return vec4({biome}.0-13.0,"
             f"{biome}.0+2.0,{biome}.0*0.5,0.5);")
     table=volume_table(source)
-    source=replace_body(source,"fieldDensityAtPrepared",
-        "++volumeCalls; return terrain.x-p.y;")
+    for name in RELIEF_NAMES:
+        source=replace_body(source,"fieldVolume"+name,"++volumeCalls; return 0.0;")
     source = "#version 450 core\nuint surfaceCalls[26];\nuint volumeCalls;\n" + source + PROBE
     program = gl.compile([(0x91B9, source)], "sparse biome mask probe")
     inputs = gl.buffer(48, 9)
@@ -147,13 +155,21 @@ def check_biome_masks(gl):
         assert all(math.isclose(a,b,rel_tol=2e-6,abs_tol=3e-5)
                    for a,b in zip(result[:17],expected)), ("Local table blend",case,result[:17],expected)
         assert result[18:44] == tuple(int(w>0.) for w in surface_weights), ("Surface recipe call count",case)
-        assert result[44] == 1, ("Common volume evaluator call count",case,result[44])
+        density_weights=[0.]*26
+        if override>=0:
+            density_weights[override]=1.
+        else:
+            # The density probe's actual column climate is (0.5,0.5), an exact
+            # matrix node; parameter diagnostics above use arbitrary ratios.
+            density_weights[volume_ids[0]]+=1-altitude
+            density_weights[volume_ids[4]]+=altitude
+        assert result[44] == sum(w>0 for w in density_weights), ("Scalar per-biome call count",case,result[44])
     gl.check("biome mask probe")
-    print("PASS sparse surface masks/common volume table: 33 cases, five surface/eight volume contributors, duplicates, zero weights, sea and all forced IDs; 12 parameters match CPU corner sums and density is evaluated once")
+    print("PASS diagnostic biome masks/controls: 33 cases, five surface/eight volume contributors, duplicates, zero weights, sea and forced IDs; default controls match CPU corner sums and each positive density contributor runs once")
 
 
 def check_volume_noise_budget(gl):
-    """Count real gradient-noise evaluations, including the cheap rejection paths."""
+    """Inspect one default helper's noise calls, not the whole accumulated field."""
     source=shader_source(SHADERS/"field_volume.glsl")
     match=re.search(r"float\s+fieldNoise3\s*\([^)]*\)\s*\{",source)
     assert match
@@ -203,4 +219,4 @@ void main()
             target=20.-math.sqrt(8.**2+y*y+20.**2) if mode==2 else 10.-y
             assert math.isclose(density,target,rel_tol=1e-6,abs_tol=1e-5),("Rejected volume changed density",density,target)
     gl.check("volume noise budget")
-    print("PASS common volume noise budget: three gradient calls inside an active band; zero outside, for disabled volumes and analytical modes")
+    print("PASS default recipe-helper noise calls: three inside one active band; zero outside, for disabled volumes and analytical modes (not a whole-field budget)")

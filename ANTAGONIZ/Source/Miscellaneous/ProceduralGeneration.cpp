@@ -73,15 +73,16 @@ namespace
 
     struct ComputeState
     {
-        GLint program = 0, storage = 0;
+        GLint program = 0, storage = 0, dispatchIndirect = 0;
         // Only these bindings are touched by the field/meshing passes.
-        static constexpr std::array<GLuint, 6> indices{{0, 1, 2, 3, 4, 7}};
-        std::array<GLint, 6> bindings{};
-        std::array<GLint64, 6> starts{}, sizes{};
+        static constexpr std::array<GLuint, 8> indices{{0, 1, 2, 3, 4, 5, 6, 7}};
+        std::array<GLint, 8> bindings{};
+        std::array<GLint64, 8> starts{}, sizes{};
         ComputeState()
         {
             glGetIntegerv(GL_CURRENT_PROGRAM, &program);
             glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING, &storage);
+            glGetIntegerv(GL_DISPATCH_INDIRECT_BUFFER_BINDING, &dispatchIndirect);
             for (GLuint i = 0; i < bindings.size(); ++i)
             {
                 glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, indices[i], &bindings[i]);
@@ -99,6 +100,7 @@ namespace
                 else glBindBufferBase(GL_SHADER_STORAGE_BUFFER, indices[i], bindings[i]);
             }
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, storage);
+            glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchIndirect);
         }
     };
 
@@ -436,6 +438,9 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         ++dispatched;
         --queued;
     }
+    // One field batch for the whole frame's ready chunks. Start it now instead
+    // of leaving the GPU idle until the next frame's completion poll.
+    if (dispatched && !failed) s.gpu.dispatchQueued();
     if (failed)
     {
         // Keep the published coverage intact, with no automatic failure loop.

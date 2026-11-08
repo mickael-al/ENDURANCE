@@ -1,10 +1,13 @@
-// Density pass: blend the biome controls locally, then evaluate one common field.
+// Scalar diagnostic/reference evaluator. Production uses the fixed per-biome
+// field_batch_* family; this aggregate keeps direct probes on the same density
+// semantics without reproducing GPU work-list scheduling.
 #ifndef ENDURANCE_FIELD_VOLUME_GLSL
 #define ENDURANCE_FIELD_VOLUME_GLSL
 
 #include "field_common.glsl"
 #include "field_noise_3d.glsl"
 #include "biome_volume.glsl"
+#include "field_weights.glsl"
 
 vec2 fieldColumnClimateRatio(FieldColumn column)
 {
@@ -12,8 +15,8 @@ vec2 fieldColumnClimateRatio(FieldColumn column)
     return fieldFade(grid-min(floor(grid),vec2(3.0)));
 }
 
-// Return raw table controls. Repeated matrix IDs share one table lookup;
-// local humidity/temperature/altitude still determine the trilinear weights.
+// Diagnostic views of the default recipe controls only. Custom 3D functions
+// need not have a parameter representation; generation never blends this table.
 void fieldVolumeParameters(FieldColumn column,vec2 climateRatio,
                            out vec4 volume,out vec4 shape,out vec4 style)
 {
@@ -49,7 +52,7 @@ void fieldVolumeParameters(FieldColumn column,vec2 climateRatio,
     }
 }
 
-// Fold all column-only work into the values shared by four Y invocations.
+// Legacy default-helper diagnostics; not used by the accumulation pipeline.
 // terrain: surface height, half band thickness.
 // volume: absolute band center, scaled displacement, scaled carving, feather distance.
 void fieldPrepareVolume(FieldColumn column,out vec2 terrain,
@@ -71,10 +74,24 @@ void fieldPrepareVolume(FieldColumn column,out vec2 terrain,
 
 float fieldDensityAt(vec3 p,FieldColumn column)
 {
-    vec2 terrain;
-    vec4 volume,shape,style;
-    fieldPrepareVolume(column,terrain,volume,shape,style);
-    return fieldDensityAtPrepared(p,terrain,volume,shape,style);
+    if(uFieldMode==1u) return uBaseHeight-p.y;
+    if(uFieldMode==2u) return uSphereRadius-length(p-uSphereCenter);
+    precise float density=column.terrain.x-p.y;
+    if(uDetailScale<=0.0 || column.terrain.w<=0.0002) return density;
+    vec2 envelope=fieldVolumeEnvelope(column);
+    if(p.y<envelope.x || p.y>envelope.y) return density;
+    uint remaining=fieldVolumeMask(column);
+    // Match the production family order even when corner IDs repeat. Each
+    // biome contributes only its signed delta; the common base is added once.
+    while(remaining!=0u)
+    {
+        uint biome=uint(findLSB(remaining));
+        remaining&=remaining-1u;
+        float weight=fieldVolumeWeight(column,biome);
+        if(weight>0.0)
+            density=density+weight*fieldBiomeDensityDelta(biome,p,column);
+    }
+    return density;
 }
 
 #endif

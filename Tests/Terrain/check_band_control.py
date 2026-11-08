@@ -36,7 +36,7 @@ def main():
     with tempfile.TemporaryDirectory(prefix='terrain-biome-band-') as temporary, GL() as gl:
         directory=Path(temporary)/'shaders'
         shutil.copytree(SHADERS,directory)
-        path=directory/'biome_relief.glsl'
+        path=directory/'biomes/PolarIce/relief.glsl'
         source=path.read_text()
         source='uniform float probeThickness;\nuniform int probeSpatialBand;\n'+source
         source=replace_body(source,'fieldReliefPolarIce', '''
@@ -46,15 +46,16 @@ def main():
 ''')
         path.write_text(source)
         runner=FieldRunner(gl,directory)
+        polar_program=runner.relief_programs[0]
         for obsolete in ('uBandThickness','uBandVariation'):
-            assert gl.glGetUniformLocation(runner.columns_program,obsolete.encode())==-1,obsolete
-        gl.uniform(runner.columns_program,'probeSpatialBand','1i',0)
+            assert gl.glGetUniformLocation(polar_program,obsolete.encode())==-1,obsolete
+        gl.uniform(polar_program,'probeSpatialBand','1i',0)
         options=dict(cells=9,origin=(-16,-24,-16),seed=1337,
                      uBiomeOverride=0,uHeightAmplitude=0.,uBaseHeight=3.)
         disabled_samples=0
         for scale in (0.,.35,1.,2.):
             for raw in (-12.25,0.,12.25,35.,576.,800.):
-                gl.uniform(runner.columns_program,'probeThickness','1f',raw)
+                gl.uniform(polar_program,'probeThickness','1f',raw)
                 field=runner.run(**options,uDetailScale=scale)
                 expected=f32(min(max(raw,0.),576.)*f32(scale))
                 assert all(math.isclose(v,expected,rel_tol=2e-7,abs_tol=1e-6)
@@ -63,7 +64,7 @@ def main():
 
         # Author-controlled spatial noise can turn 3D off in entire columns;
         # no independent global variation may reopen them.
-        gl.uniform(runner.columns_program,'probeSpatialBand','1i',1)
+        gl.uniform(polar_program,'probeSpatialBand','1i',1)
         field=runner.run(**dict(options,cells=32,origin=(-16,-24,-16)),uDetailScale=.35)
         bands=field['columns'][3::COLUMN_WORDS]
         assert any(v==0 for v in bands) and any(v>0 for v in bands)

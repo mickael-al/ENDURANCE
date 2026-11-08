@@ -1,0 +1,21 @@
+// Biome 6: ColdSteppe. The caller clamps and accumulates this 2D result.
+// x: relative height; y: total 3D band thickness; z: band offset; w: rock mask.
+// XYZ are in metres before detailScale; w is in [0,1].
+#ifdef FIELD_ENABLE_RELIEF_ColdSteppe
+#ifndef ENDURANCE_RELIEF_COLDSTEPPE_GLSL
+#define ENDURANCE_RELIEF_COLDSTEPPE_GLSL
+
+#include "../../biome_relief_common.glsl"
+
+vec4 fieldReliefColdSteppe(vec2 p)
+{
+    vec2 q = fieldSurfaceRotate(p, vec2(0.6, 0.8));
+    float h = fieldSurfaceFbm(q * vec2(0.0009, 0.002), 160u) * 72.0;
+    float mesa = fieldSurfaceLandmark(p, 512.0, 163u, 0.0, 0.21, 0.36, 0.50);
+    h = mix(h, fieldSurfaceTerrace(h, 26.0, 0.85), 0.42);
+    h += mesa * 190.0;
+    return vec4(h, 294.0, -50.0, mesa);
+}
+
+#endif
+#endif

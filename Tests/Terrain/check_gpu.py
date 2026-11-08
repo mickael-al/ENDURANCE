@@ -16,6 +16,7 @@ import tempfile
 
 from gl_headless import GL, GLUnavailable
 from biome_test_support import packed_biome_cells
+from field_batch_runner import BatchFieldRunner
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,7 +25,7 @@ COLUMN_WORDS = 12
 COLUMN_BYTES = COLUMN_WORDS * 4
 
 
-class FieldRunner:
+class LegacyFieldRunner:
     def __init__(self, gl: GL, directory=SHADERS):
         self.gl = gl
         self.mapping = gl.buffer(packed_biome_cells())
@@ -78,6 +79,13 @@ class FieldRunner:
             "side": side, "cells": cells, "origin": origin, "lod": lod,
             "uniforms": uniforms,
         }
+
+
+def FieldRunner(gl: GL, directory=SHADERS):
+    """Use the production pass family, or a saved legacy revision for comparison."""
+    if (Path(directory) / "field_batch_classify.C.glsl").is_file():
+        return BatchFieldRunner(gl, directory)
+    return LegacyFieldRunner(gl, directory)
 
 
 def lattice_values(result):

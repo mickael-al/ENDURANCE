@@ -72,6 +72,8 @@ namespace ProceduralTerrain
         double lastGenerationMilliseconds = 0.0;
         std::uint64_t transientFieldBytes = 0;
         std::uint64_t biomeMetadataBytes = 0;
+        std::uint64_t fieldBatches = 0;
+        std::uint32_t lastFieldBatchJobs = 0;
     };
 
     // All calls, including destruction, belong to the owning OpenGL context.
@@ -87,7 +89,13 @@ namespace ProceduralTerrain
 
         bool initialize(const GpuConfig& config, std::string& error);
         void shutdown() noexcept;
+        // Queue requests until poll(), allowing all ready chunks to share each
+        // biome's indirect dispatch. Capacity includes queued requests.
         bool submit(const ChunkRequest& request, std::uint64_t token);
+        // Submit the current batch without waiting or consuming completions.
+        // Frame schedulers call this after enqueuing all ready chunks; poll()
+        // also submits any remaining queue for standalone callers.
+        void dispatchQueued();
         void poll(std::vector<Completion>& completions);
         void cancel(std::uint64_t token) noexcept;
         void release(const MeshHandle& mesh) noexcept;
