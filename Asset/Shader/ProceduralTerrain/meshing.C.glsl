@@ -51,6 +51,8 @@ vec3 tileGradient(uint i)
 void main()
 {
     uint lane=gl_LocalInvocationIndex;
+    uint group=regularGroupIndex();
+    if(skipMeshGroup(group,true)) return;
     ivec3 groupOrigin=ivec3(gl_WorkGroupID)*ivec3(8,4,4);
     for(uint i=lane;i<TILE_SAMPLES;i+=128u)
     {
@@ -87,20 +89,51 @@ void main()
     uint first=outputBase+scan[lane]-count;
     // Every output is owned by this lane; the three uint words never require
     // atomic bitfield updates and cannot race with a neighbouring vertex.
+#if TERRAIN_EDGE_REUSE
+    // Only table words are cached, rather than twelve positions/normals or a
+    // dynamically indexed vertex array that can spill to per-thread memory.
+    uint tableBase=caseIndex*REGULAR_TABLE_STRIDE;
+    uvec4 edgeWords=uvec4(count>0u?tables[tableBase+1u]:0u,
+                         count>4u?tables[tableBase+2u]:0u,
+                         count>8u?tables[tableBase+3u]:0u,
+                         count>12u?tables[tableBase+4u]:0u);
+    uint seen=0u;
+#endif
     for(uint i=0u;i<count;++i)
     {
+#if TERRAIN_EDGE_REUSE
+        uint edge=(edgeWords[i/4u]>>((i%4u)*8u))&255u;
+#else
         uint word=tables[caseIndex*REGULAR_TABLE_STRIDE+1u+i/4u];
         uint edge=(word>>((i%4u)*8u))&255u;
+#endif
         uint ia=(edge>>4u)&15u;
         uint ib=edge&15u;
+#if TERRAIN_EDGE_REUSE
+        uint direction=ia^ib;
+        uint key=direction==1u?ia/2u:(direction==2u?4u+(ia&1u)+((ia>>1u)&2u):8u+(ia&3u));
+        uint bit=1u<<key;
+        if((seen&bit)!=0u) continue;
+        seen|=bit;
+#endif
         ivec3 a=cell+corner(ia);
         ivec3 b=cell+corner(ib);
         float t=edgeFraction(values[ia],values[ib]);
         vec3 p=interpolateEdge(vec3(a),vec3(b),t);
         vec3 normal=normalFromGradients(tileGradient(localBase+cornerOffset(ia)),tileGradient(localBase+cornerOffset(ib)),t);
-        vec2 climate=climateAt(p);
+        vec2 climate=regularEdgeClimate(p,ia^ib);
         p=transitionAdjustedPosition(p,normal,uTransitionMask,uCells);
+#if TERRAIN_EDGE_REUSE
+        uvec3 encoded=encodeVertex(p,normal,climate,false);
+        emitEncodedVertex(first+i,encoded);
+        // Repeated occurrences keep their original triangle order. The only
+        // additional work is a short scan of register-resident table bytes.
+        for(uint j=i+1u;j<count;++j)
+            if(((edgeWords[j/4u]>>((j%4u)*8u))&255u)==edge)
+                emitEncodedVertex(first+j,encoded);
+#else
         emitVertex(first+i,p,normal,climate,false);
+#endif
     }
 #else
     for(uint stride=64u;stride>0u;stride>>=1u)
@@ -108,6 +141,10 @@ void main()
         if(lane<stride) scan[lane]+=scan[lane+stride];
         barrier();
     }
-    if(lane==0u && scan[0]>0u) atomicAdd(total,scan[0]);
+    if(lane==0u)
+    {
+        recordMeshGroup(group,scan[0]);
+        if(scan[0]>0u) atomicAdd(total,scan[0]);
+    }
 #endif
 }

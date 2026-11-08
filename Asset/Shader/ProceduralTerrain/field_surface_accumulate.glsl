@@ -10,7 +10,7 @@ void main()
     uint side=uCells+3u;
     if(any(greaterThanEqual(p,uvec2(side)))) return;
     fieldSelectJob(job);
-    uint address=job*uColumnStride+p.x+p.y*side;
+    uint address=fieldJobs[job].storage.y*uColumnStride+p.x+p.y*side;
     FieldColumn column=columns[address];
     float weight=fieldSurfaceWeight(column,FIELD_BIOME_ID);
     if(weight<=0.0) return;
@@ -19,8 +19,7 @@ void main()
     // One writer per column in a pass. Sequential passes need storage barriers,
     // not float atomics or one field allocation per biome.
     precise vec4 accumulated=vec4(column.terrain.x,column.terrain.w,column.blend.zw)+relief*weight;
-    column.terrain.x=accumulated.x;
-    column.terrain.w=accumulated.y;
-    column.blend.zw=accumulated.zw;
-    columns[address]=column;
+    columns[address].terrain.x=accumulated.x;
+    columns[address].terrain.w=accumulated.y;
+    columns[address].blend.zw=accumulated.zw;
 }

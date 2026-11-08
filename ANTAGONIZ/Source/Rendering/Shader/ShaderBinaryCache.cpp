@@ -197,41 +197,61 @@ namespace Ge::detail
     bool ShaderBinaryCache::supports(unsigned int format) const
     { return std::binary_search(m_formats.begin(),m_formats.end(),format); }
 
+    ShaderBinaryEnvironment::ShaderBinaryEnvironment(bool enabled)
+    {
+        if (!enabled) return;
+        try
+        {
+            if (!(GLEW_VERSION_4_1 || GLEW_ARB_get_program_binary) || !glProgramBinary
+                || !glGetProgramBinary || !glProgramParameteri)
+            { unavailable="program binaries unsupported"; return; }
+            GLint count=0;
+            glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS,&count);
+            if (count<=0 || count>4096)
+            { unavailable="no usable binary formats"; return; }
+            std::vector<GLint> values(static_cast<std::size_t>(count));
+            glGetIntegerv(GL_PROGRAM_BINARY_FORMATS,values.data());
+            formats.assign(values.begin(),values.end());
+            std::sort(formats.begin(),formats.end());
+            formats.erase(std::unique(formats.begin(),formats.end()),formats.end());
+            const GLenum names[]={GL_VENDOR,GL_RENDERER,GL_VERSION,GL_SHADING_LANGUAGE_VERSION};
+            for (std::size_t i=0;i<driver.size();++i)
+            {
+                const auto* value=glGetString(names[i]);
+                if (!value) { unavailable="incomplete driver identity"; return; }
+                driver[i]=reinterpret_cast<const char*>(value);
+            }
+            GLint contextFlags=0, contextProfile=0;
+            glGetIntegerv(GL_CONTEXT_FLAGS,&contextFlags);
+            if (GLEW_VERSION_3_2) glGetIntegerv(GL_CONTEXT_PROFILE_MASK,&contextProfile);
+            flags=static_cast<unsigned int>(contextFlags);
+            profile=static_cast<unsigned int>(contextProfile);
+            available=true;
+        }
+        catch (const std::exception& error) { unavailable=error.what(); }
+    }
+
     ShaderBinaryCache::ShaderBinaryCache(const std::vector<ShaderFile>& stages,
-        const std::vector<ShaderSource>& sources, const ShaderCacheOptions& options, const std::string& label)
+        const std::vector<ShaderSource>& sources, const ShaderCacheOptions& options, const std::string& label,
+        const ShaderBinaryEnvironment* environment)
         : m_label(label)
     {
         if (!options.enabled) return;
         try
         {
-            if (!(GLEW_VERSION_4_1 || GLEW_ARB_get_program_binary) || !glProgramBinary
-                || !glGetProgramBinary || !glProgramParameteri)
-            { report("unavailable: program binaries unsupported; compiling sources"); return; }
-            GLint count = 0;
-            glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS,&count);
-            if (count <= 0 || count > 4096)
-            { report("unavailable: no usable binary formats; compiling sources"); return; }
-            std::vector<GLint> formats(static_cast<std::size_t>(count));
-            glGetIntegerv(GL_PROGRAM_BINARY_FORMATS,formats.data());
-            m_formats.assign(formats.begin(),formats.end());
-            std::sort(m_formats.begin(),m_formats.end());
-            m_formats.erase(std::unique(m_formats.begin(),m_formats.end()),m_formats.end());
+            const ShaderBinaryEnvironment localEnvironment(environment==nullptr);
+            const auto& context=environment ? *environment : localEnvironment;
+            if (!context.available)
+            { report("unavailable: "+context.unavailable+"; compiling sources"); return; }
+            m_formats=context.formats;
 
             Sha256 key;
             key.text("ENDURANCE OpenGL program binary");
             key.number(CacheVersion);
             key.number(sizeof(void*));
-            for (const GLenum name : {GL_VENDOR,GL_RENDERER,GL_VERSION,GL_SHADING_LANGUAGE_VERSION})
-            {
-                const auto* value=glGetString(name);
-                if (!value) { report("unavailable: incomplete driver identity; compiling sources"); return; }
-                key.text(reinterpret_cast<const char*>(value));
-            }
-            GLint flags=0, profile=0;
-            glGetIntegerv(GL_CONTEXT_FLAGS,&flags);
-            if (GLEW_VERSION_3_2) glGetIntegerv(GL_CONTEXT_PROFILE_MASK,&profile);
-            key.number(static_cast<unsigned int>(flags));
-            key.number(static_cast<unsigned int>(profile));
+            for (const auto& identity : context.driver) key.text(identity);
+            key.number(context.flags);
+            key.number(context.profile);
             key.number(m_formats.size());
             for (auto format : m_formats) key.number(format);
             key.number(stages.size());

@@ -61,19 +61,8 @@ namespace Ge
             const auto threads = compilerThreads ? compilerThreads
                 : (std::max)(1u, (std::min)(8u, std::thread::hardware_concurrency()));
             const auto capacity = (std::min)(MaximumPendingPrograms, requests.size());
-            if (!compiler.initialize(capacity, threads))
-            {
-                std::cerr << "[Shader batch] Parallel compilation unavailable; building "
-                    << requests.size() << " programs during startup" << std::endl;
-                for (std::size_t i = 0; i < requests.size(); ++i)
-                {
-                    const auto& request = requests[i];
-                    output.ids[i] = buildShaderProgram(request.stages, error, request.label, cache);
-                    if (!output.ids[i]) return {};
-                }
-                return std::exchange(output.ids, {});
-            }
-
+            ShaderSourceSnapshot snapshot;
+            const detail::ShaderBinaryEnvironment environment(cache.enabled);
             std::vector<PreparedProgram> prepared(requests.size());
             std::vector<std::size_t> misses;
             misses.reserve(requests.size());
@@ -92,7 +81,7 @@ namespace Ge
                     const auto& file = request.stages[stage];
                     auto& source = program.sources[stage];
                     if (!loadShaderSource(file.filename, file.defines, source, error,
-                        file.stage == GL_COMPUTE_SHADER ? "430 core" : "330 core")) return {};
+                        file.stage == GL_COMPUTE_SHADER ? "430 core" : "330 core", &snapshot)) return {};
                     if (source.text.size() > static_cast<std::size_t>((std::numeric_limits<GLint>::max)()))
                     { error = "Shader source is too large: " + file.filename; return {}; }
                     if (!request.label.empty())
@@ -100,14 +89,34 @@ namespace Ge
                             << ": " << source.text.size() << " bytes" << std::endl;
                 }
                 program.cache = std::make_unique<detail::ShaderBinaryCache>(request.stages,
-                    program.sources, cache, request.label.empty() ? request.stages.front().filename : request.label);
+                    program.sources, cache, request.label.empty() ? request.stages.front().filename : request.label,
+                    &environment);
                 output.ids[i] = program.cache->load();
                 if (!output.ids[i]) misses.push_back(i);
             }
 
             std::cerr << "[Shader batch] " << requests.size() - misses.size() << " cache hits; "
                 << misses.size() << " compilations, " << capacity << " in-flight programs, "
-                << threads << " compiler threads requested" << std::endl;
+                << threads << " compiler threads requested; " << snapshot.fileCount()
+                << " unique source files read" << std::endl;
+            // A warm batch needs neither compiler initialization nor a driver
+            // thread-hint change. A cold synchronous fallback uses exactly the
+            // same source snapshot and cache keys as the parallel path.
+            if (misses.empty()) return std::exchange(output.ids, {});
+            if (!compiler.initialize(capacity, threads))
+            {
+                std::cerr << "[Shader batch] Parallel compilation unavailable; building "
+                    << misses.size() << " misses during startup" << std::endl;
+                for (const auto index : misses)
+                {
+                    const auto& request=requests[index];
+                    const auto& program=prepared[index];
+                    output.ids[index]=detail::buildPreparedShaderProgram(request.stages,
+                        program.sources,error,request.label,*program.cache);
+                    if (!output.ids[index]) return {};
+                }
+                return std::exchange(output.ids, {});
+            }
             struct Pending { std::size_t index; ParallelShaderCompiler::Ticket ticket; };
             std::vector<Pending> pending;
             pending.reserve(capacity);

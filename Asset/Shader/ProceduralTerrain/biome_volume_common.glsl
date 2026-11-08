@@ -48,7 +48,9 @@ vec2 fieldVolumeBand(FieldColumn column, float recipeOffset)
 
 // Controls belong to this biome only; none are interpolated with another biome.
 // volume: offset/displacement/carving/feather; shape: noise weights/radius;
-// style: tubes/angularity/roughness/strata. Amplitudes and offset are metres.
+// style: tubes/angularity/roughness/strata. The owning biome prepares displacement
+// and carving amplitudes in world metres. This helper never interprets blend.w;
+// each independent fieldVolume decides what its extra 2D control means.
 float fieldVolumeRecipeDelta(vec3 p, FieldColumn column,
                             vec4 volume, vec4 shape, vec4 style)
 {
@@ -56,9 +58,6 @@ float fieldVolumeRecipeDelta(vec3 p, FieldColumn column,
         return 0.0;
     vec2 band=fieldVolumeBand(column,volume.x);
     if(abs(p.y-band.x)>=band.y) return 0.0;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
     volume.x=band.x;
     volume.w=max(0.0001,band.y*volume.w);
     float base=column.terrain.x-p.y;

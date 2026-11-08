@@ -10,6 +10,18 @@
 
 namespace Ge::detail
 {
+    // Capture once on the owning GL context for one build. A future build (or
+    // different context) gets a fresh identity and supported-format list.
+    struct ShaderBinaryEnvironment
+    {
+        explicit ShaderBinaryEnvironment(bool enabled);
+        std::array<std::string, 4> driver;
+        std::vector<unsigned int> formats;
+        unsigned int flags = 0, profile = 0;
+        std::string unavailable;
+        bool available = false;
+    };
+
     // Internal, best-effort disk cache. Programs returned by load() are owned by
     // the caller. No program or source is retained beyond this build operation.
     class ShaderBinaryCache
@@ -17,7 +29,7 @@ namespace Ge::detail
     public:
         ShaderBinaryCache(const std::vector<ShaderFile>& stages,
             const std::vector<ShaderSource>& sources, const ShaderCacheOptions& options,
-            const std::string& label);
+            const std::string& label, const ShaderBinaryEnvironment* environment = nullptr);
         bool available() const noexcept { return m_available; }
         unsigned int load() const;
         void store(unsigned int program) const;

@@ -17,13 +17,14 @@ namespace Ge
         {
             ShaderSource& source;
             std::string& error;
+            ShaderSourceSnapshot& snapshot;
             std::vector<std::string> active;
             std::size_t versionEnd = std::string::npos;
             unsigned versionNextLine = 1;
             bool versionSeen = false, versionComment = false;
 
-            SourceReader(ShaderSource& output, std::string& diagnostic)
-                : source(output), error(diagnostic) {}
+            SourceReader(ShaderSource& output, std::string& diagnostic, ShaderSourceSnapshot& files)
+                : source(output), error(diagnostic), snapshot(files) {}
 
             // Track comments so directives mentioned in a comment are inert.
             static std::size_t firstToken(const std::string& line, bool& blockComment)
@@ -68,20 +69,18 @@ namespace Ge
                 const auto name = path.generic_string();
                 if (depth > 12 || std::find(active.begin(), active.end(), name) != active.end())
                 { error = "Recursive shader include: " + name; return false; }
-                std::ifstream input(path, std::ios::binary);
-                if (!input) { error = "Cannot read shader: " + name; return false; }
+                const auto* lines = snapshot.read(name, error);
+                if (!lines) return false;
                 const auto found = std::find(source.files.begin(), source.files.end(), name);
                 const auto sourceId = static_cast<unsigned>(found - source.files.begin());
                 if (found == source.files.end()) source.files.push_back(name);
                 active.push_back(name);
                 if (depth) source.text += "#line 1 " + std::to_string(sourceId) + "\n";
-                std::string line;
                 unsigned lineNumber = 0;
                 bool blockComment = false;
-                while (std::getline(input, line))
+                for (const auto& line : *lines)
                 {
                     ++lineNumber;
-                    if (lineNumber == 1 && line.compare(0, 3, "\xEF\xBB\xBF") == 0) line.erase(0, 3);
                     const auto first = firstToken(line, blockComment);
                     if (!depth)
                     {
@@ -118,7 +117,6 @@ namespace Ge
                         source.text += line + "\n";
                     }
                 }
-                if (input.bad()) { error = "Cannot finish reading shader: " + name; return false; }
                 if (!depth && versionComment)
                 { versionEnd = source.text.size(); versionNextLine = lineNumber + 1; }
                 active.pop_back();
@@ -174,12 +172,32 @@ namespace Ge
         };
     }
 
+    const std::vector<std::string>* ShaderSourceSnapshot::read(const std::string& filename,
+        std::string& error)
+    {
+        const auto found = m_files.find(filename);
+        if (found != m_files.end()) return &found->second;
+        std::ifstream input(std::filesystem::path(filename), std::ios::binary);
+        if (!input) { error = "Cannot read shader: " + filename; return nullptr; }
+        std::vector<std::string> lines;
+        std::string line;
+        while (std::getline(input, line))
+        {
+            if (lines.empty() && line.compare(0, 3, "\xEF\xBB\xBF") == 0) line.erase(0, 3);
+            lines.push_back(std::move(line));
+        }
+        if (input.bad()) { error = "Cannot finish reading shader: " + filename; return nullptr; }
+        return &m_files.emplace(filename, std::move(lines)).first->second;
+    }
+
     bool loadShaderSource(const std::string& filename, const std::string& defines,
-        ShaderSource& source, std::string& error, const std::string& fallbackVersion)
+        ShaderSource& source, std::string& error, const std::string& fallbackVersion,
+        ShaderSourceSnapshot* snapshot)
     {
         source = {};
         error.clear();
-        SourceReader reader{source, error};
+        ShaderSourceSnapshot localFiles;
+        SourceReader reader{source, error, snapshot ? *snapshot : localFiles};
         if (!reader.read(std::filesystem::path(filename))) return false;
         std::string injected = defines;
         if (!injected.empty() && injected.back() != '\n') injected += '\n';
@@ -199,15 +217,14 @@ namespace Ge
     {
         error.clear();
         if (stages.empty()) { error = "Cannot build a shader program without stages"; return 0; }
-        BuildObjects objects;
-        objects.shaders.reserve(stages.size());
+        ShaderSourceSnapshot snapshot;
         std::vector<ShaderSource> sources(stages.size());
         for (std::size_t i = 0; i < stages.size(); ++i)
         {
             const auto& stage = stages[i];
             auto& source = sources[i];
             if (!loadShaderSource(stage.filename, stage.defines, source, error,
-                stage.stage == GL_COMPUTE_SHADER ? "430 core" : "330 core")) return 0;
+                stage.stage == GL_COMPUTE_SHADER ? "430 core" : "330 core", &snapshot)) return 0;
             if (source.text.size() > static_cast<std::size_t>((std::numeric_limits<GLint>::max)()))
             { error = "Shader source is too large: " + stage.filename; return 0; }
             const std::string stageLabel = traceLabel.empty() ? std::string{} : traceLabel + " " + stage.filename;
@@ -219,6 +236,15 @@ namespace Ge
         detail::ShaderBinaryCache binaryCache(stages,sources,cache,
             traceLabel.empty() ? stages.front().filename : traceLabel);
         if (const auto program=binaryCache.load()) return program;
+        return detail::buildPreparedShaderProgram(stages, sources, error, traceLabel, binaryCache);
+    }
+
+    unsigned int detail::buildPreparedShaderProgram(const std::vector<ShaderFile>& stages,
+        const std::vector<ShaderSource>& sources, std::string& error,
+        const std::string& traceLabel, const ShaderBinaryCache& binaryCache)
+    {
+        BuildObjects objects;
+        objects.shaders.reserve(stages.size());
         for (std::size_t i = 0; i < stages.size(); ++i)
         {
             const auto& stage=stages[i];

@@ -7,20 +7,39 @@
 // contain chunk slots, not copies of their columns or density fields.
 const uint FIELD_MAX_JOBS=16u;
 const uint FIELD_PASS_COUNT=52u;
+const uint FIELD_JOB_ACTIVE=1u;
+const uint FIELD_JOB_BUILD_COLUMNS=2u;
+const uint FIELD_JOB_BUILD_DENSITY=4u;
+#ifndef FIELD_MATERIALIZE_HOMOGENEOUS
+#define FIELD_MATERIALIZE_HOMOGENEOUS 0
+#endif
 struct FieldJob
 {
     ivec4 originLod;
-    uvec4 info; // seed, active in this batch, surface mask, volume mask
+    uvec4 info; // seed, flags, surface mask, volume mask
+    uvec4 storage; // cached column slot, FP32 scratch slot, cached density slot, reserved
 };
 layout(std430,binding=6) buffer FieldJobs { FieldJob fieldJobs[]; };
+layout(std430,binding=3) buffer FieldStates { uvec4 fieldStates[]; };
 layout(std430,binding=5) buffer FieldWorkQueue
 {
     uvec4 fieldCommands[52]; // indirect XYZ group counts, number of chunks
     uint fieldWorkItems[832]; // [52 passes][16 chunk slots]
 };
 uniform uint uJobSlots;
-uniform uint uColumnStride;  // FieldColumn elements, including alignment padding
+uniform uint uColumnStride;  // record count, aligned for BOTH 48B scratch and 32B final
 uniform uint uDensityStride; // float elements, including alignment padding
+uniform uint uStateStride;   // uvec4 header + one uvec4 per 8x8 XZ tile
+
+bool fieldJobHas(uint job,uint flag)
+{
+    return job<uJobSlots && (fieldJobs[job].info.y&(FIELD_JOB_ACTIVE|flag))==(FIELD_JOB_ACTIVE|flag);
+}
+
+bool fieldJobHasSurface(uint job)
+{
+    return fieldStates[fieldJobs[job].storage.z*uStateStride].x==3u;
+}
 
 void fieldSelectJob(uint job)
 {

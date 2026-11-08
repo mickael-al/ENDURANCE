@@ -30,7 +30,8 @@ def main():
                    '-I', str(ROOT / 'ThirdParty'),
                    str(ROOT / 'Tests/ShaderCompilation/check_batch.cpp')]
         command.extend(str(ROOT / 'ANTAGONIZ/Source/Rendering/Shader' / name) for name in sources)
-        command.extend([str(args.glew_object.resolve()), '-l:libGL.so.1', '-l:libEGL.so.1', '-o', str(library)])
+        command.extend([str(args.glew_object.resolve()), '-l:libGL.so.1', '-l:libEGL.so.1',
+                        '-ldl', '-Wl,-Bsymbolic-functions', '-o', str(library)])
         subprocess.run(command, check=True)
         with GL() as gl:
             print(f'OpenGL {gl.version}; renderer: {gl.renderer}', flush=True)

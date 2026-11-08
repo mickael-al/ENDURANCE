@@ -36,6 +36,7 @@ struct LodPlanner::Impl
     void run()
     {
         std::vector<LodChunk> desired;
+        LodPlanningCache indices;
         glm::vec3 selectedPosition{};
         bool selectedBefore = false;
         for (;;)
@@ -68,7 +69,7 @@ struct LodPlanner::Impl
                 }
                 if (plan.error.empty())
                     plan.success = planLodTransaction(snapshot, desired, position, config,
-                                                      plan.transaction, plan.error);
+                                                      plan.transaction, plan.error,&indices);
                 plan.selectionPosition = selectedPosition;
                 plan.desiredCount = desired.size();
             }

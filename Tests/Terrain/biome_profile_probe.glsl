@@ -27,6 +27,10 @@ FieldColumn fieldProbeColumn(vec2 p)
     column.terrain=vec4(height,climate,relief.y*uDetailScale);
     column.blend=vec4(fieldFade(coast-float(cell.z)),offset,relief.zw);
     column.detail=uvec4(mapping.x|(index<<20u),fieldRepeatedVolumeID(FIELD_BIOME_ID),1u<<FIELD_BIOME_ID);
+    // The production pipeline quantizes only after FP32 accumulation. A forced
+    // biome has one contribution, so reproduce that single storage round-trip.
+    column=fieldUnpackColumn(fieldPackColumn(column,relief.y));
+    column.detail.w=1u<<FIELD_BIOME_ID;
     return column;
 }
 

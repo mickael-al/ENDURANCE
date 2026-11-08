@@ -3,6 +3,7 @@
 
 #include "CustomRenderer.hpp"
 #include "ProceduralTerrainField.hpp"
+#include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainLod.hpp"
 #include <glm/vec3.hpp>
 #include <cstdint>
@@ -22,6 +23,9 @@ public:
         float lodDistanceFactor = 1.25f;
         std::uint32_t maxChunksPerFrame = 2;
         std::uint32_t maxInFlight = 2;
+        std::uint32_t columnCacheEntries = 128;
+        std::uint32_t densityCacheEntries = 32;
+        bool measureGenerationTimings = true;
         std::uint32_t vertexBudgetMiB = 256;
         std::uint32_t maxResidentChunks = 2048;
         std::uint32_t maxSelectedChunks = 1024;
@@ -65,6 +69,8 @@ public:
         double lastPlanningMilliseconds = 0.0;
         double lastGenerationMilliseconds = 0.0;
         std::uint64_t transientFieldBytes = 0;
+        ProceduralTerrain::GpuStats generation;
+        double coverageMilliseconds = 0.0;
         bool rebuilding = false;
         bool resourceLimited = false;
     };

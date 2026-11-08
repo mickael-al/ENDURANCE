@@ -18,8 +18,12 @@ namespace ProceduralTerrain
         std::uint32_t maxResidentChunks = 128;
         std::uint32_t maxPendingReadbacks = 2;
         std::uint32_t maxCopiesPerFrame = 1;
-        // Per staging slot. Bounds both GPU staging and CPU transfer storage.
+        // Per staging slot. CPU workers decode the persistent mapping directly;
+        // there is no additional packed-vertex copy on the rendering thread.
         std::uint32_t maxReadbackMiB = 16;
+        std::uint32_t maxPendingBuilds = 4;
+        std::uint32_t workerCount = 2;
+        std::uint32_t maxCopyMiBPerFrame = 16;
     };
 
     struct CollisionStats
@@ -28,6 +32,7 @@ namespace ProceduralTerrain
         std::uint32_t pendingReadbacks = 0;
         std::uint32_t pendingBuilds = 0;
         std::uint64_t copiedBytes = 0;
+        std::uint64_t stagingBytes = 0;
         std::uint64_t completedChunks = 0;
         std::uint64_t failedChunks = 0;
         bool capacityLimited = false;
