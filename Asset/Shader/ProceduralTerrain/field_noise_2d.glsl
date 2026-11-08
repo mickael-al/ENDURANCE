@@ -22,11 +22,29 @@ float fieldNoise2(vec2 p, uint salt)
 {
     ivec2 i = ivec2(floor(p));
     vec2 f = fract(p), u = fieldFade(f);
-    float a = fieldGradient2(fieldHash2(i, salt), f);
-    float b = fieldGradient2(fieldHash2(i + ivec2(1,0), salt), f - vec2(1,0));
-    float c = fieldGradient2(fieldHash2(i + ivec2(0,1), salt), f - vec2(0,1));
-    float d = fieldGradient2(fieldHash2(i + ivec2(1,1), salt), f - vec2(1,1));
-    return clamp(mix(mix(a,b,u.x), mix(c,d,u.x), u.y), -1.0, 1.0);
+    // Evaluate corners (0,0), (1,0), (0,1), (1,1) together. Keep the
+    // fieldHash2 avalanche unchanged, without four branch-heavy call trees
+    // being inlined into every noise call across the 26 relief recipes.
+    uvec4 h = uvec4(i.x,i.x+1,i.x,i.x+1) * 0x9e3779b9u
+            ^ uvec4(i.y,i.y,i.y+1,i.y+1) * 0x85ebca6bu ^ uSeed ^ salt;
+    h ^= h >> 16u;
+    h *= 0x7feb352du;
+    h ^= h >> 15u;
+    h *= 0x846ca68bu;
+    h ^= h >> 16u;
+
+    // Same eight directions as fieldGradient2. Boolean mix selects operands
+    // directly: it does not numerically interpolate them or sample a texture.
+    uvec4 g = h & 7u;
+    vec4 dx = vec4(f.x,f.x-1.0,f.x,f.x-1.0);
+    vec4 dy = vec4(f.y,f.y,f.y-1.0,f.y-1.0);
+    vec4 a = mix(dx,dy,greaterThanEqual(g,uvec4(6u)));
+    vec4 b = mix(vec4(0.0),dy,lessThan(g,uvec4(4u)));
+    vec4 signedA = mix(a,-a,notEqual(g&1u,uvec4(0u)));
+    // Axis gradients return signedA directly, preserving even signed zeros.
+    vec4 n = mix(signedA + mix(b,-b,notEqual(g&2u,uvec4(0u))),
+                 signedA,greaterThanEqual(g,uvec4(4u)));
+    return clamp(mix(mix(n.x,n.y,u.x),mix(n.z,n.w,u.x),u.y),-1.0,1.0);
 }
 
 float fieldUnsignedNoise(vec2 p, uint salt) { return 0.5 + 0.5 * fieldNoise2(p,salt); }

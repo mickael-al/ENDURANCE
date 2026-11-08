@@ -150,6 +150,12 @@ are not edited by this fixture.
 
 ## Compute shaders
 
+`EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise2.py` compares the
+four-corner vector noise kernel against its former scalar construction. It checks
+40,960 values bit for bit across five seeds, negative coordinates, exact lattice
+points, near-grid positions and signed zeros. This guards the terrain/seed result
+while reducing the branch expansion seen when compiling all biome recipes.
+
 Linux, Python 3.10+, a C++17 compiler, `libEGL.so.1`, `libGL.so.1`, and desktop
 OpenGL 4.5 are required. Python uses only the standard library. The C++ compiler
 exports the actual vendor tables through a temporary C++ program; no duplicate
