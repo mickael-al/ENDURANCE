@@ -9,7 +9,7 @@
 // Parameters are blended locally BEFORE the one common density evaluation.
 const vec4 FIELD_BIOME_VOLUME[26][3]=vec4[26][3](
     // 0: PolarIce
-    vec4[3](vec4(-20,3,72,.40), vec4(.35,.50,.15,.10), vec4(.85,.70,.15,.30)),
+    vec4[3](vec4(-20,30,72,0.4), vec4(.35,.50,.15,.10), vec4(.85,.70,.15,.30)),
     // 1: FrozenTundra
     vec4[3](vec4(-20,3,72,.40), vec4(.35,.50,.15,.10), vec4(.85,.70,.15,.30)),
     // 2: Tundra

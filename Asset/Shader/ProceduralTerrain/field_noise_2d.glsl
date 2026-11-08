@@ -102,6 +102,18 @@ vec2 fieldCellular2Distances(vec2 p, uint salt)
 }
 
 float fieldVoronoi(vec2 p) { return fieldCellular2(p,0xb5297a4du,0.0); }
+float fieldUnsignedVoronoi(vec2 p, uint salt, float metric) { return 0.5 + 0.5 * fieldCellular2(p, salt, metric); }
 float fieldRidge2(vec2 p, uint salt) { return 1.0-abs(fieldNoise2(p,salt)); }
+
+float contrast(float value, float strength)
+{
+    return clamp((value - 0.5) * strength + 0.5, 0.0, 1.0);
+}
+
+float courbe01(float x)
+{
+    return 1.0 - abs(2.0 * x - 1.0);
+}
+
 
 #endif
