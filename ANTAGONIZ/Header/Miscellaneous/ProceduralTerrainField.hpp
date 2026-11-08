@@ -16,7 +16,7 @@ namespace ProceduralTerrain
         Sphere = 2
     };
 
-    // Keep these defaults and ranges in sync with world_field.glsl.
+    // Keep these defaults and ranges in sync with the terrain field shaders.
     // Every value is in world metres except the frequencies (cycles/metre).
     struct FieldParameters
     {

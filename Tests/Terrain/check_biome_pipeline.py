@@ -10,7 +10,7 @@ import shutil
 import struct
 import tempfile
 
-from biome_mask_probe import RELIEF_NAMES, replace_body
+from biome_mask_probe import replace_body
 from check_gpu import FieldRunner, LegacyFieldRunner, MeshRunner, SHADERS, lattice_values, finite_columns
 from field_batch_runner import BIOMES, BatchFieldRunner, MAX_JOBS
 from gl_headless import GL, shader_source
@@ -175,13 +175,13 @@ def check_weighted_oracle(gl):
     with tempfile.TemporaryDirectory(prefix="terrain-accumulation-oracle-") as temporary:
         directory=Path(temporary)/"shaders"
         shutil.copytree(SHADERS,directory)
-        for biome,(name,relief_name) in enumerate(zip(BIOMES,RELIEF_NAMES)):
-            path=directory/f"biomes/{name}/relief.glsl"
-            path.write_text(replace_body(path.read_text(),"fieldRelief"+relief_name,
+        for biome,name in enumerate(BIOMES):
+            path=directory/f"biomes/{name}/relief.C.glsl"
+            path.write_text(replace_body(path.read_text(),"fieldRelief",
                 f"return vec4({4*(biome-13)}.0+0.125*p.x+0.0625*p.y,"
                 f"{192+biome}.0,{.5*(biome-13):.1f},{.25+.5*(biome%2):.2f});"))
-            path=directory/f"biomes/{name}/volume.glsl"
-            path.write_text(replace_body(path.read_text(),"fieldVolume"+name,
+            path=directory/f"biomes/{name}/volume.C.glsl"
+            path.write_text(replace_body(path.read_text(),"fieldVolume",
                 f"return {1+biome*biome}.0+0.03125*p.x-0.0625*p.y+0.015625*p.z;"))
         runner=BatchFieldRunner(gl,directory)
         cases=[
@@ -263,8 +263,8 @@ def check_free_recipes(gl,runner):
     with tempfile.TemporaryDirectory(prefix="terrain-free-recipes-") as temporary:
         directory=Path(temporary)/"shaders"
         shutil.copytree(SHADERS,directory)
-        path=directory/"biomes/PolarIce/volume.glsl"
-        path.write_text(replace_body(path.read_text(),"fieldVolumePolarIce", """
+        path=directory/"biomes/PolarIce/volume.C.glsl"
+        path.write_text(replace_body(path.read_text(),"fieldVolume", """
     vec2 band=fieldVolumeBand(column,0.0);
     float radial=length(vec3(p.x,0.0,p.z)-vec3(0.0));
     float rock=max(0.0,4.0-radial);
@@ -277,8 +277,8 @@ def check_free_recipes(gl,runner):
         compare(other,changed.run(**dict(options,uBiomeOverride=11)),"Other biome after polar 3D edit")
         disabled=dict(options,uDetailScale=0.)
         compare(runner.run(**disabled),changed.run(**disabled),"Disabled 3D detail")
-        path=directory/"biomes/PolarIce/relief.glsl"
-        path.write_text(replace_body(path.read_text(),"fieldReliefPolarIce", """
+        path=directory/"biomes/PolarIce/relief.C.glsl"
+        path.write_text(replace_body(path.read_text(),"fieldRelief", """
     float height=24.0+fieldCellular2(p*0.03125,714u,1.0)*16.0;
     return vec4(height,0.0,0.0,1.0);
 """))

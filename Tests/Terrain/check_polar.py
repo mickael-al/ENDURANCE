@@ -13,8 +13,8 @@ import random
 import struct
 import sys
 
-from check_biomes import BiomeProbe, profile_probe_source
-from check_gpu import FieldRunner, SHADERS, lattice_values, packed_biome_cells
+from check_biomes import BiomeProbe
+from check_gpu import FieldRunner, LegacyFieldRunner, SHADERS, lattice_values
 from gl_headless import GL, GLUnavailable, shader_source
 
 
@@ -32,48 +32,36 @@ void main()
     uvec2 index=gl_GlobalInvocationID.xy;
     if(any(greaterThanEqual(index,uvec2(uProbeSize)))) return;
     vec2 p=uProbeOrigin+vec2(index)*uProbeSpacing;
-    FieldColumn column=fieldColumnAt(p);
-    ProbeBiomeVolume profile=fieldBiomeVolumeAt(uint(max(uBiomeOverride,0)),p);
-    vec4 diagnosticVolume=profile.volume;
-    diagnosticVolume.x=column.blend.y+
-        clamp(column.blend.z+profile.volume.x,-160.0,160.0)*uDetailScale;
-    diagnosticVolume.y*=uDetailScale*mix(0.55,1.0,column.blend.w);
-    diagnosticVolume.z*=uDetailScale*mix(0.85,1.0,column.blend.w);
+    FieldColumn column=fieldProbeColumn(p);
+    vec4 diagnosticVolume=fieldProbeVolume(column);
     float h=column.terrain.x;
     vec4 samples;
     if(uProbeMode==1u)
     {
         float e=uProbeStepY;
         // This mode isolates the polar surface with macro amplitude zero.
-        // Direct constant-ID calls avoid compiling the entire 26-recipe switch
-        // four more times merely to measure a tiny spatial difference.
+        // This program contains only PolarIce's production recipe pair.
         samples=uBaseHeight+uDetailScale*vec4(
-                     fieldBiomeRelief(0u,p+vec2(e,0)).x,
-                     fieldBiomeRelief(0u,p-vec2(e,0)).x,
-                     fieldBiomeRelief(0u,p+vec2(0,e)).x,
-                     fieldBiomeRelief(0u,p-vec2(0,e)).x);
+                     fieldClampRelief(fieldRelief(p+vec2(e,0))).x,
+                     fieldClampRelief(fieldRelief(p-vec2(e,0))).x,
+                     fieldClampRelief(fieldRelief(p+vec2(0,e))).x,
+                     fieldClampRelief(fieldRelief(p-vec2(0,e))).x);
     }
     else
     {
-        samples=vec4(fieldDensityAt(vec3(p.x,h-.25,p.y),column),
-                     fieldDensityAt(vec3(p.x,h-4.0,p.y),column),
-                     fieldDensityAt(vec3(p.x,h-16.0,p.y),column),
-                     fieldDensityAt(vec3(p.x,h-40.0,p.y),column));
+        samples=vec4(fieldProbeDensity(vec3(p.x,h-.25,p.y),column),
+                     fieldProbeDensity(vec3(p.x,h-4.0,p.y),column),
+                     fieldProbeDensity(vec3(p.x,h-16.0,p.y),column),
+                     fieldProbeDensity(vec3(p.x,h-40.0,p.y),column));
     }
     outputValues[index.x+index.y*uProbeSize]=
-        ProbeSample(column.terrain,diagnosticVolume,samples,profile.shape);
+        ProbeSample(column.terrain,diagnosticVolume,samples,FIELD_SHAPE);
 }
 """
 
 class PolarProbe(BiomeProbe):
     def __init__(self, gl, directory=SHADERS, source=None):
-        self.gl = gl
-        field_source = shader_source(directory / "world_field.glsl")
-        self.program = gl.compile([(0x91B9, "#version 450 core\n" +
-            field_source + profile_probe_source() + (source or PROBE))], "polar production probe")
-        self.mapping = gl.buffer(packed_biome_cells(), 7)
-        self.buffer = gl.buffer(0)
-        self.capacity = 0
+        super().__init__(gl, directory=directory, source=source or PROBE)
 
 
 def check_voronoi(gl):
@@ -154,7 +142,9 @@ def check_repeat_and_lod(gl):
 
 
 def check_other_biomes(gl, directory):
-    old,new=FieldRunner(gl,directory=directory),FieldRunner(gl)
+    directory=Path(directory)
+    reference_runner=FieldRunner if (directory/"field_batch_classify.C.glsl").is_file() else LegacyFieldRunner
+    old,new=reference_runner(gl,directory=directory),FieldRunner(gl)
     for biome in range(1,26):
         for seed in (1337,98765):
             options=dict(cells=8,origin=(-40,-12,24),lod=3,seed=seed,

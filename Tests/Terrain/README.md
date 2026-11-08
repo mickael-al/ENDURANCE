@@ -122,8 +122,9 @@ physics queue.
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_band_control.py
 ```
 
-This fixture edits a temporary `biomes/PolarIce/relief.glsl` and executes the
-actual classification, per-biome accumulation and density initialization passes. Twenty-four width/scale combinations cover negative,
+This fixture edits `fieldRelief` in a temporary
+`biomes/PolarIce/relief.C.glsl` and executes the actual classification, per-biome
+accumulation and density initialization passes. Twenty-four width/scale combinations cover negative,
 zero, fractional and clamped widths. The entire band must be exactly the biome's
 clamped `.y` multiplied by `detailScale`, with no additive base or global noise.
 A spatial-noise recipe must contain both closed and active columns; all density
@@ -150,7 +151,7 @@ additionally compares the other 25 forced biome recipes against a saved baseline
 The optional image requires NumPy and Matplotlib; it visualizes measured geometry,
 not final materials or a rendered game screenshot.
 
-The reload fixture changes nested biome files in a temporary shader copy and
+The reload fixture changes the merged biome entry files in a temporary shader copy and
 verifies that reinitialization changes actual meshed vertex positions without a
 process restart. It uses an isolated temporary `ENDURANCE_SHADER_CACHE_DIR`.
 With program binaries supported, the first initialization compiles the fixed
@@ -158,8 +159,8 @@ With program binaries supported, the first initialization compiles the fixed
 shared field passes and four extraction passes. Unchanged regeneration and
 settings-only changes must load all 60 binaries with no compile/link calls.
 
-Editing `biomes/PolarIce/relief.glsl` recompiles only the polar 2D program; editing
-its `volume.glsl` recompiles only the polar 3D program. The other 59 programs must
+Editing `biomes/PolarIce/relief.C.glsl` recompiles only the polar 2D program; editing
+its `volume.C.glsl` recompiles only the polar 3D program. The other 59 programs must
 load from cache. A shared 2D-noise edit rebuilds classification and the 26 relief
 programs; a shared 3D-noise edit rebuilds the 26 volume programs. Neither edit
 invalidates the extraction programs or the other dimension.
@@ -169,7 +170,7 @@ contribution. Enabling its band through the 2D recipe makes that contribution
 visible without recompiling 3D; changing the contribution from 0.5 to 0.75 moves
 the meshed plane from 6.75 to 7.0. A zero band suppresses even that custom function.
 Actual vertices also verify that binary loads reapply changed uniforms. Invalid
-or missing included GLSL must fail with the original path/line instead of using
+or missing biome GLSL must fail with the merged entry's original path/line instead of using
 an obsolete binary, and fixing the file must allow reinitialization. Production
 sources and the user's shader cache are not edited by the fixture.
 
@@ -220,11 +221,19 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_background_compiler.py \
 
 `field_batch_runner.py` executes the production GLSL pass family and actual
 `glDispatchComputeIndirect` commands. It uploads the authoritative C++ matrices
-using `biome_test_support.py`, rather than maintaining Python/GLSL matrix copies.
-The ordinary GPU and meshing suites now use this same runner. A saved legacy
-shader directory can still use `LegacyFieldRunner` for explicit comparisons.
+using `biome_test_support.py`, so there are no Python/GLSL matrix copies.
+The ordinary GPU and meshing suites use this same runner, without falling back
+to a diagnostic pipeline. `LegacyFieldRunner` requires an explicit external
+pre-accumulation shader snapshot for historical comparisons; the production
+shader directory contains no legacy field entrypoints or all-biome aggregates.
 
-The pipeline fixture compiles all 52 guarded biome specializations and checks
+Each biome has exactly two shader files: `relief.C.glsl` defines `fieldRelief`,
+and `volume.C.glsl` defines `fieldVolume`. The latter's default recipe controls
+are named `FIELD_VOLUME`, `FIELD_SHAPE` and `FIELD_STYLE`. The functions and
+entrypoints live together, with no function alias macro or separately included
+per-biome implementation.
+
+The pipeline fixture compiles all 52 biome specializations and checks
 all 26 forced IDs. Repeated fields are bitwise identical, including neighboring
 chunk halos and shared LOD points. Repeated meshes retain their positions and
 normals. A forced biome must leave every other biome's indirect work count zero.
@@ -269,14 +278,15 @@ or local biome mask is downloaded in production. Volume workgroups share 32
 columns and weights across four Y lanes (1,664 bytes), and padded lanes reach
 the shared-memory barrier before returning.
 
-The diagnostic aggregate files remain separate from production entry points;
-the production specializations include only one biome's recipe and the required
-shared helpers. `biome_profile_probe.glsl` retains parameter-profile inspection
-for the default volume helper. Those profiles are diagnostics; arbitrary custom
-3D functions need not be described by that parameter table. The optional
-`biome_mask_probe.py` helpers inspect scalar-reference dispatch and the default
-helper only; its three-noise-call measurement is per contributing biome, not a
-whole-field production cost estimate.
+Diagnostics sample one biome's actual `fieldRelief` or `fieldVolume` function
+at a time, using the same source file as its production specialization. Probe
+construction keeps the recipe and its helpers and replaces only the final
+accumulation kernel. Complete mixed-biome field checks use `BatchFieldRunner`.
+The former all-biome aggregate shaders and standalone column/density diagnostics
+have been removed from `Asset`; tests do not reconstruct a combined shader with
+all 26 functions or interpolate the default volume constants.
+`biome_mask_probe.py` independently checks local weights and masks against CPU
+corner sums, including duplicate IDs, marine blending and forced biome IDs.
 
 ## Complete biome matrix and diagnostic plots
 
@@ -289,9 +299,8 @@ recipe. It checks finite/distinct height and volume signatures, real cavities
 inside the original solid, conservative vertical bounds, independent band
 offsets, all 25 paired matrix cells, smooth climate and shoreline transitions,
 and the exclusively marine lowest altitude slice. The accumulated density field
-is checked across matrix boundaries in addition to parameter-profile diagnostics.
-Every forced biome is also
-checked for bit-identical density samples shared by two LODs. A climate survey
+is checked across matrix boundaries using the production batch passes.
+Every forced biome is also checked for bit-identical density samples shared by two LODs. A climate survey
 across ±16 km and four seeds checks that all 25 dominant matrix cells occur;
 it does not promise that every biome occurs near every spawn.
 
@@ -361,7 +370,9 @@ python3 Tests/Terrain/check_backend.py --glew-object /tmp/endurance-glew-pic.o
 
 For development headers installed in a separate sysroot, append
 `-I /path/to/sysroot/usr/include` to the `cc` command. The wrapper needs the
-runtime OpenGL library and a compiler able to link `-l:libGL.so.1`.
+runtime OpenGL library and a compiler able to link `-l:libGL.so.1`. An installed
+shared GLEW library is also accepted as `--glew-object`, for example
+`/usr/lib/x86_64-linux-gnu/libGLEW.so.2.2`; it avoids building a separate object.
 
 Checks include asynchronous count/emit completions, token rejection, in-flight
 saturation, cancellation before and after allocation, slot and vertex memory

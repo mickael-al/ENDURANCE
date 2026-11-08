@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build/run the C++ backend checks using a caller-supplied PIC GLEW object."""
+"""Build/run the C++ backend checks using a caller-supplied GLEW object or library."""
 import argparse
 import ctypes
 import os
@@ -13,7 +13,7 @@ ROOT=Path(__file__).resolve().parents[2]
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--glew-object",required=True,type=Path,help="PIC object or static archive from the existing project build")
+    parser.add_argument("--glew-object",required=True,type=Path,help="PIC object, static archive or shared GLEW library")
     args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="terrain-backend-") as temporary:
         os.environ["ENDURANCE_SHADER_CACHE_DIR"] = str(Path(temporary)/"program-cache")

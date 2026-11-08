@@ -1,5 +1,5 @@
 // Runs against a temporary writable copy of the production shaders. It proves
-// that a nested biome edit changes real meshed vertices after reinitialization.
+// that a merged biome entry edit changes real meshed vertices after reinitialization.
 #include "glcore.hpp"
 #include "ProceduralTerrainGpu.hpp"
 #include <algorithm>
@@ -59,7 +59,7 @@ void write(const std::filesystem::path& path, const std::string& source)
 }
 std::string planeRelief(std::string source, const char* height, const char* thickness="0.0")
 {
-    const auto function = source.find("vec4 fieldReliefPolarIce(");
+    const auto function = source.find("vec4 fieldRelief(");
     require(function != std::string::npos, "Production biome relief entry point missing");
     const auto body = source.find('{', function);
     require(body != std::string::npos, "Production biome relief body missing");
@@ -68,7 +68,7 @@ std::string planeRelief(std::string source, const char* height, const char* thic
 }
 std::string constantDelta(std::string source,const char* delta)
 {
-    const auto function = source.find("float fieldVolumePolarIce(");
+    const auto function = source.find("float fieldVolume(");
     require(function != std::string::npos, "Independent polar volume function missing");
     const auto body = source.find('{', function);
     require(body != std::string::npos, "Production volume evaluator body missing");
@@ -115,8 +115,8 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(GLEW_VERSION_4_5 && glCreateBuffers, "Reload test requires desktop OpenGL 4.5");
         while (glGetError() != GL_NO_ERROR) {}
         const std::filesystem::path directory(shaderDirectory);
-        const auto reliefPath = directory / "biomes/PolarIce/relief.glsl";
-        const auto volumePath = directory / "biomes/PolarIce/volume.glsl";
+        const auto reliefPath = directory / "biomes/PolarIce/relief.C.glsl";
+        const auto volumePath = directory / "biomes/PolarIce/volume.C.glsl";
         const auto originalRelief = read(reliefPath);
         const auto originalVolume = read(volumePath);
         const auto noise2Path = directory / "field_noise_2d.glsl";
@@ -198,11 +198,11 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
 
         const auto invalidLine = std::count(originalVolume.begin(), originalVolume.end(), '\n') + 2;
         write(volumePath, originalVolume + "\nPOLAR_RELOAD_SYNTAX_ERROR\n");
-        require(!mesher.initialize(config, error), "Invalid nested biome GLSL unexpectedly compiled");
-        require(error.find("biomes/PolarIce/volume.glsl") != std::string::npos &&
+        require(!mesher.initialize(config, error), "Invalid merged biome GLSL unexpectedly compiled");
+        require(error.find("biomes/PolarIce/volume.C.glsl") != std::string::npos &&
             error.find("GLSL source files") != std::string::npos &&
             error.find(std::to_string(invalidLine)) != std::string::npos,
-            "Compiler error did not identify the nested source and original line: " + error);
+            "Compiler error did not identify the merged source and original line: " + error);
         require(mesher.stats().allocatedBytes == 0 && !mesher.valid(second),
             "Failed recompilation retained stale allocations");
         write(volumePath, originalVolume);
@@ -210,17 +210,17 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         finishPlane(mesher, 6.25f, 3);
 
         std::filesystem::rename(volumePath, directory / "polar_volume.saved");
-        require(!mesher.initialize(config, error) && error.find("biomes/PolarIce/volume.glsl") != std::string::npos,
-            "Missing nested include did not report its path");
+        require(!mesher.initialize(config, error) && error.find("biomes/PolarIce/volume.C.glsl") != std::string::npos,
+            "Missing biome entry did not report its path");
         std::filesystem::rename(directory / "polar_volume.saved", volumePath);
         require(mesher.initialize(config, error), error);
         finishPlane(mesher, 6.25f, 4);
         mesher.shutdown();
         require(glGetError() == GL_NO_ERROR, "OpenGL error after failed/recovered reload");
-        std::cout << "PASS shader reload: nested biome edit changes real vertices without process restart\n";
+        std::cout << "PASS shader reload: merged biome entry edit changes real vertices without process restart\n";
         if(binariesSupported)
             std::cout << "PASS terrain binary cache: 60 fixed programs; unchanged/settings-only regeneration loads all binaries; biome-local 2D/3D edits rebuild one program; shared noise edits rebuild only their dimension\n";
-        std::cout << "PASS shader diagnostics: original include path/line, missing file and corrected-file retry\n";
+        std::cout << "PASS shader diagnostics: original merged-entry path/line, missing file and corrected-file retry\n";
         return 0;
     }
     catch (const std::exception& error)

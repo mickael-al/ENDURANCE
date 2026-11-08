@@ -10,14 +10,12 @@ Les recettes se trouvent dans [`Asset/Shader/ProceduralTerrain/biomes`](../Asset
 
 | Fichier de `biomes/PolarIce/` | Rôle |
 | --- | --- |
-| [`relief.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/relief.glsl) | Fonction `fieldReliefPolarIce(vec2 p)` : hauteur et contrôles de bande 3D. |
-| [`volume.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/volume.glsl) | Fonction `fieldVolumePolarIce(vec3 p, FieldColumn column)` : contribution volumique. |
-| [`relief.C.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/relief.C.glsl) | Point d’entrée compute de la passe 2D : identifiant, defines, includes et noyau d’accumulation. |
-| [`volume.C.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/volume.C.glsl) | Point d’entrée compute de la passe 3D. |
+| [`relief.C.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/relief.C.glsl) | Fonction `fieldRelief(vec2 p)` : hauteur et contrôles de bande 3D, avec son point d’entrée compute. |
+| [`volume.C.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/volume.C.glsl) | Fonction `fieldVolume(vec3 p, FieldColumn column)` : contribution volumique, avec son point d’entrée compute. |
 
-Pour ajuster les formations, modifier `relief.glsl` ou `volume.glsl`. Les fichiers `.C.glsl` servent à sélectionner la bonne recette et son noyau ; ils n’ont pas besoin de changer lors d’un réglage artistique.
+Chaque dossier contient seulement ces deux fichiers. Pour ajuster les formations, modifier directement la fonction ou les constantes dans le `.C.glsl` correspondant. Le suffixe `.C.glsl` désigne un compute shader ; la recette et son point d’entrée sont réunis dans ce même fichier.
 
-Le point d’entrée polaire définit `FIELD_ENABLE_RELIEF_PolarIce` ou `FIELD_ENABLE_VOLUME_PolarIce`. La fonction correspondante est encapsulée dans son `#ifdef`. Chaque programme ne charge que le fichier du biome sélectionné et ses dépendances communes. Les autres recettes n’entrent donc pas dans sa clé de cache.
+Tous les biomes utilisent les mêmes noms `fieldRelief` et `fieldVolume`. Chaque fichier est compilé dans son propre programme, ce qui évite toute collision entre ces fonctions. Le dossier identifie le biome et `FIELD_BIOME_ID` relie sa passe aux poids et à la liste de chunks correspondants. Les noyaux communs `field_surface_accumulate.glsl` et `field_volume_accumulate.glsl`, inclus à la fin du fichier, contiennent `main()` et appellent directement ces fonctions. Chaque programme ne charge que ce biome et ses dépendances communes ; les autres recettes n’entrent pas dans sa clé de cache.
 
 Pendant Play, sélectionner le biome voulu dans **« Biome a tester »**, puis cliquer sur **« Regenerer avec ces reglages »**. La régénération relit les sources et applique les nouveaux paramètres. Une erreur GLSL est signalée avec les fichiers et lignes concernés ; corriger la source puis régénérer. Les fichiers binaires générés ne remplacent jamais une source devenue invalide.
 
@@ -25,7 +23,7 @@ Les identifiants et noms des 26 dossiers sont déclarés dans [`ProceduralTerrai
 
 ## Contrat de la fonction 2D
 
-`fieldRelief<Name>(p)` reçoit la position XZ en mètres et renvoie un `vec4` :
+`fieldRelief(p)` reçoit la position XZ en mètres et renvoie un `vec4` :
 
 | Composante | Signification | Bornes avant `detailScale` |
 | --- | --- | --- |
@@ -45,10 +43,10 @@ Les primitives partagées se trouvent dans [`biome_relief_common.glsl`](../Asset
 La densité est positive dans le solide, négative dans le vide ; l’isovaleur zéro définit la surface. La fonction 3D d’un biome renvoie une **modification de densité**, et reçoit la colonne après la finalisation du relief :
 
 ```glsl
-float fieldVolumePolarIce(vec3 p, FieldColumn column)
+float fieldVolume(vec3 p, FieldColumn column)
 {
     return fieldVolumeRecipeDelta(p, column,
-        FIELD_VOLUME_PolarIce, FIELD_SHAPE_PolarIce, FIELD_STYLE_PolarIce);
+        FIELD_VOLUME, FIELD_SHAPE, FIELD_STYLE);
 }
 ```
 
@@ -57,7 +55,7 @@ Les trois constantes fournissent une recette de départ reprenant les paramètre
 La passe commune initialise le champ avec `column.terrain.x - p.y`, puis chaque biome actif ajoute :
 
 ```glsl
-density[p] += localWeight * fieldVolumeBiome(worldPosition, column);
+density[p] += localWeight * fieldVolume(worldPosition, column);
 ```
 
 Si une construction produit une densité complète `sculpted`, la contribution correspondante est `sculpted - base`, où `base = column.terrain.x - p.y`. Par exemple, avec la convention « positif = solide », `max(base, rockDensity)` réunit un rocher au terrain ; la différence avec `base` est alors l’ajout à renvoyer. Une cavité peut utiliser `min(base, cavityDensity)` avant cette même soustraction. La recette doit aussi respecter la bande décrite ci-dessous et s’éteindre progressivement à sa limite.
@@ -139,12 +137,12 @@ Les arènes conservent **un champ de densité et un tableau de colonnes par trav
 
 Il s’agit du parallélisme fourni par le pilote : le terrain ne lance pas des appels OpenGL concurrents depuis plusieurs threads applicatifs. Si l’extension est indisponible, la compilation de repli se fait pendant l’initialisation. L’initialisation attend que le catalogue soit prêt ; le déplacement dans le monde ne déclenche aucune nouvelle compilation. Le gain dépend du pilote et ne constitue pas une garantie sur le temps de démarrage.
 
-Les clés du cache incluent les sources développées, les defines, les stages et l’identité du pilote/contexte. Chaque variante inclut directement son fichier de recette ; une modification dans un autre dossier de biome ne change donc pas cette clé.
+Les clés du cache incluent les sources développées, les defines, les stages et l’identité du pilote/contexte. Chaque variante contient directement sa recette ; une modification dans un autre dossier de biome ne change donc pas cette clé.
 
 | Modification | Programmes compute à recompiler si aucun binaire correspondant n’existe |
 | --- | --- |
-| `biomes/PolarIce/relief.glsl` | La passe 2D de PolarIce. |
-| `biomes/PolarIce/volume.glsl` | La passe 3D de PolarIce. |
+| `biomes/PolarIce/relief.C.glsl` | La passe 2D de PolarIce. |
+| `biomes/PolarIce/volume.C.glsl` | La passe 3D de PolarIce. |
 | `biome_relief_common.glsl` | Les passes 2D qui utilisent ce helper. |
 | `field_noise_2d.glsl` | La classification et les passes 2D qui l’incluent. |
 | `biome_volume_common.glsl` ou `field_noise_3d.glsl` | Les passes 3D qui l’incluent. |
@@ -155,7 +153,7 @@ Les clés du cache incluent les sources développées, les defines, les stages e
 
 `ENDURANCE_SHADER_CACHE_DIR` permet de choisir le répertoire du cache. Un binaire corrompu, incompatible ou refusé par le pilote entraîne une compilation normale. Un répertoire non inscriptible empêche sa sauvegarde, pas l’utilisation du terrain. Les sources restent nécessaires à la validation des dépendances, même lorsqu’un binaire est présent.
 
-Les fichiers agrégés [`biome_relief.glsl`](../Asset/Shader/ProceduralTerrain/biome_relief.glsl) et [`biome_volume.glsl`](../Asset/Shader/ProceduralTerrain/biome_volume.glsl) servent aux diagnostics et aux sondes de référence. Les variantes de production n’incluent pas ces agrégats. Les constantes des recettes constituent l’unique source des paramètres artistiques ; le tableau conservé pour les anciens diagnostics les référence directement.
+`Asset/Shader/ProceduralTerrain` contient uniquement les shaders utilisés par le terrain et leurs dépendances. Les anciens agrégats de biomes et les anciens points d’entrée de génération ont été supprimés. Les outils de vérification restent dans `Tests/Terrain` et utilisent les passes actuelles ou sondent séparément les recettes des fichiers `.C.glsl`.
 
 ## Ce qu’il faut mesurer
 

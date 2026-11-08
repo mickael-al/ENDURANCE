@@ -36,10 +36,12 @@ def main():
     with tempfile.TemporaryDirectory(prefix='terrain-biome-band-') as temporary, GL() as gl:
         directory=Path(temporary)/'shaders'
         shutil.copytree(SHADERS,directory)
-        path=directory/'biomes/PolarIce/relief.glsl'
+        path=directory/'biomes/PolarIce/relief.C.glsl'
         source=path.read_text()
-        source='uniform float probeThickness;\nuniform int probeSpatialBand;\n'+source
-        source=replace_body(source,'fieldReliefPolarIce', '''
+        version,body=source.split('\n',1)
+        assert version.startswith('#version'), 'Biome entry must declare its GLSL version first'
+        source=version+'\nuniform float probeThickness;\nuniform int probeSpatialBand;\n'+body
+        source=replace_body(source,'fieldRelief', '''
     float width=probeSpatialBand==0 ? probeThickness
         : max(0.0,fieldNoise2(p*0.05,715u)-0.1)*128.0;
     return vec4(8.0,width,-10.0,0.5);

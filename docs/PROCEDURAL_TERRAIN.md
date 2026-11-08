@@ -4,7 +4,7 @@ La nouvelle génération utilise un champ scalaire `float32`, une seed `uint32_t
 
 ## Champ et biomes
 
-Le champ est construit par **accumulation des résultats de chaque biome**. Le guide [BIOME_ACCUMULATION.md](BIOME_ACCUMULATION.md) décrit les fichiers à modifier, le contrat des contributions 3D et les dépendances du cache. Les 25 cases climatiques et le fond marin possèdent chacun un dossier `Asset/Shader/ProceduralTerrain/biomes/<Name>/`, contenant une fonction 2D (`relief.glsl`), une fonction 3D (`volume.glsl`) et leurs deux points d’entrée compute spécialisés (`relief.C.glsl`, `volume.C.glsl`). Les fonctions sont encapsulées dans des `#ifdef` propres au biome et à la dimension.
+Le champ est construit par **accumulation des résultats de chaque biome**. Le guide [BIOME_ACCUMULATION.md](BIOME_ACCUMULATION.md) décrit les fichiers à modifier, le contrat des contributions 3D et les dépendances du cache. Les 25 cases climatiques et le fond marin possèdent chacun un dossier `Asset/Shader/ProceduralTerrain/biomes/<Name>/`, contenant seulement deux fichiers : `relief.C.glsl` définit `fieldRelief(vec2 p)` et `volume.C.glsl` définit `fieldVolume(vec3 p, FieldColumn column)`. Chaque fichier réunit la recette et son point d’entrée compute. Les noms des fonctions sont communs à tous les biomes, chacun étant compilé dans un programme distinct ; le noyau partagé appelle directement la fonction correspondante.
 
 `field_common.glsl` regroupe les uniforms, la disposition de `FieldColumn`, le mapping et les coordonnées mondiales. Les positions sont calculées sur une grille entière avant conversion en mètres :
 
@@ -38,7 +38,7 @@ Le champ est positif dans le solide et négatif dans le vide ; sa surface est l�
 
 L’épaisseur totale reste `relief.y × detailScale`, après accumulation locale du relief. Aucun plancher ni bruit global d’épaisseur ne s’ajoute ; un biome peut piloter `.y` par du bruit et le ramener à zéro. Le décalage vertical est indépendant de la hauteur de surface. Une contribution nulle, une bande fermée ou un point extérieur à la bande conserve la densité de base pour ce biome. Les noms, références naturelles et artistiques, réglages et limites sont décrits dans [BIOMES.md](BIOMES.md).
 
-Les anciens fichiers `field_surface.glsl`, `field_volume.glsl`, `field_columns.C.glsl` et `field_density.C.glsl`, ainsi que les agrégats `biome_relief.glsl` et `biome_volume.glsl`, restent disponibles pour les sondes de référence. Le backend de production utilise les passes de lot et les points d’entrée spécialisés ; il ne compile pas les agrégats de tous les biomes.
+Les anciens points d’entrée de génération et les agrégats qui regroupaient les fonctions de tous les biomes ont été supprimés. Le dossier des shaders contient les passes de lot, les programmes spécialisés, le maillage, le rendu, les ombres et leurs dépendances. Les sondes de vérification sont conservées dans `Tests/Terrain`.
 
 ## Programmes et rechargement des shaders
 
@@ -48,7 +48,7 @@ Le catalogue contient **60 programmes compute fixes** : 26 reliefs 2D, 26 volume
 
 Les programmes partagent `ShaderCompilation` pour charger les includes relatifs, injecter les defines après `#version` et conserver les fichiers et lignes avec `#line`. Les erreurs de lecture, de compilation ou de liaison arrêtent proprement l’initialisation ; aucun programme invalide n’est publié. Les pipelines de dessin et d’ombres continuent à utiliser `Ge::GraphiquePipeline`.
 
-Chaque point d’entrée inclut directement la recette de son biome et de sa dimension. Modifier `biomes/PolarIce/relief.glsl` invalide uniquement son programme 2D ; modifier `biomes/PolarIce/volume.glsl` invalide uniquement son programme 3D. Les helpers et bruits communs invalident tous les programmes qui les incluent. Les bruits restent séparés entre `field_noise_2d.glsl` et `field_noise_3d.glsl`, avec un petit `field_noise_common.glsl`. La table détaillée des dépendances figure dans [BIOME_ACCUMULATION.md](BIOME_ACCUMULATION.md#compilation-parallèle-et-cache).
+Chaque point d’entrée contient directement la recette de son biome et de sa dimension. Modifier `biomes/PolarIce/relief.C.glsl` invalide uniquement son programme 2D ; modifier `biomes/PolarIce/volume.C.glsl` invalide uniquement son programme 3D. Les helpers et bruits communs invalident tous les programmes qui les incluent. Les bruits restent séparés entre `field_noise_2d.glsl` et `field_noise_3d.glsl`, avec un petit `field_noise_common.glsl`. La table détaillée des dépendances figure dans [BIOME_ACCUMULATION.md](BIOME_ACCUMULATION.md#compilation-parallèle-et-cache).
 
 Le terrain active `ShaderCacheOptions` pour ses programmes compute et ses deux pipelines de dessin/ombres. À chaque initialisation, les sources et leurs includes sont relus, puis une clé SHA-256 est calculée sur les stages ordonnés, les sources développées avec les defines et l’identité du pilote/contexte OpenGL. Un changement de code, d’include, de define, de pilote ou de flags/profil du contexte produit une autre clé ; les dates de modification des fichiers ne décident pas de la validité.
 

@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--glew-object", required=True, type=Path,
-                        help="PIC object or static archive from the existing project build")
+                        help="PIC object, static archive or shared GLEW library")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="terrain-shader-reload-") as temporary:
         directory = Path(temporary)

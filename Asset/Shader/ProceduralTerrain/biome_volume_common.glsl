@@ -7,7 +7,7 @@
 
 // The original single-recipe evaluator, with already scaled column controls.
 // Positive density is solid. This internal helper returns a complete density;
-// public fieldVolume<Name> functions return only a DELTA to height - p.y.
+// public fieldVolume functions return only a DELTA to height - p.y.
 float fieldRecipeDensityAtPrepared(vec3 p,vec2 terrain,vec4 volume,vec4 shape,vec4 style)
 {
     if(uFieldMode==1u) return uBaseHeight-p.y;

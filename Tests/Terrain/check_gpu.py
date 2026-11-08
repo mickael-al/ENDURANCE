@@ -26,7 +26,9 @@ COLUMN_BYTES = COLUMN_WORDS * 4
 
 
 class LegacyFieldRunner:
-    def __init__(self, gl: GL, directory=SHADERS):
+    """Explicit comparison against an external pre-accumulation shader snapshot."""
+
+    def __init__(self, gl: GL, directory):
         self.gl = gl
         self.mapping = gl.buffer(packed_biome_cells())
         self.columns_program = gl.compute(directory / "field_columns.C.glsl")
@@ -82,10 +84,8 @@ class LegacyFieldRunner:
 
 
 def FieldRunner(gl: GL, directory=SHADERS):
-    """Use the production pass family, or a saved legacy revision for comparison."""
-    if (Path(directory) / "field_batch_classify.C.glsl").is_file():
-        return BatchFieldRunner(gl, directory)
-    return LegacyFieldRunner(gl, directory)
+    """Generate every normal fixture with the production batched pass family."""
+    return BatchFieldRunner(gl, directory)
 
 
 def lattice_values(result):

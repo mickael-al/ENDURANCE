@@ -1,4 +1,4 @@
-// Included by one biome's volume.C.glsl after its guarded 3D delta function.
+// Included by one biome's volume.C.glsl after its 3D delta function.
 layout(local_size_x=8,local_size_y=4,local_size_z=4) in;
 layout(std430,binding=0) buffer FieldDensity { float density[]; };
 layout(std430,binding=1) readonly buffer FieldColumns { FieldColumn columns[]; };
@@ -35,6 +35,6 @@ void main()
     uint address=job*uDensityStride+p.x+p.y*side+p.z*side*side;
     // The base was written once. Editable biome functions return only a delta.
     // precise also fixes contraction across independently compiled variants.
-    precise float value=density[address]+weight*FIELD_VOLUME_FUNCTION(world,column);
+    precise float value=density[address]+weight*fieldVolume(world,column);
     density[address]=value;
 }
