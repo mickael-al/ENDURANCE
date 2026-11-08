@@ -108,6 +108,10 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         const auto volumePath = directory / "biome_volume.glsl";
         const auto originalRelief = read(reliefPath);
         const auto originalVolume = read(volumePath);
+        const auto noise2Path = directory / "field_noise_2d.glsl";
+        const auto noise3Path = directory / "field_noise_3d.glsl";
+        const auto originalNoise2 = read(noise2Path);
+        const auto originalNoise3 = read(noise3Path);
         GpuConfig config;
         config.cells = 8; config.maxInFlight = 1; config.maxResidentChunks = 2;
         config.vertexBudgetMiB = 1; config.shaderDirectory = directory.string();
@@ -146,9 +150,35 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(mesher.initialize(config, error), error);
         const auto second = finishPlane(mesher, 6.25f, 2);
         if(binariesSupported)
-            require(compileCalls==editCompiles+2 && linkCalls==editLinks+2 && binaryCalls==editBinaries+4,
-                "Nested biome edit must rebuild fields and reuse unchanged meshing programs");
+            require(compileCalls==editCompiles+1 && linkCalls==editLinks+1 && binaryCalls==editBinaries+5,
+                "Relief edit must rebuild columns and reuse density plus meshing programs");
         require(!mesher.valid(first) && mesher.valid(second), "Reload retained an obsolete mesh handle");
+
+        auto isolatedReload = [&](const char* label, float expectedHeight, std::uint64_t token)
+        {
+            const auto beforeCompiles=compileCalls, beforeLinks=linkCalls, beforeBinaries=binaryCalls;
+            require(mesher.initialize(config,error),error);
+            finishPlane(mesher,expectedHeight,token);
+            if(binariesSupported)
+                require(compileCalls==beforeCompiles+1 && linkCalls==beforeLinks+1 &&
+                    binaryCalls==beforeBinaries+5,std::string(label)+": edit escaped its own field pass");
+        };
+        // Comments also change the exact source hash. Each dimension must
+        // invalidate only its owning program, never its sibling pass.
+        write(noise2Path,originalNoise2+"\n// 2D-only dependency edit\n");
+        isolatedReload("2D noise",6.25f,12);
+        auto customVolume=originalVolume;
+        const auto polar=customVolume.find("float fieldVolumePolarIce(");
+        require(polar!=std::string::npos,"Polar volume entry point missing");
+        const auto body=customVolume.find('{',polar);
+        require(body!=std::string::npos,"Polar volume body missing");
+        customVolume.insert(body+1,"\n    return column.terrain.x-p.y+0.5;\n");
+        config.field.bandThickness=256.0f;
+        write(volumePath,customVolume);
+        isolatedReload("3D biome",6.75f,13);
+        write(noise3Path,originalNoise3+"\n// 3D-only dependency edit\n");
+        isolatedReload("3D noise",6.75f,14);
+        config.field.bandThickness=0.0f;
 
         const auto invalidLine = std::count(originalVolume.begin(), originalVolume.end(), '\n') + 2;
         write(volumePath, originalVolume + "\nPOLAR_RELOAD_SYNTAX_ERROR\n");
@@ -173,7 +203,7 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(glGetError() == GL_NO_ERROR, "OpenGL error after failed/recovered reload");
         std::cout << "PASS shader reload: nested biome edit changes real vertices without process restart\n";
         if(binariesSupported)
-            std::cout << "PASS terrain binary cache: unchanged/settings-only regeneration loads six binaries; nested edit recompiles only two field programs\n";
+            std::cout << "PASS terrain binary cache: unchanged/settings-only regeneration loads six binaries; isolated relief/volume/2D-noise/3D-noise edits each recompile one program and load five binaries\n";
         std::cout << "PASS shader diagnostics: original include path/line, missing file and corrected-file retry\n";
         return 0;
     }

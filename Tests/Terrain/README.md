@@ -139,10 +139,11 @@ verifies that reinitialization changes actual meshed vertex positions without a
 process restart. It uses an isolated temporary `ENDURANCE_SHADER_CACHE_DIR`.
 With program binaries supported, the first initialization compiles six programs;
 unchanged regeneration and settings-only changes must load six binaries without
-compile/link calls. Changing a nested relief include must recompile the two field
-programs and load the four unchanged meshing programs. Actual vertex heights
-verify that uniforms are reapplied after binary loads and source edits reach the
-geometry. An invalid included shader must report its source path/original line,
+compile/link calls. Changing a nested relief or 2D noise include recompiles only the column
+program; changing a volume recipe or 3D noise include recompiles only the density
+program. Each isolated change loads the other five cached programs. Actual vertex heights
+verify that uniforms are reapplied after binary loads and both relief and volume
+source edits reach the geometry. An invalid included shader must report its source path/original line,
 not reuse an obsolete binary; fixing it or restoring a missing include must allow
 another successful initialization. The production shader directory and user cache
 are not edited by this fixture.
@@ -177,6 +178,8 @@ python3 Tests/Terrain/check_gpu.py --fields-only
 
 ```sh
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_pipeline.py
+# Optional refactor comparison against a saved shader revision:
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_pipeline.py --reference-shaders /path/to/baseline/ProceduralTerrain
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_parallel_compiler.py \
   --glew-object /tmp/endurance-glew-pic.o
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_background_compiler.py \

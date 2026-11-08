@@ -61,11 +61,11 @@ void main()
 
 # Keep the diagnostics in metre units, independent of the runtime column ABI.
 # The 48-byte column stores local blend factors and packed biome identifiers;
-# profile inspection below reconstructs the same forced-biome band and strengths
-# that the production density function uses.
+# profile inspection below uses the frozen legacy profile table for diagnostic
+# band/strength displays; height and density samples execute production code.
 PROBE = LEGACY_PROBE.replace(
     "    float h=column.terrain.x;",
-    """    BiomeVolume profile=fieldBiomeVolumeAt(uint(max(uBiomeOverride,0)),p);
+    """    ProbeBiomeVolume profile=fieldBiomeVolumeAt(uint(max(uBiomeOverride,0)),p);
     vec4 diagnosticVolume=profile.volume;
     diagnosticVolume.x=column.blend.y+
         clamp(column.blend.z+profile.volume.x,-160.0,160.0)*uDetailScale;
@@ -103,7 +103,7 @@ def check_voronoi(gl):
     raw = struct.pack(f"<{len(positions)*2}f", *(v for p in positions for v in p))
     floats = struct.unpack(f"<{len(positions)*2}f", raw)
     positions = list(zip(floats[::2], floats[1::2]))
-    source = "#version 450 core\nuniform uint uSeed;\n" + shader_source(SHADERS / "field_noise.glsl") + r"""
+    source = "#version 450 core\nuniform uint uSeed;\n" + shader_source(SHADERS / "field_noise_2d.glsl") + r"""
 layout(local_size_x=64) in;
 layout(std430,binding=7) readonly buffer ProbeInput { vec2 points[]; };
 layout(std430,binding=6) writeonly buffer ProbeOutput { vec2 distances[]; };

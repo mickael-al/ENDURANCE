@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Exercise every production biome recipe and optionally render diagnostic atlases.
 
-All scalar data come from the actual GLSL implementation. Readbacks here are test
-instrumentation and are never part of the terrain runtime path.
+Terrain heights and densities come from the actual GLSL implementation. Former
+parameter-blend diagnostics use a frozen test-only profile table. Readbacks here
+are test instrumentation and never enter the terrain runtime path.
 """
 from __future__ import annotations
 
@@ -43,7 +44,7 @@ uniform float uProbeSpacing;
 uniform float uProbeMinY;
 uniform float uProbeStepY;
 uniform vec3 uProbeClimate;
-BiomeVolume diagnosticProfile(vec2 p, FieldColumn column)
+ProbeBiomeVolume diagnosticProfile(vec2 p, FieldColumn column)
 {
     if(uBiomeOverride>=0) return fieldBiomeVolumeAt(uint(uBiomeOverride),p);
     float macroHeight=uBaseHeight;
@@ -52,7 +53,7 @@ BiomeVolume diagnosticProfile(vec2 p, FieldColumn column)
     float altitude=clamp((macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5,0.0,4.0)*0.25;
     return fieldBlendVolume(vec3(column.terrain.yz,altitude),p);
 }
-vec4 diagnosticVolume(FieldColumn column,BiomeVolume profile)
+vec4 diagnosticVolume(FieldColumn column,ProbeBiomeVolume profile)
 {
     vec4 volume=profile.volume;
     volume.x=column.blend.y+clamp(column.blend.z+volume.x,-160.0,160.0)*uDetailScale;
@@ -70,7 +71,7 @@ void main()
     if(uProbeMode==2u)
     {
         vec4 relief=fieldProbeBlendRelief(p,uProbeClimate.xy);
-        BiomeVolume profile=fieldBlendVolume(uProbeClimate,p);
+        ProbeBiomeVolume profile=fieldBlendVolume(uProbeClimate,p);
         outputValues[address]=ProbeSample(relief,profile.volume,profile.shape,profile.style);
         return;
     }
@@ -78,8 +79,8 @@ void main()
     {
         uint biome=uint(round(uProbeClimate.x*4.0))+5u*uint(round(uProbeClimate.y*4.0));
         vec4 expected=fieldBiomeRelief(biome,p);
-        BiomeVolume direct=fieldBiomeVolumeAt(biome,p);
-        BiomeVolume mixed=fieldBlendVolume(uProbeClimate,p);
+        ProbeBiomeVolume direct=fieldBiomeVolumeAt(biome,p);
+        ProbeBiomeVolume mixed=fieldBlendVolume(uProbeClimate,p);
         outputValues[address]=ProbeSample(fieldProbeBlendRelief(p,uProbeClimate.xy)-expected,
             mixed.volume-direct.volume,mixed.shape-direct.shape,mixed.style-direct.style);
         return;
@@ -100,7 +101,7 @@ void main()
         raw.detail.w=cell.x+4u*cell.y+16u*cell.z;
     }
     FieldColumn column=fieldColumnFromClimate(p,raw);
-    BiomeVolume profile=diagnosticProfile(p,column);
+    ProbeBiomeVolume profile=diagnosticProfile(p,column);
     vec4 volume=diagnosticVolume(column,profile);
     float y=uProbeMinY;
     if(uProbeMode==0u)

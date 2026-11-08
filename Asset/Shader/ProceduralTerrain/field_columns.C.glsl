@@ -1,5 +1,5 @@
 #version 450 core
-#include "world_field.glsl"
+#include "field_surface.glsl"
 layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
 layout(std430,binding=1) writeonly buffer FieldColumns { FieldColumn columns[]; };
 void main()

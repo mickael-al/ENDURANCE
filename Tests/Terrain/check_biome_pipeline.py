@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Verify the generic biome pipeline, packed CPU matrices and editable 2D/3D recipes."""
+import argparse
 import math
 from pathlib import Path
 import shutil
@@ -116,12 +117,42 @@ def check_free_surface(gl, generic):
     print("PASS free 2D recipe: temporary Manhattan Voronoi changes columns/density, preserves other biomes and detailScale=0")
 
 
+def check_reference(gl, generic, directory):
+    """Compare actual column/density passes against a saved shader revision."""
+    old=FieldRunner(gl,directory=directory)
+    cases=[]
+    for biome in range(26):
+        for seed in (1337,98765):
+            cases.append(dict(cells=8,origin=(-40,-12,24),lod=3,seed=seed,
+                uBaseSpacing=4.,uBiomeOverride=biome,uHeightAmplitude=0.,
+                uBandThickness=256.,uBandVariation=16.,uDetailScale=.35))
+    for lod in (0,1,3):
+        for seed in (17,1337):
+            cases.append(dict(cells=8,origin=(-48,-64,16),lod=lod,seed=seed,
+                uClimateFrequency=.04,uHeightAmplitude=240.,uHeightFrequency=.03,
+                uBandThickness=256.,uBandOffset=-32.,uSeaLevel=16.))
+    cases += [dict(cells=8,origin=(-8,-4,-12),mode=mode,seed=31)
+              for mode in (1,2)]
+    samples=0
+    for index,options in enumerate(cases):
+        before,after=old.run(**options),generic.run(**options)
+        compare(before,after,f"Reference field {index}")
+        samples+=len(after["density"])
+    print(f"PASS shader refactor reference: {len(cases)} cases / {samples} densities and all packed columns bitwise unchanged; 26 biomes, two seeds, mixed climates and LODs")
+
+
 def main():
+    parser=argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--reference-shaders",type=Path,
+        help="Optional saved ProceduralTerrain directory for bitwise field equivalence")
+    args=parser.parse_args()
     subprocess.run([str(biome_exporter())],check=True)
     with GL() as gl:
         print(f"OpenGL {gl.version}; renderer: {gl.renderer}",flush=True)
         check_biome_masks(gl)
         generic=check_pipeline(gl)
+        if args.reference_shaders:
+            check_reference(gl,generic,args.reference_shaders)
         check_free_surface(gl,generic)
         check_free_volume(gl,generic)
         gl.check("generic biome pipeline")

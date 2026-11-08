@@ -1,5 +1,5 @@
 #version 450 core
-#include "world_field.glsl"
+#include "field_volume.glsl"
 layout(local_size_x=8,local_size_y=4,local_size_z=4) in;
 layout(std430,binding=0) writeonly buffer FieldDensity { float density[]; };
 layout(std430,binding=1) readonly buffer FieldColumns { FieldColumn columns[]; };
