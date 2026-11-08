@@ -61,12 +61,10 @@ float fieldVolumeFromRecipe(vec3 p,FieldColumn column,vec4 volume,vec4 shape,vec
 // Ice: shallow recesses and small buried chambers in rare active sectors.
 float fieldVolumePolarIce(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)
 {
-    vec4 volume=vec4(-24,4,84,.65);
-    vec4 shape=vec4(.20,.70,.10,.09);
-    float activity=uintBitsToFloat(column.detail.x);
-    volume.yz*=activity;
-    shape.w*=activity;
-    return fieldVolumeFromRecipe(p,column,volume,shape,vec4(.90,.45,.15,.20),cache);
+    //float base = column.terrain.x - p.y;
+    //return base;
+    return fieldVolumeFromRecipe(p, column, vec4(-20, 3, 72, .40),
+        vec4(.35, .50, .15, .10), vec4(.85, .70, .15, .30), cache);
 }
 
 float fieldVolumeFrozenTundra(vec3 p,FieldColumn column,inout FieldVolumeNoise cache)

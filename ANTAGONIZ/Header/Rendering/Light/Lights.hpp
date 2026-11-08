@@ -68,7 +68,7 @@ namespace Ge
 		bool m_shadow = false;
 		bool m_active = true;
 		//shadow Dir
-		float cascadeSplitLambda = 0.9f;
+		float cascadeSplitLambda = 0.96f;
 		glm::vec3 frustumCorners[8];
 	};
 }

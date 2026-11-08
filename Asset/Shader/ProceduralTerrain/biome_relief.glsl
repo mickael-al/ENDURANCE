@@ -83,11 +83,13 @@ float polarVolumeActivity(vec2 p)
     return t*t*(3.0-2.0*t);
 }
 
-// Coldest row ---------------------------------------------------------------
-// Polar tuning: dimensions before the scene's detailScale multiplier.
-// Spacing stays in world metres; depth/amplitudes are multiplied by detailScale.
+//x — hauteur	Ajoutée à la hauteur générale du terrain, après multiplication par detailScale.
+//y — épaisseur	Ajoutée à bandThickness, après multiplication par detailScale.C’est une épaisseur totale, pas une demi - épaisseur.
+//z — décalage	Déplace la bande 3D par rapport à la surface.Négatif = enfouissement, positif = déplacement vers le haut.Il s’ajoute aux décalages du profil 3D et des réglages globaux.
+//w — masque rocheux	Valeur entre 0 et 1, initialement prévue pour renforcer la sculpture 3D sur les formations rocheuses. 0 ne désactive pas la 3D.
+
 const float POLAR_BASIN_SPACING = 64.0;
-const float POLAR_BASIN_DEPTH = 24.0;
+const float POLAR_BASIN_DEPTH = 14.0;
 const float POLAR_BASIN_FLOOR = 0.06;
 const float POLAR_BASIN_WARP = 0.65;
 const float POLAR_ROLL_AMPLITUDE = 18.0;
@@ -95,7 +97,7 @@ const float POLAR_FINE_AMPLITUDE = 1.5;
 
 vec4 fieldReliefPolarIce(vec2 p)
 {
-    vec2 q = fieldSurfaceRotate(p, vec2(0.8, 0.6));
+    /*vec2 q = fieldSurfaceRotate(p, vec2(0.8, 0.6));
     float spacing = max(POLAR_BASIN_SPACING, 4.0);
     vec2 warp = vec2(fieldNoise2(q / (spacing * 3.0), 100u),
                      fieldNoise2(q / (spacing * 3.0), 101u));
@@ -107,7 +109,8 @@ vec4 fieldReliefPolarIce(vec2 p)
     float h = (bowl - 1.0) * POLAR_BASIN_DEPTH;
     h += fieldNoise2(p * 0.0006, 103u) * POLAR_ROLL_AMPLITUDE;
     h += fieldNoise2(p * 0.04, 104u) * POLAR_FINE_AMPLITUDE;
-    return vec4(h, 32.0, -40.0, 0.0);
+    return vec4(h, 32.0, -40.0, 0.0);*/
+    return vec4(0, 32, -40.0, 0.0);
 }
 
 vec4 fieldReliefFrozenTundra(vec2 p)
