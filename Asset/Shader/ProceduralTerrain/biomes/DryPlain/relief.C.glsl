@@ -9,9 +9,9 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float h = fieldNoise2(p * 0.0009, 200u) * 44.0 + fieldNoise2(p * 0.003, 201u) * 10.0;
-    float butte = fieldSurfaceLandmark(p, 512.0, 202u, 0.0, 0.20, 0.45, 0.52);
-    h += butte * (360.0 + fieldNoise2(p * 0.0011, 203u) * 65.0);
+    float h = noisePerlin2D(p * 0.0009, uSeed ^ (200u)) * 44.0 + noisePerlin2D(p * 0.003, uSeed ^ (201u)) * 10.0;
+    float butte = noiseLandmark2D01(p, 512.0, uSeed ^ (202u), NOISE_EUCLIDEAN, 0.20, 0.45, 0.52);
+    h += butte * (360.0 + noisePerlin2D(p * 0.0011, uSeed ^ (203u)) * 65.0);
     return vec4(h, 342.0, -60.0, butte);
 }
 

@@ -9,13 +9,13 @@ FieldColumn fieldProbeColumn(vec2 p)
     vec4 relief=fieldClampRelief(fieldRelief(p));
     float macroHeight=uBaseHeight;
     if(uHeightAmplitude>0.0)
-        macroHeight+=fieldNoise2(p*uHeightFrequency,0x13198a2eu)*uHeightAmplitude;
+        macroHeight+=noisePerlin2D(p*uHeightFrequency, uSeed ^ (0x13198a2eu))*uHeightAmplitude;
     float offset=uBandOffset;
     if(uBandOffsetVariation>0.0)
-        offset+=uBandOffsetVariation*fieldNoise2(p*0.0004,0xa4093822u);
+        offset+=uBandOffsetVariation*noisePerlin2D(p*0.0004, uSeed ^ (0xa4093822u));
     vec2 climate=smoothstep(vec2(-0.32),vec2(0.32),
-        vec2(fieldNoise2(p*uClimateFrequency,0x243f6a88u),
-             fieldNoise2(p*uClimateFrequency,0x85a308d3u)));
+        vec2(noisePerlin2D(p*uClimateFrequency, uSeed ^ (0x243f6a88u)),
+             noisePerlin2D(p*uClimateFrequency, uSeed ^ (0x85a308d3u))));
     float coast=clamp((macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5,0.0,4.0);
     uvec3 cell=min(uvec3(floor(vec3(climate*4.0,coast))),uvec3(3u));
     uint index=cell.x+4u*cell.y+16u*cell.z;
@@ -25,7 +25,7 @@ FieldColumn fieldProbeColumn(vec2 p)
     FieldColumn column;
     precise float height=macroHeight+relief.x*uDetailScale;
     column.terrain=vec4(height,climate,relief.y*uDetailScale);
-    column.blend=vec4(fieldFade(coast-float(cell.z)),offset,relief.zw);
+    column.blend=vec4(noiseFadeQuintic(coast-float(cell.z)),offset,relief.zw);
     column.detail=uvec4(mapping.x|(index<<20u),fieldRepeatedVolumeID(FIELD_BIOME_ID),1u<<FIELD_BIOME_ID);
     // The production pipeline quantizes only after FP32 accumulation. A forced
     // biome has one contribution, so reproduce that single storage round-trip.

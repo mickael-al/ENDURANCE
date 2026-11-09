@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    vec2 q = fieldSurfaceRotate(p, vec2(0.8, -0.6));
-    float drumlin = fieldNoise2(q * vec2(0.0010, 0.0041), 170u);
-    float shield = fieldSurfaceLandmark(p, 384.0, 171u, 0.0, 0.22, 0.0, 0.65);
-    float h = fieldSurfaceFbm(p * 0.0013, 172u) * 65.0 + drumlin * 32.0;
+    vec2 q = noiseRotate2D(p, vec2(0.8, -0.6));
+    float drumlin = noisePerlin2D(q * vec2(0.0010, 0.0041), uSeed ^ (170u));
+    float shield = noiseLandmark2D01(p, 384.0, uSeed ^ (171u), NOISE_EUCLIDEAN, 0.22, 0.0, 0.65);
+    float h = noiseFbmTerrain2D(p * 0.0013, uSeed, 172u) * 65.0 + drumlin * 32.0;
     h += shield * 270.0;
     return vec4(h, 376.0, -76.0, shield);
 }

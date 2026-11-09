@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float floorWaves = fieldSurfaceDune(p, vec2(0.8, 0.6), 420.0, 250u) * 62.0;
-    float mesa = fieldSurfaceLandmark(p, 640.0, 251u, 0.0, 0.22, 0.58, 0.64);
-    float layers = fieldSurfaceTerrace(mesa * 570.0, 54.0, 0.42);
-    float h = floorWaves + layers + fieldNoise2(p * 0.002, 252u) * 8.0;
+    float floorWaves = noiseDunes2D01(p, vec2(0.8, 0.6), 420.0, uSeed ^ (250u)) * 62.0;
+    float mesa = noiseLandmark2D01(p, 640.0, uSeed ^ (251u), NOISE_EUCLIDEAN, 0.22, 0.58, 0.64);
+    float layers = noiseTerrace(mesa * 570.0, 54.0, 0.42);
+    float h = floorWaves + layers + noisePerlin2D(p * 0.002, uSeed ^ (252u)) * 8.0;
     return vec4(h, 506.0, -90.0, mesa);
 }
 

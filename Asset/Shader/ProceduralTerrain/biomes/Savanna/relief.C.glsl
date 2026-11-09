@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    vec2 q = fieldSurfaceRotate(p, vec2(0.6, -0.8));
-    float floorWaves = fieldSurfaceFbm(q * vec2(0.0009, 0.0016), 270u) * 85.0;
-    float kopje = fieldSurfaceLandmark(p, 384.0, 273u, 0.0, 0.20, 0.0, 0.60);
-    float h = floorWaves + kopje * (330.0 + 45.0 * fieldNoise2(p * 0.0015, 274u));
+    vec2 q = noiseRotate2D(p, vec2(0.6, -0.8));
+    float floorWaves = noiseFbmTerrain2D(q * vec2(0.0009, 0.0016), uSeed, 270u) * 85.0;
+    float kopje = noiseLandmark2D01(p, 384.0, uSeed ^ (273u), NOISE_EUCLIDEAN, 0.20, 0.0, 0.60);
+    float h = floorWaves + kopje * (330.0 + 45.0 * noisePerlin2D(p * 0.0015, uSeed ^ (274u)));
     return vec4(h, 390.0, -74.0, kopje);
 }
 

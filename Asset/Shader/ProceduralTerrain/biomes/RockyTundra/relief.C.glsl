@@ -9,12 +9,12 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    vec2 q = fieldSurfaceRotate(p, vec2(0.8, 0.6));
-    float ridge = fieldRidge2(q * vec2(0.0011, 0.0022), 150u);
-    float block = fieldSurfaceLandmark(p, 320.0, 151u, 2.0, 0.15, 0.42, 0.72);
-    float h = fieldSurfaceTerrace((ridge * ridge - 0.45) * 170.0, 30.0, 0.68);
-    h += block * (420.0 + 40.0 * fieldNoise2(p * 0.002, 152u));
-    h += fieldNoise2(p * 0.006, 153u) * 10.0;
+    vec2 q = noiseRotate2D(p, vec2(0.8, 0.6));
+    float ridge = noiseRidge2D01(q * vec2(0.0011, 0.0022), uSeed ^ (150u));
+    float block = noiseLandmark2D01(p, 320.0, uSeed ^ (151u), NOISE_CHEBYSHEV, 0.15, 0.42, 0.72);
+    float h = noiseTerrace((ridge * ridge - 0.45) * 170.0, 30.0, 0.68);
+    h += block * (420.0 + 40.0 * noisePerlin2D(p * 0.002, uSeed ^ (152u)));
+    h += noisePerlin2D(p * 0.006, uSeed ^ (153u)) * 10.0;
     return vec4(h, 406.0, -56.0, block);
 }
 

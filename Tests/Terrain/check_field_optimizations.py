@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
-import shutil
 import struct
 import tempfile
 
 from biome_mask_probe import replace_body
 from biome_test_support import packed_biome_cells
 from field_batch_runner import BatchFieldRunner, SHADERS
-from gl_headless import GL, shader_source
+from gl_headless import GL, shader_source, copy_terrain_shaders
 
 
 def f32(value):
@@ -96,7 +95,7 @@ def edit(directory,relative,function,body):
 def check_control_and_tiles(gl):
     with tempfile.TemporaryDirectory(prefix="terrain-control-optimization-") as temporary:
         directory=Path(temporary)/"shaders"
-        shutil.copytree(SHADERS,directory)
+        copy_terrain_shaders(SHADERS,directory)
         edit(directory,"biomes/PolarIce/relief.C.glsl","fieldRelief",
              "return vec4(8.0,64.0,0.0,clamp(0.5+0.25*p.x,0.0,1.0));")
         edit(directory,"biomes/PolarIce/volume.C.glsl","fieldVolume",
@@ -164,7 +163,7 @@ def check_control_and_tiles(gl):
         # dispatch the entire volume. Large +/-2^24 origins expose world-float
         # rounding at group boundaries; high LODs leave widely separated samples.
         exhaustive_directory=directory.parent/"exhaustive-shaders"
-        shutil.copytree(directory,exhaustive_directory)
+        copy_terrain_shaders(directory,exhaustive_directory)
         path=exhaustive_directory/"field_batch_prepare.C.glsl"
         source=path.read_text()
         source=source.replace("if(last>first)","if(localMasks[0].y!=0u)")
@@ -216,7 +215,7 @@ def check_skips_and_aliases(gl):
     assert sphere["field_state"][0]==3 and all(math.isfinite(x) for x in sphere["density"])
     with tempfile.TemporaryDirectory(prefix="terrain-halo-culling-") as temporary:
         directory=Path(temporary)/"shaders"
-        shutil.copytree(SHADERS,directory)
+        copy_terrain_shaders(SHADERS,directory)
         edit(directory,"biomes/PolarIce/relief.C.glsl","fieldRelief",
              "return vec4(p.x<0.0 ? -100.0 : 100.0,0.0,0.0,0.0);")
         # Neither height lies inside the chunk's vertical range. Their opposite

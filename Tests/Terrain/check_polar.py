@@ -76,7 +76,7 @@ def check_voronoi(gl):
     raw = struct.pack(f"<{len(positions)*2}f", *(v for p in positions for v in p))
     floats = struct.unpack(f"<{len(positions)*2}f", raw)
     positions = list(zip(floats[::2], floats[1::2]))
-    source = "#version 450 core\nuniform uint uSeed;\n" + shader_source(SHADERS / "field_noise_2d.glsl") + r"""
+    source = "#version 450 core\nuniform uint uSeed;\n" + shader_source(SHADERS / "../Noise/noise_2d.glsl") + r"""
 layout(local_size_x=64) in;
 layout(std430,binding=7) readonly buffer ProbeInput { vec2 points[]; };
 layout(std430,binding=6) writeonly buffer ProbeOutput { vec2 distances[]; };
@@ -84,7 +84,7 @@ uniform uint uCount;
 void main()
 {
     uint i=gl_GlobalInvocationID.x;
-    if(i<uCount) distances[i]=fieldCellular2Distances(points[i],102u);
+    if(i<uCount) distances[i]=noiseCellularDistancesSquared2D(points[i], uSeed ^ (102u));
 }
 """
     program = gl.compile([(0x91B9, source)], "polar Voronoi distances")

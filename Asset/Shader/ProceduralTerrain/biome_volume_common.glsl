@@ -3,7 +3,7 @@
 #ifndef ENDURANCE_BIOME_VOLUME_COMMON_GLSL
 #define ENDURANCE_BIOME_VOLUME_COMMON_GLSL
 
-#include "field_noise_3d.glsl"
+#include "../Noise/noise_3d.glsl"
 
 // The original single-recipe evaluator, with already scaled column controls.
 // Positive density is solid. This internal helper returns a complete density;
@@ -17,9 +17,9 @@ float fieldRecipeDensityAtPrepared(vec3 p,vec2 terrain,vec4 volume,vec4 shape,ve
     float edgeDistance=terrain.y-abs(p.y-volume.x);
     if(edgeDistance<=0.0) return base;
     float influence=smoothstep(0.0,volume.w,edgeDistance);
-    vec3 n=vec3(fieldNoise3(p*0.0125,0x299f31d0u),
-        fieldNoise3(p*vec3(0.00625,0.020,0.00625),0x082efa98u),
-        fieldNoise3(p*vec3(0.018,0.005,0.018),0xec4e6c89u));
+    vec3 n=vec3(noisePerlin3D(p*0.0125, uSeed ^ (0x299f31d0u)),
+        noisePerlin3D(p*vec3(0.00625,0.020,0.00625), uSeed ^ (0x082efa98u)),
+        noisePerlin3D(p*vec3(0.018,0.005,0.018), uSeed ^ (0xec4e6c89u)));
     float a=dot(shape.xyz,n);
     float displacement=mix(a,0.6*a+0.4*n.x,style.z)*volume.y;
     float density=base+influence*displacement;

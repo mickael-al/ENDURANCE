@@ -40,7 +40,7 @@ struct FieldColumn
                   // .w holds macro-height bits in scratch and is reserved after decode
 };
 
-#include "field_noise_common.glsl"
+#include "../Noise/noise_common.glsl"
 #include "biome_mapping.glsl"
 #include "field_storage.glsl"
 

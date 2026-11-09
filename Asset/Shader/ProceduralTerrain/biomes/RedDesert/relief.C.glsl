@@ -9,11 +9,11 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float dune = fieldSurfaceDune(p, vec2(0.6, 0.8), 360.0, 310u);
-    float secondary = fieldNoise2(p * vec2(0.0017, 0.0041), 311u);
-    float monument = fieldSurfaceLandmark(p, 768.0, 312u, 1.0, 0.22, 0.34, 0.52);
+    float dune = noiseDunes2D01(p, vec2(0.6, 0.8), 360.0, uSeed ^ (310u));
+    float secondary = noisePerlin2D(p * vec2(0.0017, 0.0041), uSeed ^ (311u));
+    float monument = noiseLandmark2D01(p, 768.0, uSeed ^ (312u), NOISE_MANHATTAN, 0.22, 0.34, 0.52);
     float h = dune * 150.0 + secondary * 13.0;
-    h += fieldSurfaceTerrace(monument * 440.0, 48.0, 0.40);
+    h += noiseTerrace(monument * 440.0, 48.0, 0.40);
     return vec4(h, 436.0, -78.0, monument);
 }
 

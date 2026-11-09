@@ -9,9 +9,9 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float mesa = fieldSurfaceLandmark(p, 512.0, 320u, 2.0, 0.15, 0.62, 0.68);
-    float floorWaves = fieldSurfaceFbm(p * 0.0010, 321u) * 45.0;
-    float h = floorWaves + fieldSurfaceTerrace(mesa * 540.0, 60.0, 0.32);
+    float mesa = noiseLandmark2D01(p, 512.0, uSeed ^ (320u), NOISE_CHEBYSHEV, 0.15, 0.62, 0.68);
+    float floorWaves = noiseFbmTerrain2D(p * 0.0010, uSeed, 321u) * 45.0;
+    float h = floorWaves + noiseTerrace(mesa * 540.0, 60.0, 0.32);
     return vec4(h, 486.0, -90.0, mesa);
 }
 

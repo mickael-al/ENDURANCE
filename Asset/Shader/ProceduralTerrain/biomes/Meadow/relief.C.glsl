@@ -9,11 +9,11 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    vec2 q = fieldSurfaceRotate(p, vec2(0.8, 0.6));
-    float waves = fieldSurfaceFbm(q * vec2(0.0007, 0.0015), 210u) * 96.0;
-    float knoll = fieldSurfaceLandmark(p, 512.0, 213u, 0.0, 0.22, 0.0, 0.55);
+    vec2 q = noiseRotate2D(p, vec2(0.8, 0.6));
+    float waves = noiseFbmTerrain2D(q * vec2(0.0007, 0.0015), uSeed, 210u) * 96.0;
+    float knoll = noiseLandmark2D01(p, 512.0, uSeed ^ (213u), NOISE_EUCLIDEAN, 0.22, 0.0, 0.55);
     float h = waves + knoll * 125.0;
-    h += fieldNoise2(q * vec2(0.0012, 0.004), 214u) * 10.0;
+    h += noisePerlin2D(q * vec2(0.0012, 0.004), uSeed ^ (214u)) * 10.0;
     return vec4(h, 302.0, -52.0, knoll);
 }
 

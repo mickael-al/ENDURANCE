@@ -514,3 +514,39 @@ For repeatable before/after generation measurements, cold field runs, warmed
 shader caches and interpretation of the stage counters, follow
 [the comparison guide](../../docs/TERRAIN_OPTIMIZATION_COMPARISON.md). The benchmark
 is separate from these correctness fixtures.
+
+
+## Bibliothèque de bruits 2D/3D
+
+La bibliothèque autonome se trouve dans `Asset/Shader/Noise`. Les tests GPU utilisent
+les fonctions de production, sans uniform implicite du terrain :
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise2.py
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise_library.py
+```
+
+Le premier test conserve un oracle scalaire historique indépendant pour les
+40 960 valeurs du Perlin2D vectorisé. Le second vérifie les bases signées et 01,
+les seeds, les raccords périodiques aux coordonnées négatives, les distances
+cellulaires contre une recherche indépendante 7×7/7×7×7, les singularités des
+courbes, les octaves des compositions, la déformation et le stencil du curl.
+Les deux dimensions peuvent aussi être incluses ensemble.
+
+Pour vérifier la conservation de la génération lors de cette migration, extraire
+la référence `847282fbb6bd9ff3a26674b1c37f4311d7033ca9` dans un autre checkout puis :
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise_library.py \
+  --reference-shaders ../ENDURANCE-before-noise/Asset/Shader/ProceduralTerrain
+```
+
+Cette option compare bit à bit 3 096 reliefs bruts de PolarIce/FrozenTundra, puis
+27 champs complets et leurs colonnes compactées/décodées, sur plusieurs seeds,
+origines et LOD, y compris le mélange automatique des biomes. Elle complète
+les tests de pipeline et de rechargement ; une modification de `noise_2d.glsl`
+invalide la classification et les 26 reliefs, celle de `noise_3d.glsl` les
+26 volumes. Les copies temporaires des shaders emportent aussi le dossier `Noise`.
+
+Le [catalogue](../../docs/NOISE_LIBRARY.md) contient les atlas issus de vrais
+échantillons GPU et la commande pour les régénérer.

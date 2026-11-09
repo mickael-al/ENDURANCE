@@ -2,13 +2,12 @@
 """A biome's 2D thickness alone must own the complete 3D band."""
 import math
 from pathlib import Path
-import shutil
 import struct
 import tempfile
 
 from biome_mask_probe import replace_body
 from check_gpu import FieldRunner, SHADERS, COLUMN_WORDS
-from gl_headless import GL
+from gl_headless import GL, copy_terrain_shaders
 
 
 def f32(value):
@@ -35,7 +34,7 @@ def verify_zero_columns(field):
 def main():
     with tempfile.TemporaryDirectory(prefix='terrain-biome-band-') as temporary, GL() as gl:
         directory=Path(temporary)/'shaders'
-        shutil.copytree(SHADERS,directory)
+        copy_terrain_shaders(SHADERS,directory)
         path=directory/'biomes/PolarIce/relief.C.glsl'
         source=path.read_text()
         version,body=source.split('\n',1)
@@ -43,7 +42,7 @@ def main():
         source=version+'\nuniform float probeThickness;\nuniform int probeSpatialBand;\n'+body
         source=replace_body(source,'fieldRelief', '''
     float width=probeSpatialBand==0 ? probeThickness
-        : max(0.0,fieldNoise2(p*0.05,715u)-0.1)*128.0;
+        : max(0.0,noisePerlin2D(p*0.05, uSeed ^ (715u))-0.1)*128.0;
     return vec4(8.0,width,-10.0,0.5);
 ''')
         path.write_text(source)

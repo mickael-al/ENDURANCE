@@ -6,14 +6,13 @@ import argparse
 import math
 from pathlib import Path
 import re
-import shutil
 import struct
 import tempfile
 
 from biome_mask_probe import replace_body
 from check_gpu import FieldRunner, LegacyFieldRunner, MeshRunner, SHADERS, lattice_values, finite_columns
 from field_batch_runner import BIOMES, BatchFieldRunner, MAX_JOBS
-from gl_headless import GL, shader_source
+from gl_headless import GL, shader_source, copy_terrain_shaders
 
 
 def f32(value):
@@ -177,7 +176,7 @@ def check_weighted_oracle(gl):
     """
     with tempfile.TemporaryDirectory(prefix="terrain-accumulation-oracle-") as temporary:
         directory=Path(temporary)/"shaders"
-        shutil.copytree(SHADERS,directory)
+        copy_terrain_shaders(SHADERS,directory)
         for biome,name in enumerate(BIOMES):
             path=directory/f"biomes/{name}/relief.C.glsl"
             path.write_text(replace_body(path.read_text(),"fieldRelief",
@@ -266,7 +265,7 @@ def check_free_recipes(gl,runner):
     other=runner.run(**dict(options,uBiomeOverride=11))
     with tempfile.TemporaryDirectory(prefix="terrain-free-recipes-") as temporary:
         directory=Path(temporary)/"shaders"
-        shutil.copytree(SHADERS,directory)
+        copy_terrain_shaders(SHADERS,directory)
         path=directory/"biomes/PolarIce/volume.C.glsl"
         path.write_text(replace_body(path.read_text(),"fieldVolume", """
     vec2 band=fieldVolumeBand(column,0.0);
@@ -283,7 +282,7 @@ def check_free_recipes(gl,runner):
         compare(runner.run(**disabled),changed.run(**disabled),"Disabled 3D detail")
         path=directory/"biomes/PolarIce/relief.C.glsl"
         path.write_text(replace_body(path.read_text(),"fieldRelief", """
-    float height=24.0+fieldCellular2(p*0.03125,714u,1.0)*16.0;
+    float height=24.0+noiseCellularDistance2D(p*0.03125, uSeed ^ (714u), NOISE_MANHATTAN)*16.0;
     return vec4(height,0.0,0.0,1.0);
 """))
         changed=BatchFieldRunner(gl,directory)

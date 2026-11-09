@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float channels = fieldNoise2(p * vec2(0.0025, 0.0045), 240u);
-    float h = fieldSurfaceTerrace(fieldNoise2(p * 0.0011, 241u) * 18.0, 7.0, 0.86);
+    float channels = noisePerlin2D(p * vec2(0.0025, 0.0045), uSeed ^ (240u));
+    float h = noiseTerrace(noisePerlin2D(p * 0.0011, uSeed ^ (241u)) * 18.0, 7.0, 0.86);
     h -= (1.0 - smoothstep(0.025, 0.13, abs(channels))) * 20.0;
-    float island = fieldSurfaceLandmark(p, 384.0, 242u, 0.0, 0.22, 0.0, 0.60);
+    float island = noiseLandmark2D01(p, 384.0, uSeed ^ (242u), NOISE_EUCLIDEAN, 0.22, 0.0, 0.60);
     h += island * 80.0;
     return vec4(h, 270.0, -38.0, island);
 }

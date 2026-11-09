@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float lake = fieldCellular2(p / 256.0, 190u, 0.0);
+    float lake = noiseCellularDistance2D(p / 256.0, uSeed ^ (190u), NOISE_EUCLIDEAN);
     float basin = 1.0 - smoothstep(0.12, 0.31, lake);
-    float pingo = fieldSurfaceLandmark(p, 512.0, 191u, 0.0, 0.18, 0.0, 0.55);
-    float h = fieldSurfaceFbm(p * 0.0014, 192u) * 18.0 - basin * 42.0;
+    float pingo = noiseLandmark2D01(p, 512.0, uSeed ^ (191u), NOISE_EUCLIDEAN, 0.18, 0.0, 0.55);
+    float h = noiseFbmTerrain2D(p * 0.0014, uSeed, 192u) * 18.0 - basin * 42.0;
     h += pingo * 110.0;
     return vec4(h, 278.0, -40.0, pingo);
 }

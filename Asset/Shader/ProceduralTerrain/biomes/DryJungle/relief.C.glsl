@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float floorWaves = fieldSurfaceFbm(p * 0.0013, 280u) * 55.0;
-    float tower = fieldSurfaceLandmark(p, 128.0, 283u, 1.0, 0.22, 0.18, 0.88);
-    float h = fieldSurfaceTerrace(floorWaves, 22.0, 0.78);
-    h += tower * (480.0 + 75.0 * fieldNoise2(p * 0.002, 284u));
+    float floorWaves = noiseFbmTerrain2D(p * 0.0013, uSeed, 280u) * 55.0;
+    float tower = noiseLandmark2D01(p, 128.0, uSeed ^ (283u), NOISE_MANHATTAN, 0.22, 0.18, 0.88);
+    float h = noiseTerrace(floorWaves, 22.0, 0.78);
+    h += tower * (480.0 + 75.0 * noisePerlin2D(p * 0.002, uSeed ^ (284u)));
     return vec4(h, 506.0, -100.0, tower);
 }
 

@@ -9,9 +9,9 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float hills = fieldSurfaceFbm(p * 0.0016, 220u) * 115.0;
-    float tor = fieldSurfaceLandmark(p, 384.0, 223u, 0.0, 0.22, 0.0, 0.65);
-    float h = hills + tor * (270.0 + 45.0 * fieldNoise2(p * 0.001, 224u));
+    float hills = noiseFbmTerrain2D(p * 0.0016, uSeed, 220u) * 115.0;
+    float tor = noiseLandmark2D01(p, 384.0, uSeed ^ (223u), NOISE_EUCLIDEAN, 0.22, 0.0, 0.65);
+    float h = hills + tor * (270.0 + 45.0 * noisePerlin2D(p * 0.001, uSeed ^ (224u)));
     return vec4(h, 426.0, -80.0, tor);
 }
 

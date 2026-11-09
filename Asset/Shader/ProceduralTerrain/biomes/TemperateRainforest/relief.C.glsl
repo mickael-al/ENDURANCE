@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float valley = fieldSurfaceFbm(p * 0.0014, 230u) * 62.0;
-    float tower = fieldSurfaceLandmark(p, 256.0, 233u, 0.0, 0.15, 0.32, 0.75);
-    float benches = fieldSurfaceTerrace(valley, 30.0, 0.65);
-    float h = mix(valley, benches, 0.55) + tower * (480.0 + 55.0 * fieldNoise2(p * 0.001, 234u));
+    float valley = noiseFbmTerrain2D(p * 0.0014, uSeed, 230u) * 62.0;
+    float tower = noiseLandmark2D01(p, 256.0, uSeed ^ (233u), NOISE_EUCLIDEAN, 0.15, 0.32, 0.75);
+    float benches = noiseTerrace(valley, 30.0, 0.65);
+    float h = mix(valley, benches, 0.55) + tower * (480.0 + 55.0 * noisePerlin2D(p * 0.001, uSeed ^ (234u)));
     return vec4(h, 506.0, -110.0, tower);
 }
 
