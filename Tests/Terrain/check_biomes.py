@@ -263,7 +263,7 @@ def check_climate_coverage(probe):
     reached=set()
     counts={}
     for seed in (1337,1,17,98765):
-        descriptors=struct.pack("<4i4I",-63,0,-63,0,seed,1,0,0)+bytes((MAX_JOBS-1)*32)
+        descriptors=struct.pack("<4i8I",-63,0,-63,0,seed,3,0,0,0,0,0,0)+bytes((MAX_JOBS-1)*48)
         gl.write(fields.jobs,descriptors)
         gl.dispatch(fields.classify,(size+7)//8,(size+7)//8,1)
         values=struct.unpack(f"<{size*size*COLUMN_WORDS}f",gl.read(columns,size*size*48))

@@ -71,3 +71,17 @@ result or program/shader object survives a failed batch. Disabling the exposed
 parallel-compile extension flags exercises the synchronous startup fallback
 and its cache reuse. The previous driver compiler-thread hint must be restored.
 These checks use a real OpenGL context; they do not estimate GPU performance.
+
+Each build now owns a source snapshot: shared include files are read once for
+the entire batch, with independent expansion/source IDs for each program.
+Snapshots never survive a build, so an edit with unchanged timestamp/length or
+a deleted include is still detected on the next reload. The fixture compares
+expanded bytes and source maps with the standalone loader, then checks coherent
+reuse within a snapshot and fresh content on a subsequent build.
+
+The driver's binary formats and identity are captured once per batch. The test
+counts the actual GL queries in both cold and warm builds (four identity strings,
+one format-count and one format-list query), while all ordinary queries reach
+the real driver. A fully warm batch does not initialize the parallel compiler.
+The synchronous fallback consumes the same already-prepared sources and cache
+keys rather than opening the files a second time.

@@ -73,11 +73,14 @@ def verify_queues(runner, requests, side):
     for queue,command in enumerate(runner.last_commands):
         dimension,biome=divmod(queue,26)
         expected=[slot for slot,request in enumerate(requests)
-                  if request is not None and (runner.last_jobs[slot][6+dimension] & (1<<biome))]
+                  if request is not None and (runner.last_jobs[slot][5] & (4 if dimension else 2))
+                  and (runner.last_jobs[slot][6+dimension] & (1<<biome))]
         assert command[3]==len(expected),("Wrong compact queue count",queue,command,expected)
         actual=runner.last_work_items[queue*MAX_JOBS:queue*MAX_JOBS+len(expected)]
         assert actual==tuple(expected),("Work list lost/reordered/duplicated a slot",queue,actual,expected)
-        target=((side+7)//8,(side+(3 if dimension else 7))//(4 if dimension else 8),
+        y_groups=max((runner.last_states[runner.last_jobs[slot][10]][2]-runner.last_states[runner.last_jobs[slot][10]][1]
+                      for slot in expected),default=0) if dimension else (side+7)//8
+        target=((side+7)//8,y_groups,
                 len(expected)*((side+3)//4 if dimension else 1))
         assert command[:3]==target,("Unsafe indirect dimensions",queue,command,target)
 
@@ -224,7 +227,8 @@ def check_weighted_oracle(gl):
                                 for b,w in enumerate(surface)) for j in range(4)]
                     expected=(options["uBaseHeight"]+relief[0]*scale,relief[1]*scale,relief[2],relief[3])
                     actual=(column[0],column[3],column[6],column[7])
-                    assert all(math.isclose(a,b,rel_tol=2e-5,abs_tol=1e-4) for a,b in zip(actual,expected)),("2D accumulation",options,x,z,actual,expected)
+                    tolerance=(1e-4,576/65535*scale*.5+1e-4,160/32767*.5+1e-4,1/65535*.5+1e-5)
+                    assert all(math.isclose(a,b,rel_tol=2e-5,abs_tol=eps) for a,b,eps in zip(actual,expected,tolerance)),("2D accumulation/quantization",options,x,z,actual,expected)
                     for y in range(side):
                         world_y=f32((origin[1]+(y-1)*stride)*spacing)
                         base=f32(column[0]-world_y)

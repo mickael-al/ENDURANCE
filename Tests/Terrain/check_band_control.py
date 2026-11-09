@@ -59,7 +59,9 @@ def main():
             for raw in (-12.25,0.,12.25,35.,576.,800.):
                 gl.uniform(polar_program,'probeThickness','1f',raw)
                 field=runner.run(**options,uDetailScale=scale)
-                expected=f32(min(max(raw,0.),576.)*f32(scale))
+                width=min(max(raw,0.),576.)
+                code=max(1,math.floor(f32(f32(width/576.)*65535.)+.5)) if width>0 else 0
+                expected=f32(f32(code*f32(576./65535.))*f32(scale)) if f32(width*f32(scale))>.0002 else 0.
                 assert all(math.isclose(v,expected,rel_tol=2e-7,abs_tol=1e-6)
                            for v in field['columns'][3::COLUMN_WORDS]),('Thickness has hidden addition',raw,scale)
                 disabled_samples+=verify_zero_columns(field)

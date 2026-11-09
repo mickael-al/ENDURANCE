@@ -14,6 +14,7 @@
 // cannot create duplicate factories or duplicate JSON specializations.
 REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     viewDistance, lodDistanceFactor, maxChunksPerFrame, maxInFlight,
+    columnCacheEntries, densityCacheEntries, measureGenerationTimings,
     vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, baseHeight,
     heightAmplitude, heightFrequency, climateFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
@@ -47,6 +48,9 @@ void ProceduralTerrainComponent::start()
     config.lodDistanceFactor = lodDistanceFactor;
     config.maxChunksPerFrame = maxChunksPerFrame;
     config.maxInFlight = maxInFlight;
+    config.columnCacheEntries = columnCacheEntries;
+    config.densityCacheEntries = densityCacheEntries;
+    config.measureGenerationTimings = measureGenerationTimings;
     config.vertexBudgetMiB = vertexBudgetMiB;
     config.maxResidentChunks = maxResidentChunks;
     config.maxSelectedChunks = maxSelectedChunks;
@@ -182,8 +186,39 @@ void ProceduralTerrainComponent::onGUI()
         stats.pendingCollisionJobs, static_cast<unsigned long long>(stats.failedCollisionJobs));
     ImGui::Text("Mesh memory: %.1f / %.1f MiB", stats.allocatedBytes / 1048576.0,
         stats.budgetBytes / 1048576.0);
-    ImGui::Text("Last generation: %.3f ms", stats.lastGenerationMilliseconds);
-    ImGui::Text("Field scratch: %.2f MiB", stats.transientFieldBytes / 1048576.0);
+    const auto& generation = stats.generation;
+    if (!m_generator->getConfig().measureGenerationTimings)
+        ImGui::TextUnformatted("GPU timing disabled; coverage and cache counters remain available.");
+    ImGui::Text("Coverage generation: %.1f ms%s", stats.coverageMilliseconds,
+        stats.rebuilding ? " (running)" : "");
+    ImGui::Text("GPU last batch: 2D %.3f / preparation %.3f / 3D %.3f / count %.3f ms",
+        generation.lastField2DMilliseconds, generation.lastFieldPreparationMilliseconds,
+        generation.lastVolumeMilliseconds, generation.lastCountMilliseconds);
+    ImGui::Text("GPU last emission: %.3f ms / request latency: %.3f ms",
+        generation.lastEmissionMilliseconds, generation.lastRequestMilliseconds);
+    const double gpuTotal = generation.field2DMilliseconds + generation.fieldPreparationMilliseconds
+        + generation.volumeMilliseconds + generation.countMilliseconds + generation.emissionMilliseconds;
+    ImGui::Text("GPU accumulated: %.3f ms (%llu batches / %llu emissions)", gpuTotal,
+        static_cast<unsigned long long>(generation.timedBatches),
+        static_cast<unsigned long long>(generation.timedEmissions));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("GPU intervals are disjoint: shared work is counted once per batch.\n"
+            "Queries are read later without blocking. Coverage includes frame scheduling and CPU planning.\n"
+            "Compare the same scene, camera, seed and concurrency after warming shader caches.");
+    ImGui::Text("Field cache hits: 2D %llu / density %llu",
+        static_cast<unsigned long long>(generation.columnCacheHits),
+        static_cast<unsigned long long>(generation.densityCacheHits));
+    ImGui::Text("Built fields: 2D %llu / density %llu; last batch %u jobs",
+        static_cast<unsigned long long>(generation.generatedColumnTiles),
+        static_cast<unsigned long long>(generation.generatedDensityFields), generation.lastFieldBatchJobs);
+    ImGui::Text("GPU fields: %.2f MiB cache + %.2f MiB scratch + %.2f MiB group metadata",
+        generation.cachedFieldBytes / 1048576.0, generation.transientFieldBytes / 1048576.0,
+        generation.groupMetadataBytes / 1048576.0);
+    ImGui::Text("Free vertex memory: largest block %.2f MiB / %u ranges",
+        generation.largestFreeVertexBytes / 1048576.0, generation.freeVertexRanges);
+    if (generation.droppedTimingSamples)
+        ImGui::Text("GPU timing samples skipped while busy: %llu",
+            static_cast<unsigned long long>(generation.droppedTimingSamples));
     if (stats.rebuilding && stats.visibleChunks == 0)
         ImGui::TextWrapped("Preparing nearby terrain. Ready local coverage appears progressively.");
     if (stats.rebuilding || stats.pendingJobs)

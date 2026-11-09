@@ -3,6 +3,7 @@
 
 #include "ProceduralTerrainLod.hpp"
 #include <cstddef>
+#include <memory>
 #include <vector>
 
 namespace ProceduralTerrain
@@ -19,7 +20,26 @@ namespace ProceduralTerrain
         std::vector<std::size_t> nextIndices;
     };
 
-    // Pure CPU planning. One split/merge, or up to four direct fills, plus affected
+    // Owned by one planning worker. Reuses the validated desired-selection
+    // index across local transactions; exact chunk/config comparisons prevent
+    // stale reuse when a caller edits a selection without changing a revision.
+    class LodPlanningCache
+    {
+    public:
+        LodPlanningCache();
+        ~LodPlanningCache();
+        LodPlanningCache(const LodPlanningCache&)=delete;
+        LodPlanningCache& operator=(const LodPlanningCache&)=delete;
+        std::uint64_t indexBuilds() const noexcept;
+        std::uint64_t indexReuses() const noexcept;
+    private:
+        struct Impl;
+        std::unique_ptr<Impl> m_impl;
+        friend bool planLodTransaction(const std::vector<LodChunk>&,const std::vector<LodChunk>&,
+            const glm::vec3&,const LodConfig&,LodTransaction&,std::string&,LodPlanningCache*);
+    };
+
+    // Pure CPU planning. One split/merge, or up to sixteen direct fills, plus affected
     // transition neighbours,
     // with at most 32 new meshes. Freeze this transaction until all nextIndices
     // are ready, then atomically replace previousIndices. Replan from the
@@ -34,7 +54,8 @@ namespace ProceduralTerrain
     bool planLodTransaction(const std::vector<LodChunk>& previous,
                             const std::vector<LodChunk>& desired,
                             const glm::vec3& camera, const LodConfig& config,
-                            LodTransaction& output, std::string& error);
+                            LodTransaction& output, std::string& error,
+                            LodPlanningCache* cache = nullptr);
 
     struct LodChangeGroup
     {

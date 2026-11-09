@@ -13,8 +13,14 @@ const vec4 FIELD_STYLE = vec4(.50,.50,.30,.90);
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    return fieldVolumeRecipeDelta(p,column,FIELD_VOLUME,
-                                 FIELD_SHAPE,FIELD_STYLE);
+    // This biome owns the meaning of the extra 2D control (relief.w).
+    // Replace these amplitude factors with local rock placement, cavities or
+    // another construction here; the accumulation kernel does not interpret it.
+    vec4 volume=FIELD_VOLUME;
+    volume.yz*=uDetailScale;
+    volume.y*=mix(0.55,1.0,column.blend.w);
+    volume.z*=mix(0.85,1.0,column.blend.w);
+    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
 }
 
 #include "../../field_volume_accumulate.glsl"

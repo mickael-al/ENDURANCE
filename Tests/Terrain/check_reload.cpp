@@ -134,13 +134,13 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS,&binaryFormats);
         const bool binariesSupported=binaryFormats>0 && glProgramBinary && glGetProgramBinary;
         CompileObserver observer;
-        constexpr unsigned programs=60; // 26 2D + 26 3D + 4 field + 4 extraction.
+        constexpr unsigned programs=61; // 26 2D + 26 3D + 5 field + 4 extraction.
 
         write(reliefPath, planeRelief(originalRelief, "2.25"));
         require(mesher.initialize(config, error), error);
         const auto first = finishPlane(mesher, 2.25f, 1);
         const auto coldCompiles=compileCalls, coldLinks=linkCalls, coldBinaries=binaryCalls;
-        require(coldCompiles==programs && coldLinks==programs,"Cold terrain initialization did not compile the fixed 60-program family");
+        require(coldCompiles==programs && coldLinks==programs,"Cold terrain initialization did not compile the fixed 61-program family");
         require(mesher.initialize(config,error),error);
         finishPlane(mesher,2.25f,10);
         if(binariesSupported)
@@ -219,7 +219,7 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         require(glGetError() == GL_NO_ERROR, "OpenGL error after failed/recovered reload");
         std::cout << "PASS shader reload: merged biome entry edit changes real vertices without process restart\n";
         if(binariesSupported)
-            std::cout << "PASS terrain binary cache: 60 fixed programs; unchanged/settings-only regeneration loads all binaries; biome-local 2D/3D edits rebuild one program; shared noise edits rebuild only their dimension\n";
+            std::cout << "PASS terrain binary cache: 61 fixed programs; unchanged/settings-only regeneration loads all binaries; biome-local 2D/3D edits rebuild one program; shared noise edits rebuild only their dimension\n";
         std::cout << "PASS shader diagnostics: original merged-entry path/line, missing file and corrected-file retry\n";
         return 0;
     }

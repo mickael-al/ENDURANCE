@@ -31,6 +31,9 @@ public:
     float lodDistanceFactor = 1.25f;
     std::uint32_t maxChunksPerFrame = 2;
     std::uint32_t maxInFlight = 2;
+    std::uint32_t columnCacheEntries = 128;
+    std::uint32_t densityCacheEntries = 32;
+    bool measureGenerationTimings = true;
     std::uint32_t vertexBudgetMiB = 256;
     std::uint32_t maxResidentChunks = 2048;
     std::uint32_t maxSelectedChunks = 1024;

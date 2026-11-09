@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <dlfcn.h>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -13,6 +14,28 @@
 #include <stdexcept>
 #include <string>
 #include <vector>
+
+namespace
+{
+    using GetStringFunction=const GLubyte* (GLAPIENTRY*)(GLenum);
+    using GetIntegerFunction=void (GLAPIENTRY*)(GLenum,GLint*);
+    GetStringFunction getStringOriginal=nullptr;
+    GetIntegerFunction getIntegerOriginal=nullptr;
+    unsigned identityQueries=0, formatCountQueries=0, formatListQueries=0;
+}
+// Observe the production cache's GL 1.0 queries without replacing their values.
+extern "C" const GLubyte* GLAPIENTRY glGetString(GLenum name)
+{
+    if (name==GL_VENDOR || name==GL_RENDERER || name==GL_VERSION || name==GL_SHADING_LANGUAGE_VERSION)
+        ++identityQueries;
+    return getStringOriginal(name);
+}
+extern "C" void GLAPIENTRY glGetIntegerv(GLenum name,GLint* value)
+{
+    if (name==GL_NUM_PROGRAM_BINARY_FORMATS) ++formatCountQueries;
+    if (name==GL_PROGRAM_BINARY_FORMATS) ++formatListQueries;
+    getIntegerOriginal(name,value);
+}
 
 namespace
 {
@@ -95,6 +118,7 @@ namespace
         {
             require(activeShaders == 0, "Previous batch retained shader objects");
             compileCalls = linkCalls = binaryCalls = peakShaders = missingHints = 0;
+            identityQueries=formatCountQueries=formatListQueries=0;
             createdPrograms.clear(); createdShaders.clear(); binaryHints.clear();
         }
         void noLeaks()
@@ -138,6 +162,35 @@ namespace
     Ge::ShaderProgramRequest request(const fs::path& file, const std::string& defines = {})
     { return {{{GL_COMPUTE_SHADER, file.string(), defines}}, file.filename().string()}; }
 
+    void checkSnapshot(const fs::path& directory)
+    {
+        write(directory/"shared.glsl", "#ifndef SHARED\n#define SHARED\nuint sharedValue=9u;\n#endif\n");
+        write(directory/"first.comp", "#version 450 core\n#include \"shared.glsl\"\n#include \"shared.glsl\"\n");
+        write(directory/"second.comp", "#version 450 core\n#include \"shared.glsl\"\n");
+        Ge::ShaderSourceSnapshot snapshot;
+        Ge::ShaderSource first, second, independent;
+        std::string error;
+        require(Ge::loadShaderSource((directory/"first.comp").string(), "#define FIRST 1", first, error, "430 core", &snapshot),error);
+        require(Ge::loadShaderSource((directory/"second.comp").string(), "", second, error, "430 core", &snapshot),error);
+        require(snapshot.fileCount()==3,"Shared includes were not retained once per build snapshot");
+        require(Ge::loadShaderSource((directory/"first.comp").string(), "#define FIRST 1", independent, error),error);
+        require(first.text==independent.text && first.files==independent.files,
+                "Snapshot expansion changed source bytes, definitions or source IDs");
+        const auto stamp=fs::last_write_time(directory/"shared.glsl");
+        write(directory/"shared.glsl", "#ifndef SHARED\n#define SHARED\nuint sharedValue=7u;\n#endif\n");
+        fs::last_write_time(directory/"shared.glsl",stamp);
+        require(Ge::loadShaderSource((directory/"second.comp").string(), "", second, error, "430 core", &snapshot),error);
+        require(second.text.find("sharedValue=9u")!=std::string::npos,
+                "One build observed different versions of its shared include");
+        require(Ge::loadShaderSource((directory/"second.comp").string(), "", independent, error),error);
+        require(independent.text.find("sharedValue=7u")!=std::string::npos,
+                "Fresh build missed an include edit with unchanged length/timestamp");
+        fs::remove(directory/"shared.glsl");
+        require(!Ge::loadShaderSource((directory/"second.comp").string(), "", independent, error),
+                "Fresh build hid a missing include with a previous snapshot");
+        std::cout<<"PASS build-local source snapshot: shared includes, exact expansion, coherent batch, fresh edits and deletions\n";
+    }
+
     void check(const fs::path& directory)
     {
         Ge::ShaderCacheOptions cache;
@@ -164,6 +217,8 @@ namespace
             require(programs.ids.size() == requests.size(), error);
             require(compileCalls == requests.size() && linkCalls == requests.size() && binaryCalls == 0,
                 "Cold batch did not compile exactly one program per request");
+            require(identityQueries==4 && formatCountQueries==1 && formatListQueries==1,
+                "Cold batch queried driver identity or binary formats more than once");
             require(missingHints == 0, "Binary retrievable hint was not set before linking");
             require(peakShaders <= 8 && peakShaders > 0, "Parallel compilation queue exceeded its bound");
             for (std::size_t i = 0; i < programs.ids.size(); ++i)
@@ -181,6 +236,8 @@ namespace
             require(programs.ids.size() == requests.size(), error);
             require(compileCalls == 0 && linkCalls == 0 && binaryCalls == requests.size(),
                 "Warm batch recompiled a cached program");
+            require(identityQueries==4 && formatCountQueries==1 && formatListQueries==1,
+                "Warm batch queried driver identity or binary formats more than once");
             for (std::size_t i = 0; i < programs.ids.size(); ++i)
                 require(execute(programs.ids[i]) == i + 11, "Cached batch output/order changed");
         }
@@ -270,6 +327,9 @@ extern "C" int shader_batch_tests(const char* directory)
 {
     try
     {
+        getStringOriginal=reinterpret_cast<GetStringFunction>(dlsym(RTLD_NEXT,"glGetString"));
+        getIntegerOriginal=reinterpret_cast<GetIntegerFunction>(dlsym(RTLD_NEXT,"glGetIntegerv"));
+        require(getStringOriginal && getIntegerOriginal,"Cannot resolve original GL queries");
         glewExperimental = GL_TRUE;
         const auto status = glewInit();
         require(status == GLEW_OK || status == GLEW_ERROR_NO_GLX_DISPLAY, "GLEW initialization failed");
@@ -277,6 +337,7 @@ extern "C" int shader_batch_tests(const char* directory)
         GLint formats = 0;
         glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &formats);
         require(formats > 0, "Shader batch cache fixture requires a program binary format");
+        checkSnapshot(fs::path(directory)/"snapshot");
         check(fs::path(directory));
         return 0;
     }

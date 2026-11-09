@@ -11,8 +11,9 @@ namespace Ge
         std::string label;
     };
 
-    // Startup/reload operation on the current owning OpenGL context. Loads every
-    // request's includes, restores valid binary-cache entries, and compiles only
+    // Startup/reload operation on the current owning OpenGL context. Reads each
+    // distinct include once in a build-local snapshot, captures the binary
+    // driver identity once, restores valid binary-cache entries, and compiles only
     // cache misses through the existing driver-assisted parallel compiler. The
     // bounded queue limits in-flight programs independently of the request count.
     // Drivers without ARB/KHR_parallel_shader_compile use the synchronous builder

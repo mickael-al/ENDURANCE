@@ -8,7 +8,8 @@ namespace ProceduralTerrain
 {
     inline constexpr std::uint32_t BiomeCount = 26;
     inline constexpr std::uint32_t MarineBiome = 25;
-    inline constexpr std::uint32_t FieldColumnBytes = 48;
+    inline constexpr std::uint32_t FieldColumnBytes = 32;
+    inline constexpr std::uint32_t FieldScratchColumnBytes = 48;
     // Stable IDs also select the independent 2D/3D compute source directories.
     inline constexpr std::array<const char*, BiomeCount> BiomeNames{{
         "PolarIce", "FrozenTundra", "Tundra", "Taiga", "BorealBog",
