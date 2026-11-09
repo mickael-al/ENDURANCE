@@ -2,6 +2,7 @@
 #include "field_batch_common.glsl"
 #include "field_weights.glsl"
 #include "../Noise/noise_2d.glsl"
+#include "field_climate.glsl"
 layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
 layout(std430,binding=1) writeonly buffer FieldColumns { FieldColumn columns[]; };
 shared uint localMasks[64];
@@ -30,6 +31,7 @@ void main()
             vec2 climate=smoothstep(vec2(-0.32),vec2(0.32),
                 vec2(noisePerlin2D(world*uClimateFrequency, uSeed ^ (0x243f6a88u)),
                      noisePerlin2D(world*uClimateFrequency, uSeed ^ (0x85a308d3u))));
+            climate=fieldClimatePlateaus(climate);
             float coast=(macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5;
             vec3 grid=vec3(clamp(climate,0.0,1.0)*4.0,clamp(coast,0.0,4.0));
             uvec3 cell=min(uvec3(floor(grid)),uvec3(3u));

@@ -190,8 +190,10 @@ def check_matrix_continuity(probe):
     gl=probe.gl
     fields=FieldRunner(gl)
     source=shader_source(SHADERS/"field_batch_classify.C.glsl")
-    source,count=re.subn(r"vec2 climate=smoothstep\([\s\S]*?;", "vec2 climate=uProbeClimate.xy;", source)
-    assert count==1, "Production climate classification changed; update the point injection"
+    # Inject the final climate so the plateau remap cannot move matrix probes.
+    needle="climate=fieldClimatePlateaus(climate);"
+    assert source.count(needle)==1, "Production climate classification changed; update the point injection"
+    source=source.replace(needle,"climate=uProbeClimate.xy;")
     needle="clamp(coast,0.0,4.0)"
     assert source.count(needle)==1
     source=source.replace(needle,"clamp(uProbeClimate.z,0.0,1.0)*4.0")

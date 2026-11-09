@@ -28,6 +28,20 @@ Un lot de nouveaux chunks suit ces étapes :
 
 `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainBiomes.hpp` contient les matrices qui font autorité : `BiomeMatrix2D` (5 × 5) et `BiomeMatrix3D` (5 × 5 × 5). Les axes sont humidité, température et hauteur macro relative au rivage ; le troisième axe n'est pas l'altitude de chaque voxel. Le C++ prépare une table de 64 cellules et l'envoie une fois au GPU. Modifier une matrice demande une recompilation C++, distincte du rechargement des recettes GLSL.
 
+Le climat conserve ses deux Perlin, leurs seeds et leur `smoothstep(-0.32,0.32)`.
+Avant le mapping et le stockage, `fieldClimatePlateaus()` dans
+`field_climate.glsl` remappe séparément humidité et température vers les cinq
+niveaux `0`, `0.25`, `0.5`, `0.75`, `1`, avec `noiseTerraces01`.
+`FIELD_CLIMATE_TRANSITION_WIDTH = 0.2` réserve 20 % de chaque intervalle entre
+niveaux à une rampe douce ; cette largeur est climatique, pas une distance en mètres.
+Les mêmes valeurs finales alimentent les poids, les masques et le rendu.
+Les cœurs des biomes deviennent plus homogènes et les mélanges moins étendus ;
+ce remappage n'égalise pas les surfaces et conserve les seuils de biome dominant.
+`climateFrequency` garde sa valeur : une fréquence plus basse agrandit les motifs,
+une fréquence plus haute les réduit. La hauteur macro est inchangée ; la hauteur
+finale peut évoluer puisque les contributions de relief reçoivent de nouveaux poids.
+Le remappage n'ajoute ni évaluation de bruit ni passe GPU.
+
 Les poids restent **locaux à chaque colonne**, bilinéaires en surface et trilinéaires pour le volume. Les occurrences répétées d’un identifiant sont additionnées avant d’appliquer son résultat. Aucun seuil de poids moyen de chunk n’est utilisé : toutes les contributions locales positives survivent, y compris dans le halo `[-1,N+1]`. Le shader de préparation sélectionne les passes, sans remplacer ces poids par des pourcentages constants par chunk. Les accumulations utilisent `float32` et `precise` pour conserver l’ordre des opérations.
 
 Chaque fonction 3D renvoie un **delta** par rapport à la densité de base `hauteur - p.y` :
