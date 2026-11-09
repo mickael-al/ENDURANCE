@@ -1,10 +1,12 @@
 #include "glcore.hpp"
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainBiomes.hpp"
+#include "ProceduralTerrainFieldCache.hpp"
 #include "ProceduralTransvoxelTables.hpp"
-#include "ComputeShader.hpp"
+#include "ShaderProgramBatch.hpp"
 #include <algorithm>
 #include <cmath>
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <limits>
@@ -23,14 +25,28 @@ namespace ProceduralTerrain
         };
         struct Command { std::uint32_t count, instances, first, baseInstance; };
         struct Descriptor { float originExtent[4]; std::uint32_t metadata[4]; };
+        struct FieldJobDescriptor
+        {
+            std::int32_t originLod[4];
+            std::uint32_t info[4]; // seed, ACTIVE/BUILD_COLUMNS/BUILD_DENSITY, masks
+            std::uint32_t storage[4]; // packed column slot, scratch slot, density slot
+        };
+        constexpr std::uint32_t ActiveJob=1, BuildColumns=2, BuildDensity=4;
+        constexpr unsigned TimingCapacity=64, TimingMarkers=5;
+        constexpr std::uint32_t MaximumFieldJobs=16;
+        constexpr std::uint32_t BiomePassCount=2*BiomeCount;
+        constexpr std::uint32_t WorkQueueBytes=BiomePassCount*(4+MaximumFieldJobs)*sizeof(std::uint32_t);
         static_assert(sizeof(Counters) == 16 && sizeof(Command) == 16 && sizeof(Descriptor) == 32,
             "GPU structures must match std430 layout");
+        static_assert(sizeof(FieldJobDescriptor)==48 && BiomeCount==26,
+            "Update field_batch_common.glsl when the work queue layout changes");
 
         struct Program
         {
             GLuint id = 0;
             GLint cells=-1, origin=-1, lod=-1, spacing=-1, seed=-1, mask=-1, parity=-1;
             GLint vertexBase=-1, capacity=-1;
+            GLint fieldStateIndex=-1;
             std::uint32_t cellCount=64;
             void discover()
             {
@@ -39,13 +55,18 @@ namespace ProceduralTerrain
                 seed=glGetUniformLocation(id,"uSeed"); mask=glGetUniformLocation(id,"uTransitionMask");
                 parity=glGetUniformLocation(id,"uChunkParity");
                 vertexBase=glGetUniformLocation(id,"uVertexBase"); capacity=glGetUniformLocation(id,"uVertexCapacity");
+                fieldStateIndex=glGetUniformLocation(id,"uFieldStateIndex");
             }
-            void field(const GpuConfig& config)
+            void field(const GpuConfig& config,std::uint32_t columnStride,std::uint32_t densityStride,std::uint32_t stateStride)
             {
                 glUseProgram(id);
                 cellCount=config.cells;
                 if (vertexBase>=0) glUniform1ui(vertexBase,0);
                 glUniform1ui(cells,config.cells); glUniform1f(spacing,config.baseSpacing);
+                glUniform1ui(glGetUniformLocation(id,"uJobSlots"),config.maxInFlight);
+                glUniform1ui(glGetUniformLocation(id,"uColumnStride"),columnStride);
+                glUniform1ui(glGetUniformLocation(id,"uDensityStride"),densityStride);
+                glUniform1ui(glGetUniformLocation(id,"uStateStride"),stateStride);
                 const auto& f=config.field;
                 const auto set=[&](const char* name,float value){ glUniform1f(glGetUniformLocation(id,name),value); };
                 set("uBaseHeight",f.baseHeight); set("uHeightAmplitude",f.heightAmplitude);
@@ -57,7 +78,7 @@ namespace ProceduralTerrain
                 glUniform1ui(glGetUniformLocation(id,"uFieldMode"),static_cast<std::uint32_t>(f.mode));
                 glUniform3fv(glGetUniformLocation(id,"uSphereCenter"),1,f.sphereCenter.data());
             }
-            void request(const ChunkRequest& request, std::uint32_t vertexCapacity=0) const
+            void request(const ChunkRequest& request, std::uint32_t vertexCapacity=0, std::uint32_t stateIndex=0) const
             {
                 glUseProgram(id);
                 if (origin>=0) glUniform3iv(origin,1,request.origin.data());
@@ -72,20 +93,29 @@ namespace ProceduralTerrain
                         static_cast<std::uint32_t>(request.origin[2]/span)&1u);
                 }
                 if (capacity>=0) glUniform1ui(capacity,vertexCapacity);
+                if (fieldStateIndex>=0) glUniform1ui(fieldStateIndex,stateIndex);
             }
         };
 
-        enum ProgramIndex { Columns, Density, CountRegular, CountTransition, EmitRegular, EmitTransition, ProgramCount };
-        enum class JobStage { Free, Counting, Emitting };
+        enum ProgramIndex
+        {
+            ClassifyColumns, FinalizeColumns, PrepareVolume, BuildWorkLists, InitializeDensity,
+            CountRegular, CountTransition, EmitRegular, EmitTransition,
+            SharedProgramCount, ReliefFirst=SharedProgramCount,
+            VolumeFirst=ReliefFirst+BiomeCount, ProgramCount=VolumeFirst+BiomeCount
+        };
+        enum class JobStage { Free, Queued, Counting, Emitting };
     }
 
     struct GpuMesher::Impl
     {
         struct Job
         {
-            GLuint density=0, columns=0, counter=0;
+            GLuint counter=0;
+            std::uint32_t fieldSlot=0;
+            std::uint32_t columnSlot=UINT32_MAX, densitySlot=UINT32_MAX;
             const volatile Counters* mapped=nullptr;
-            GLuint timers[2]{};
+            std::chrono::steady_clock::time_point requested;
             GLsync fence=nullptr;
             JobStage stage=JobStage::Free;
             std::uint64_t token=0;
@@ -105,12 +135,23 @@ namespace ProceduralTerrain
             GLuint buffer=0;
             std::vector<Command> commands;
         };
+        struct Timing
+        {
+            GLuint queries[TimingMarkers]{};
+            unsigned markers=0;
+            bool pending=false, batch=false;
+        };
         GpuConfig config;
         GpuStats statistics;
         std::string error;
         bool initialized=false, broken=false, flushPending=false;
         Program programs[ProgramCount];
         GLuint vertices=0, vao=0, tables=0, descriptors=0, biomeCells=0;
+        GLuint densityArena=0, columnArena=0, scratchArena=0, fieldStates=0, groupCounts=0;
+        GLuint fieldJobs=0, fieldWorkQueue=0;
+        std::uint32_t densityStride=0, columnStride=0, stateStride=0, groupStride=0;
+        FieldSlotCache columnCache, densityCache;
+        std::array<Timing,TimingCapacity> timings{};
         std::vector<Job> jobs;
         std::vector<Slot> slots;
         std::vector<std::uint32_t> freeSlots;
@@ -122,6 +163,77 @@ namespace ProceduralTerrain
         // Deliberately survives shutdown/reinitialize, unlike the slot array.
         std::uint32_t nextGeneration=0;
         std::uint64_t maximumStorageBlock=0;
+        bool allocationStatsDirty=true;
+
+        void updateAllocationStats()
+        {
+            if (!allocationStatsDirty) return;
+            statistics.freeVertexRanges=static_cast<std::uint32_t>(freeRanges.size());
+            statistics.largestFreeVertexBytes=0;
+            for (const auto& range:freeRanges)
+                statistics.largestFreeVertexBytes=(std::max)(statistics.largestFreeVertexBytes,
+                    static_cast<std::uint64_t>(range.second)*VertexBytes);
+            allocationStatsDirty=false;
+        }
+
+        Timing* beginTiming(bool batch)
+        {
+            if (!config.measureGenerationTimings) return nullptr;
+            for (auto& timing:timings) if (!timing.pending)
+            {
+                timing.pending=true; timing.batch=batch;
+                ++statistics.pendingTimingSamples;
+                timing.markers=batch?TimingMarkers:2;
+                glQueryCounter(timing.queries[0],GL_TIMESTAMP);
+                return &timing;
+            }
+            ++statistics.droppedTimingSamples;
+            return nullptr;
+        }
+        void stamp(Timing* timing,unsigned marker)
+        { if (timing) glQueryCounter(timing->queries[marker],GL_TIMESTAMP); }
+        void collectTimings()
+        {
+            if (!config.measureGenerationTimings) return;
+            for (auto& timing:timings)
+            {
+                if (!timing.pending) continue;
+                GLint available=GL_FALSE;
+                glGetQueryObjectiv(timing.queries[timing.markers-1],GL_QUERY_RESULT_AVAILABLE,&available);
+                if (!available) continue;
+                GLuint64 times[TimingMarkers]{};
+                for (unsigned i=0;i<timing.markers;++i)
+                    glGetQueryObjectui64v(timing.queries[i],GL_QUERY_RESULT,&times[i]);
+                const auto elapsed=[&](unsigned index){return static_cast<double>(times[index+1]-times[index])/1000000.0;};
+                if (timing.batch)
+                {
+                    statistics.lastField2DMilliseconds=elapsed(0);
+                    statistics.lastFieldPreparationMilliseconds=elapsed(1);
+                    statistics.lastVolumeMilliseconds=elapsed(2);
+                    statistics.lastCountMilliseconds=elapsed(3);
+                    statistics.field2DMilliseconds+=elapsed(0);
+                    statistics.fieldPreparationMilliseconds+=elapsed(1);
+                    statistics.volumeMilliseconds+=elapsed(2);
+                    statistics.countMilliseconds+=elapsed(3);
+                    statistics.lastGenerationMilliseconds=static_cast<double>(times[4]-times[0])/1000000.0;
+                    ++statistics.timedBatches;
+                }
+                else
+                {
+                    statistics.lastEmissionMilliseconds=elapsed(0);
+                    statistics.emissionMilliseconds+=elapsed(0);
+                    ++statistics.timedEmissions;
+                }
+                timing.pending=false;
+                --statistics.pendingTimingSamples;
+            }
+        }
+        void releaseFields(Job& job)
+        {
+            columnCache.release(job.columnSlot,config.columnCacheEntries!=0);
+            densityCache.release(job.densitySlot,config.densityCacheEntries!=0);
+            job.columnSlot=job.densitySlot=UINT32_MAX;
+        }
 
         bool allocate(std::uint32_t count, MeshHandle& mesh, const ChunkRequest& request)
         {
@@ -151,6 +263,7 @@ namespace ProceduralTerrain
             mesh.lod=request.lod; mesh.transitionMask=request.transitionMask;
             slot.mesh=mesh;
             statistics.allocatedBytes+=static_cast<std::uint64_t>(rounded)*VertexBytes;
+            allocationStatsDirty=true;
             Descriptor descriptor{{mesh.origin[0],mesh.origin[1],mesh.origin[2],mesh.extent},
                 {request.lod,static_cast<std::uint32_t>(mesh.baseChunkCoordinate[0]),
                  static_cast<std::uint32_t>(mesh.baseChunkCoordinate[1]),
@@ -176,58 +289,166 @@ namespace ProceduralTerrain
             if (next!=freeRanges.end() && first+count==next->first)
             { count+=next->second; freeRanges.erase(next); }
             freeRanges.emplace(first,count);
+            allocationStatsDirty=true;
             slot.reserved=false; slot.live=false; slot.allocation=0;
             freeSlots.push_back(index);
         }
 
         void bindJob(const Job& job)
         {
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,job.density);
-            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,job.columns);
+            const auto side=static_cast<GLsizeiptr>(config.cells+3);
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER,0,densityArena,
+                static_cast<GLintptr>(job.densitySlot)*densityStride*sizeof(float),side*side*side*sizeof(float));
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER,1,columnArena,
+                static_cast<GLintptr>(job.columnSlot)*columnStride*FieldColumnBytes,side*side*FieldColumnBytes);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,tables);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,job.counter);
+            glBindBufferRange(GL_SHADER_STORAGE_BUFFER,5,groupCounts,
+                static_cast<GLintptr>(job.fieldSlot)*groupStride*sizeof(std::uint32_t),groupStride*sizeof(std::uint32_t));
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,fieldStates);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,biomeCells);
         }
 
         void regular(const Program& program, const Job& job)
         {
-            program.request(job.request,job.mesh.vertexCount);
+            program.request(job.request,job.mesh.vertexCount,job.densitySlot*stateStride);
             glDispatchCompute((config.cells+7)/8,(config.cells+3)/4,(config.cells+3)/4);
         }
 
         void transition(const Program& program, const Job& job)
         {
             if (!job.request.transitionMask) return;
-            program.request(job.request,job.mesh.vertexCount);
+            program.request(job.request,job.mesh.vertexCount,job.densitySlot*stateStride);
             const auto faceCells=(config.cells/2)*(config.cells/2);
             glDispatchCompute((faceCells+63)/64,6,1);
         }
 
-        void count(Job& job)
+        void countQueued()
         {
-            bindJob(job);
-            const auto& columns=programs[Columns];
-            const auto& density=programs[Density];
-            const auto side=config.cells+3;
-            glBeginQuery(GL_TIME_ELAPSED,job.timers[0]);
-            columns.request(job.request);
-            glDispatchCompute((side+7)/8,(side+7)/8,1);
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-            density.request(job.request);
-            glDispatchCompute((side+7)/8,(side+3)/4,(side+3)/4);
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-            regular(programs[CountRegular],job);
-            if (job.request.transitionMask)
+            std::array<FieldJobDescriptor,MaximumFieldJobs> descriptions{};
+            const auto active=static_cast<std::uint32_t>(std::count_if(jobs.begin(),jobs.end(),
+                [](const auto& job){return job.stage==JobStage::Queued && !job.cancelled;}));
+            if (!active) return;
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+            bool columnsNeeded=false, densityNeeded=false;
+            std::uint32_t jobExtent=0;
+            for (auto& job:jobs)
             {
-                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
-                transition(programs[CountTransition],job);
+                if (job.stage!=JobStage::Queued || job.cancelled) continue;
+                FieldCacheKey key{job.request.origin,job.request.lod,job.request.seed};
+                const auto density=densityCache.acquire(key);
+                key.origin[1]=0; // Surface/climate depend on XZ only.
+                const auto column=columnCache.acquire(key);
+                job.densitySlot=density.slot; job.columnSlot=column.slot;
+                if (density.slot==UINT32_MAX || column.slot==UINT32_MAX)
+                { releaseFields(job); broken=true; error="Terrain field cache has no unpinned slot"; return; }
+                statistics.columnCacheHits+=!column.build;
+                statistics.densityCacheHits+=!density.build;
+                statistics.generatedColumnTiles+=column.build;
+                statistics.generatedDensityFields+=density.build;
+                columnsNeeded=columnsNeeded || column.build;
+                densityNeeded=densityNeeded || density.build;
+                auto& description=descriptions[job.fieldSlot];
+                for (unsigned axis=0;axis<3;++axis) description.originLod[axis]=job.request.origin[axis];
+                description.originLod[3]=static_cast<std::int32_t>(job.request.lod);
+                description.info[0]=job.request.seed;
+                description.info[1]=ActiveJob|(column.build?BuildColumns:0u)|(density.build?BuildDensity:0u);
+                description.storage[0]=column.slot;
+                description.storage[1]=job.fieldSlot;
+                description.storage[2]=density.slot;
+                jobExtent=(std::max)(jobExtent,job.fieldSlot+1);
+                const Counters zero{};
+                glNamedBufferSubData(job.counter,0,sizeof(Counters),&zero);
+                if (density.build)
+                {
+                    const std::uint32_t header[4]={0,UINT32_MAX,0,0};
+                    glNamedBufferSubData(fieldStates,static_cast<GLintptr>(density.slot)*stateStride*16,16,header);
+                }
             }
-            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
-            glEndQuery(GL_TIME_ELAPSED);
-            job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
-            flushPending=true;
-            job.stage=JobStage::Counting;
-            if (!job.fence) { broken=true; error="Cannot create terrain generation fence"; }
+            ++statistics.fieldBatches;
+            statistics.lastFieldBatchJobs=active;
+            auto* timing=beginTiming(true);
+            glNamedBufferSubData(fieldJobs,0,config.maxInFlight*sizeof(FieldJobDescriptor),descriptions.data());
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,densityArena);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,scratchArena);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,columnArena);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,fieldStates);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,fieldWorkQueue);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,fieldJobs);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,biomeCells);
+            glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER,fieldWorkQueue);
+            const auto side=config.cells+3;
+            const auto columnPass=[&](ProgramIndex index)
+            {
+                glUseProgram(programs[index].id);
+                glDispatchCompute((side+7)/8,(side+7)/8,jobExtent);
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            };
+            const auto buildLists=[&]()
+            {
+                glUseProgram(programs[BuildWorkLists].id);
+                glDispatchCompute(1,1,1);
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_COMMAND_BARRIER_BIT);
+            };
+            const auto accumulate=[&](unsigned first,unsigned queueFirst)
+            {
+                if (config.field.mode!=FieldMode::Terrain || config.field.detailScale<=0.0f) return;
+                const auto forced=config.field.biomeOverride;
+                const unsigned begin=forced>=0?static_cast<unsigned>(forced):0u;
+                const unsigned end=forced>=0?begin+1:BiomeCount;
+                // Stable biome order is independent of cache hits/batch peers.
+                for (unsigned biome=begin;biome<end;++biome)
+                {
+                    glUseProgram(programs[first+biome].id);
+                    glDispatchComputeIndirect(static_cast<GLintptr>(queueFirst+biome)*4*sizeof(std::uint32_t));
+                    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+                    ++statistics.submittedBiomePasses;
+                }
+            };
+            if (columnsNeeded)
+            {
+                columnPass(ClassifyColumns);
+                buildLists();
+                accumulate(ReliefFirst,0);
+                columnPass(FinalizeColumns);
+            }
+            stamp(timing,1);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,columnArena);
+            if (densityNeeded)
+            {
+                // A separate pass is required: aliases of a newly built XZ tile
+                // must only read it after all finalization workgroups complete.
+                columnPass(PrepareVolume);
+                buildLists();
+                glUseProgram(programs[InitializeDensity].id);
+                glDispatchCompute((side+7)/8,(side+3)/4,((side+3)/4)*jobExtent);
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            }
+            stamp(timing,2);
+            if (densityNeeded) accumulate(VolumeFirst,BiomeCount);
+            stamp(timing,3);
+            glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER,0);
+            for (auto& job:jobs)
+            {
+                if (job.stage!=JobStage::Queued || job.cancelled) continue;
+                bindJob(job);
+                regular(programs[CountRegular],job);
+                if (job.request.transitionMask)
+                {
+                    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+                    transition(programs[CountTransition],job);
+                }
+                glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
+                job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+                flushPending=true;
+                job.stage=JobStage::Counting;
+                if (!job.fence)
+                {
+                    if (timing) { timing->pending=false; --statistics.pendingTimingSamples; }
+                    broken=true; error="Cannot create terrain generation fence"; return;
+                }
+            }
+            stamp(timing,4);
         }
 
         void emit(Job& job)
@@ -237,7 +458,7 @@ namespace ProceduralTerrain
             glBindBufferRange(GL_SHADER_STORAGE_BUFFER,4,vertices,
                 static_cast<GLintptr>(slot.first)*VertexBytes,
                 static_cast<GLsizeiptr>(slot.allocation)*VertexBytes);
-            glBeginQuery(GL_TIME_ELAPSED,job.timers[1]);
+            auto* timing=beginTiming(false);
             regular(programs[EmitRegular],job);
             if (job.request.transitionMask)
             {
@@ -248,7 +469,7 @@ namespace ProceduralTerrain
             // Draw lists use that validated handle; no GPU command-copy pass.
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|
                 GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
-            glEndQuery(GL_TIME_ELAPSED);
+            stamp(timing,1);
             job.fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
             flushPending=true;
             job.stage=JobStage::Emitting;
@@ -269,7 +490,8 @@ namespace ProceduralTerrain
             config.baseSpacing<(std::numeric_limits<float>::min)()*65534.0f/config.cells ||
             config.vertexBudgetMiB==0 || config.vertexBudgetMiB>4096 ||
             config.maxResidentChunks==0 || config.maxResidentChunks>65536 ||
-            config.maxInFlight==0 || config.maxInFlight>16 ||
+            config.maxInFlight==0 || config.maxInFlight>MaximumFieldJobs ||
+            config.columnCacheEntries>4096 || config.densityCacheEntries>4096 ||
             !validFieldParameters(config.field))
         { error=s.error="Invalid procedural terrain GPU configuration"; return false; }
         const auto driverString = [](GLenum name)
@@ -289,33 +511,87 @@ namespace ProceduralTerrain
         { error=s.error="Terrain requires nine SSBO binding points and persistent buffer mapping"; return false; }
         s.maximumStorageBlock=static_cast<std::uint64_t>(maximumBlock);
         s.vertexAlignment=static_cast<std::uint32_t>(alignment)/std::gcd(static_cast<std::uint32_t>(alignment),VertexBytes);
+        const std::uint64_t side=config.cells+3;
+        const auto alignedElements=[&](std::uint32_t count,std::uint32_t elementBytes)
+        {
+            const auto multiple=static_cast<std::uint32_t>(alignment)/
+                std::gcd(static_cast<std::uint32_t>(alignment),elementBytes);
+            return (count+multiple-1)/multiple*multiple;
+        };
+        s.columnStride=alignedElements(static_cast<std::uint32_t>(side*side),FieldColumnBytes);
+        s.densityStride=alignedElements(static_cast<std::uint32_t>(side*side*side),sizeof(float));
+        s.stateStride=1+static_cast<std::uint32_t>((side+7)/8)*static_cast<std::uint32_t>((side+7)/8);
+        const auto regularGroups=((config.cells+7)/8)*((config.cells+3)/4)*((config.cells+3)/4);
+        const auto transitionGroups=6*((config.cells*config.cells/4+63)/64);
+        s.groupStride=alignedElements(regularGroups+transitionGroups,sizeof(std::uint32_t));
+        s.columnCache.reset((std::max)(config.maxInFlight,config.columnCacheEntries));
+        s.densityCache.reset((std::max)(config.maxInFlight,config.densityCacheEntries));
+        const auto columnBytes=static_cast<std::uint64_t>(s.columnCache.capacity())*s.columnStride*FieldColumnBytes;
+        const auto densityBytes=static_cast<std::uint64_t>(s.densityCache.capacity())*s.densityStride*sizeof(float);
+        const auto scratchBytes=static_cast<std::uint64_t>(config.maxInFlight)*s.columnStride*FieldScratchColumnBytes;
+        const auto stateBytes=static_cast<std::uint64_t>(s.densityCache.capacity())*s.stateStride*16;
+        const auto groupBytes=static_cast<std::uint64_t>(config.maxInFlight)*s.groupStride*sizeof(std::uint32_t);
+        if (columnBytes>s.maximumStorageBlock || densityBytes>s.maximumStorageBlock)
+        { error=s.error="Terrain field arenas exceed GPU storage block limit"; return false; }
         const std::uint64_t budget=static_cast<std::uint64_t>(config.vertexBudgetMiB)*1024*1024;
         const auto vertexCapacity=static_cast<std::uint32_t>(budget/VertexBytes/s.vertexAlignment*s.vertexAlignment);
         if (vertexCapacity==0) { error=s.error="Terrain vertex budget is too small"; return false; }
         s.statistics.budgetBytes=static_cast<std::uint64_t>(vertexCapacity)*VertexBytes;
 
-        const char* files[ProgramCount]={"field_columns.C.glsl","field_density.C.glsl","meshing.C.glsl",
+        const char* files[SharedProgramCount]={"field_batch_classify.C.glsl","field_batch_finalize.C.glsl",
+            "field_batch_prepare.C.glsl","field_batch_jobs.C.glsl","field_batch_density.C.glsl","meshing.C.glsl",
             "transition.C.glsl","meshing.C.glsl","transition.C.glsl"};
         Ge::ShaderCacheOptions shaderCache;
         shaderCache.enabled=true;
-        for (unsigned i=0;i<ProgramCount;++i)
+        std::vector<Ge::ShaderProgramRequest> requests;
+        requests.reserve(ProgramCount);
+        for (unsigned i=0;i<SharedProgramCount;++i)
         {
             const bool emitPass = i==EmitRegular || i==EmitTransition;
-            const char* define=emitPass?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
-            const std::string label="Terrain "+std::to_string(i+1)+"/"+std::to_string(ProgramCount)
-                +" "+files[i]+" EMIT_PASS="+(emitPass ? "1" : "0");
-            Ge::ComputeShader shader(config.shaderDirectory+"/"+files[i],define,label,shaderCache);
-            if (!shader.isValid())
-            { error=shader.getLastError(); shutdown(); s.error=error; return false; }
+            std::string define=emitPass?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
+            if (i==CountRegular || i==CountTransition || i==EmitRegular || i==EmitTransition)
+                define+="#define TERRAIN_GROUP_COUNTS 1\n#define TERRAIN_FIELD_STATE 1\n";
+            requests.push_back({{{GL_COMPUTE_SHADER,config.shaderDirectory+"/"+files[i],define}},
+                "Terrain "+std::string(files[i])+" EMIT_PASS="+(emitPass ? "1" : "0")});
+        }
+        for (const auto* dimension:{"relief","volume"})
+        for (const auto* biome:BiomeNames)
+        {
+            const auto file=config.shaderDirectory+"/biomes/"+biome+"/"+dimension+".C.glsl";
+            requests.push_back({{{GL_COMPUTE_SHADER,file,{}}},
+                "Terrain "+std::string(biome)+" "+dimension});
+        }
+        // A fixed family is loaded once at startup/reinitialization. No biome
+        // combination, new chunk or LOD can trigger compilation during streaming.
+        const auto linked=Ge::buildShaderPrograms(requests,error,shaderCache);
+        if (linked.size()!=ProgramCount)
+        { shutdown(); s.error=error; return false; }
+        for (unsigned i=0;i<ProgramCount;++i)
+        {
             auto& program=s.programs[i];
-            program.id=shader.takeProgram();
+            program.id=linked[i];
             program.discover();
-            program.field(config);
+            program.field(config,s.columnStride,s.densityStride,s.stateStride);
         }
         glCreateBuffers(1,&s.biomeCells);
         constexpr auto biomeCells=makeBiomeCellTable();
         glNamedBufferStorage(s.biomeCells,sizeof(biomeCells),biomeCells.data(),0);
-        s.statistics.biomeMetadataBytes=sizeof(biomeCells)+config.maxInFlight*sizeof(Counters);
+        s.statistics.biomeMetadataBytes=sizeof(biomeCells)+WorkQueueBytes+
+            config.maxInFlight*(sizeof(Counters)+sizeof(FieldJobDescriptor))+stateBytes;
+        glCreateBuffers(1,&s.columnArena);
+        glNamedBufferData(s.columnArena,static_cast<GLsizeiptr>(columnBytes),nullptr,GL_DYNAMIC_DRAW);
+        glCreateBuffers(1,&s.densityArena);
+        glNamedBufferData(s.densityArena,static_cast<GLsizeiptr>(densityBytes),nullptr,GL_DYNAMIC_DRAW);
+        glCreateBuffers(1,&s.scratchArena);
+        glNamedBufferData(s.scratchArena,static_cast<GLsizeiptr>(scratchBytes),nullptr,GL_DYNAMIC_DRAW);
+        glCreateBuffers(1,&s.fieldStates);
+        glNamedBufferData(s.fieldStates,static_cast<GLsizeiptr>(stateBytes),nullptr,GL_DYNAMIC_DRAW);
+        glCreateBuffers(1,&s.groupCounts);
+        glNamedBufferData(s.groupCounts,static_cast<GLsizeiptr>(groupBytes),nullptr,GL_DYNAMIC_DRAW);
+        glCreateBuffers(1,&s.fieldJobs);
+        glNamedBufferData(s.fieldJobs,config.maxInFlight*sizeof(FieldJobDescriptor),nullptr,GL_DYNAMIC_DRAW);
+        glCreateBuffers(1,&s.fieldWorkQueue);
+        glNamedBufferData(s.fieldWorkQueue,WorkQueueBytes,nullptr,GL_DYNAMIC_DRAW);
 
         glCreateBuffers(1,&s.vertices);
         glNamedBufferData(s.vertices,static_cast<GLsizeiptr>(s.statistics.budgetBytes),nullptr,GL_DYNAMIC_DRAW);
@@ -339,23 +615,22 @@ namespace ProceduralTerrain
         for (std::uint32_t i=config.maxResidentChunks;i>0;--i) s.freeSlots.push_back(i-1);
         s.freeRanges.emplace(0,vertexCapacity);
 
-        const std::uint64_t side=config.cells+3;
-        s.statistics.transientFieldBytes=config.maxInFlight*
-            (side*side*side*sizeof(float)+side*side*FieldColumnBytes);
+        s.statistics.transientFieldBytes=scratchBytes;
+        s.statistics.cachedFieldBytes=columnBytes+densityBytes+stateBytes;
+        s.statistics.groupMetadataBytes=groupBytes;
+        if (config.measureGenerationTimings)
+            for (auto& timing:s.timings) glGenQueries(TimingMarkers,timing.queries);
         s.jobs.resize(config.maxInFlight);
+        std::uint32_t fieldSlot=0;
         for (auto& job:s.jobs)
         {
-            glCreateBuffers(1,&job.density);
-            glNamedBufferData(job.density,static_cast<GLsizeiptr>(side*side*side*sizeof(float)),nullptr,GL_DYNAMIC_DRAW);
-            glCreateBuffers(1,&job.columns);
-            glNamedBufferData(job.columns,static_cast<GLsizeiptr>(side*side*FieldColumnBytes),nullptr,GL_DYNAMIC_DRAW);
+            job.fieldSlot=fieldSlot++;
             glCreateBuffers(1,&job.counter);
             const Counters zero{};
             glNamedBufferStorage(job.counter,sizeof(Counters),&zero,
                 GL_MAP_READ_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT|GL_DYNAMIC_STORAGE_BIT);
             job.mapped=static_cast<const volatile Counters*>(glMapNamedBufferRange(job.counter,0,sizeof(Counters),
                 GL_MAP_READ_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT));
-            glGenQueries(2,job.timers);
             if (!job.mapped)
             { error="Cannot map terrain counter buffer"; shutdown(); s.error=error; return false; }
         }
@@ -373,21 +648,31 @@ namespace ProceduralTerrain
         {
             if (job.fence) glDeleteSync(job.fence);
             if (job.mapped) glUnmapNamedBuffer(job.counter);
-            if (job.timers[0]) glDeleteQueries(2,job.timers);
-            const GLuint buffers[]={job.density,job.columns,job.counter};
-            glDeleteBuffers(3,buffers);
+            if (job.counter) glDeleteBuffers(1,&job.counter);
         }
         for (auto& item:s.retired) if (item.fence) glDeleteSync(item.fence);
+        for (auto& timing:s.timings)
+        {
+            if (timing.queries[0]) glDeleteQueries(TimingMarkers,timing.queries);
+            timing=Impl::Timing{};
+        }
         for (auto& program:s.programs) { if (program.id) glDeleteProgram(program.id); program=Program{}; }
         if (s.vao) glDeleteVertexArrays(1,&s.vao);
         for (auto& entry:s.drawLists)
             if (entry.second.buffer) glDeleteBuffers(1,&entry.second.buffer);
         s.drawLists.clear();
-        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.biomeCells};
-        if (s.vertices || s.tables || s.descriptors || s.biomeCells) glDeleteBuffers(4,buffers);
+        const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.biomeCells,
+            s.columnArena,s.densityArena,s.fieldJobs,s.fieldWorkQueue,s.scratchArena,s.fieldStates,s.groupCounts};
+        if (std::any_of(std::begin(buffers),std::end(buffers),[](GLuint id){return id!=0;}))
+            glDeleteBuffers(static_cast<GLsizei>(std::size(buffers)),buffers);
         s.vertices=s.vao=s.tables=s.descriptors=s.biomeCells=0;
+        s.columnArena=s.densityArena=s.fieldJobs=s.fieldWorkQueue=0;
+        s.scratchArena=s.fieldStates=s.groupCounts=0;
+        s.columnStride=s.densityStride=s.stateStride=s.groupStride=0;
+        s.columnCache.reset(0); s.densityCache.reset(0);
         s.jobs.clear(); s.slots.clear(); s.freeSlots.clear(); s.retired.clear(); s.freeRanges.clear();
         s.drawScratch.clear();
+        s.allocationStatsDirty=true;
         s.initialized=false; s.broken=false; s.flushPending=false; s.statistics=GpuStats{};
     }
 
@@ -422,14 +707,28 @@ namespace ProceduralTerrain
         if (found==s.jobs.end()) return false;
         auto& job=*found;
         job.request=request; job.token=token; job.cancelled=false; job.mesh=MeshHandle{};
-        const Counters zero{};
-        glNamedBufferSubData(job.counter,0,sizeof(Counters),&zero);
-        // Climate, local biome weights and relief stay on the GPU. The
-        // columns/density/count dispatches share one submission, with no
-        // classification readback or runtime program selection in between.
+        job.columnSlot=job.densitySlot=UINT32_MAX;
+        job.requested=std::chrono::steady_clock::now();
+        // poll() groups every queued chunk into the next field batch.
+        job.stage=JobStage::Queued;
         ++s.statistics.pendingJobs;
-        s.count(job);
-        if (s.broken) return false;
+        return true;
+    }
+
+    void GpuMesher::dispatchQueued()
+    {
+        auto& s=*m_impl;
+        if (!s.initialized || s.broken) return;
+        s.countQueued();
+        if (s.flushPending) { glFlush(); s.flushPending=false; }
+    }
+
+    bool GpuMesher::clearFieldCaches()
+    {
+        auto& s=*m_impl;
+        if (!s.initialized || s.broken || s.statistics.pendingJobs) return false;
+        s.columnCache.reset(s.columnCache.capacity());
+        s.densityCache.reset(s.densityCache.capacity());
         return true;
     }
 
@@ -437,6 +736,7 @@ namespace ProceduralTerrain
     {
         auto& s=*m_impl;
         if (!s.initialized) return;
+        if (!s.broken) s.collectTimings();
         const auto failPending=[&]()
         {
             // A failed fence cannot authorize buffer reuse. Keep allocations
@@ -453,6 +753,18 @@ namespace ProceduralTerrain
             }
             s.statistics.pendingJobs=0;
         };
+        if (s.broken) { failPending(); return; }
+        for (auto& job:s.jobs)
+        {
+            if (job.stage!=JobStage::Queued || !job.cancelled) continue;
+            Completion cancelled;
+            cancelled.token=job.token;
+            cancelled.status=CompletionStatus::Cancelled;
+            completions.push_back(std::move(cancelled));
+            job.stage=JobStage::Free;
+            --s.statistics.pendingJobs;
+        }
+        s.countQueued();
         if (s.broken) { failPending(); return; }
         // One submission for all newly queued generation/retirement fences.
         // In particular, retirement must progress even when no jobs remain.
@@ -510,21 +822,14 @@ namespace ProceduralTerrain
                     s.slots[job.mesh.slot].live=true;
                     ++s.statistics.residentChunks; s.statistics.residentVertices+=job.mesh.vertexCount;
                     ++s.statistics.completedJobs;
-                    // Timing is diagnostic only. Never make mesh publication
-                    // wait for a driver's delayed query-result delivery.
-                    GLint available0=GL_FALSE,available1=GL_FALSE;
-                    glGetQueryObjectiv(job.timers[0],GL_QUERY_RESULT_AVAILABLE,&available0);
-                    glGetQueryObjectiv(job.timers[1],GL_QUERY_RESULT_AVAILABLE,&available1);
-                    if (available0 && available1)
-                    {
-                        GLuint64 time0=0,time1=0;
-                        glGetQueryObjectui64v(job.timers[0],GL_QUERY_RESULT,&time0);
-                        glGetQueryObjectui64v(job.timers[1],GL_QUERY_RESULT,&time1);
-                        s.statistics.lastGenerationMilliseconds=static_cast<double>(time0+time1)/1000000.0;
-                    }
+
                 }
             }
             if (!completion.error.empty()) s.error=completion.error;
+            s.statistics.lastRequestMilliseconds=std::chrono::duration<double,std::milli>(
+                std::chrono::steady_clock::now()-job.requested).count();
+            s.statistics.totalRequestMilliseconds+=s.statistics.lastRequestMilliseconds;
+            s.releaseFields(job);
             completions.push_back(std::move(completion));
             job.stage=JobStage::Free;
             --s.statistics.pendingJobs;
@@ -599,6 +904,10 @@ namespace ProceduralTerrain
     unsigned int GpuMesher::descriptorBuffer() const noexcept { return m_impl->descriptors; }
     unsigned int GpuMesher::vertexArray() const noexcept { return m_impl->vao; }
     const GpuConfig& GpuMesher::config() const noexcept { return m_impl->config; }
-    GpuStats GpuMesher::stats() const noexcept { return m_impl->statistics; }
+    GpuStats GpuMesher::stats() const noexcept
+    {
+        m_impl->updateAllocationStats();
+        return m_impl->statistics;
+    }
     const std::string& GpuMesher::lastError() const noexcept { return m_impl->error; }
 }

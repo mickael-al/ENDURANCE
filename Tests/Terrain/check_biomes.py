@@ -1,22 +1,24 @@
 #!/usr/bin/env python3
 """Exercise every production biome recipe and optionally render diagnostic atlases.
 
-Terrain heights, densities and parameter diagnostics come from the actual GLSL
-implementation and production parameter table. Readbacks here
-are test instrumentation and never enter the terrain runtime path.
+Each recipe probe compiles only the selected biome's production 2D/3D functions.
+Matrix, coastline and LOD checks execute the actual accumulation pipeline.
+Readbacks here are test instrumentation and never enter the terrain runtime path.
 """
 from __future__ import annotations
 
 import argparse
-import ctypes as C
 import json
 import math
+import re
 from pathlib import Path
 import statistics
 import struct
 import sys
 
-from check_gpu import FieldRunner, COLUMN_WORDS, SHADERS, lattice_values, finite_columns, packed_biome_cells
+from biome_test_support import BIOME_NAMES, biome_recipe_source, packed_biome_cells
+from check_gpu import FieldRunner, COLUMN_WORDS, SHADERS, lattice_values, finite_columns
+from field_batch_runner import default_uniforms, MAX_JOBS
 from gl_headless import GL, GLUnavailable, shader_source
 
 BIOMES = (
@@ -43,103 +45,64 @@ uniform vec2 uProbeOrigin;
 uniform float uProbeSpacing;
 uniform float uProbeMinY;
 uniform float uProbeStepY;
-uniform vec3 uProbeClimate;
-ProbeBiomeVolume diagnosticProfile(vec2 p, FieldColumn column)
-{
-    if(uBiomeOverride>=0) return fieldBiomeVolumeAt(uint(uBiomeOverride),p);
-    float macroHeight=uBaseHeight;
-    if(uHeightAmplitude>0.0)
-        macroHeight+=fieldNoise2(p*uHeightFrequency,0x13198a2eu)*uHeightAmplitude;
-    float altitude=clamp((macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5,0.0,4.0)*0.25;
-    return fieldBlendVolume(vec3(column.terrain.yz,altitude),p);
-}
-vec4 diagnosticVolume(FieldColumn column,ProbeBiomeVolume profile)
-{
-    vec4 volume=profile.volume;
-    volume.x=column.blend.y+clamp(column.blend.z+volume.x,-160.0,160.0)*uDetailScale;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return volume;
-}
 void main()
 {
     uvec2 index=gl_GlobalInvocationID.xy;
     if(any(greaterThanEqual(index,uvec2(uProbeSize)))) return;
     vec2 p=uProbeOrigin+vec2(index)*uProbeSpacing;
-    uint address=index.x+index.y*uProbeSize;
-    if(uProbeMode==2u)
-    {
-        vec4 relief=fieldProbeBlendRelief(p,uProbeClimate.xy);
-        ProbeBiomeVolume profile=fieldBlendVolume(uProbeClimate,p);
-        outputValues[address]=ProbeSample(relief,profile.volume,profile.shape,profile.style);
-        return;
-    }
-    if(uProbeMode==3u)
-    {
-        uint biome=uint(round(uProbeClimate.x*4.0))+5u*uint(round(uProbeClimate.y*4.0));
-        vec4 expected=fieldBiomeRelief(biome,p);
-        ProbeBiomeVolume direct=fieldBiomeVolumeAt(biome,p);
-        ProbeBiomeVolume mixed=fieldBlendVolume(uProbeClimate,p);
-        outputValues[address]=ProbeSample(fieldProbeBlendRelief(p,uProbeClimate.xy)-expected,
-            mixed.volume-direct.volume,mixed.shape-direct.shape,mixed.style-direct.style);
-        return;
-    }
-    if(uProbeMode==4u)
-    {
-        outputValues[address]=ProbeSample(vec4(fieldClimateAt(p),0.0,0.0),vec4(0.0),vec4(0.0),vec4(0.0));
-        return;
-    }
     if(uProbeMode==1u) p.y=uProbeOrigin.y;
-    FieldColumn raw=fieldClassifyColumn(p);
-    if(uProbeMode==5u)
-    {
-        raw.terrain.yz=uProbeClimate.xy;
-        vec3 grid=clamp(uProbeClimate,0.0,1.0)*4.0;
-        uvec3 cell=min(uvec3(floor(grid)),uvec3(3u));
-        raw.blend=vec4(fieldFade(grid-vec3(cell)),0.0);
-        raw.detail.w=cell.x+4u*cell.y+16u*cell.z;
-    }
-    FieldColumn column=fieldColumnFromClimate(p,raw);
-    ProbeBiomeVolume profile=diagnosticProfile(p,column);
-    vec4 volume=diagnosticVolume(column,profile);
-    float y=uProbeMinY;
+    uint address=index.x+index.y*uProbeSize;
+    FieldColumn column=fieldProbeColumn(p);
+    vec4 volume=fieldProbeVolume(column);
+    float y=uProbeMinY+float(index.y)*uProbeStepY;
     if(uProbeMode==0u)
     {
         const float offsets[4]=float[4](-.65,-.2,.2,.65);
         y=column.terrain.x+volume.x+max(column.terrain.w*0.5,0.001)*offsets[uProbeSample];
     }
-    else if(uProbeMode==1u) y+=float(index.y)*uProbeStepY;
-    // One density call in the compiled probe. Four cheap dispatches collect
-    // the same four cross-section samples without duplicating the full shader.
-    float value=fieldDensityAt(vec3(p.x,y,p.y),column);
+    float value=fieldProbeDensity(vec3(p.x,y,p.y),column);
     if(uProbeMode==0u)
     {
         if(uProbeSample==0u)
-            outputValues[address]=ProbeSample(column.terrain,volume,vec4(0),profile.shape);
+            outputValues[address]=ProbeSample(column.terrain,volume,vec4(0),FIELD_SHAPE);
         outputValues[address].samples[uProbeSample]=value;
     }
-    else if(uProbeMode==1u)
-        outputValues[address]=ProbeSample(vec4(column.terrain.x,y,volume.x,column.terrain.w),volume,vec4(value),profile.shape);
     else
-        outputValues[address]=ProbeSample(column.terrain,vec4(value),vec4(0),vec4(0));
+        outputValues[address]=ProbeSample(vec4(column.terrain.x,y,volume.x,column.terrain.w),
+            volume,vec4(value),FIELD_SHAPE);
 }
 """
 
 
 class BiomeProbe:
-    def __init__(self, gl):
+    """Point sampler for one production recipe pair, never a combined switch."""
+    def __init__(self, gl, directory=SHADERS, source=None):
         self.gl=gl
-        self.mapping=gl.buffer(packed_biome_cells(),7)
-        self.density_passes=True
-        self.program=gl.compile([(0x91B9,"#version 450 core\n"+shader_source(SHADERS/"world_field.glsl")+profile_probe_source()+PROBE)],"biome production probe")
+        self.directory=Path(directory)
+        self.main_source=source or PROBE
+        self.density_passes=source is None
+        self.programs={}
+        self.mapping=gl.buffer(packed_biome_cells())
         self.buffer=gl.buffer(0)
         self.capacity=0
 
-    def run(self, biome=-1, size=17, origin=(-347.25,-591.75), spacing=39.5, mode=0,
-            min_y=-800., step_y=10., climate=(.5,.5,.5), **overrides):
+    def program_for(self, biome):
+        assert 0<=biome<len(BIOME_NAMES), "Recipe probes require one explicit biome"
+        if biome not in self.programs:
+            directory=self.directory/"biomes"/BIOME_NAMES[biome]
+            relief=biome_recipe_source(directory/"relief.C.glsl")
+            volume=biome_recipe_source(directory/"volume.C.glsl")
+            volume=re.sub(r"^#version[^\n]*\n", "", volume, count=1)
+            self.programs[biome]=self.gl.compile([(0x91B9,relief+volume+
+                profile_probe_source()+self.main_source)], BIOME_NAMES[biome]+" recipe point probe")
+        return self.programs[biome]
+
+    def run(self, biome=0, size=17, origin=(-347.25,-591.75), spacing=39.5, mode=0,
+            min_y=-800., step_y=10., **overrides):
+        assert mode in (0,1), "Mixed fields are tested through the production batch runner"
         gl=self.gl
-        if hasattr(self,"mapping"):gl.bind(self.mapping,7)
+        self.program=self.program_for(biome)
+        gl.bind(self.mapping,7)
         defaults={
             "uCells":("1ui",64),"uOrigin":("3i",0,0,0),"uLod":("1ui",0),
             "uBaseSpacing":("1f",1.),"uSeed":("1ui",1337),"uFieldMode":("1ui",0),
@@ -150,7 +113,6 @@ class BiomeProbe:
             "uBiomeOverride":("1i",biome),"uSphereCenter":("3f",0.,0.,0.),"uSphereRadius":("1f",48.),
             "uProbeSize":("1ui",size),"uProbeMode":("1ui",mode),"uProbeOrigin":("2f",*origin),
             "uProbeSpacing":("1f",spacing),"uProbeMinY":("1f",min_y),"uProbeStepY":("1f",step_y),
-            "uProbeClimate":("3f",*climate),
         }
         for name,value in overrides.items():
             kind=defaults[name][0]
@@ -164,11 +126,11 @@ class BiomeProbe:
         gl.bind(self.buffer,6)
         nan=struct.pack("<I",0x7fc00001)
         gl.write(self.buffer,nan*(byte_count//4))
-        for sample in range(4 if mode==0 and getattr(self,"density_passes",False) else 1):
+        for sample in range(4 if mode==0 and self.density_passes else 1):
             gl.uniform(self.program,"uProbeSample","1ui",sample)
             gl.dispatch_extent(self.program,size,size)
         data=gl.read(self.buffer,byte_count)
-        gl.check("biome probe")
+        gl.check("biome recipe probe")
         values=struct.unpack(f"<{size*size*16}f",data)
         assert all(math.isfinite(v) for v in values),f"Biome {biome} contains a nonfinite or unwritten sample"
         return {"raw":data,"values":values,"size":size,"spacing":spacing,"origin":origin,"mode":mode}
@@ -210,86 +172,114 @@ def check_recipes(gl):
     shifted=probe.run(biome=19,uBandOffset=-96.)
     assert a["values"][0::16]==shifted["values"][0::16],"Band offset changed the initial height surface"
     assert all(abs((y-x)+96.)<2e-5 for x,y in zip(a["values"][4::16],shifted["values"][4::16])),"Band offset was not applied independently"
-    print(f"PASS all biomes: {len(BIOMES)} distinct finite reliefs and parameterized volumes with interior carving; forced seed and independent volume offset")
+    print(f"PASS all biomes: {len(BIOMES)} distinct finite reliefs and default volume recipes with interior carving; forced seed and independent volume offset")
     return probe,records
 
 
+def numeric_field(result, include_climate=True):
+    # The local altitude fraction resets from 1 to 0 at a cell boundary. Its
+    # resulting contributions must be continuous, not that internal coordinate.
+    channels=(0,1,2,3,5,6,7) if include_climate else (0,3,5,6,7)
+    return tuple(value for i,value in enumerate(result["columns"]) if i%COLUMN_WORDS in channels)+result["density"]
+
+
 def check_matrix_continuity(probe):
-    # The diagnostic shader calls the real blend functions directly. It cannot
-    # pass by accidentally testing a different/clamped climate-noise value.
+    # Feed exact climate coordinates only at classification. All mapping,
+    # weights, individual relief/volume passes and indirect jobs are production
+    # code, so this checks the accumulated field rather than mixed parameters.
+    gl=probe.gl
+    fields=FieldRunner(gl)
+    source=shader_source(SHADERS/"field_batch_classify.C.glsl")
+    source,count=re.subn(r"vec2 climate=smoothstep\([\s\S]*?;", "vec2 climate=uProbeClimate.xy;", source)
+    assert count==1, "Production climate classification changed; update the point injection"
+    needle="clamp(coast,0.0,4.0)"
+    assert source.count(needle)==1
+    source=source.replace(needle,"clamp(uProbeClimate.z,0.0,1.0)*4.0")
+    source=source.replace("layout(local_size_x=", "uniform vec3 uProbeClimate;\nlayout(local_size_x=",1)
+    original=fields.classify
+    fields.classify=gl.compile([(0x91B9,source)],"production classifier with exact probe climate")
+    fields.programs=[fields.classify if program==original else program for program in fields.programs]
+
+    def sample(climate,biome=-1,height=-8):
+        gl.uniform(fields.classify,"uProbeClimate","3f",*climate)
+        return fields.run(cells=4,origin=(-20,height,-24),seed=1337,
+                          uHeightAmplitude=0.,uBiomeOverride=biome)
+
     for biome in range(25):
         climate=((biome%5)*.25,(biome//5)*.25,.5)
-        delta=probe.run(mode=3,size=3,climate=climate)["values"]
-        assert max(abs(v) for v in delta)<1e-5,("Matrix cell does not select its paired 2D/3D biome",biome,max(abs(v) for v in delta))
+        automatic=sample(climate)
+        forced=sample(climate,biome)
+        assert numeric_field(automatic)==numeric_field(forced),("Matrix node did not select its biome",biome)
     largest=0.
-    for axis in range(3):
-        for boundary in (.25,.5,.75):
-            center=[.37,.63,.59]
-            center[axis]=boundary
-            a=center.copy();b=center.copy();a[axis]-=1e-6;b[axis]+=1e-6
-            left=probe.run(mode=2,size=3,climate=tuple(a))["values"]
-            right=probe.run(mode=2,size=3,climate=tuple(b))["values"]
-            difference=max(abs(x-y) for x,y in zip(left,right))
-            largest=max(largest,difference)
-            # Metre-valued recipes can have a large derivative with respect to
-            # normalized climate; a discontinuity would exceed this small jump.
-            assert difference<.05,("Biome matrix boundary jumps",axis,boundary,difference)
-    # The complete first altitude slice must be the marine profile regardless
-    # of humidity and temperature. Relief remains the independent climate map.
-    ocean=[]
-    for h,t in ((0.,0.),(1.,0.),(0.,1.),(1.,1.),(.37,.63)):
-        data=probe.run(mode=2,size=1,climate=(h,t,0.))["values"]
-        ocean.append(data[4:16])
-    assert all(ocean[0]==row for row in ocean[1:]),"Lowest volume slice is not exclusively marine"
-    print(f"PASS matrices: all 25 climate cells select paired recipes; continuous 2D/3D boundaries; complete marine altitude slice; largest epsilon jump {largest:.6g}")
-    # Also exercise actual densities: the common nonlinear formula must remain
-    # continuous when its locally interpolated parameters cross matrix cells.
-    largest_density=0.
     for axis in range(3):
         for boundary in (.25,.5,.75):
             left=[.37,.63,.59];right=left.copy()
             left[axis]=boundary-1e-6;right[axis]=boundary+1e-6
-            for height in (-48.,0.,48.):
-                a=probe.run(mode=5,size=2,climate=tuple(left),min_y=height)["values"]
-                b=probe.run(mode=5,size=2,climate=tuple(right),min_y=height)["values"]
-                jump=max(abs(x-y) for x,y in zip(a,b))
-                largest_density=max(largest_density,jump)
-                assert jump<.05,("Actual density blend jumps across a matrix boundary",axis,boundary,height,jump)
-    print(f"PASS parameterized density evaluation: continuous matrix boundaries, largest epsilon jump {largest_density:.6g}")
-
-
+            for height in (-48,0,48):
+                a=numeric_field(sample(left,height=height))
+                b=numeric_field(sample(right,height=height))
+                difference=max(abs(x-y) for x,y in zip(a,b))
+                largest=max(largest,difference)
+                assert difference<.05,("Accumulated matrix boundary jumps",axis,boundary,height,difference)
+    for humidity,temperature in ((0.,0.),(1.,0.),(0.,1.),(1.,1.),(.37,.63)):
+        climate=(humidity,temperature,0.)
+        automatic=sample(climate)
+        marine=sample(climate,25)
+        assert numeric_field(automatic)==numeric_field(marine),"Lowest altitude slice differs from the marine biome"
+    print(f"PASS production accumulation matrices: 25 exact nodes, 2D/3D boundary continuity and full marine slice; largest epsilon jump {largest:.6g}")
 
 
 def check_sea_transition(probe):
+    fields=FieldRunner(probe.gl)
+
+    def sample(**overrides):
+        return numeric_field(fields.run(cells=4,origin=(-20,-8,-24),seed=1337,uHeightAmplitude=0.,**overrides))
+
     for boundary in (-32.,0.,32.):
-        a=probe.run(size=5,uHeightAmplitude=0.,uSeaLevel=boundary-.0001)["values"]
-        b=probe.run(size=5,uHeightAmplitude=0.,uSeaLevel=boundary+.0001)["values"]
+        a=sample(uSeaLevel=boundary-.0001)
+        b=sample(uSeaLevel=boundary+.0001)
         jump=max(abs(x-y) for x,y in zip(a,b))
         assert jump<.02,("Marine transition is discontinuous",boundary,jump)
-    automatic=probe.run(size=5,uHeightAmplitude=0.,uSeaLevel=128.)["values"]
-    marine=probe.run(biome=25,size=5,uHeightAmplitude=0.,uSeaLevel=128.)["values"]
-    assert max(abs(x-y) for x,y in zip(automatic,marine))<.0001,"Below the marine threshold, auto field differs from forced seafloor"
-    print("PASS sea transition: continuous shoreline and fully marine field below its threshold")
+    automatic=sample(uSeaLevel=128.)
+    marine=sample(uSeaLevel=128.,uBiomeOverride=25)
+    assert max(abs(x-y) for x,y in zip(automatic,marine))<.0001,"Submerged automatic field differs from forced seafloor"
+    print("PASS production sea accumulation: continuous shoreline and fully marine field below its threshold")
 
 
 def check_climate_coverage(probe):
+    # Only the production classification pass is required to measure climate.
+    # Sampling 129² columns avoids allocating or evaluating a 129³ density field.
+    gl=probe.gl
+    fields=FieldRunner(gl)
+    size=129
+    columns=gl.buffer(size*size*48,1)
+    gl.bind(fields.mapping,7)
+    gl.bind(fields.jobs,6)
+    gl.bind(fields.queues,5)
+    uniforms=default_uniforms(size-3,uBaseSpacing=250.,uDetailScale=0.)
+    uniforms.update({"uJobSlots":("1ui",1),"uColumnStride":("1ui",size*size),
+                     "uDensityStride":("1ui",size**3)})
+    for name,args in uniforms.items():gl.uniform(fields.classify,name,*args)
     reached=set()
     counts={}
     for seed in (1337,1,17,98765):
-        sample=probe.run(mode=4,size=129,origin=(-16000.,-16000.),spacing=250.,uSeed=seed)
-        pairs=zip(sample["values"][0::16],sample["values"][1::16])
+        descriptors=struct.pack("<4i8I",-63,0,-63,0,seed,3,0,0,0,0,0,0)+bytes((MAX_JOBS-1)*48)
+        gl.write(fields.jobs,descriptors)
+        gl.dispatch(fields.classify,(size+7)//8,(size+7)//8,1)
+        values=struct.unpack(f"<{size*size*COLUMN_WORDS}f",gl.read(columns,size*size*48))
         local=set()
-        for humidity,temperature in pairs:
+        for humidity,temperature in zip(values[1::COLUMN_WORDS],values[2::COLUMN_WORDS]):
             assert 0<=humidity<=1 and 0<=temperature<=1
             biome=int(math.floor(humidity*4+.5))+5*int(math.floor(temperature*4+.5))
             local.add(biome)
             reached.add(biome)
         counts[seed]=len(local)
     assert reached==set(range(25)),("Climate remap cannot expose all matrix cells in sampled worlds",sorted(reached))
-    print(f"PASS climate reachability: all 25 dominant cells observed across ±16km; per-seed coverage {counts}")
+    gl.check("production climate coverage")
+    print(f"PASS production climate reachability: all 25 dominant cells observed across ±16km; per-seed coverage {counts}")
 
 
-def check_forced_lod(gl):
+def check_forced_lod(gl, probe):
     fields=FieldRunner(gl)
     for biome in range(len(BIOMES)):
         options={"uBiomeOverride":biome,"seed":123456789}
@@ -300,7 +290,17 @@ def check_forced_lod(gl):
         assert len(shared)>=125
         assert all(a[p]==b[p] for p in shared),("Forced biome samples changed with LOD",biome)
         assert finite_columns(fine["columns"]) and all(math.isfinite(v) for v in fine["density"]),("Unwritten forced biome",biome)
+        # Keep the isolated point sampler honest against the actual production
+        # columns and a complete X/Y density slice, including Marine's climate.
+        columns=probe.run(biome=biome,size=fine["side"],origin=(-9.,-9.),spacing=1.,uSeed=123456789)["values"]
+        assert all(math.isclose(columns[i*16+j],fine["columns"][i*COLUMN_WORDS+j],rel_tol=2e-6,abs_tol=2e-5)
+                   for i in range(fine["side"]**2) for j in range(4)),("Recipe probe column differs from accumulation",biome)
+        section=probe.run(biome=biome,size=fine["side"],mode=1,origin=(-9.,-9.),spacing=1.,
+                          min_y=-9.,step_y=1.,uSeed=123456789)["values"][8::16]
+        assert all(math.isclose(a,b,rel_tol=2e-6,abs_tol=2e-5)
+                   for a,b in zip(section,fine["density"])),("Recipe probe density differs from accumulation",biome)
     print(f"PASS forced biome LOD: all {len(BIOMES)} recipes agree bitwise on shared samples and complete every halo")
+    print(f"PASS isolated recipe probes: all {len(BIOMES)} match production column controls and X/Y density slices")
 
 
 def write_atlases(probe, directory:Path, records):
@@ -367,7 +367,10 @@ def main():
             check_matrix_continuity(probe)
             check_sea_transition(probe)
             check_climate_coverage(probe)
-            check_forced_lod(gl)
+            check_forced_lod(gl,probe)
+            from biome_mask_probe import check_biome_masks, check_volume_noise_budget
+            check_biome_masks(gl)
+            check_volume_noise_budget(gl)
             if args.atlas:write_atlases(probe,args.atlas,records)
     except GLUnavailable as error:
         print(f"SKIP: {error}",file=sys.stderr)

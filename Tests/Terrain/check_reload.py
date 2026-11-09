@@ -16,7 +16,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--glew-object", required=True, type=Path,
-                        help="PIC object or static archive from the existing project build")
+                        help="PIC object, static archive or shared GLEW library")
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="terrain-shader-reload-") as temporary:
         directory = Path(temporary)
@@ -33,8 +33,10 @@ def main():
                    str(ROOT / "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp"),
+                   str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderProgramBatch.cpp"),
+                   str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ParallelShaderCompiler.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp"),
-                   str(args.glew_object.resolve()), "-pthread", "-l:libGL.so.1", "-o", str(library)]
+                   str(args.glew_object.resolve()), "-pthread", "-l:libGL.so.1", "-l:libEGL.so.1", "-o", str(library)]
         subprocess.run(command, check=True)
         with GL() as gl:
             print(f"OpenGL {gl.version}; renderer: {gl.renderer}", flush=True)

@@ -128,7 +128,7 @@ namespace Ge
     bool ParallelShaderCompiler::supported() const noexcept { return m_impl->setThreads != nullptr; }
 
     ParallelShaderCompiler::Ticket ParallelShaderCompiler::submit(
-        const std::vector<Source>& sources, const std::string& label)
+        const std::vector<Source>& sources, const std::string& label, bool retrievableBinary)
     {
         auto& impl = *m_impl;
         if (!supported())
@@ -160,6 +160,8 @@ namespace Ge
             impl.lastError = "Cannot create parallel shader program";
             return 0;
         }
+        if (retrievableBinary)
+            glProgramParameteri(job.program, GL_PROGRAM_BINARY_RETRIEVABLE_HINT, GL_TRUE);
         for (const auto& source : sources)
         {
             const GLuint shader = glCreateShader(source.stage);
@@ -186,9 +188,9 @@ namespace Ge
     }
 
     ParallelShaderCompiler::Ticket ParallelShaderCompiler::submitCompute(
-        const std::string& source, const std::string& label)
+        const std::string& source, const std::string& label, bool retrievableBinary)
     {
-        return submit({Source{GL_COMPUTE_SHADER, source}}, label);
+        return submit({Source{GL_COMPUTE_SHADER, source}}, label, retrievableBinary);
     }
 
     void ParallelShaderCompiler::poll()

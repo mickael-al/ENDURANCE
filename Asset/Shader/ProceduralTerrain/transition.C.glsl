@@ -78,13 +78,32 @@ uvec3 coarsePositionBits(ivec3 a, ivec3 b, float t, uint face)
     ivec3 coarseBits = ivec3(floor(q+vec3(0.5)));
     return uvec3(clamp(2*coarseBits-packedOffset, ivec3(0), ivec3(int(POSITION_MAX))));
 }
+
+#if TERRAIN_EDGE_REUSE
+uint transitionEdgeAt(uvec4 first,uvec4 second,uint last,uint i)
+{
+    uint word=i<16u?first[i/4u]:(i<32u?second[i/4u-4u]:last);
+    return (word>>((i%4u)*8u))&255u;
+}
+
+uint transitionEdgeKey(uint a,uint b)
+{
+    // Fine grid: six horizontal and six vertical edges. Coarse duplicates
+    // have their own four identities even where the source samples coincide.
+    if(a<9u) return b-a==1u?2u*(a/3u)+a%3u:6u+a;
+    a-=9u; b-=9u;
+    return b-a==1u?12u+a/2u:14u+(a&1u);
+}
+#endif
 #endif
 
 void main()
 {
     uint face = gl_WorkGroupID.y;
     // Uniform for the whole workgroup: safe before any barrier.
-    if (face >= 6u || (uTransitionMask & (1u << face)) == 0u) return;
+    if (face >= 6u) return;
+    uint group=transitionGroupIndex();
+    if (skipMeshGroup(group,(uTransitionMask & (1u << face)) != 0u)) return;
 
     uint lane = gl_LocalInvocationIndex;
     uint patchSide = uCells/2u;
@@ -95,7 +114,9 @@ void main()
     bool tiled = (patchSide & (patchSide-1u)) == 0u;
 
     uint tileColumns = min(patchSide, 64u);
-    uint tileRows = 64u/tileColumns;
+    // Small 4/8-cell chunks contain fewer than 64 patches in the whole face.
+    // Their inactive lanes need no rows outside the actual patch rectangle.
+    uint tileRows = min(64u/tileColumns,patchSide);
 #if EMIT_PASS
     const uint border = 1u;
     const uint planes = 3u;
@@ -140,14 +161,35 @@ void main()
         transitionScan[lane] += addend;
         barrier();
     }
-    if (lane == 0u) transitionOutputBase = atomicAdd(cursor, transitionScan[63]);
+    if (lane == 0u) transitionOutputBase = transitionScan[63]>0u ? atomicAdd(cursor, transitionScan[63]) : 0u;
     barrier();
     uint first = transitionOutputBase+transitionScan[lane]-count;
+#if TERRAIN_EDGE_REUSE
+    uvec4 edges0=uvec4(count>0u?tables[tableBase+1u]:0u,
+                      count>4u?tables[tableBase+2u]:0u,
+                      count>8u?tables[tableBase+3u]:0u,
+                      count>12u?tables[tableBase+4u]:0u);
+    uvec4 edges1=uvec4(count>16u?tables[tableBase+5u]:0u,
+                      count>20u?tables[tableBase+6u]:0u,
+                      count>24u?tables[tableBase+7u]:0u,
+                      count>28u?tables[tableBase+8u]:0u);
+    uint edges2=count>32u?tables[tableBase+9u]:0u;
+    uint seen=0u;
+#endif
     for (uint i = 0u; i < count; ++i)
     {
+#if TERRAIN_EDGE_REUSE
+        uint edge=transitionEdgeAt(edges0,edges1,edges2,i);
+#else
         uint edge = (tables[tableBase+1u+i/4u] >> ((i%4u)*8u)) & 255u;
+#endif
         uint endpointA = edge >> 4u;
         uint endpointB = edge & 15u;
+#if TERRAIN_EDGE_REUSE
+        uint bit=1u<<transitionEdgeKey(endpointA,endpointB);
+        if((seen&bit)!=0u) continue;
+        seen|=bit;
+#endif
         uint a = transitionSampleIndex(endpointA);
         uint b = transitionSampleIndex(endpointB);
         float t = edgeFraction(sampleDensity(a, patchPosition, face, tiled, base, width),
@@ -158,17 +200,24 @@ void main()
                                          sampleGradient(b, patchPosition, face, tiled, base, width, plane), t);
         vec2 climate = climateAt(p);
         bool coarse = endpointA >= 9u && endpointB >= 9u;
+        uvec3 encoded;
         if (coarse)
         {
             uvec3 bits = coarsePositionBits(samplePoint(a, patchPosition, face),
                                            samplePoint(b, patchPosition, face), t, face);
-            emitPackedVertex(first+i, bits, normal, climate);
+            encoded=encodePackedVertex(bits,normal,climate);
         }
         else
         {
             p = transitionAdjustedPosition(p, normal, uTransitionMask, uCells);
-            emitVertex(first+i, p, normal, climate, false);
+            encoded=encodeVertex(p,normal,climate,false);
         }
+        emitEncodedVertex(first+i,encoded);
+#if TERRAIN_EDGE_REUSE
+        for(uint j=i+1u;j<count;++j)
+            if(transitionEdgeAt(edges0,edges1,edges2,j)==edge)
+                emitEncodedVertex(first+j,encoded);
+#endif
     }
 #else
     for (uint stride = 32u; stride > 0u; stride >>= 1u)
@@ -176,6 +225,10 @@ void main()
         if (lane < stride) transitionScan[lane] += transitionScan[lane+stride];
         barrier();
     }
-    if (lane == 0u && transitionScan[0] != 0u) atomicAdd(total, transitionScan[0]);
+    if (lane == 0u)
+    {
+        recordMeshGroup(group,transitionScan[0]);
+        if(transitionScan[0]!=0u) atomicAdd(total,transitionScan[0]);
+    }
 #endif
 }

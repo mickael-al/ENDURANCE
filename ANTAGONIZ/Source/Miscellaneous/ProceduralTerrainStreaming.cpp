@@ -184,6 +184,34 @@ namespace
         return touching == 1;
     }
 
+    struct SelectionIndex
+    {
+        SpatialIndex lookup;
+        Ancestors ancestors;
+        std::vector<LodChunk> chunks;
+        std::uint32_t cells=0,maxLod=0;
+        bool valid=false;
+        std::uint64_t builds=0,reuses=0;
+        bool matches(const std::vector<LodChunk>& selection,const LodConfig& config) const
+        {
+            if (!valid || cells!=config.cells || maxLod!=config.maxLod || chunks.size()!=selection.size()) return false;
+            for (std::size_t i=0;i<chunks.size();++i)
+                if (chunks[i].origin!=selection[i].origin || chunks[i].lod!=selection[i].lod ||
+                    chunks[i].transitionMask!=selection[i].transitionMask) return false;
+            return true;
+        }
+    };
+}
+
+struct LodPlanningCache::Impl { SelectionIndex desired; };
+LodPlanningCache::LodPlanningCache():m_impl(std::make_unique<Impl>()) {}
+LodPlanningCache::~LodPlanningCache()=default;
+std::uint64_t LodPlanningCache::indexBuilds() const noexcept { return m_impl->desired.builds; }
+std::uint64_t LodPlanningCache::indexReuses() const noexcept { return m_impl->desired.reuses; }
+
+namespace
+{
+
     class TransactionPlanner
     {
     public:
@@ -191,18 +219,23 @@ namespace
         const std::vector<LodChunk>& desired;
         const glm::vec3& camera;
         const LodConfig& config;
-        SpatialIndex currentIndex, desiredIndex;
-        Ancestors currentAncestors, desiredAncestors;
+        SpatialIndex currentIndex;
+        Ancestors currentAncestors;
+        SelectionIndex& preparedDesired;
+        SpatialIndex& desiredIndex;
+        Ancestors& desiredAncestors;
         std::vector<Box> boxes;
         bool capacityBlocked = false;
 
         TransactionPlanner(const std::vector<LodChunk>& old, const std::vector<LodChunk>& wanted,
-                           const glm::vec3& position, const LodConfig& settings)
-            : previous(old), desired(wanted), camera(position), config(settings) {}
+                           const glm::vec3& position, const LodConfig& settings, SelectionIndex& prepared)
+            : previous(old), desired(wanted), camera(position), config(settings), preparedDesired(prepared),
+              desiredIndex(prepared.lookup),desiredAncestors(prepared.ancestors) {}
 
         bool index(const std::vector<LodChunk>& chunks, SpatialIndex& lookup, Ancestors& parents,
                    std::string& error)
         {
+            lookup.clear(); parents.clear();
             lookup.reserve(chunks.size() * 2); parents.reserve(chunks.size() * 3);
             for (std::size_t i = 0; i < chunks.size(); ++i)
             {
@@ -363,14 +396,16 @@ namespace
         }
         bool fillBatch(const std::vector<LodChunk>& holes, LodTransaction& result)
         {
-            // Four direct additions keep both GPU slots busy during initial
-            // coverage. Stop at the first prerequisite instead of skipping a
-            // higher-priority hole. Balance-driven splits remain local edits.
+            // Publish the first nearby coverage promptly, then amortize steady
+            // fills over larger compatible groups. edit() still caps all new
+            // and affected neighbour meshes at 32 and shrinks a dense frontier.
+            // Never skip a higher-priority hole requiring a balance split.
+            const std::size_t limit=previous.empty()?4u:16u;
             std::vector<LodChunk> added;
             std::vector<Box> changed;
             for (const auto& node : holes)
             {
-                if (added.size() == 4 || previous.size() + added.size() == config.maxLeaves) break;
+                if (added.size() == limit || previous.size() + added.size() == config.maxLeaves) break;
                 const auto box = boxOf(node, config.cells);
                 bool direct = true;
                 for (std::size_t i = 0; i < previous.size(); ++i)
@@ -462,8 +497,16 @@ namespace
         }
         bool plan(LodTransaction& result, std::string& error)
         {
-            if (!index(previous, currentIndex, currentAncestors, error) ||
-                !index(desired, desiredIndex, desiredAncestors, error)) return false;
+            if (!index(previous,currentIndex,currentAncestors,error)) return false;
+            if (preparedDesired.matches(desired,config)) ++preparedDesired.reuses;
+            else
+            {
+                preparedDesired.valid=false;
+                if (!index(desired,desiredIndex,desiredAncestors,error)) return false;
+                preparedDesired.chunks=desired;
+                preparedDesired.cells=config.cells; preparedDesired.maxLod=config.maxLod;
+                preparedDesired.valid=true; ++preparedDesired.builds;
+            }
             boxes.reserve(previous.size());
             LodTransaction retirement; retirement.kind = LodWorkKind::Retire;
             retirement.next.reserve(previous.size());
@@ -517,7 +560,7 @@ namespace
 bool planLodTransaction(const std::vector<LodChunk>& previous,
                         const std::vector<LodChunk>& desired,
                         const glm::vec3& camera, const LodConfig& config,
-                        LodTransaction& output, std::string& error)
+                        LodTransaction& output, std::string& error, LodPlanningCache* cache)
 {
     error.clear();
     if (config.cells < 2 || config.cells > 64 || (config.cells & (config.cells - 1u)) ||
@@ -525,7 +568,8 @@ bool planLodTransaction(const std::vector<LodChunk>& previous,
         !finiteFieldValue(config.baseSpacing) || config.baseSpacing <= 0.0f ||
         !finiteFieldValue(camera.x) || !finiteFieldValue(camera.y) || !finiteFieldValue(camera.z))
     { error = "Invalid terrain streaming configuration"; return false; }
-    TransactionPlanner planner(previous, desired, camera, config);
+    SelectionIndex local;
+    TransactionPlanner planner(previous,desired,camera,config,cache?cache->m_impl->desired:local);
     LodTransaction transaction;
     if (!planner.plan(transaction, error)) return false;
     output = std::move(transaction); return true;

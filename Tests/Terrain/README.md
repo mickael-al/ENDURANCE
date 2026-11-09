@@ -122,14 +122,37 @@ physics queue.
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_band_control.py
 ```
 
-This fixture edits a temporary polar relief and exercises the actual column and
-shared density passes. Twenty-four width/scale combinations cover negative,
-zero, fractional and clamped widths. The entire band must be exactly the biome's
-clamped `.y` multiplied by `detailScale`, with no additive base or global noise.
+This fixture edits `fieldRelief` in a temporary
+`biomes/PolarIce/relief.C.glsl` and executes the actual classification, per-biome
+accumulation and density initialization passes. Twenty-four width/scale combinations cover negative,
+zero, fractional and clamped widths. The band comes only from the biome's clamped
+`.y`, quantized once to the finalized storage format and multiplied by
+`detailScale`, with no additive base or global noise. The open/closed decision
+and very small positive widths are preserved explicitly in the packed metadata.
 A spatial-noise recipe must contain both closed and active columns; all density
 samples in closed columns equal the unchanged height field. The C++ reload
 fixture also enables/disables the band by editing only the 2D shader and checks
 that the density program is reused from its binary cache.
+
+## Packed columns and conservative field skips
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_field_optimizations.py
+```
+
+This fixture checks 432 GPU round trips through the 32-byte column format,
+including exact FP32 values and biome IDs, bounded control quantization, and
+preservation of the original tiny-band open/closed decision. A custom biome
+returns `2*w`; a constant-delta recipe separately verifies that neither the
+shared helper nor the accumulator applies a hidden `.w` multiplier. An analytic
+thin-band case checks all 6,859 density samples.
+
+Production variants verify homogeneous-field skips, conservative sign unions
+including halo-only crossings, vertical column sharing and density aliases.
+Another 41,154 densities at origins Y=±2^24 and LOD 0, 6 and 12 must match an
+exhaustive GPU launch bit for bit with the same packed inputs and recipes but
+without tile/Y skipping. The test requires actual nonzero contributions and a
+reduced dispatch, so an empty or inactive recipe cannot satisfy the comparison.
 
 ## Polar ice and shader reloading
 
@@ -150,22 +173,28 @@ additionally compares the other 25 forced biome recipes against a saved baseline
 The optional image requires NumPy and Matplotlib; it visualizes measured geometry,
 not final materials or a rendered game screenshot.
 
-The reload fixture changes nested biome files in a temporary shader copy and
+The reload fixture changes the merged biome entry files in a temporary shader copy and
 verifies that reinitialization changes actual meshed vertex positions without a
 process restart. It uses an isolated temporary `ENDURANCE_SHADER_CACHE_DIR`.
-With program binaries supported, the first initialization compiles six programs;
-unchanged regeneration and settings-only changes must load six binaries without
-compile/link calls. Changing a nested relief or 2D noise include recompiles only the column
-program; changing a volume table row or 3D noise include recompiles only the density
-program. Each isolated change loads the other five cached programs. Actual vertex heights
-verify that uniforms are reapplied after binary loads and both relief and volume
-source edits reach the geometry. A temporary common evaluator makes the polar
-row’s cave-radius parameter directly observable as a plane offset: changing only
-that table value from 0.5 to 0.75 moves the measured plane from 6.75 to 7.0 while
-recompiling only the density program. An invalid included shader must report its source path/original line,
-not reuse an obsolete binary; fixing it or restoring a missing include must allow
-another successful initialization. The production shader directory and user cache
-are not edited by this fixture.
+With program binaries supported, the first initialization compiles the fixed
+61-program family: 26 relief specializations, 26 volume specializations, five
+shared field passes and four extraction passes. Unchanged regeneration and
+settings-only changes must load all 61 binaries with no compile/link calls.
+
+Editing `biomes/PolarIce/relief.C.glsl` recompiles only the polar 2D program; editing
+its `volume.C.glsl` recompiles only the polar 3D program. The other 60 programs must
+load from cache. A shared 2D-noise edit rebuilds classification and the 26 relief
+programs; a shared 3D-noise edit rebuilds the 26 volume programs. Neither edit
+invalidates the extraction programs or the other dimension.
+
+The geometry fixture replaces the polar volume function with a constant density
+contribution. Enabling its band through the 2D recipe makes that contribution
+visible without recompiling 3D; changing the contribution from 0.5 to 0.75 moves
+the meshed plane from 6.75 to 7.0. A zero band suppresses even that custom function.
+Actual vertices also verify that binary loads reapply changed uniforms. Invalid
+or missing biome GLSL must fail with the merged entry's original path/line instead of using
+an obsolete binary, and fixing the file must allow reinitialization. Production
+sources and the user's shader cache are not edited by the fixture.
 
 ## Compute shaders
 
@@ -199,88 +228,114 @@ To isolate field generation:
 python3 Tests/Terrain/check_gpu.py --fields-only
 ```
 
-## CPU biome layout and generic shaders
+## Extraction workgroup and edge reuse
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_meshing_optimizations.py
+# Optional exact comparison with the original branch's extraction shaders:
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_meshing_optimizations.py \
+  --reference-shaders /path/to/baseline/ProceduralTerrain
+```
+
+This independent fixture supplies synthetic density and climate buffers. It
+compares complete packed triangles, including normals and climate bytes, with
+workgroup/edge reuse disabled or with an explicitly supplied original shader
+directory. All 256 regular cases, all 512 transition cases, 48 random dense
+fields and a 64-cell plane are executed; the faces, small transition tiles and
+a nonzero metadata-record index are covered. Triangle order between workgroups
+is ignored, but each triangle's vertex order and all packed words must match.
+
+The plane has 128 active regular groups out of 2,048. Retained counts must skip
+the other 1,920 emission groups, and a homogeneous field-state record must skip
+all extraction. Sentinel words protect the count buffer. A separate lookup-table
+check ensures that the sixteen transition edge keys cannot alias fine and
+coarse edges. These are correctness and work-count checks, not GPU benchmarks.
+
+## CPU biome layout and accumulated biome shaders
 
 ```sh
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_pipeline.py
-# Optional refactor comparison against a saved shader revision:
-EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_pipeline.py --reference-shaders /path/to/baseline/ProceduralTerrain
+# Optional appearance comparison against a pre-accumulation shader revision:
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_pipeline.py \
+  --reference-shaders /path/to/baseline/ProceduralTerrain
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_parallel_compiler.py \
   --glew-object /tmp/endurance-glew-pic.o
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_background_compiler.py \
   --glew-object /tmp/endurance-glew-pic.o
 ```
 
-The biome pipeline fixture exports the production C++ matrices and packed cell
-records through `check_biome_layout.cpp`; it does not maintain separate
-Python/GLSL matrices. It checks all 64 climate/altitude cells, duplicate corner
-weight normalization, the marine slice, all 26 biomes through a single generic
-program pair, repeated bitwise fields, adjacent chunks/LOD halos and identical
-emitted positions/normals. A temporary polar relief is replaced with Manhattan
-Voronoi 2D code; a separate edit changes only the polar row of the 3D parameter
-table. Each edit must affect its intended output while leaving other biomes
-unchanged, and the 3D table edit must preserve all 2D columns. Setting detailScale
-to zero suppresses both edits. Production sources are not modified.
+`field_batch_runner.py` executes the production GLSL pass family and actual
+`glDispatchComputeIndirect` commands. It uploads the authoritative C++ matrices
+using `biome_test_support.py`, so there are no Python/GLSL matrix copies.
+The ordinary GPU and meshing suites use this same runner, without falling back
+to a diagnostic pipeline. `LegacyFieldRunner` requires an explicit external
+pre-accumulation shader snapshot for historical comparisons; the production
+shader directory contains no legacy field entrypoints or all-biome aggregates.
 
-`--reference-shaders` compares 60 cases against a saved shader revision. Height,
-climate, band offset and biome IDs must remain exact; the former polar-activity
-word is reserved and ignored. A revision with the old global band uses its former
-defaults (64 m base, 0–16 m variation). The converted biome widths must stay within
-8.101 m of those bands at detailScale=0.35, with finite densities. Its band widths
-and densities intentionally change when the global variation is removed.
+Each biome has exactly two shader files: `relief.C.glsl` defines `fieldRelief`,
+and `volume.C.glsl` defines `fieldVolume`. The latter's default recipe controls
+are named `FIELD_VOLUME`, `FIELD_SHAPE` and `FIELD_STYLE`. The functions and
+entrypoints live together, with no function alias macro or separately included
+per-biome implementation.
 
-Against a revision already using biome-owned bands, live column words must match.
-If it uses the common volume table, all densities must match within floating-point
-tolerance. For an older evaluator with separate biome functions, the 26 forced
-biomes across two seeds and the analytical fields retain their densities; six
-mixed-climate cases compare columns only because blending parameters before a
-nonlinear density evaluation differs from blending the resulting densities.
+The pipeline fixture compiles all 52 biome specializations and checks
+all 26 forced IDs. Repeated fields are bitwise identical, including neighboring
+chunk halos and shared LOD points. Repeated meshes retain their positions and
+normals. A forced biome must leave every other biome's indirect work count zero.
 
-The CPU table checks also verify that every fourth word is exactly the mask of
-its distinct volume corner IDs, with no undefined bits and no change in layout.
-`biome_mask_probe.py` replaces surface bodies only in memory with known outputs
-and invocation counters. It checks five surface contributors, duplicate IDs,
-zero-weight candidates, pure sea, empty surface masks and all forced biomes.
-For 3D, an independent CPU corner-weight oracle compares all twelve interpolated
-parameters over 33 cases, including eight distinct contributors and repeated IDs.
-The instrumented common density entry must run once per sampled voxel rather
-than once per contributing biome. Normal and forced column masks are checked.
-A second probe instruments the real `fieldNoise3` entry without changing its
-calculation: an active band must evaluate three gradient noises, while samples
-outside the band, disabled volumes, zero thickness and analytical plane/sphere
-modes must evaluate none.
+A 16-slot batch combines distinct origins, seeds and LODs with inactive holes.
+Every active slot must match its independently generated counterpart bit for
+bit. Sentinel padding checks both field strides and partial workgroups; inactive
+slots must remain untouched. A CPU inspection of test-only readbacks checks
+compact, ordered work lists, command dimensions and absent-biome zero dispatches.
+Reusing the queue buffers for analytic fields must clear stale dispatch counts.
 
-The shared density kernel is also compared bit for bit with a scalar-per-voxel
-reference that does no group rejection: 65 cases cover band edges, distant
-positive/negative Y, partial workgroups, LODs, non-unit spacings and large
-coordinates. This guards the conservative early-out without duplicating its
-bounds logic in the oracle.
+A separate mathematical oracle replaces all 26 functions in temporary copies
+with different analytic 2D and 3D formulas. Independent CPU sums of corner
+weights then predict the final columns and `base + sum(weight * delta)` density.
+Coverage includes duplicate IDs, eight genuinely different volume contributors,
+marine blending, all forced IDs and positive local weights below 0.1%. The test
+never calls the production accumulation/weight helper to calculate its expected
+answer. Another edit replaces only the polar 3D function with custom radial
+geometry and its 2D function with Manhattan Voronoi relief: other biomes and
+zero-detail fields must remain unchanged.
 
-The parallel-extension and background-worker fixtures remain independent engine
-service tests. Terrain generation no longer uses either compiler. The former
+`--reference-shaders` compares the 26 forced biomes across two seeds with the
+pre-accumulation revision. Numeric columns and density must match within a tight
+floating-point tolerance; newly occupied surface-ID metadata is intentionally
+excluded. Mixed-biome fields are expected to change, because adding nonlinear
+function results is different from evaluating interpolated function parameters.
+
+The fixed terrain family uses the existing driver-assisted parallel compiler at
+initialization, with the binary cache checked first. The parallel-extension and
+background-worker fixtures remain independent compiler-service tests. The former
 checks bounded jobs, nonblocking completion queries, ownership/cancellation,
-diagnostics and unsupported-driver fallback. The latter creates a shared EGL
-context and verifies worker-only compile/link/preparation, shared execution,
-bounded cancellation and hook failures; `SharedEglContext.hpp` owns that test
-context until the worker is joined.
+diagnostics and unsupported-driver behavior. The latter creates a shared EGL
+context and checks worker-only compilation/preparation, shared execution,
+bounded cancellation and hook failures. Startup batch/cache coverage lives in
+[Tests/ShaderCompilation](../ShaderCompilation/README.md).
 
-Runtime column storage remains 48 bytes: eight float32 controls followed by a
-four-word integer block. Density remains float32. The Python field runner uses
-the production columns → density passes and binds the CPU table at SSBO 7.
-Climate classification is local to the columns pass; no classification buffer
-or GPU-to-CPU cell mask is used. The CPU-precomputed candidate mask occupies the
-existing fourth table word and `detail.w` in the completed column; float weights
-remain local to the GPU. The former polar-activity word is reserved at zero.
-Prepared volume parameters occupy shared memory only: 32 columns × 14 floats
-(1,792 bytes per workgroup), reused by four Y invocations.
-Before preparation, a conservative interval test skips table interpolation when
-all valid Y samples of that group lie outside every permitted band position; its
-endpoints use the same integer world lattice as density sampling.
-`biome_profile_probe.glsl` contains test-only matrix inspection and reads the
-production 3D parameter table. Production generation interpolates those parameters
-and evaluates one common density function. The mesh runner checks the
-count/emit counters and overflow before constructing a CPU draw command; there
-is no finalization compute pass or per-slot GPU command buffer.
+Runtime construction uses one 48-byte FP32 scratch column array per in-flight
+job. Finalized columns use a 32-byte packed view in a bounded XZ cache; density
+fields and their conservative sign/tile metadata have a separate bounded cache.
+Referenced cache entries cannot be evicted until their GPU consumers finish.
+A 4,160-byte queue stores 52 indirect commands and up to 16 job slots per command.
+Each job has a 48-byte descriptor; count/emit counters remain 16 bytes. No field
+or local biome mask is downloaded in production. A separate finalization/prepare
+barrier lets vertical aliases consume one newly built XZ tile safely. Volume
+groups share columns/weights across Y lanes, reject inactive tiles and restrict
+work to conservative vertical ranges. Padded lanes still reach all required
+shared-memory barriers before returning.
+
+Diagnostics sample one biome's actual `fieldRelief` or `fieldVolume` function
+at a time, using the same source file as its production specialization. Probe
+construction keeps the recipe and its helpers and replaces only the final
+accumulation kernel. Complete mixed-biome field checks use `BatchFieldRunner`.
+The former all-biome aggregate shaders and standalone column/density diagnostics
+have been removed from `Asset`; tests do not reconstruct a combined shader with
+all 26 functions or interpolate the default volume constants.
+`biome_mask_probe.py` independently checks local weights and masks against CPU
+corner sums, including duplicate IDs, marine blending and forced biome IDs.
 
 ## Complete biome matrix and diagnostic plots
 
@@ -292,10 +347,9 @@ This test invokes the production GLSL for all 25 land recipes and the marine
 recipe. It checks finite/distinct height and volume signatures, real cavities
 inside the original solid, conservative vertical bounds, independent band
 offsets, all 25 paired matrix cells, smooth climate and shoreline transitions,
-and the exclusively marine lowest altitude slice. The common density field
-is checked across matrix boundaries in addition to parameter-profile diagnostics.
-Every forced biome is also
-checked for bit-identical density samples shared by two LODs. A climate survey
+and the exclusively marine lowest altitude slice. The accumulated density field
+is checked across matrix boundaries using the production batch passes.
+Every forced biome is also checked for bit-identical density samples shared by two LODs. A climate survey
 across ±16 km and four seeds checks that all 25 dominant matrix cells occur;
 it does not promise that every biome occurs near every spawn.
 
@@ -365,7 +419,9 @@ python3 Tests/Terrain/check_backend.py --glew-object /tmp/endurance-glew-pic.o
 
 For development headers installed in a separate sysroot, append
 `-I /path/to/sysroot/usr/include` to the `cc` command. The wrapper needs the
-runtime OpenGL library and a compiler able to link `-l:libGL.so.1`.
+runtime OpenGL library and a compiler able to link `-l:libGL.so.1`. An installed
+shared GLEW library is also accepted as `--glew-object`, for example
+`/usr/lib/x86_64-linux-gnu/libGLEW.so.2.2`; it avoids building a separate object.
 
 Checks include asynchronous count/emit completions, token rejection, in-flight
 saturation, cancellation before and after allocation, slot and vertex memory
@@ -377,14 +433,61 @@ density and mesh data on the GPU.
 
 The biome backend cases additionally cover cancellation, visits to different
 climate regions and a return to the first one with identical packed geometry,
-idle polling without new work, the 48-byte transient column budget and 16-byte
-job counters. Intercepted GL compilation/link entry points verify that no
+idle polling without new work, bounded scratch/cache arenas and compact GPU
+queue metadata. Four queued chunks with different seeds must form
+one GPU batch and match sequentially generated meshes. `dispatchQueued()` must
+start that batch once without consuming completions; repeated calls are inert.
+Cancellation and slot reuse must preserve tokens, and a fully cancelled queued
+batch must issue no field work. Intercepted GL compilation/link entry points verify that no
 runtime shader compilation occurs during streaming, revisits or idle polling.
-The backend fixtures link the production `ComputeShader`, shared shader
-compiler and `ShaderBinaryCache.cpp`, without either parallel/background compiler
-service. They use isolated temporary disk caches. Shared loader, persistent binary
+Software-driver first-dispatch JIT is allowed a 60-second correctness timeout;
+these lifecycle tests are not performance measurements.
+The backend fixtures link `ShaderProgramBatch`, `ParallelShaderCompiler`, the
+shared source loader and `ShaderBinaryCache.cpp`. They use isolated temporary disk caches. Shared loader, persistent binary
 cache, program ownership and graphics-pipeline coverage is documented separately
 in [Tests/ShaderCompilation](../ShaderCompilation/README.md).
+
+## Field-cache ownership and GPU reuse
+
+```sh
+c++ -std=c++17 -O3 -ffast-math \
+  -I ANTAGONIZ/Header/Miscellaneous \
+  Tests/Terrain/check_field_cache.cpp -o /tmp/endurance-check-field-cache
+/tmp/endurance-check-field-cache
+```
+
+The CPU fixture checks pending aliases, reference pinning, eviction of only
+unreferenced slots, LRU replacement, exact coordinate/LOD/seed keys, disabled
+completed retention and reset. The real backend fixture above compares cached
+output to sequential generation with both completed caches disabled. It checks
+full packed triangles, not just vertex counts, across vertical XZ sharing,
+mask-only remeshing, changed seeds/LOD, same-batch aliases, owner cancellation
+before and after GPU submission, separate batches with pinned fields, LRU
+eviction/revisit and homogeneous fields whose density was not materialized.
+Zero retention must still allow safe sharing between in-flight requests, then
+rebuild after the final consumer releases its slot.
+
+`clearFieldCaches()` must reject uninitialized and busy instances, invalidate
+retained fields at idle, and leave already published meshes and their allocation
+intact. The next request must rebuild both fields and produce the same encoded
+triangles. With `measureGenerationTimings=false`, intercepted GL entry points
+must observe no query creation, submission or read; pending, dropped and measured
+timing counters must stay zero without GL errors or changed geometry.
+
+## Collision transfer and bounded workers
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_collision.py \
+  --glew-object /usr/lib/x86_64-linux-gnu/libGLEW.so.2.2
+```
+
+This fixture runs the production collision cache with real EGL persistent
+mapping and Bullet BVH construction. Small adapters replace only mesh residency
+lookup and the physics publication queue. Checks cover absence of GL CPU
+readback calls, bounded worker/build queues, staging release before physics
+publication, canonical FMA position decoding including negative chunks,
+degenerate triangles, mapping growth, replacements, cancellation and shutdown.
+It does not replace the full application's physics-queue integration test.
 
 ## Interpretation
 
@@ -406,3 +509,8 @@ query timings are not representative of a physical GPU. These checks do not
 replace profiling, visual inspection, or a full-game smoke test on the target
 graphics driver. They also do not exercise the complete physics queue or scene
 streaming integration.
+
+For repeatable before/after generation measurements, cold field runs, warmed
+shader caches and interpretation of the stage counters, follow
+[the comparison guide](../../docs/TERRAIN_OPTIMIZATION_COMPARISON.md). The benchmark
+is separate from these correctness fixtures.

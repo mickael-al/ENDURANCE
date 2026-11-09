@@ -467,6 +467,49 @@ void checkDefaultTransactions()
               << " new meshes; planner mean=" << planningMs / total << " ms peak=" << peakMs << " ms\n";
 }
 
+void checkPlanningCache()
+{
+    LodConfig config; config.cells=8; config.maxLod=3; config.viewDistance=64;
+    config.minimumY=-16; config.maximumY=16; config.fullResolutionRadius=8;
+    config.maxLeaves=1024;
+    const glm::vec3 camera(3,5,-7);
+    std::vector<LodChunk> current,desired;
+    std::string error;
+    require(selectLodChunks(camera,config,desired,error),error);
+    LodPlanningCache cache;
+    unsigned calls=0;
+    for (;calls<1000;++calls)
+    {
+        LodTransaction reused,fresh;
+        require(planLodTransaction(current,desired,camera,config,reused,error,&cache),error);
+        require(planLodTransaction(current,desired,camera,config,fresh,error),error);
+        require(reused.kind==fresh.kind && reused.budgetFallback==fresh.budgetFallback &&
+                reused.previousIndices==fresh.previousIndices && reused.nextIndices==fresh.nextIndices &&
+                reused.next.size()==fresh.next.size(),"Cached desired index changed transaction choice");
+        for (std::size_t i=0;i<fresh.next.size();++i)
+            require(reused.next[i].origin==fresh.next[i].origin && reused.next[i].lod==fresh.next[i].lod &&
+                    reused.next[i].transitionMask==fresh.next[i].transitionMask,
+                    "Cached desired index changed publication topology/masks");
+        verifyTransaction(current,desired,reused,config,true);
+        current=std::move(reused.next);
+        if (reused.kind==LodWorkKind::None) break;
+    }
+    require(calls>1 && calls<1000 && cache.indexBuilds()==1 && cache.indexReuses()==calls,
+            "Desired selection was not indexed once for the transaction sequence");
+    auto malformed=desired;
+    malformed.front().transitionMask=64;
+    LodTransaction untouched; untouched.kind=LodWorkKind::Refine;
+    require(!planLodTransaction(current,malformed,camera,config,untouched,error,&cache) &&
+            untouched.kind==LodWorkKind::Refine,"Cached index hid a changed invalid mask or modified failed output");
+    require(planLodTransaction(current,desired,camera,config,untouched,error,&cache),error);
+    require(cache.indexBuilds()==2,"Failed index update left an invalid cache marked reusable");
+    auto changed=config; ++changed.maxLod;
+    require(planLodTransaction(current,desired,camera,changed,untouched,error,&cache),error);
+    require(cache.indexBuilds()==3,"Changed LOD configuration reused stale ancestors");
+    std::cout<<"PASS desired-index cache: exact fresh/cached transactions, one build across "<<calls+1
+             <<" plans, invalid-mask and configuration invalidation\n";
+}
+
 }
 
 int main()
@@ -543,4 +586,5 @@ int main()
     checkLocalPriorities();
     checkLocalMovingSelection();
     checkDefaultTransactions();
+    checkPlanningCache();
 }

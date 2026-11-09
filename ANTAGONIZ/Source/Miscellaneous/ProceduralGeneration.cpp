@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <chrono>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -73,15 +74,16 @@ namespace
 
     struct ComputeState
     {
-        GLint program = 0, storage = 0;
+        GLint program = 0, storage = 0, dispatchIndirect = 0;
         // Only these bindings are touched by the field/meshing passes.
-        static constexpr std::array<GLuint, 6> indices{{0, 1, 2, 3, 4, 7}};
-        std::array<GLint, 6> bindings{};
-        std::array<GLint64, 6> starts{}, sizes{};
+        static constexpr std::array<GLuint, 8> indices{{0, 1, 2, 3, 4, 5, 6, 7}};
+        std::array<GLint, 8> bindings{};
+        std::array<GLint64, 8> starts{}, sizes{};
         ComputeState()
         {
             glGetIntegerv(GL_CURRENT_PROGRAM, &program);
             glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING, &storage);
+            glGetIntegerv(GL_DISPATCH_INDIRECT_BUFFER_BINDING, &dispatchIndirect);
             for (GLuint i = 0; i < bindings.size(); ++i)
             {
                 glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING, indices[i], &bindings[i]);
@@ -99,6 +101,7 @@ namespace
                 else glBindBufferBase(GL_SHADER_STORAGE_BUFFER, indices[i], bindings[i]);
             }
             glBindBuffer(GL_SHADER_STORAGE_BUFFER, storage);
+            glBindBuffer(GL_DISPATCH_INDIRECT_BUFFER, dispatchIndirect);
         }
     };
 
@@ -140,6 +143,8 @@ struct ProceduralGeneration::Impl
     glm::vec3 plannedPosition{};
     glm::vec3 collisionPosition{};
     std::uint64_t nextToken = 1, visibleRevision = 0;
+    std::chrono::steady_clock::time_point coverageStart;
+    bool timingCoverage = false;
     std::size_t desiredCount = 0;
     bool planned = false, active = false, converged = false, blocked = false;
     bool collisionDirty = true, collisionUpdated = false;
@@ -211,7 +216,8 @@ bool ProceduralGeneration::initialize(const Config& config)
         || config.viewDistance > 1000000.0f || !finite(config.lodDistanceFactor)
         || config.lodDistanceFactor <= 0.0f || config.lodDistanceFactor > 16.0f
         || config.maxChunksPerFrame == 0 || config.maxChunksPerFrame > 64
-        || config.maxInFlight == 0 || config.maxInFlight > 8
+        || config.maxInFlight == 0 || config.maxInFlight > 16
+        || config.columnCacheEntries > 4096 || config.densityCacheEntries > 4096
         || config.maxSelectedChunks == 0 || config.maxSelectedChunks > 32768
         || config.maxResidentChunks < config.maxSelectedChunks
         || !finite(config.collisionRadius) || config.collisionRadius < 0.0f
@@ -238,6 +244,9 @@ bool ProceduralGeneration::initialize(const Config& config)
     gpuConfig.vertexBudgetMiB = config.vertexBudgetMiB;
     gpuConfig.maxResidentChunks = config.maxResidentChunks;
     gpuConfig.maxInFlight = config.maxInFlight;
+    gpuConfig.columnCacheEntries = config.columnCacheEntries;
+    gpuConfig.densityCacheEntries = config.densityCacheEntries;
+    gpuConfig.measureGenerationTimings = config.measureGenerationTimings;
     gpuConfig.shaderDirectory = config.shaderDirectory;
     gpuConfig.field = config.field;
     if (!impl->gpu.initialize(gpuConfig, m_lastError)) return false;
@@ -436,6 +445,9 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         ++dispatched;
         --queued;
     }
+    // One field batch for the whole frame's ready chunks. Start it now instead
+    // of leaving the GPU idle until the next frame's completion poll.
+    if (dispatched && !failed) s.gpu.dispatchQueued();
     if (failed)
     {
         // Keep the published coverage intact, with no automatic failure loop.
@@ -534,9 +546,18 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     m_stats.failedJobs = gpu.failedJobs;
     m_stats.lastGenerationMilliseconds = gpu.lastGenerationMilliseconds;
     m_stats.transientFieldBytes = gpu.transientFieldBytes;
+    m_stats.generation = gpu;
     m_stats.drawListUploads = gpu.drawListUploads;
     m_stats.drawListUploadBytes = gpu.drawListUploadBytes;
     m_stats.rebuilding = s.active || s.planner->busy() || (!s.converged && !s.blocked);
+    const auto now = std::chrono::steady_clock::now();
+    if (m_stats.rebuilding && !s.timingCoverage)
+    { s.coverageStart = now; s.timingCoverage = true; }
+    if (s.timingCoverage)
+    {
+        m_stats.coverageMilliseconds = std::chrono::duration<double,std::milli>(now-s.coverageStart).count();
+        if (!m_stats.rebuilding) s.timingCoverage = false;
+    }
     m_stats.pendingLodGroups = s.active ? 1u : 0u;
 }
 

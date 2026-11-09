@@ -1,26 +1,32 @@
 #!/usr/bin/env python3
-"""Verify the generic biome pipeline, packed CPU matrices, editable reliefs and 3D parameters."""
+"""Validate fixed per-biome accumulation, GPU work lists and independent recipes."""
+from __future__ import annotations
+
 import argparse
 import math
-import re
 from pathlib import Path
+import re
 import shutil
-import subprocess
+import struct
 import tempfile
 
-from biome_test_support import biome_exporter
-from biome_mask_probe import check_biome_masks, check_volume_noise_budget
-from check_gpu import FieldRunner, MeshRunner, SHADERS, lattice_values, finite_columns
-from gl_headless import GL
+from biome_mask_probe import replace_body
+from check_gpu import FieldRunner, LegacyFieldRunner, MeshRunner, SHADERS, lattice_values, finite_columns
+from field_batch_runner import BIOMES, BatchFieldRunner, MAX_JOBS
+from gl_headless import GL, shader_source
 
 
-def compare(a,b,label):
+def f32(value):
+    return struct.unpack("<f", struct.pack("<f", value))[0]
+
+
+def compare(a, b, label):
     assert a["columns_raw"] == b["columns_raw"], label+": columns differ"
     assert a["density_raw"] == b["density_raw"], label+": density differs"
 
 
 def check_pipeline(gl):
-    generic=FieldRunner(gl)
+    runner=BatchFieldRunner(gl)
     cases=(
         dict(cells=8,origin=(-8,-8,-8),seed=1337),
         dict(cells=8,origin=(0,-8,-8),seed=1337),
@@ -31,205 +37,297 @@ def check_pipeline(gl):
     )
     outputs=[]
     for index,options in enumerate(cases):
-        field=generic.run(**options)
-        compare(field,generic.run(**options),f"Repeated automatic field {index}")
+        field=runner.run(**options)
+        compare(field,runner.run(**options),f"Repeated automatic field {index}")
         assert finite_columns(field["columns"]) and all(math.isfinite(x) for x in field["density"])
         outputs.append(field)
     fine,neighbor,coarse=map(lattice_values,outputs[:3])
     for other in (neighbor,coarse):
         shared=fine.keys() & other.keys()
         assert shared and all(fine[p]==other[p] for p in shared), "Adjacent chunks or LOD halos disagree"
-    # One linked pair must support every biome without recompiling programs.
     for biome in range(26):
         options=dict(cells=8,origin=(-8,-8,-8),uBiomeOverride=biome,
                      uHeightAmplitude=0.,seed=31)
-        field=generic.run(**options)
+        field=runner.run(**options)
         assert finite_columns(field["columns"]) and all(math.isfinite(x) for x in field["density"])
-        compare(field,generic.run(**options),f"Repeated biome {biome}")
+        compare(field,runner.run(**options),f"Repeated biome {biome}")
+        # A forced biome can only select its own specialization. No stale queue
+        # from the previous forced ID may run a different recipe.
+        for dimension in (0,1):
+            for other,command in enumerate(runner.last_commands[dimension*26:(dimension+1)*26]):
+                if other!=biome:
+                    assert command[2:]==(0,0),("Unexpected forced-biome work",biome,dimension,other,command)
     options=dict(cells=8,origin=(-8,0,-8),uBiomeOverride=11,
                  uHeightAmplitude=0.,seed=31)
-    surface=generic.run(**options)
+    surface=runner.run(**options)
     options["origin"]=(-8,math.floor(surface["columns"][0]/8)*8,-8)
     mesh=MeshRunner(gl)
-    first=mesh.run(generic.run(**options));second=mesh.run(generic.run(**options))
+    first=mesh.run(runner.run(**options));second=mesh.run(runner.run(**options))
     assert first["count"]==second["count"] and first["count"]>0, "Mesh fixture missed the surface"
     assert sorted(zip(first["vertices"],first["normals"]))==sorted(zip(second["vertices"],second["normals"])), "Repeated mesh differs"
-    print("PASS generic biome pipeline: 26 recipes, deterministic fields/meshes, local ratios, negative coordinates and shared LOD/halo samples")
-    return generic
+    print("PASS fixed biome pipeline: all 52 variants, 26 forced recipes, deterministic fields/meshes, zero absent-biome dispatches and shared LOD/halo samples")
+    return runner
 
 
-def check_shared_volume(gl,generic):
-    """Verify shared preparation and whole-group rejection against scalar GLSL."""
-    with tempfile.TemporaryDirectory(prefix="terrain-direct-volume-") as temporary:
-        directory=Path(temporary)/"shaders"
-        shutil.copytree(SHADERS,directory)
-        (directory/"field_density.C.glsl").write_text("""#version 450 core
-#include "field_volume.glsl"
-layout(local_size_x=8,local_size_y=4,local_size_z=4) in;
-layout(std430,binding=0) writeonly buffer FieldDensity { float density[]; };
-layout(std430,binding=1) readonly buffer FieldColumns { FieldColumn columns[]; };
+def verify_queues(runner, requests, side):
+    for queue,command in enumerate(runner.last_commands):
+        dimension,biome=divmod(queue,26)
+        expected=[slot for slot,request in enumerate(requests)
+                  if request is not None and (runner.last_jobs[slot][5] & (4 if dimension else 2))
+                  and (runner.last_jobs[slot][6+dimension] & (1<<biome))]
+        assert command[3]==len(expected),("Wrong compact queue count",queue,command,expected)
+        actual=runner.last_work_items[queue*MAX_JOBS:queue*MAX_JOBS+len(expected)]
+        assert actual==tuple(expected),("Work list lost/reordered/duplicated a slot",queue,actual,expected)
+        y_groups=max((runner.last_states[runner.last_jobs[slot][10]][2]-runner.last_states[runner.last_jobs[slot][10]][1]
+                      for slot in expected),default=0) if dimension else (side+7)//8
+        target=((side+7)//8,y_groups,
+                len(expected)*((side+3)//4 if dimension else 1))
+        assert command[:3]==target,("Unsafe indirect dimensions",queue,command,target)
+
+
+def check_batches(gl,runner):
+    requests=[None if i in (2,5,11) else dict(origin=(i*16-64,-16,(i%4)*16-32),
+              lod=i%2,seed=1337+17*i) for i in range(MAX_JOBS)]
+    options=dict(cells=8,uClimateFrequency=.04,uHeightAmplitude=32.,uHeightFrequency=.02)
+    batch=runner.run_batch(requests,padding=True,**options)
+    verify_queues(runner,requests,11)
+    for slot,request in enumerate(requests):
+        if request is not None:
+            compare(batch[slot],runner.run(**request,**options),f"Batched slot {slot}")
+    # The same queue storage is reused with fewer active slots and no biome
+    # work. Every absent command must become zero even if it was active earlier.
+    empty=[None,dict(origin=(0,0,0),seed=19),None,None]
+    runner.run_batch(empty,cells=9,mode=1,padding=True)
+    verify_queues(runner,empty,12)
+    assert all(command[2:]==(0,0) for command in runner.last_commands)
+    print("PASS GPU work lists: 16 slots, distinct seeds/LODs, inactive holes, sentinel-protected strides, compact lists and zeroed commands after reuse")
+
+
+def check_envelope_rounding(gl):
+    # Reassociating (height + globalOffset) + recipeOffset loses a different
+    # low bit than the actual helper's height + (globalOffset + recipeOffset).
+    # This point is inside the true band despite exceeding the old upper bound.
+    source="#version 450 core\n"+shader_source(SHADERS/"field_weights.glsl")
+    source+=shader_source(SHADERS/"biome_volume_common.glsl")+"""
+layout(local_size_x=1) in;
+layout(std430,binding=9) writeonly buffer ProbeResult { vec4 result; };
 void main()
 {
-    uvec3 p=gl_GlobalInvocationID;
-    uint side=uCells+3u;
-    if(any(greaterThanEqual(p,uvec3(side)))) return;
-    density[p.x+p.y*side+p.z*side*side]=fieldDensityAt(
-        fieldWorldPosition(ivec3(p)),columns[p.x+p.z*side]);
+    FieldColumn column;
+    column.terrain=vec4(-806157.9375,0.5,0.5,402.4158326);
+    column.blend=vec4(0.0,-617988.75,0.0,1.0);
+    column.detail=uvec4(0u);
+    vec2 band=fieldVolumeBand(column,160.0);
+    vec2 envelope=fieldVolumeEnvelope(column);
+    float edgeDistance=band.y-abs(-1423813.125-band.x);
+    result=vec4(envelope,band.x,edgeDistance);
 }
-""")
-        direct=FieldRunner(gl,directory=directory)
-        cases=[]
-        for biome in (-1,0,19,25):
-            for lod in (0,2):
-                for y in (-256,-96,-48,-16,0,32,128):
-                    cases.append(dict(cells=8,origin=(-24,y,-16),lod=lod,seed=31,
-                        uBiomeOverride=biome,uHeightAmplitude=0.,uBaseHeight=0.,
-                        uBandOffset=-7.5,
-                        uBandOffsetVariation=16.,uDetailScale=.35,uClimateFrequency=.04))
-        # Non-power-of-two spacing, empty volumes and the last partial Y group.
-        for scale,spacing in ((0.,1.),(.35,.3),(.35,3.7)):
-            cases.append(dict(cells=9,origin=(-32,-24,-16),seed=19,
-                uBaseSpacing=spacing,uDetailScale=scale,uBiomeOverride=0,
-                uHeightAmplitude=0.))
-        for height in (-1048576.,1048576.):
-            for offset in (-80,0,80):
-                cases.append(dict(cells=9,origin=(-24,int(height)+offset,-16),lod=1,seed=31,
-                    uBiomeOverride=19,uBaseHeight=height,uHeightAmplitude=0.,
-                    uDetailScale=.35))
-        samples=0
-        for index,options in enumerate(cases):
-            actual=generic.run(**options)
-            expected=direct.run(**options)
-            compare(actual,expected,f"Shared versus scalar volume {index}")
-            samples+=len(actual["density"])
-    print(f"PASS shared volume preparation/rejection: {len(cases)} cases / {samples} densities bitwise equal to per-voxel evaluation; band edges, distant negative/positive origins, partial groups, LODs and nonbinary spacing")
+"""
+    program=gl.compile([(0x91B9,source)],"conservative band rounding regression")
+    output=gl.buffer(16,9)
+    gl.uniform(program,"uDetailScale","1f",.8271826506)
+    gl.dispatch(program,1)
+    lower,upper,center,edge=struct.unpack("<4f",gl.read(output,16))
+    assert center==-1424014.25 and edge>0,("Regression fixture no longer samples its true band interior",center,edge)
+    assert lower<=-1423813.125<=upper,("Rounded envelope dropped an interior band point",lower,upper,center,edge)
+    print("PASS conservative envelope: large negative height/offset rounding retains the known interior band point")
 
 
-def check_volume_table_edit(gl, generic):
-    options = dict(cells=8, origin=(-8,-8,-8), seed=1337, uBiomeOverride=0,
-                   uHeightAmplitude=0.)
-    before = generic.run(**options)
-    other_before = generic.run(**dict(options,uBiomeOverride=11))
-    with tempfile.TemporaryDirectory(prefix="terrain-free-volume-") as temporary:
-        directory = Path(temporary)/"shaders"
-        shutil.copytree(SHADERS, directory)
-        path = directory/"biome_volume.glsl"
-        source = path.read_text()
-        start=source.index("FIELD_BIOME_VOLUME")
-        row=re.search(r"vec4\s*\([^()]*\)",source[start:])
-        assert row, "Missing polar volume row"
-        first,last=start+row.start(),start+row.end()
-        # Change only polar offset/displacement/carving. Other table rows and
-        # the common evaluator stay identical, as during ordinary shader tuning.
-        path.write_text(source[:first]+"vec4(0.0,32.0,0.0,0.40)"+source[last:])
-        edited = FieldRunner(gl,directory=directory)
-        after = edited.run(**options)
-        assert before["columns_raw"] == after["columns_raw"], "Editing the volume table changed the 2D preparation"
-        assert before["density_raw"] != after["density_raw"], "Editing polar volume parameters did not change density"
-        assert all(math.isfinite(x) for x in after["density"])
-        other_after = edited.run(**dict(options,uBiomeOverride=11))
-        compare(other_before,other_after,"Unedited biome after polar 3D edit")
-        disabled=dict(options,uDetailScale=0.)
-        compare(generic.run(**disabled),edited.run(**disabled),"Disabled 3D details after recipe edit")
-    print("PASS editable 3D table: polar parameter edit changes density, preserves 2D columns and leaves another biome unchanged")
+def packed_cell(surface,volume):
+    mask=sum(1<<biome for biome in set(volume))
+    return (sum(b<<(5*i) for i,b in enumerate(surface)),
+            sum(b<<(5*i) for i,b in enumerate(volume[:6])),
+            sum(b<<(5*i) for i,b in enumerate(volume[6:])),mask)
 
 
-def check_free_surface(gl, generic):
-    options=dict(cells=8,origin=(-8,-8,-8),seed=1337,uBiomeOverride=0,
-                 uHeightAmplitude=0.)
-    before=generic.run(**options)
-    other_before=generic.run(**dict(options,uBiomeOverride=11))
-    with tempfile.TemporaryDirectory(prefix="terrain-free-surface-") as temporary:
+def corner_weights(fx,fy,fz,ids):
+    result=[0.]*26
+    for corner,biome in enumerate(ids):
+        result[biome]+=(fx if corner&1 else 1-fx)*(fy if corner&2 else 1-fy)*(fz if corner&4 else 1-fz)
+    return result
+
+
+def local_weights(column,words,override=-1):
+    if override>=0:
+        result=[float(b==override) for b in range(26)]
+        return result,result
+    def fade(value):
+        return value**3*(value*(value*6-15)+10)
+    ratios=[]
+    for value in column[1:3]:
+        grid=min(max(value,0.),1.)*4
+        ratios.append(fade(grid-min(math.floor(grid),3)))
+    fx,fy=ratios
+    altitude=column[4]
+    cell=(words[8]>>20)&63
+    surface_ids=[(words[8]>>(5*i))&31 for i in range(4)]
+    volume_ids=[(words[9]>>(5*i))&31 for i in range(6)]+[(words[10]>>(5*i))&31 for i in range(2)]
+    marine=1-altitude if cell<16 else 0.
+    surface=corner_weights(fx,fy,0.,surface_ids+[0]*4)
+    surface=[weight*(1-marine) for weight in surface]
+    surface[25]+=marine
+    return surface,corner_weights(fx,fy,altitude,volume_ids)
+
+
+def check_weighted_oracle(gl):
+    """Use independent CPU corner sums and visibly different scalar functions.
+
+    Temporary recipes have analytic outputs, so the expected final density does
+    not call the production accumulation or interpolation helpers at all.
+    """
+    with tempfile.TemporaryDirectory(prefix="terrain-accumulation-oracle-") as temporary:
         directory=Path(temporary)/"shaders"
         shutil.copytree(SHADERS,directory)
-        path=directory/"biome_relief.glsl"
-        source=path.read_text()
-        body=source.index("{",source.index("vec4 fieldReliefPolarIce("))
-        injected="""
-    float customHeight=24.0+fieldCellular2(p*0.03125,714u,1.0)*16.0;
-    return vec4(customHeight,0.0,0.0,1.0);
-"""
-        path.write_text(source[:body+1]+injected+source[body+1:])
-        edited=FieldRunner(gl,directory=directory)
-        after=edited.run(**options)
-        assert before["columns_raw"]!=after["columns_raw"], "Custom 2D recipe did not change columns"
-        assert before["density_raw"]!=after["density_raw"], "Custom 2D recipe did not change actual density"
-        assert finite_columns(after["columns"]) and all(math.isfinite(x) for x in after["density"])
-        compare(other_before,edited.run(**dict(options,uBiomeOverride=11)),"Unedited biome after polar 2D edit")
+        for biome,name in enumerate(BIOMES):
+            path=directory/f"biomes/{name}/relief.C.glsl"
+            path.write_text(replace_body(path.read_text(),"fieldRelief",
+                f"return vec4({4*(biome-13)}.0+0.125*p.x+0.0625*p.y,"
+                f"{192+biome}.0,{.5*(biome-13):.1f},{.25+.5*(biome%2):.2f});"))
+            path=directory/f"biomes/{name}/volume.C.glsl"
+            path.write_text(replace_body(path.read_text(),"fieldVolume",
+                f"return {1+biome*biome}.0+0.03125*p.x-0.0625*p.y+0.015625*p.z;"))
+        runner=BatchFieldRunner(gl,directory)
+        cases=[
+            (dict(cells=9,origin=(-16,-16,-16),seed=1337,uClimateFrequency=.04,
+                  uHeightAmplitude=0.,uBaseHeight=0.,uDetailScale=.5),None),
+            (dict(cells=8,origin=(-32,-16,16),seed=19,lod=1,uClimateFrequency=.03,
+                  uHeightAmplitude=0.,uBaseHeight=16.,uDetailScale=.5,uSeaLevel=-1000.),None),
+            (dict(cells=8,origin=(-16,-16,-16),seed=17,uClimateFrequency=.04,
+                  uHeightAmplitude=0.,uBaseHeight=0.,uDetailScale=.5),
+             packed_cell((0,0,25,25),(0,1,2,3,20,21,24,25))),
+        ]
+        # Force all IDs individually too, including the marine override whose
+        # display climate is intentionally distinct from the land coordinates.
+        cases += [(dict(cells=4,origin=(-4,-4,-4),seed=31,uBiomeOverride=biome,
+                        uHeightAmplitude=0.,uBaseHeight=0.,uDetailScale=.5),None)
+                  for biome in range(26)]
+        total=0
+        largest=0.
+        for options,mapping in cases:
+            if mapping is not None:
+                gl.write(runner.mapping,struct.pack("<4I",*mapping)*64)
+            else:
+                from biome_test_support import packed_biome_cells
+                gl.write(runner.mapping,packed_biome_cells())
+            field=runner.run(**options)
+            side=field["side"]
+            scale=options["uDetailScale"]
+            spacing=options.get("uBaseSpacing",1.)
+            stride=1<<options.get("lod",0)
+            origin=options["origin"]
+            for z in range(side):
+                for x in range(side):
+                    address=(x+z*side)*48
+                    column=struct.unpack_from("<12f",field["columns_raw"],address)
+                    words=struct.unpack_from("<12I",field["columns_raw"],address)
+                    surface,volume=local_weights(column,words,options.get("uBiomeOverride",-1))
+                    world_x=f32((origin[0]+(x-1)*stride)*spacing)
+                    world_z=f32((origin[2]+(z-1)*stride)*spacing)
+                    relief=[sum(w*(4*(b-13)+.125*world_x+.0625*world_z,192+b,.5*(b-13),.25+.5*(b%2))[j]
+                                for b,w in enumerate(surface)) for j in range(4)]
+                    expected=(options["uBaseHeight"]+relief[0]*scale,relief[1]*scale,relief[2],relief[3])
+                    actual=(column[0],column[3],column[6],column[7])
+                    tolerance=(1e-4,576/65535*scale*.5+1e-4,160/32767*.5+1e-4,1/65535*.5+1e-5)
+                    assert all(math.isclose(a,b,rel_tol=2e-5,abs_tol=eps) for a,b,eps in zip(actual,expected,tolerance)),("2D accumulation/quantization",options,x,z,actual,expected)
+                    for y in range(side):
+                        world_y=f32((origin[1]+(y-1)*stride)*spacing)
+                        base=f32(column[0]-world_y)
+                        radius=160*scale+.5*column[3]
+                        inside=abs(world_y-(column[0]+column[5]))<=radius
+                        expected_density=base
+                        if inside and column[3]>.0002:
+                            expected_density+=sum(w*(1+b*b+.03125*world_x-.0625*world_y+.015625*world_z)
+                                                  for b,w in enumerate(volume))
+                        actual=field["density"][x+y*side+z*side*side]
+                        largest=max(largest,abs(actual-expected_density))
+                        assert math.isclose(actual,expected_density,rel_tol=2e-5,abs_tol=1e-4),("3D weighted delta",options,x,y,z,actual,expected_density)
+                        total+=1
+        # Fractional positive weights well below 0.1% must survive. A chunk-wide
+        # mean/max threshold would suppress the analytic contribution here.
+        classify=directory/"field_batch_classify.C.glsl"
+        source=classify.read_text()
+        source=re.sub(r"vec2 climate=smoothstep[\s\S]*?;", "vec2 climate=vec2(0.25625);",source,count=1)
+        classify.write_text(source)
+        tiny=BatchFieldRunner(gl,directory)
+        field=tiny.run(cells=4,origin=(0,0,0),uHeightAmplitude=0.,uSeaLevel=-1000.,uDetailScale=.5)
+        column=struct.unpack_from("<12f",field["columns_raw"],0)
+        words=struct.unpack_from("<12I",field["columns_raw"],0)
+        _,weights=local_weights(column,words)
+        assert any(0<w<.001 for w in weights)
+        expected=column[0]+1+sum(w*(1+b*b-.03125+.0625-.015625) for b,w in enumerate(weights))
+        dropped=column[0]+1+sum(w*(1+b*b-.03125+.0625-.015625) for b,w in enumerate(weights) if w>=.001)
+        assert abs(field["density"][0]-expected)<.0005 and abs(field["density"][0]-dropped)>.005,("Tiny positive weights were removed",field["density"][0],expected,dropped)
+        print(f"PASS independent weighted oracle: {total} densities, all 26 IDs, duplicate IDs, eight volume contributors, sea and sub-0.1% local weights (max error {largest:.6g})")
+
+
+def check_free_recipes(gl,runner):
+    options=dict(cells=8,origin=(-8,-8,-8),seed=1337,uBiomeOverride=0,uHeightAmplitude=0.)
+    before=runner.run(**options)
+    other=runner.run(**dict(options,uBiomeOverride=11))
+    with tempfile.TemporaryDirectory(prefix="terrain-free-recipes-") as temporary:
+        directory=Path(temporary)/"shaders"
+        shutil.copytree(SHADERS,directory)
+        path=directory/"biomes/PolarIce/volume.C.glsl"
+        path.write_text(replace_body(path.read_text(),"fieldVolume", """
+    vec2 band=fieldVolumeBand(column,0.0);
+    float radial=length(vec3(p.x,0.0,p.z)-vec3(0.0));
+    float rock=max(0.0,4.0-radial);
+    return rock*smoothstep(0.0,1.0,band.y-abs(p.y-band.x));
+"""))
+        changed=BatchFieldRunner(gl,directory)
+        after=changed.run(**options)
+        assert before["columns_raw"]==after["columns_raw"],"3D edit changed 2D data"
+        assert before["density_raw"]!=after["density_raw"],"Independent custom 3D function had no effect"
+        compare(other,changed.run(**dict(options,uBiomeOverride=11)),"Other biome after polar 3D edit")
         disabled=dict(options,uDetailScale=0.)
-        compare(generic.run(**disabled),edited.run(**disabled),"Disabled 2D details after recipe edit")
-    print("PASS free 2D recipe: temporary Manhattan Voronoi changes columns/density, preserves other biomes and detailScale=0")
+        compare(runner.run(**disabled),changed.run(**disabled),"Disabled 3D detail")
+        path=directory/"biomes/PolarIce/relief.C.glsl"
+        path.write_text(replace_body(path.read_text(),"fieldRelief", """
+    float height=24.0+fieldCellular2(p*0.03125,714u,1.0)*16.0;
+    return vec4(height,0.0,0.0,1.0);
+"""))
+        changed=BatchFieldRunner(gl,directory)
+        after=changed.run(**options)
+        assert before["columns_raw"]!=after["columns_raw"] and before["density_raw"]!=after["density_raw"]
+        compare(other,changed.run(**dict(options,uBiomeOverride=11)),"Other biome after polar 2D edit")
+        compare(runner.run(**disabled),changed.run(**disabled),"Disabled 2D detail")
+    print("PASS independent recipe edits: custom polar 3D geometry and 2D Voronoi change only their biome; zero detail disables both")
 
 
-def check_reference(gl, generic, directory):
-    """Compare a prior evaluator, allowing the explicit global-band migration."""
-    old=FieldRunner(gl,directory=directory)
-    parameter_reference="FIELD_BIOME_VOLUME" in (directory/"biome_volume.glsl").read_text()
-    legacy_band="uBandThickness" in (directory/"field_common.glsl").read_text()
-    if legacy_band:
-        gl.uniform(old.columns_program,"uBandThickness","1f",64.)
-        gl.uniform(old.columns_program,"uBandVariation","1f",16.)
-    cases=[]
+def check_reference(gl,runner,directory):
+    old=LegacyFieldRunner(gl,directory=directory)
+    largest=0.
+    samples=0
     for biome in range(26):
         for seed in (1337,98765):
-            cases.append(dict(cells=8,origin=(-40,-12,24),lod=3,seed=seed,
-                uBaseSpacing=4.,uBiomeOverride=biome,uHeightAmplitude=0.,
-                uDetailScale=.35))
-    for lod in (0,1,3):
-        for seed in (17,1337):
-            cases.append(dict(cells=8,origin=(-48,-64,16),lod=lod,seed=seed,
-                uClimateFrequency=.04,uHeightAmplitude=240.,uHeightFrequency=.03,
-                uBandOffset=-32.,uSeaLevel=16.))
-    cases += [dict(cells=8,origin=(-8,-4,-12),mode=mode,seed=31)
-              for mode in (1,2)]
-    samples=0
-    largest_error=0.
-    changed_mixed=0
-    def live_columns(raw):
-        return b"".join(raw[i:i+12]+(b"" if legacy_band else raw[i+12:i+16])+
-                        raw[i+16:i+32]+raw[i+36:i+48] for i in range(0,len(raw),48))
-    for index,options in enumerate(cases):
-        before,after=old.run(**options),generic.run(**options)
-        # The unused polar-activity word is reserved/zero. Height, climate,
-        # offset and biome IDs stay exact; migrated band widths are checked below.
-        assert live_columns(before["columns_raw"])==live_columns(after["columns_raw"]), ("Reference column changed",index)
-        if legacy_band:
-            for a,b in zip(before["columns"][3::12],after["columns"][3::12]):
-                assert abs(a-b)<8.101,("Retuned biome band changed beyond removed global variation",index,a,b)
-            assert all(math.isfinite(v) for v in after["density"])
-            samples+=len(after["density"])
-        elif parameter_reference or options.get("uBiomeOverride",-1)>=0 or options.get("mode",0)!=0:
+            options=dict(cells=8,origin=(-40,-12,24),lod=3,seed=seed,
+                         uBaseSpacing=4.,uBiomeOverride=biome,uHeightAmplitude=0.,uDetailScale=.35)
+            before,after=old.run(**options),runner.run(**options)
+            # The new packed surface IDs intentionally occupy formerly unused
+            # column metadata; numeric channels retain the single-biome profile.
+            assert all(math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5)
+                       for i,(a,b) in enumerate(zip(before["columns"],after["columns"])) if i%12<8)
             for a,b in zip(before["density"],after["density"]):
-                largest_error=max(largest_error,abs(a-b))
-                assert math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5), ("Forced biome density changed",index,a,b)
-            samples+=len(after["density"])
-        elif before["density_raw"]!=after["density_raw"]:
-            changed_mixed+=1
-    if not parameter_reference and not legacy_band:
-        assert changed_mixed>0, "Mixed density still follows the former per-biome blend"
-    if legacy_band:
-        print(f"PASS biome band migration reference: {len(cases)} cases preserve height/climate/offset/IDs exactly; retuned bands stay within 8.101 m of their former defaults; {samples} finite densities")
-        return
-    print(f"PASS table refactor reference: {len(cases)} unchanged 2D-column cases; {samples} forced/analytic density samples within tolerance (max error {largest_error:.6g}); {changed_mixed} mixed cases now blend parameters")
+                largest=max(largest,abs(a-b))
+                assert math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5),("Forced biome changed",biome,seed,a,b)
+                samples+=1
+    print(f"PASS prior single-biome appearance: {samples} densities / 26 biomes / two seeds (max error {largest:.6g})")
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--reference-shaders",type=Path,
-        help="Saved shader revision: exact unchanged column data, bounded legacy-band migration or tolerant density comparison")
+    parser.add_argument("--reference-shaders",type=Path,help="Saved pre-accumulation shader directory")
     args=parser.parse_args()
-    subprocess.run([str(biome_exporter())],check=True)
     with GL() as gl:
         print(f"OpenGL {gl.version}; renderer: {gl.renderer}",flush=True)
-        check_biome_masks(gl)
-        check_volume_noise_budget(gl)
-        generic=check_pipeline(gl)
-        check_shared_volume(gl,generic)
+        runner=check_pipeline(gl)
+        check_batches(gl,runner)
+        check_envelope_rounding(gl)
+        check_weighted_oracle(gl)
+        check_free_recipes(gl,runner)
         if args.reference_shaders:
-            check_reference(gl,generic,args.reference_shaders)
-        check_free_surface(gl,generic)
-        check_volume_table_edit(gl,generic)
-        gl.check("generic biome pipeline")
+            check_reference(gl,runner,args.reference_shaders)
+        gl.check("biome accumulation pipeline")
     return 0
 
 

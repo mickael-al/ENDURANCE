@@ -1,6 +1,6 @@
 # Les biomes d’ENDURANCE
 
-La matrice reprend les **25 cases de l’image de référence**, avec une fonction de relief 2D et un jeu de paramètres volumiques 3D pour chacune. Un 26e biome décrit le fond marin. Les noms de forêt, de prairie ou de mangrove désignent ici le terrain destiné à accueillir ces milieux ; la végétation sera un système séparé.
+La matrice reprend les **25 cases de l’image de référence**, avec une fonction de relief 2D et une fonction volumique 3D indépendante pour chacune. Un 26e biome décrit le fond marin. Les noms de forêt, de prairie ou de mangrove désignent ici le terrain destiné à accueillir ces milieux ; la végétation sera un système séparé.
 
 ## Matrice climatique et identifiants
 
@@ -38,8 +38,8 @@ Les formes ci-dessous sont produites par les recettes actuelles. Les tubes et ca
 
 | ID / biome | Relief 2D | Sculpture 3D |
 | --- | --- | --- |
-| 0 — Glace polaire | Distance au carré au site de Voronoï le plus proche, domaine déformé et ondulations superposées | Petites cavités angulaires enterrées |
-| 1 — Toundra gelée | Sol polygonal bas et dômes isolés | Petites cavités angulaires enterrées |
+| 0 — Glace polaire | Voronoï déformé, ondulations, escarpements et lacs glacés | Petites cavités angulaires enterrées |
+| 1 — Toundra gelée | Crêtes et montagnes à plusieurs échelles, avec bande 3D liée au relief | Petites cavités angulaires enterrées |
 | 2 — Toundra | Ondulations allongées et rares affleurements arrondis | Tubes discrets sous le sol |
 | 3 — Taïga | Vallées larges, cordons allongés et dos rocheux | Cavernes et passages dans les masses |
 | 4 — Forêt boréale marécageuse | Bassins bas, cordons et îlots minéraux | Cavités aplaties sous les reliefs |
@@ -69,9 +69,9 @@ Les monuments n’occupent pas systématiquement chaque cellule : leur présence
 
 ## Réglage de la glace polaire
 
-Pour isoler cette recette pendant Play, choisir **Glace polaire** dans « Biome a tester ». Modifier les fichiers GLSL ci-dessous, les enregistrer, puis cliquer sur **Regenerer avec ces reglages**. Le bouton relit les shaders de terrain et leurs includes depuis le disque, réutilise leurs binaires si le contenu est inchangé, puis reconstruit les chunks. Les programmes sans binaire correspondant sont recompilés ; changer uniquement les réglages de scène conserve la même clé de cache. Il reste disponible après une erreur de compilation : corriger le fichier et réessayer. Le message fournit une table des fichiers GLSL et des identifiants de source associés aux numéros de ligne du compilateur. Les chemins sont ceux de `Asset/Shader/ProceduralTerrain`, à côté du dossier `Bin`.
+Pour isoler cette recette pendant Play, choisir **Glace polaire** dans « Biome a tester ». Modifier ses fichiers GLSL, les enregistrer, puis cliquer sur **Regenerer avec ces reglages**. Le bouton relit les sources et leurs includes, réutilise les binaires valides et recompile seulement les programmes dont les dépendances ont changé. Il reste disponible après une erreur de compilation ; le diagnostic indique les fichiers et lignes concernés.
 
-Le relief 2D reste dans **`fieldReliefPolarIce()`**, dans `biome_relief.glsl`. Les derniers réglages conservés sont :
+Le relief 2D se trouve dans **`fieldRelief()`**, dans [`biomes/PolarIce/relief.C.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/relief.C.glsl). Ce fichier contient directement la recette et inclut son noyau d’accumulation, qui appelle `fieldRelief()`. Les réglages conservés sont :
 
 | Réglage | Valeur | Effet |
 | --- | ---: | --- |
@@ -80,75 +80,85 @@ Le relief 2D reste dans **`fieldReliefPolarIce()`**, dans `biome_relief.glsl`. L
 | `POLAR_ROLL_AMPLITUDE` | 18 | Amplitude des grandes ondulations avant `detailScale`. |
 | `POLAR_FINE_AMPLITUDE` | 2,5 | Amplitude du bruit fin avant `detailScale`. |
 
-Le code actif prend la distance au carré au site le plus proche (`sites.x`), multipliée par 10, puis ajoute les deux bruits. `POLAR_BASIN_DEPTH` (14) et `POLAR_BASIN_FLOOR` (0,06) ne servent qu’à l’ancienne formule laissée en commentaire ; les modifier ne change pas le profil actif. Le macrorelief global de la scène s’ajoute toujours au résultat.
+Le code actif part de la distance au carré au site de Voronoï le plus proche, multipliée par 10. Il ajoute les ondulations, un masque d’escarpement, un masque de lac glacé et un relief de rive. Le macrorelief global de la scène s’ajoute au résultat. Les anciens noms `POLAR_BASIN_DEPTH` et `POLAR_BASIN_FLOOR` ne sont pas des contrôles de cette recette.
 
-`fieldReliefPolarIce()` renvoie actuellement `vec4(h, 241, -40, 0)` :
+Le `vec4` de sortie conserve le contrat suivant :
 
 | Composante | Rôle |
 | --- | --- |
 | `.x` | Hauteur ajoutée au macrorelief, multipliée par `detailScale`. |
-| `.y` | Épaisseur **totale** de la bande 3D, multipliée par `detailScale`. Zéro désactive la bande locale. |
-| `.z` | Décalage vertical supplémentaire de cette bande, combiné au décalage volumique avant `detailScale`. |
-| `.w` | Masque de roche entre 0 et 1, modulant les amplitudes du champ commun ; 0 ne désactive pas la 3D. |
+| `.y` | Épaisseur **totale** de la bande 3D, multipliée par `detailScale`. Zéro ferme la bande locale. |
+| `.z` | Décalage de relief, combiné au décalage volumique avant mise à l’échelle. |
+| `.w` | Contrôle local entre 0 et 1, interprété uniquement par `fieldVolume()` du biome. Stocké sur 16 bits après accumulation. |
 
-L’épaisseur n’a plus de base ni de variation globale ajoutée : `épaisseur = relief.y × detailScale`, après interpolation des biomes. Les 26 valeurs `.y` sont maintenant des épaisseurs complètes, bornées entre 0 et 576 avant multiplication. Avec `detailScale = 0,35`, la glace polaire possède donc une bande de 84,35 m ; mettre son `.y` à zéro la ferme complètement lorsqu’elle est le seul biome contributeur. À une transition, les épaisseurs des biomes voisins se mélangent normalement.
+L’épaisseur polaire est actuellement modulée par un bruit 2D et varie entre **0 et 241 m avant `detailScale`**, avec un décalage de relief de −40 et un contrôle `.w` nul. À `detailScale = 0,35`, son épaisseur totale varie donc entre 0 et environ 84,35 m lorsqu’elle est le seul biome, à la quantification du stockage près. Une transition mélange localement les épaisseurs des biomes contributeurs. Aucun bruit global d’épaisseur ne s’ajoute aux valeurs des recettes. La décision d’ouverture FP32 au seuil `0.0002` est conservée dans un bit de métadonnées ; un zéro ne devient jamais une bande active.
 
-Les nouvelles valeurs ont été ajustées pour approcher l’ancienne épaisseur moyenne avec les réglages par défaut (base 64 m, variation 0–16 m, `detailScale = 0,35`). Cette conversion est inscrite dans chaque valeur littérale du biome ; aucune addition cachée n’est conservée. L’ancien bruit global de variation disparaît, donc la géométrie près des bords de bande peut légèrement changer. Pour une épaisseur variable, écrire directement une expression de bruit dans le `.y` du biome ; ses zones à zéro restent sans 3D.
-
-Les réglages 3D se trouvent à la **ligne de biome 0** de `FIELD_BIOME_VOLUME`, dans `biome_volume.glsl` :
+La fonction 3D est **`fieldVolume()`**, dans [`biomes/PolarIce/volume.C.glsl`](../Asset/Shader/ProceduralTerrain/biomes/PolarIce/volume.C.glsl). Son noyau d’accumulation appelle directement `fieldVolume()`. Ses contrôles de départ sont :
 
 ```glsl
-vec4[3](vec4(-20, 3, 72, .40),  // volume
-        vec4(.35, .50, .15, .10), // shape
-        vec4(.85, .70, .15, .30)) // style
+const vec4 FIELD_VOLUME = vec4(-20, 30, 72, 0.4);
+const vec4 FIELD_SHAPE = vec4(.35, .50, .15, .10);
+const vec4 FIELD_STYLE = vec4(.85, .70, .15, .30);
 ```
 
-Ces valeurs reprennent la dernière recette polaire. Il n’y a plus de fonction `fieldVolumePolarIce()` ni de masque d’activité polaire ajouté à ses paramètres. Pour modifier seulement la glace, éditer cette ligne ; pour modifier le calcul 3D de tous les biomes, éditer `fieldDensityAtPrepared()` dans le même fichier.
+Modifier ces constantes règle la recette actuelle. Remplacer le corps de `fieldVolume()` permet d’écrire une autre construction 3D pour la glace, indépendamment des autres biomes. La fonction renvoie **une contribution à la densité**, et non une densité de base à ajouter de nouveau. Son code prépare explicitement les amplitudes et choisit comment `column.blend.w` les influence. Le helper générique et l’accumulateur ne réinterprètent pas ce contrôle. Le [guide d’accumulation](BIOME_ACCUMULATION.md#contrat-de-la-fonction-3d--renvoyer-une-contribution) détaille ce contrat et les limites de sa bande.
 
-## Paramètres 3D communs
+## Paramètres des recettes 3D
 
-`FIELD_BIOME_VOLUME[26][3]` est un tableau à deux dimensions de `vec4` : une ligne par identifiant de biome, trois groupes de quatre valeurs par ligne. Cela représente **312 floats, soit 1 248 octets de données logiques** intégrées au shader. Le stockage effectif des constantes dans le programme compilé dépend du pilote ; aucun nouveau SSBO n’est ajouté.
+Chaque `biomes/<Name>/volume.C.glsl` contient trois constantes `vec4` et une fonction `fieldVolume`. Les noms sont identiques dans chaque dossier : les programmes sont compilés séparément, sans collision de symboles. Les constantes règlent le helper partagé `fieldVolumeRecipeDelta()` ; elles n’imposent pas cette forme de calcul aux futures recettes. Un programme de production ne contient que la fonction du biome sélectionné et ses helpers, sans table de paramètres des 26 biomes.
 
 | Groupe | Composante | Signification avant préparation de la colonne |
 | --- | --- | --- |
-| `volume` (`[0]`) | `.x` | Décalage vertical supplémentaire en mètres avant `detailScale`. Négatif : bande plus enfouie. |
-| | `.y` | Amplitude de déformation du champ de hauteur, avant `detailScale` et le masque de roche. |
-| | `.z` | Échelle de densité du creusement, avant `detailScale` et le masque de roche. Ce n’est pas l’espacement des grottes. |
+| `FIELD_VOLUME` | `.x` | Décalage vertical supplémentaire en mètres avant `detailScale`. Négatif : bande plus enfouie. |
+| | `.y` | Amplitude de déformation du champ de hauteur, avant `detailScale` et le masque rocheux. |
+| | `.z` | Échelle de densité du creusement, avant `detailScale` et le masque rocheux. Ce n’est pas l’espacement des grottes. |
 | | `.w` | Fraction de la demi-épaisseur utilisée pour adoucir les bords de la bande, normalement entre 0 et 1. |
-| `shape` (`[1]`) | `.x` | Poids du premier bruit 3D, isotrope. |
+| `FIELD_SHAPE` | `.x` | Poids du premier bruit 3D, isotrope. |
 | | `.y` | Poids du deuxième bruit, variant plus vite verticalement. |
 | | `.z` | Poids du troisième bruit, variant plus vite horizontalement. |
 | | `.w` | Seuil de rayon des cavités dans l’espace des valeurs du bruit ; ce n’est pas un rayon en mètres. |
-| `style` (`[2]`) | `.x` | Mélange de cavités en feuillets (0) vers des tubes (1). |
+| `FIELD_STYLE` | `.x` | Mélange de cavités en feuillets (0) vers des tubes (1). |
 | | `.y` | Section des tubes : arrondie (0), en diamant (0,5), carrée (1). |
 | | `.z` | Réintroduit une part du premier bruit dans la déformation de surface, entre 0 et 1. |
 | | `.w` | Intensité de la modulation du rayon par les strates, entre 0 et 1. |
 
-Les poids `shape.xyz` décrivent un mélange, mais ne sont pas normalisés automatiquement. Les amplitudes `volume.yz` et le rayon `shape.w` doivent rester non négatifs. Les fréquences et les seeds des trois bruits sont communes, dans l’évaluateur 3D. Changer leur fréquence change à la fois l’échelle des formes et leur espacement ; les douze paramètres ne décrivent pas des centres de grottes indépendants.
+Dans le helper de départ, les poids `shape.xyz` ne sont pas normalisés automatiquement. Les amplitudes `volume.yz` et le rayon `shape.w` doivent rester non négatifs. La fonction du biome multiplie d’abord ses amplitudes par `uDetailScale`, puis choisit l’usage de `.w`, avant de les transmettre au helper. Celui-ci reçoit donc les amplitudes préparées en mètres mondiaux. Les fréquences et sels des trois bruits sont définis dans `biome_volume_common.glsl`. Modifier ce helper affecte tous ses utilisateurs ; une fréquence ou une géométrie propre à un biome peut être écrite directement dans son fichier.
 
-Pour désactiver la sculpture d’un biome, mettre `volume.y` et `volume.z` à zéro. Son relief 2D reste actif. À une frontière avec un biome actif, l’interpolation des paramètres réintroduit progressivement la sculpture.
+`column.blend.w` n’est pas un poids de biome. C’est le quatrième résultat 2D accumulé, borné à `[0,1]`, puis stocké en UNORM16 et redécodé en float pour la fonction 3D. Par exemple, une recette de pierres peut s’en servir pour décider où construire ses propres volumes ; une recette de cavités peut lui donner un autre sens. Les recettes initiales conservent les facteurs `mix(0.55,1.0,w)` pour le déplacement et `mix(0.85,1.0,w)` pour le creusement, écrits dans chaque fonction 3D. Un `.w` nul ne désactive donc pas automatiquement ces recettes de départ, mais une autre fonction peut choisir ce comportement.
+
+Pour désactiver la sculpture d’une recette par défaut, mettre ses `volume.y` et `volume.z` à zéro ; son relief 2D reste actif. Une fonction personnalisée peut simplement renvoyer `0.0`. À une frontière, les contributions des biomes voisins restent évaluées et pondérées localement. Il n’y a plus d’interpolation des douze paramètres entre biomes.
+
+Les constantes de chaque `volume.C.glsl` constituent l’unique emplacement de réglage de sa recette de départ. Les anciens agrégats de tous les biomes et leur tableau de paramètres ont été supprimés ; les sondes de `Tests/Terrain` utilisent les recettes actuelles.
 
 ## Composition et coût GPU
 
-Les 26 fonctions 2D de `biome_relief.glsl` restent indépendantes. Elles combinent les bruits de gradient, cellules euclidiennes ou angulaires, profils orientés et paliers. `fieldSurfaceRecipes()` regroupe les identifiants de poids positif avant de les appeler : au maximum quatre coins climatiques et une contribution marine. Ce chemin conserve son `switch` 2D.
+La préparation commune calcule le climat et la hauteur macro pour chaque colonne XZ, halo inclus. Le GPU construit ensuite des listes de chunks par biome et les commandes de dispatch indirect. Les programmes de relief ajoutent leurs résultats pondérés dans quatre accumulateurs ; la finalisation applique les échelles. La base de densité est écrite une seule fois, puis chaque fonction 3D ajoute son delta pondéré dans le même champ.
 
-Le chemin 3D utilise **un seul calcul de densité par voxel**. `fieldVolumeParameters()` lit les paramètres dans le tableau et les interpole avec les poids trilinéaires locaux. `fieldPrepareVolume()` prépare ensuite le centre et la demi-épaisseur de bande, les amplitudes et la distance d’adoucissement. La passe `field_density.C.glsl` fait cette préparation une fois par colonne XZ de son groupe, puis la partage entre les quatre invocations Y. `fieldDensityAtPrepared()` évalue le champ commun avec ces paramètres. Hors de la bande ou quand les deux amplitudes sont nulles, il évite les trois bruits 3D.
+Les poids dépendent de l’humidité, de la température et de la hauteur macro **à cette colonne**. Ils ne deviennent pas un pourcentage constant par chunk. Les identifiants répétés parmi les coins d’une matrice voient leurs poids additionnés avant la contribution. Tous les poids strictement positifs sont conservés ; aucun seuil moyen de chunk n’élimine une petite zone active. Les halos et transitions de LOD utilisent le même repère mondial et le même ordre d’accumulation.
 
-Les poids dépendent toujours de l’humidité, de la température et de la hauteur macro **à cette colonne**. Ils ne deviennent pas un pourcentage constant par chunk. Les fonctions 3D individuelles, leur grand `switch` et leur cache de bruits paresseux ont disparu. Le gain structurel vient du calcul volumique unique et de la préparation partagée ; un accès de tableau n’est pas, à lui seul, une garantie de meilleur débit sur chaque GPU.
+Le mélange porte sur les **résultats des fonctions 3D**. Comme le calcul de densité est non linéaire, les formes des transitions peuvent différer de la génération précédente qui mélangeait les paramètres. Les recettes initiales des biomes forcés conservent leur construction, avec les arrondis du passage densité complète → delta et la quantification des contrôles stockés. Reproduire un monde demande la seed, les réglages et la même version du générateur.
 
-**Le mélange porte désormais sur les paramètres, puis la densité est calculée.** L’évaluateur étant non linéaire, les formes des zones de transition peuvent différer de l’ancien mélange des densités. Les paramètres des 26 biomes isolés sont conservés ; de petits écarts d’arrondi restent possibles. La seed, les positions mondiales et les fréquences ne dépendent pas du LOD. Reproduire un monde demande la seed, les réglages et la même version du générateur.
+Une colonne finale occupe **32 octets**, soit 143 648 octets pour 67² colonnes avant alignement. La construction 2D conserve un scratch FP32 de 48 octets par colonne et ne quantifie qu’après l’ensemble des additions. Hauteur, climat, fraction d’altitude et décalage global restent en FP32 ; épaisseur, décalage de relief et `.w` utilisent 16 bits chacun. Le [contrat de stockage](BIOME_ACCUMULATION.md#stockage-compact-et-précision) précise leurs erreurs et le traitement des bandes très minces. La densité et son accumulation restent en `float32`.
 
-Une colonne persistante reste à **48 octets**, soit 215 472 octets pour 67² colonnes. Son ancien mot d’activité polaire est réservé à zéro. La préparation partagée conserve **1 792 octets par groupe** : 32 colonnes × (un `vec2` + trois `vec4`). Aucun buffer de paramètres par voxel ou par chunk n’est ajouté. La table CPU des cellules reste à 1 KiB ; les densités restent en `float32`, les compteurs de meshing à 16 octets par travail et les sommets à 12 octets.
+Les arènes conservent des caches bornés : les colonnes sont réutilisables entre chunks verticaux et les densités entre demandes où seul le masque de raccord change. Les listes de biomes stockent seulement les slots ; il n’existe aucun champ complet par biome. Le GPU réduit les signes et enveloppes sur le halo complet pour éliminer les chunks sûrement pleins ou vides avant la matérialisation du champ. Chaque tuile XZ de 8×8 reçoit un masque et une plage Y conservatrice. Les dispatchs limitent leur hauteur et les groupes inutiles sortent avant leurs chargements de colonnes.
 
-Les bruits restent séparés en includes 2D et 3D. Chaque passe garde son programme générique ; aucun déplacement dans le monde ne lance de compilation. Les services de compilation parallèle du moteur restent disponibles, mais le terrain ne les utilise pas. Les six programmes compute passent par `Ge::ComputeShader`, les pipelines de dessin et d’ombres par `Ge::GraphiquePipeline`, avec leur cache binaire persistant commun.
+Le noyau 3D partage 32 colonnes décodées et leurs poids entre quatre échantillons Y, avec 1 664 octets de mémoire partagée par groupe. Une contribution exactement nulle ne lit ni ne réécrit la densité ; les faibles poids positifs restent conservés. Les sommets restent à 12 octets et les compteurs de meshing à 16 octets par travail. Le comptage mémorise les groupes contenant des triangles pour que l’émission ignore les groupes vides.
 
-**Regenerer avec ces reglages** relit les sources et includes, recharge les binaires correspondants ou recompile les programmes modifiés, puis reconstruit les chunks. Éditer `FIELD_BIOME_VOLUME` ne change que la dépendance de la passe de densité ; éditer `biome_relief.glsl` ne concerne que les colonnes. Les fichiers communs concernent les deux. Modifier seulement la seed ou les uniforms conserve la clé de cache. Une erreur GLSL conserve son journal et les fichiers/lignes correspondants ; corriger puis régénérer permet de réessayer. Les détails du cache sont décrits dans [PROCEDURAL_TERRAIN.md](PROCEDURAL_TERRAIN.md#programmes-et-rechargement-des-shaders).
+Les additions de relief et de densité n’utilisent pas d’atomics flottants. Les passes successives sont séparées par des barrières mémoire ; les atomics de classification concernent uniquement les masques et bornes entières, après réduction locale par groupe. Le terrain produit ensuite un seul maillage à partir du champ terminé. Les compteurs de meshing conservent leurs atomics entiers.
+
+Le catalogue est fixe : **26 programmes 2D + 26 programmes 3D + 9 programmes communs = 61 compute shaders**, en plus des pipelines de dessin et d’ombres. La nouvelle préparation de volumes est séparée de la finalisation afin de partager des colonnes entre plusieurs chunks. `ShaderProgramBatch` réutilise les binaires disponibles et compile les manquants avec `ParallelShaderCompiler`, via les extensions ARB/KHR du pilote. Le repli sans extension est synchrone à l’initialisation. Aucun déplacement dans le monde ne crée de nouvelle variante.
+
+**Regenerer avec ces reglages** relit les sources, charge leurs binaires valides ou recompile les programmes modifiés, puis reconstruit les chunks. Éditer `biomes/PolarIce/relief.C.glsl` concerne uniquement le programme 2D polaire ; éditer son `volume.C.glsl` concerne uniquement son programme 3D. Un helper partagé invalide les variantes qui l’incluent. Changer seulement la seed ou les uniforms conserve les clés. Le détail du pipeline et du cache se trouve dans [BIOME_ACCUMULATION.md](BIOME_ACCUMULATION.md).
+
+Les programmes plus petits réduisent la complexité de compilation par variante, mais plusieurs biomes actifs impliquent plusieurs lectures/écritures du champ. Le regroupement des chunks par biome et les dispatchs de zéro groupe pour les biomes absents limitent ce coût. Le résultat en temps GPU doit être mesuré sur la carte cible ; les tests de justesse ne prouvent pas une accélération.
 
 ## Contrat du champ 3D
 
-Le champ est positif dans le solide, négatif dans le vide ; zéro définit la surface. Ce n’est pas une distance signée. L’évaluateur commun revient continûment à `hauteur - p.y` hors de la bande. `fieldPrepareVolume()` borne la somme du décalage de relief et de `volume.x` à **[-160 ; 160] × `uDetailScale`**, puis ajoute le décalage global. L’épaisseur totale reste celle calculée par la passe 2D.
+Le champ est positif dans le solide, négatif dans le vide ; zéro définit la surface. Ce n’est pas une distance signée. La base `hauteur - p.y` est écrite une seule fois. Les fonctions `fieldVolume` renvoient seulement leur modification, et le noyau applique le poids local. Hors de sa zone utile, une recette renvoie zéro ; les recettes de départ s’éteignent progressivement au bord de leur bande.
 
-Modifier l’évaluateur commun doit conserver ces bornes, ou adapter ensemble le rejet de bande et `fieldHeightBounds()` côté C++. Les bruits utilisent le repère mondial et la seed commune ; ils ne doivent pas dépendre de l’origine du chunk, du LOD ou du temps. Les tests de raccords, de champs finis et d’interpolation décrits dans `Tests/Terrain/README.md` accompagnent toute modification des paramètres ou de leurs bornes.
+`fieldVolumeBand()` borne la somme du décalage de relief et de l’offset de la recette à **[-160 ; 160] × `uDetailScale`**, puis ajoute le décalage global. L’épaisseur totale reste celle issue de la 2D. `fieldVolumeEnvelope()` couvre toutes les positions autorisées de cette bande pour la sélection des passes et le rejet des échantillons. Son ordre d’addition suit celui du helper et une marge flottante élargit la borne : une réassociation à grande coordonnée pourrait autrement rogner la bande.
+
+Une fonction personnalisée doit respecter l’enveloppe et rester nulle lorsque la bande est fermée. Pour la dépasser, adapter ensemble le rejet GPU, `fieldHeightBounds()` côté C++ et la recette. Les bruits doivent utiliser la position mondiale et la seed commune, sans dépendance à l’origine propre du chunk, au LOD ou au temps. Les tests de raccords, de champs finis et de poids décrits dans [Tests/Terrain/README.md](../Tests/Terrain/README.md) accompagnent toute modification des bornes.
 
 ## Espaces de déplacement
 
@@ -169,7 +179,7 @@ Les hauteurs montrent le relief avant sculpture 3D ; les coupes montrent les év
 
 Ouvrir `ENDURANCE/Scene/Terrain.scene`, puis lancer Play. Dans l’interface du composant, **« Biome a tester »** permet de choisir les matrices automatiques ou un biome forcé. **« Regenerer avec ces reglages »** reconstruit le terrain avec les paramètres actuels.
 
-Le chemin générique est le seul chemin de génération. Le bouton de régénération recharge les fonctions 2D, la table de paramètres 3D et l’évaluateur commun, sans option de spécialisation ni cache de variantes à régler.
+Le catalogue de passes par biome est utilisé automatiquement. Le bouton de régénération recharge les fonctions 2D et 3D des dossiers de biomes et leurs helpers, puis réutilise les programmes inchangés du cache. Il n’y a pas de variante à choisir selon la combinaison de biomes rencontrée.
 
 Le message « Background terrain work is still active » distingue un terrain déjà visible d’une génération terminée ; il devient « Terrain generation is idle » lorsque la reconstruction et les travaux GPU sont terminés. Cet indicateur ne mesure pas l’activité des autres systèmes du moteur. **« Mesurer les saccades »** conserve le détail de l’image la plus lente ; voir [les compteurs du générateur](PROCEDURAL_TERRAIN.md#utilisation-dans-le-moteur) pour son interprétation.
 

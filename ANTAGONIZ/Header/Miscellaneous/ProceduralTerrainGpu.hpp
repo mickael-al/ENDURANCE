@@ -17,6 +17,11 @@ namespace ProceduralTerrain
         std::uint32_t vertexBudgetMiB = 256;
         std::uint32_t maxResidentChunks = 2048;
         std::uint32_t maxInFlight = 2;
+        // Bounded GPU caches, including slots pinned by jobs. Zero retains no
+        // completed entry; in-flight jobs still share identical fields safely.
+        std::uint32_t columnCacheEntries = 128;
+        std::uint32_t densityCacheEntries = 32;
+        bool measureGenerationTimings = true;
         std::string shaderDirectory = "../Asset/Shader/ProceduralTerrain";
         FieldParameters field;
     };
@@ -72,6 +77,23 @@ namespace ProceduralTerrain
         double lastGenerationMilliseconds = 0.0;
         std::uint64_t transientFieldBytes = 0;
         std::uint64_t biomeMetadataBytes = 0;
+        std::uint64_t fieldBatches = 0;
+        std::uint32_t lastFieldBatchJobs = 0;
+        std::uint64_t columnCacheHits = 0, densityCacheHits = 0;
+        std::uint64_t generatedColumnTiles = 0, generatedDensityFields = 0;
+        std::uint64_t cachedFieldBytes = 0, groupMetadataBytes = 0;
+        std::uint64_t submittedBiomePasses = 0;
+        std::uint64_t timedBatches = 0, timedEmissions = 0, droppedTimingSamples = 0;
+        std::uint32_t pendingTimingSamples = 0;
+        // Disjoint GPU intervals: shared field/count work is counted once per
+        // batch, emission once per job. Query results are collected later.
+        double field2DMilliseconds = 0.0, fieldPreparationMilliseconds = 0.0;
+        double volumeMilliseconds = 0.0, countMilliseconds = 0.0, emissionMilliseconds = 0.0;
+        double lastField2DMilliseconds = 0.0, lastFieldPreparationMilliseconds = 0.0;
+        double lastVolumeMilliseconds = 0.0, lastCountMilliseconds = 0.0, lastEmissionMilliseconds = 0.0;
+        double lastRequestMilliseconds = 0.0, totalRequestMilliseconds = 0.0;
+        std::uint64_t largestFreeVertexBytes = 0;
+        std::uint32_t freeVertexRanges = 0;
     };
 
     // All calls, including destruction, belong to the owning OpenGL context.
@@ -87,7 +109,16 @@ namespace ProceduralTerrain
 
         bool initialize(const GpuConfig& config, std::string& error);
         void shutdown() noexcept;
+        // Queue requests until poll(), allowing all ready chunks to share each
+        // biome's indirect dispatch. Capacity includes queued requests.
         bool submit(const ChunkRequest& request, std::uint64_t token);
+        // Submit the current batch without waiting or consuming completions.
+        // Frame schedulers call this after enqueuing all ready chunks; poll()
+        // also submits any remaining queue for standalone callers.
+        void dispatchQueued();
+        // Idle-only benchmark/debug invalidation. Keeps programs, arenas and
+        // published meshes; refuses to invalidate slots referenced by jobs.
+        bool clearFieldCaches();
         void poll(std::vector<Completion>& completions);
         void cancel(std::uint64_t token) noexcept;
         void release(const MeshHandle& mesh) noexcept;

@@ -16,6 +16,7 @@ import tempfile
 
 from gl_headless import GL, GLUnavailable
 from biome_test_support import packed_biome_cells
+from field_batch_runner import BatchFieldRunner
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -24,8 +25,10 @@ COLUMN_WORDS = 12
 COLUMN_BYTES = COLUMN_WORDS * 4
 
 
-class FieldRunner:
-    def __init__(self, gl: GL, directory=SHADERS):
+class LegacyFieldRunner:
+    """Explicit comparison against an external pre-accumulation shader snapshot."""
+
+    def __init__(self, gl: GL, directory):
         self.gl = gl
         self.mapping = gl.buffer(packed_biome_cells())
         self.columns_program = gl.compute(directory / "field_columns.C.glsl")
@@ -78,6 +81,11 @@ class FieldRunner:
             "side": side, "cells": cells, "origin": origin, "lod": lod,
             "uniforms": uniforms,
         }
+
+
+def FieldRunner(gl: GL, directory=SHADERS):
+    """Generate every normal fixture with the production batched pass family."""
+    return BatchFieldRunner(gl, directory)
 
 
 def lattice_values(result):
@@ -182,28 +190,63 @@ def decode_normal(word):
 
 
 class MeshRunner:
-    def __init__(self, gl):
+    def __init__(self, gl, directory=SHADERS, optimized=True, edge_reuse=True):
         self.gl = gl
-        self.regular = [gl.compute(SHADERS / "meshing.C.glsl", f"#define EMIT_PASS {emit}") for emit in (0, 1)]
-        self.transition = [gl.compute(SHADERS / "transition.C.glsl", f"#define EMIT_PASS {emit}") for emit in (0, 1)]
+        self.optimized = optimized
+        self.packed_columns = 'PackedFieldColumn' in (directory / 'meshing_common.glsl').read_text()
+        defines = (f"#define TERRAIN_GROUP_COUNTS {int(optimized)}\n"
+                   f"#define TERRAIN_FIELD_STATE {int(optimized)}\n"
+                   f"#define TERRAIN_EDGE_REUSE {int(edge_reuse)}\n")
+        self.regular = [gl.compute(directory / "meshing.C.glsl", defines+f"#define EMIT_PASS {emit}") for emit in (0, 1)]
+        self.transition = [gl.compute(directory / "transition.C.glsl", defines+f"#define EMIT_PASS {emit}") for emit in (0, 1)]
         self.tables = gl.buffer(packed_tables())
 
     def run(self, field, mask=0, capacity=None):
         gl, cells = self.gl, field["cells"]
-        gl.bind(field["density_buffer"], 0)
-        gl.bind(field["column_buffer"], 1)
+        if field.get("density_offset", 0):
+            gl.buffer(field["density_raw"], 0)
+        else:
+            gl.bind(field["density_buffer"], 0)
+        # Standalone extraction also accepts a slot from the padded batch
+        # oracle. A private copy avoids depending on driver SSBO alignment.
+        if not self.packed_columns:
+            gl.buffer(field["columns_raw"], 1)
+        elif field.get("column_offset", 0):
+            gl.buffer(field["columns_packed_raw"], 1)
+        else:
+            gl.bind(field["column_buffer"], 1)
         gl.bind(self.tables, 2)
         counter = gl.buffer(bytes(16), 3)
+        regular_groups = ((cells+7)//8)*((cells+3)//4)**2
+        group_count = regular_groups+6*((((cells//2)**2)+63)//64)
+        group_sentinel = struct.pack("<I", 0xDA7ADA7A)
+        groups = gl.buffer(group_sentinel*(group_count+4), 5)
+        if "mesh_field_state" in field:
+            state_buffer = gl.buffer(struct.pack("<4I", field["mesh_field_state"], 0, 0, 0))
+            state_index = 0
+        elif "field_state_buffer" in field:
+            state_buffer = field["field_state_buffer"]
+            state_index = field.get("field_state_offset", 0)//16
+        else:
+            state_buffer = gl.buffer(struct.pack("<4I", 3, 0, 0, 0))
+            state_index = 0
+        gl.bind(state_buffer, 6)
         programs = self.regular + self.transition
         for program in programs:
             span = cells * (1 << field["lod"])
             gl.uniform(program, "uChunkParity", "3ui", *(int(origin // span) & 1 for origin in field["origin"]))
             for name, value in (("uCells", cells), ("uTransitionMask", mask)):
                 gl.uniform(program, name, "1ui", value)
+            gl.uniform(program, "uFieldStateIndex", "1ui", state_index)
         gl.dispatch_extent(self.regular[0], cells, cells, cells)
         gl.dispatch(self.transition[0], ((cells // 2)**2 + 63)//64, 6)
         total, cursor, overflow, _ = struct.unpack("<4I", gl.read(counter, 16))
         assert cursor == overflow == 0, ("count changed emit state", total, cursor, overflow)
+        raw_groups = gl.read(groups, (group_count+4)*4)
+        counts = struct.unpack(f"<{group_count}I", raw_groups[:group_count*4])
+        assert raw_groups[group_count*4:] == group_sentinel*4, "Group-count guard overwritten"
+        if self.optimized:
+            assert sum(counts) == total, ("Retained group counts disagree", sum(counts), total)
         if capacity is None:
             capacity = total
         # Prefix and suffix sentinels detect both base-offset mistakes and writes
@@ -236,7 +279,10 @@ class MeshRunner:
             vertices.append(tuple(field["origin"][axis] + packed[axis] / 65534.0 * extent for axis in range(3)))
             normals.append(decode_normal(normal))
         gl.check("count/emit")
-        return {"vertices": vertices, "normals": normals, "count": total, "overflow": overflow, "command": command, "field": field}
+        return {"vertices": vertices, "normals": normals, "count": total, "overflow": overflow,
+                "command": command, "field": field, "group_counts": counts,
+                "regular_groups": regular_groups,
+                "packed_vertices": raw[prefix*12:(prefix+min(total,capacity))*12]}
 
 
 def triangle_edges(meshes):
@@ -309,6 +355,11 @@ def check_meshes(gl, fields):
     assert meshes.run(fields.run(cells=4,mode=1,uBaseHeight=1.25))["count"]==4*4*6
     full = meshes.run(fields.run(cells=64,mode=1,uBaseHeight=3.25))
     assert full["count"] == 64*64*6
+    assert sum(value>0 for value in full["group_counts"][:full["regular_groups"]]) == 128
+    assert full["regular_groups"] == 2048
+    rejected = fields.run(mode=1,uBaseHeight=3.25)
+    rejected["mesh_field_state"] = 1
+    assert meshes.run(rejected, mask=63)["count"] == 0
     print("PASS regular mesh: plane, closed sphere, normals, empty field, 64³ cells and guarded overflow")
     seam_fixtures=[(8.,8.,5.5), (7.35,8.72,5.43),
                    (8.349772125987096,7.261767491708243,5.739814888044384)]
@@ -387,6 +438,9 @@ def check_meshes(gl, fields):
                             samples[point]=generator.uniform(-1,1)
                         values.append(samples[point])
         gl.write(field["density_buffer"],struct.pack(f"<{len(values)}f",*values))
+        # The custom density replaces the analytic field used to allocate the
+        # buffers, so its old homogeneous classification is no longer valid.
+        field["mesh_field_state"] = 3
         return field
     union=[meshes.run(noisy_field((0,0,0),1))]
     for y,z in ((0,0),(16,0),(0,16),(16,16)):

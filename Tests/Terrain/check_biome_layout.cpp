@@ -15,7 +15,8 @@ void require(bool value, const char* message)
 void check()
 {
     constexpr auto cells=makeBiomeCellTable();
-    require(sizeof(cells)==1024 && FieldColumnBytes==48, "Unexpected GPU layout size");
+    require(sizeof(cells)==1024 && FieldColumnBytes==32 && FieldScratchColumnBytes==48,
+            "Unexpected GPU storage/scratch layout size");
     bool surfaceSeen[BiomeCount]{}, volumeSeen[BiomeCount]{};
     surfaceSeen[MarineBiome]=true; // Surface marine relief is applied below sea level.
     bool duplicateCornersSeen=false;

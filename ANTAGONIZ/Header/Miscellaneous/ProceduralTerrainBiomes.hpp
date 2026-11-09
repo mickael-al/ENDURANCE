@@ -8,7 +8,16 @@ namespace ProceduralTerrain
 {
     inline constexpr std::uint32_t BiomeCount = 26;
     inline constexpr std::uint32_t MarineBiome = 25;
-    inline constexpr std::uint32_t FieldColumnBytes = 48;
+    inline constexpr std::uint32_t FieldColumnBytes = 32;
+    inline constexpr std::uint32_t FieldScratchColumnBytes = 48;
+    // Stable IDs also select the independent 2D/3D compute source directories.
+    inline constexpr std::array<const char*, BiomeCount> BiomeNames{{
+        "PolarIce", "FrozenTundra", "Tundra", "Taiga", "BorealBog",
+        "RockyTundra", "ColdSteppe", "BorealForest", "ColdForest", "ColdMarsh",
+        "DryPlain", "Meadow", "TemperateForest", "TemperateRainforest", "TemperateMarsh",
+        "RockDesert", "DrySavanna", "Savanna", "DryJungle", "TropicalJungle",
+        "VolcanicDesert", "RedDesert", "AridPlateau", "BurningJungle", "TropicalMangrove", "Marine"
+    }};
     static_assert(BiomeCount > 0 && BiomeCount <= 32, "Biome IDs must fit the 5-bit IDs and 32-bit mask");
 
     // Authoritative matrices live on the CPU. X = humidity, Y = temperature,

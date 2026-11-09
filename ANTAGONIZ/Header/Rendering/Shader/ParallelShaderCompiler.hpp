@@ -37,8 +37,12 @@ namespace Ge
 
         // A zero ticket means refused (unsupported, full, or invalid request).
         // Capacity includes completed jobs until takeProgram() or cancel().
-        Ticket submit(const std::vector<Source>& sources, const std::string& label = {});
-        Ticket submitCompute(const std::string& source, const std::string& label = {});
+        // Binary retrieval is opt-in and the hint is applied before linking.
+        // Callers enabling it must have verified program-binary support.
+        Ticket submit(const std::vector<Source>& sources, const std::string& label = {},
+            bool retrievableBinary = false);
+        Ticket submitCompute(const std::string& source, const std::string& label = {},
+            bool retrievableBinary = false);
 
         // Only completion-status queries are issued before compilation/linking
         // finish. No glFinish, wait, or premature LINK_STATUS query is performed.

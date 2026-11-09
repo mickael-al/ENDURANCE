@@ -22,13 +22,19 @@ void require(bool condition,const std::string& message)
 std::vector<Completion> finish(GpuMesher& mesher,unsigned expected)
 {
     std::vector<Completion> completed;
-    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(10);
+    // Software drivers can JIT a fixed variant at its first dispatch, even
+    // after a successful link. This is a correctness timeout, not a benchmark.
+    const auto deadline=std::chrono::steady_clock::now()+std::chrono::seconds(60);
     while (completed.size()<expected && std::chrono::steady_clock::now()<deadline)
     {
         mesher.poll(completed);
         std::this_thread::yield();
     }
-    require(completed.size()==expected,"Async backend did not complete jobs within 10s: "+mesher.lastError());
+    require(completed.size()==expected,"Async backend did not complete jobs within 60s (completed "+
+        std::to_string(completed.size())+"/"+std::to_string(expected)+
+        ", pending "+std::to_string(mesher.stats().pendingJobs)+
+        ", batches "+std::to_string(mesher.stats().fieldBatches)+
+        "): "+mesher.lastError());
     require(glGetError()==GL_NO_ERROR,"OpenGL error during asynchronous backend lifecycle");
     return completed;
 }
@@ -152,6 +158,38 @@ struct CompileObserver
     }
     ~CompileObserver() { __glewCompileShader=originalCompile; __glewLinkProgram=originalLink; }
 };
+unsigned timingGlCalls=0;
+PFNGLGENQUERIESPROC originalGenQueries=nullptr;
+PFNGLQUERYCOUNTERPROC originalQueryCounter=nullptr;
+PFNGLGETQUERYOBJECTIVPROC originalGetQueryObjectiv=nullptr;
+PFNGLGETQUERYOBJECTUI64VPROC originalGetQueryObjectui64v=nullptr;
+void GLAPIENTRY observeGenQueries(GLsizei count,GLuint* queries)
+{ ++timingGlCalls;originalGenQueries(count,queries); }
+void GLAPIENTRY observeQueryCounter(GLuint query,GLenum target)
+{ ++timingGlCalls;originalQueryCounter(query,target); }
+void GLAPIENTRY observeGetQueryObjectiv(GLuint query,GLenum parameter,GLint* value)
+{ ++timingGlCalls;originalGetQueryObjectiv(query,parameter,value); }
+void GLAPIENTRY observeGetQueryObjectui64v(GLuint query,GLenum parameter,GLuint64* value)
+{ ++timingGlCalls;originalGetQueryObjectui64v(query,parameter,value); }
+struct TimingObserver
+{
+    TimingObserver()
+    {
+        timingGlCalls=0;
+        originalGenQueries=__glewGenQueries;originalQueryCounter=__glewQueryCounter;
+        originalGetQueryObjectiv=__glewGetQueryObjectiv;
+        originalGetQueryObjectui64v=__glewGetQueryObjectui64v;
+        __glewGenQueries=observeGenQueries;__glewQueryCounter=observeQueryCounter;
+        __glewGetQueryObjectiv=observeGetQueryObjectiv;
+        __glewGetQueryObjectui64v=observeGetQueryObjectui64v;
+    }
+    ~TimingObserver()
+    {
+        __glewGenQueries=originalGenQueries;__glewQueryCounter=originalQueryCounter;
+        __glewGetQueryObjectiv=originalGetQueryObjectiv;
+        __glewGetQueryObjectui64v=originalGetQueryObjectui64v;
+    }
+};
 void checkGenericBiomes(GpuMesher& mesher,GpuConfig config)
 {
     config.cells=8;config.maxInFlight=2;config.maxResidentChunks=4;config.vertexBudgetMiB=1;
@@ -161,10 +199,22 @@ void checkGenericBiomes(GpuMesher& mesher,GpuConfig config)
     std::string error;
     require(mesher.initialize(config,error),error);
     const std::uint64_t side=config.cells+3;
-    require(mesher.stats().transientFieldBytes==config.maxInFlight*(side*side*side*4+side*side*FieldColumnBytes),
-        "Transient fields no longer use 48-byte columns and float density");
-    require(mesher.stats().biomeMetadataBytes==1024+config.maxInFlight*16,
-        "Biome metadata no longer contains only the CPU cell table and 16-byte job counters");
+    const auto minimumScratchBytes=config.maxInFlight*side*side*FieldScratchColumnBytes;
+    GLint fieldAlignment=0;
+    glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT,&fieldAlignment);
+    const auto columnSlots=std::max(config.maxInFlight,config.columnCacheEntries);
+    const auto densitySlots=std::max(config.maxInFlight,config.densityCacheEntries);
+    const auto stateBytes=densitySlots*(1+((side+7)/8)*((side+7)/8))*16;
+    const auto minimumCacheBytes=columnSlots*side*side*FieldColumnBytes+densitySlots*side*side*side*4+stateBytes;
+    require(FieldColumnBytes==32 && FieldScratchColumnBytes==48,"Packed/floating field layout contract changed");
+    require(mesher.stats().transientFieldBytes>=minimumScratchBytes &&
+        mesher.stats().transientFieldBytes<=minimumScratchBytes+config.maxInFlight*2*fieldAlignment,
+        "Transient accumulation exceeds one aligned FP32 scratch slice per in-flight job");
+    require(mesher.stats().cachedFieldBytes>=minimumCacheBytes &&
+        mesher.stats().cachedFieldBytes<=minimumCacheBytes+(columnSlots+densitySlots)*fieldAlignment,
+        "Field caches exceed configured bounded capacities plus alignment");
+    require(mesher.stats().biomeMetadataBytes==1024+52*(16+16*4)+config.maxInFlight*(16+48)+stateBytes,
+        "Biome metadata no longer matches compact commands, job records and per-slot tile states");
     CompileObserver observer;
     ChunkRequest request;request.seed=1337;
     require(mesher.submit(request,100),mesher.lastError());
@@ -197,12 +247,301 @@ void checkGenericBiomes(GpuMesher& mesher,GpuConfig config)
     require(idleCompletions.empty() && afterIdle.pendingJobs==0 &&
         afterIdle.completedJobs==idle.completedJobs && afterIdle.emptyJobs==idle.emptyJobs &&
         afterIdle.failedJobs==idle.failedJobs && afterIdle.allocatedBytes==idle.allocatedBytes &&
-        afterIdle.drawListUploads==idle.drawListUploads,
+        afterIdle.drawListUploads==idle.drawListUploads && afterIdle.fieldBatches==idle.fieldBatches,
         "An idle terrain continued scheduling generation or uploads");
     require(streamingCompiles==0 && streamingLinks==0,
         "Terrain streaming, region revisits or idle polling compiled/linked shaders");
     mesher.shutdown();
-    std::cout<<"PASS generic biome backend: cancellation, region revisits, idle polling, no runtime shader compilation, identical packed meshes and 48-byte columns/16-byte counters\n";
+    std::cout<<"PASS biome backend: cancellation, region revisits, idle polling, no runtime shader compilation, identical packed meshes and bounded field caches\n";
+}
+
+void checkBatching(GpuMesher& mesher,GpuConfig config)
+{
+    config.cells=8;config.maxInFlight=4;config.maxResidentChunks=4;config.vertexBudgetMiB=1;
+    config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
+    config.field.heightAmplitude=2.0f;config.field.heightFrequency=.1f;
+    config.field.climateFrequency=.04f;config.field.detailScale=.01f;
+    config.field.biomeOverride=11;
+    std::string error;
+    require(mesher.initialize(config,error),error);
+    const std::array<ChunkRequest,4> requests{{
+        {{{-8,0,-8}},0,0,1337}, {{{0,0,-8}},0,0,17},
+        {{{8,0,0}},0,0,98765}, {{{0,0,8}},0,0,17}
+    }};
+    std::vector<std::vector<std::array<std::uint32_t,3>>> reference;
+    for(unsigned i=0;i<requests.size();++i)
+    {
+        const auto done=one(mesher,requests[i],200+i);
+        require(done.status==CompletionStatus::Ready,"Sequential batch reference missed the surface");
+        reference.push_back(meshBytes(mesher,done.mesh));
+        mesher.release(done.mesh);collectRetired(mesher);
+    }
+    CompileObserver observer;
+    const auto batches=mesher.stats().fieldBatches;
+    for(unsigned i=0;i<requests.size();++i)
+        require(mesher.submit(requests[i],300+i),mesher.lastError());
+    require(mesher.stats().pendingJobs==4 && mesher.stats().fieldBatches==batches,
+        "submit did not defer field generation for grouping ready chunks");
+    mesher.dispatchQueued();
+    require(mesher.stats().pendingJobs==4 && mesher.stats().fieldBatches==batches+1,
+        "Explicit dispatch did not start the batch while preserving completions");
+    mesher.dispatchQueued();
+    require(mesher.stats().fieldBatches==batches+1,
+        "Repeated explicit dispatch resubmitted already running jobs");
+    const auto completed=finish(mesher,4);
+    require(mesher.stats().fieldBatches==batches+1 && mesher.stats().lastFieldBatchJobs==4,
+        "Four queued chunks were not grouped into one field batch");
+    for(const auto& done:completed)
+    {
+        require(done.token>=300 && done.token<304 && done.status==CompletionStatus::Ready,
+            "Batch completion lost its token or failed: "+done.error);
+        require(meshBytes(mesher,done.mesh)==reference[done.token-300],
+            "Batch changed a chunk's density, seed, normals or climate packing");
+        mesher.release(done.mesh);
+    }
+    collectRetired(mesher);
+    // Reuse all slots, including a cancelled queue entry, with different seeds
+    // and origins. Stale indirect lists must not target the cancelled slot.
+    for(unsigned i=0;i<requests.size();++i)
+        require(mesher.submit(requests[3-i],400+i),mesher.lastError());
+    mesher.cancel(401);
+    const auto reused=finish(mesher,4);
+    for(const auto& done:reused)
+    {
+        require(done.token>=400 && done.token<404,"Reused batch returned a stale token");
+        if(done.token==401)
+            require(done.status==CompletionStatus::Cancelled,"Queued cancellation was ignored");
+        else
+        {
+            require(done.status==CompletionStatus::Ready &&
+                meshBytes(mesher,done.mesh)==reference[3-(done.token-400)],
+                "Reusing a batch slot changed its mesh or seed");
+            mesher.release(done.mesh);
+        }
+    }
+    collectRetired(mesher);
+    const auto beforeCancelled=mesher.stats().fieldBatches;
+    require(mesher.submit(requests[0],500),mesher.lastError());
+    require(mesher.submit(requests[1],501),mesher.lastError());
+    mesher.cancel(500);mesher.cancel(501);
+    mesher.dispatchQueued();
+    const auto fullyCancelled=finish(mesher,2);
+    require(mesher.stats().fieldBatches==beforeCancelled &&
+        fullyCancelled[0].status==CompletionStatus::Cancelled &&
+        fullyCancelled[1].status==CompletionStatus::Cancelled,
+        "A fully cancelled queued batch dispatched field work or lost completions");
+    require(streamingCompiles==0 && streamingLinks==0,"Batch/reuse compiled shaders at runtime");
+    mesher.shutdown();
+    std::cout<<"PASS batching: four chunks in one GPU batch; distinct seeds match isolated jobs, slot reuse/cancellation and no runtime compilation\n";
+}
+
+struct MeshSnapshot
+{
+    CompletionStatus status=CompletionStatus::Failed;
+    std::vector<std::array<std::uint32_t,9>> triangles;
+};
+std::vector<std::array<std::uint32_t,9>> meshTriangles(GpuMesher& mesher,const MeshHandle& mesh)
+{
+    require(mesh.vertexCount%3==0,"Cached mesh does not contain complete triangles");
+    std::vector<std::array<std::uint32_t,9>> triangles(mesh.vertexCount/3);
+    glGetNamedBufferSubData(mesher.vertexBuffer(),static_cast<GLintptr>(mesh.firstVertex)*12,
+        static_cast<GLsizeiptr>(triangles.size()*36),triangles.data());
+    std::sort(triangles.begin(),triangles.end());
+    return triangles;
+}
+MeshSnapshot snapshot(GpuMesher& mesher,const Completion& done)
+{
+    require(done.status==CompletionStatus::Ready || done.status==CompletionStatus::Empty,
+        "Cache fixture generation failed: "+done.error);
+    MeshSnapshot result;result.status=done.status;
+    if(done.status==CompletionStatus::Ready)
+    {
+        result.triangles=meshTriangles(mesher,done.mesh);
+        mesher.release(done.mesh);
+    }
+    return result;
+}
+void matches(GpuMesher& mesher,const Completion& done,const MeshSnapshot& reference)
+{
+    const auto actual=snapshot(mesher,done);
+    require(actual.status==reference.status && actual.triangles==reference.triangles,
+        "Field cache changed packed triangles, normals, climate or empty classification");
+}
+
+void checkFieldReuse(GpuMesher& mesher,GpuConfig config)
+{
+    config.cells=8;config.maxInFlight=4;config.maxResidentChunks=8;config.vertexBudgetMiB=4;
+    config.columnCacheEntries=0;config.densityCacheEntries=0;
+    config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
+    config.field.heightAmplitude=.5f;config.field.heightFrequency=.05f;
+    config.field.climateFrequency=.04f;config.field.detailScale=.03f;
+    config.field.biomeOverride=11;
+    const std::array<ChunkRequest,9> requests{{
+        {{{0,0,0}},0,0,1337}, {{{0,0,0}},0,21,1337},
+        {{{0,8,0}},0,0,1337}, {{{0,0,0}},0,0,17},
+        {{{0,0,0}},1,0,1337}, {{{8,0,0}},0,0,1337},
+        {{{16,0,0}},0,0,1337}, {{{24,0,0}},0,0,1337},
+        {{{0,1024,0}},0,0,1337}
+    }};
+    std::string error;
+    require(mesher.initialize(config,error),error);
+    std::vector<MeshSnapshot> reference;
+    for(unsigned i=0;i<requests.size();++i)
+    {
+        reference.push_back(snapshot(mesher,one(mesher,requests[i],1000+i)));
+        collectRetired(mesher);
+    }
+    require(reference[0].status==CompletionStatus::Ready && reference[1].status==CompletionStatus::Ready,
+        "Cache reference did not include real terrain and a transition mesh");
+    require(reference[8].status==CompletionStatus::Empty,"Homogeneous cache reference unexpectedly crossed terrain");
+    require(mesher.stats().generatedColumnTiles==requests.size() &&
+        mesher.stats().generatedDensityFields==requests.size() &&
+        mesher.stats().columnCacheHits==0 && mesher.stats().densityCacheHits==0,
+        "Zero retention reused a completed column or density field");
+
+    config.columnCacheEntries=config.densityCacheEntries=4;
+    require(mesher.initialize(config,error),error);
+    for(unsigned i=0;i<3;++i) require(mesher.submit(requests[i],1100+i),mesher.lastError());
+    mesher.dispatchQueued();
+    require(mesher.stats().generatedColumnTiles==1 && mesher.stats().generatedDensityFields==2 &&
+        mesher.stats().columnCacheHits==2 && mesher.stats().densityCacheHits==1,
+        "Same-batch vertical tiles or mask aliases were generated more than once");
+    for(const auto& done:finish(mesher,3))
+    {
+        require(done.token>=1100 && done.token<1103,"Alias batch returned a stale token");
+        matches(mesher,done,reference[done.token-1100]);
+    }
+    collectRetired(mesher);
+    const auto beforeMask=mesher.stats();
+    matches(mesher,one(mesher,requests[1],1110),reference[1]);collectRetired(mesher);
+    require(mesher.stats().generatedColumnTiles==beforeMask.generatedColumnTiles &&
+        mesher.stats().generatedDensityFields==beforeMask.generatedDensityFields &&
+        mesher.stats().densityCacheHits==beforeMask.densityCacheHits+1,
+        "Mask-only rebuild regenerated a cached field");
+    for(unsigned i:{3u,4u})
+    {
+        const auto before=mesher.stats();
+        matches(mesher,one(mesher,requests[i],1120+i),reference[i]);collectRetired(mesher);
+        require(mesher.stats().generatedColumnTiles==before.generatedColumnTiles+1 &&
+            mesher.stats().generatedDensityFields==before.generatedDensityFields+1,
+            "Seed or LOD change aliased an incompatible cached field");
+    }
+
+    // A cancelled owner must not invalidate data needed by an alias. Exercise
+    // both cancellation before ownership acquisition and after GPU submission.
+    config.maxInFlight=2;config.columnCacheEntries=config.densityCacheEntries=2;
+    for(bool submitted:{false,true})
+    {
+        require(mesher.initialize(config,error),error);
+        require(mesher.submit(requests[0],1200),mesher.lastError());
+        require(mesher.submit(requests[1],1201),mesher.lastError());
+        if(submitted) mesher.dispatchQueued();
+        mesher.cancel(1200);
+        for(const auto& done:finish(mesher,2))
+        {
+            if(done.token==1200) require(done.status==CompletionStatus::Cancelled,"Owner cancellation ignored");
+            else { require(done.token==1201,"Cancelled alias returned wrong token");matches(mesher,done,reference[1]); }
+        }
+        collectRetired(mesher);
+        require(mesher.stats().generatedColumnTiles==1 && mesher.stats().generatedDensityFields==1,
+            "Cancelled owner caused missing or duplicate field construction");
+        const auto before=mesher.stats();
+        matches(mesher,one(mesher,requests[0],1202),reference[0]);collectRetired(mesher);
+        require(mesher.stats().generatedDensityFields==before.generatedDensityFields,
+            "Surviving alias did not leave a reusable completed field");
+    }
+
+    require(mesher.initialize(config,error),error);
+    require(mesher.submit(requests[0],1300),mesher.lastError());mesher.dispatchQueued();
+    require(mesher.submit(requests[5],1301),mesher.lastError());mesher.dispatchQueued();
+    require(!mesher.submit(requests[6],1302),"Third job bypassed the pinned two-job budget");
+    for(const auto& done:finish(mesher,2)) matches(mesher,done,reference[done.token==1300?0:5]);
+    collectRetired(mesher);
+    auto before=mesher.stats();
+    matches(mesher,one(mesher,requests[6],1303),reference[6]);collectRetired(mesher);
+    require(mesher.stats().generatedDensityFields==before.generatedDensityFields+1,"New key did not replace an LRU entry");
+    before=mesher.stats();
+    matches(mesher,one(mesher,requests[5],1304),reference[5]);collectRetired(mesher);
+    require(mesher.stats().generatedDensityFields==before.generatedDensityFields,"LRU evicted the more recently used field");
+    before=mesher.stats();
+    matches(mesher,one(mesher,requests[0],1305),reference[0]);collectRetired(mesher);
+    require(mesher.stats().generatedDensityFields==before.generatedDensityFields+1,"Evicted field was not regenerated on revisit");
+
+    require(mesher.initialize(config,error),error);
+    matches(mesher,one(mesher,requests[8],1400),reference[8]);collectRetired(mesher);
+    auto empty=requests[8];empty.transitionMask=63;
+    matches(mesher,one(mesher,empty,1401),reference[8]);collectRetired(mesher);
+    require(mesher.stats().generatedColumnTiles==1 && mesher.stats().generatedDensityFields==1 &&
+        mesher.stats().columnCacheHits==1 && mesher.stats().densityCacheHits==1,
+        "Homogeneous cached field read unwritten density or regenerated for a mask change");
+
+    config.columnCacheEntries=config.densityCacheEntries=0;
+    require(mesher.initialize(config,error),error);
+    for(unsigned i=0;i<2;++i) require(mesher.submit(requests[i],1500+i),mesher.lastError());
+    for(const auto& done:finish(mesher,2)) matches(mesher,done,reference[done.token-1500]);
+    collectRetired(mesher);
+    require(mesher.stats().generatedColumnTiles==1 && mesher.stats().generatedDensityFields==1,
+        "Zero completed retention prevented safe in-flight sharing");
+    matches(mesher,one(mesher,requests[0],1502),reference[0]);collectRetired(mesher);
+    require(mesher.stats().generatedColumnTiles==2 && mesher.stats().generatedDensityFields==2,
+        "Zero retention kept an alias field after its last consumer completed");
+    mesher.shutdown();
+    std::cout<<"PASS GPU field caches: exact uncached triangles; vertical XZ reuse, mask-only rebuilds, seed/LOD keys, same-batch aliases, cancelled owners, pinned LRU, homogeneous fields and zero retention\n";
+}
+
+void checkIdleControls(GpuMesher& mesher,GpuConfig config)
+{
+    config.cells=8;config.maxInFlight=2;config.maxResidentChunks=4;config.vertexBudgetMiB=1;
+    config.columnCacheEntries=config.densityCacheEntries=4;
+    config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
+    config.field.heightAmplitude=.5f;config.field.heightFrequency=.05f;
+    config.field.detailScale=.03f;config.field.biomeOverride=11;
+    std::string error;
+    require(!mesher.clearFieldCaches(),"Uninitialized mesher accepted cache invalidation");
+    require(mesher.initialize(config,error),error);
+    ChunkRequest request;request.seed=1337;
+    require(mesher.submit(request,1600),mesher.lastError());
+    require(!mesher.clearFieldCaches(),"Cache invalidation accepted queued work");
+    mesher.dispatchQueued();
+    require(!mesher.clearFieldCaches(),"Cache invalidation accepted submitted work");
+    const auto first=finish(mesher,1).front();
+    require(first.status==CompletionStatus::Ready,"Idle invalidation fixture did not produce a surface");
+    const auto reference=meshTriangles(mesher,first.mesh);
+    const auto before=mesher.stats();
+    const auto arena=mesher.vertexBuffer();
+    require(mesher.clearFieldCaches(),"Idle cache invalidation failed");
+    require(mesher.valid(first.mesh) && mesher.vertexBuffer()==arena &&
+        mesher.stats().residentChunks==before.residentChunks &&
+        mesher.stats().allocatedBytes==before.allocatedBytes &&
+        meshTriangles(mesher,first.mesh)==reference,
+        "Clearing fields invalidated or changed a published mesh/allocation");
+    const auto second=one(mesher,request,1601);
+    require(second.status==CompletionStatus::Ready && meshTriangles(mesher,second.mesh)==reference &&
+        mesher.valid(first.mesh),"Regeneration after cache invalidation changed published geometry");
+    require(mesher.stats().generatedColumnTiles==before.generatedColumnTiles+1 &&
+        mesher.stats().generatedDensityFields==before.generatedDensityFields+1,
+        "Idle invalidation did not force a new 2D and density field");
+    mesher.release(first.mesh);mesher.release(second.mesh);collectRetired(mesher);
+    mesher.shutdown();
+
+    config.measureGenerationTimings=false;
+    {
+        TimingObserver observer;
+        require(mesher.initialize(config,error),error);
+        const auto untimed=one(mesher,request,1610);
+        require(untimed.status==CompletionStatus::Ready && meshTriangles(mesher,untimed.mesh)==reference,
+            "Disabling timings changed generation");
+        mesher.release(untimed.mesh);collectRetired(mesher);
+        std::vector<Completion> ignored;
+        for(unsigned i=0;i<8;++i) mesher.poll(ignored);
+        const auto stats=mesher.stats();
+        require(ignored.empty() && stats.pendingTimingSamples==0 && stats.droppedTimingSamples==0 &&
+            stats.timedBatches==0 && stats.timedEmissions==0 && timingGlCalls==0,
+            "Disabled timing created, submitted or read GPU queries");
+        require(glGetError()==GL_NO_ERROR,"Disabling timings produced an OpenGL error");
+        mesher.shutdown();
+    }
+    std::cout<<"PASS idle controls: cache invalidation rejects pending work, preserves published meshes and forces rebuild; disabled timing issues zero GL queries\n";
 }
 
 }
@@ -262,10 +601,14 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         collectRetired(mesher);
         require(mesher.stats().allocatedBytes==0 && mesher.stats().residentVertices==0,"Released vertex allocation leaked");
         require(mesher.submit(a,6),mesher.lastError());
-        glFinish();
         std::vector<Completion> pending;
+        // Submit without polling: a cached field can finish count before the
+        // very first poll, so poll->glFinish->poll may already publish its emit.
+        mesher.dispatchQueued();
+        glFinish();
         mesher.poll(pending); // Count complete, starts emit phase.
         require(pending.empty(),"Count phase unexpectedly published a mesh");
+        require(mesher.stats().allocatedBytes>0,"Cancellation fixture did not reach mesh allocation");
         mesher.cancel(6);
         auto cancelled=finish(mesher,1).front();
         require(cancelled.status==CompletionStatus::Cancelled && mesher.stats().allocatedBytes==0,"Emit cancellation leaked its reserved slot");
@@ -300,6 +643,9 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         std::cout << "Software-driver GPU query for last 64³ plane: " << mesher.stats().lastGenerationMilliseconds << " ms (not hardware performance)\n";
         mesher.shutdown();
         checkGenericBiomes(mesher,config);
+        checkBatching(mesher,config);
+        checkFieldReuse(mesher,config);
+        checkIdleControls(mesher,config);
         require(glGetError()==GL_NO_ERROR,"OpenGL error after shutdown");
         return 0;
     }
