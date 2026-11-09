@@ -3,8 +3,7 @@
 
 Checks ranges, deterministic seeds, periodicity, independent cellular oracles
 and value-shaping contracts. --reference-shaders additionally compares the
-unchanged ice recipes, forced controls and densities with a previous checkout.
-Automatic blends and cell metadata may evolve with the climate remapping.
+unchanged ice recipes and full production fields with a previous checkout.
 """
 from __future__ import annotations
 
@@ -295,23 +294,15 @@ void main() { uint i=gl_GlobalInvocationID.x; if(i<probeCount) relief[i]=fieldRe
             assert samples[0]==samples[1],(biome,seed,"raw relief changed")
     old,new=BatchFieldRunner(gl,reference),BatchFieldRunner(gl,TERRAIN)
     fields=0
-    for biome in (0,1):
+    for biome in (0,1,-1):
         for seed in (0,1337,98765):
             for origin,lod in (((-16,32,-16),0),((-512,0,256),2),((1024,128,-2048),4)):
                 options=dict(cells=8,origin=origin,lod=lod,seed=seed,uBiomeOverride=biome,uBandOffsetVariation=32.)
                 before,after=old.run(**options),new.run(**options)
-                assert before["density_raw"]==after["density_raw"],(biome,seed,origin,lod,"density")
-                # Keep every packed bit except the cell's four H/T bits, which
-                # are computed before the forced-biome override. Its two
-                # altitude bits remain checked. New climate
-                # weights intentionally change automatic blended terrain.
-                for a,b in zip(struct.iter_unpack("<8I",before["columns_packed_raw"]),
-                               struct.iter_unpack("<8I",after["columns_packed_raw"])):
-                    assert a[:7]==b[:7] and (a[7]&~(15<<24))==(b[7]&~(15<<24)),(biome,seed,origin,lod,"packed controls")
-                for offset in range(0,len(before["columns_raw"]),48):
-                    assert before["columns_raw"][offset:offset+32]==after["columns_raw"][offset:offset+32],(biome,seed,origin,lod,"decoded controls")
+                for key in ("columns_packed_raw","columns_raw","density_raw"):
+                    assert before[key]==after[key],(biome,seed,origin,lod,key)
                 fields+=1
-    print(f"PASS preserved ice: 3096 raw reliefs and {fields} forced fields with bitwise identical controls/densities (four H/T cell bits excluded)",flush=True)
+    print(f"PASS preserved terrain: 3096 raw ice reliefs and {fields} complete fields/packed columns bitwise identical to reference",flush=True)
 
 
 def main():

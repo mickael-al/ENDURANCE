@@ -533,7 +533,7 @@ cellulaires contre une recherche indépendante 7×7/7×7×7, les singularités d
 courbes, les octaves des compositions, la déformation et le stencil du curl.
 Les deux dimensions peuvent aussi être incluses ensemble.
 
-Pour vérifier la conservation des recettes de glace, extraire
+Pour vérifier la conservation de la génération lors de cette migration, extraire
 la référence `847282fbb6bd9ff3a26674b1c37f4311d7033ca9` dans un autre checkout puis :
 
 ```sh
@@ -542,16 +542,8 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise_library.py \
 ```
 
 Cette option compare bit à bit 3 096 reliefs bruts de PolarIce/FrozenTundra, puis
-les densités et contrôles compactés/décodés de 18 champs de glace forcés, sur
-plusieurs seeds, origines et LOD. Seuls les quatre bits H/T de la cellule sont
-exclus des colonnes compactées : ils sont calculés avant le forçage du biome et
-peuvent changer avec le climat ; les deux bits d'altitude restent vérifiés.
-Le remappage `fieldClimatePlateaus()` modifie
-intentionnellement les mélanges automatiques ; leur égalité avec l'ancien climat
-n'est donc plus un contrat de cette comparaison. La matrice, les petits poids
-positifs et les raccords monde/LOD restent vérifiés par les tests de pipeline.
-La sonde de recettes partage le remappage de production, notamment pour Marine.
-Cette comparaison complète
+27 champs complets et leurs colonnes compactées/décodées, sur plusieurs seeds,
+origines et LOD, y compris le mélange automatique des biomes. Elle complète
 les tests de pipeline et de rechargement ; une modification de `noise_2d.glsl`
 invalide la classification et les 26 reliefs, celle de `noise_3d.glsl` les
 26 volumes. Les copies temporaires des shaders emportent aussi le dossier `Noise`.

@@ -3,7 +3,6 @@
 // controls describe its optional default helper; no biome parameters are mixed.
 // Full column preparation, weights and accumulation are tested independently
 // with BatchFieldRunner and the production kernels.
-#include "../../Asset/Shader/ProceduralTerrain/field_climate.glsl"
 
 FieldColumn fieldProbeColumn(vec2 p)
 {
@@ -17,7 +16,6 @@ FieldColumn fieldProbeColumn(vec2 p)
     vec2 climate=smoothstep(vec2(-0.32),vec2(0.32),
         vec2(noisePerlin2D(p*uClimateFrequency, uSeed ^ (0x243f6a88u)),
              noisePerlin2D(p*uClimateFrequency, uSeed ^ (0x85a308d3u))));
-    climate=fieldClimatePlateaus(climate);
     float coast=clamp((macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5,0.0,4.0);
     uvec3 cell=min(uvec3(floor(vec3(climate*4.0,coast))),uvec3(3u));
     uint index=cell.x+4u*cell.y+16u*cell.z;

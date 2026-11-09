@@ -245,10 +245,7 @@ def check_weighted_oracle(gl):
         # mean/max threshold would suppress the analytic contribution here.
         classify=directory/"field_batch_classify.C.glsl"
         source=classify.read_text()
-        # Inject after remapping: .25625 must remain a tiny positive weight.
-        needle="climate=fieldClimatePlateaus(climate);"
-        assert source.count(needle)==1, "Update the final climate injection"
-        source=source.replace(needle,"climate=vec2(0.25625);")
+        source=re.sub(r"vec2 climate=smoothstep[\s\S]*?;", "vec2 climate=vec2(0.25625);",source,count=1)
         classify.write_text(source)
         tiny=BatchFieldRunner(gl,directory)
         field=tiny.run(cells=4,origin=(0,0,0),uHeightAmplitude=0.,uSeaLevel=-1000.,uDetailScale=.5)
@@ -307,10 +304,8 @@ def check_reference(gl,runner,directory):
             before,after=old.run(**options),runner.run(**options)
             # The new packed surface IDs intentionally occupy formerly unused
             # column metadata; numeric channels retain the single-biome profile.
-            # Marine keeps the generated H/T, which is intentionally remapped.
             assert all(math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5)
-                       for i,(a,b) in enumerate(zip(before["columns"],after["columns"]))
-                       if i%12<8 and not (biome==25 and i%12 in (1,2)))
+                       for i,(a,b) in enumerate(zip(before["columns"],after["columns"])) if i%12<8)
             for a,b in zip(before["density"],after["density"]):
                 largest=max(largest,abs(a-b))
                 assert math.isclose(a,b,rel_tol=2e-5,abs_tol=4e-5),("Forced biome changed",biome,seed,a,b)

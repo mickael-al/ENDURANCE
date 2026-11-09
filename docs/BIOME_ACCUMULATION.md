@@ -170,7 +170,6 @@ Les clés du cache incluent les sources développées, les defines, les stages e
 | `biome_relief_common.glsl` | Les passes 2D qui utilisent ce helper. |
 | `Noise/noise_shaping.glsl` | Les programmes 2D et 3D qui utilisent la bibliothèque ; aucune fonction spatiale dans ce fichier. |
 | `Noise/noise_2d.glsl` | La classification et les passes 2D qui l’incluent. |
-| `field_climate.glsl` | La classification seule ; remappage des deux axes vers les cinq niveaux climatiques. |
 | `biome_volume_common.glsl` ou `Noise/noise_3d.glsl` | Les passes 3D qui l’incluent. |
 | `field_surface_accumulate.glsl` | Les 26 passes 2D. |
 | `field_volume_accumulate.glsl` | Les 26 passes 3D. |
