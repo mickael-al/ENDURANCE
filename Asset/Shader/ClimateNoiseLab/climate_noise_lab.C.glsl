@@ -51,7 +51,9 @@ float sampleNoise2D(int type, vec2 p, uint seed)
     if (type == 7) return noiseFbm2D(p, seed, uOctaves, uLacunarity, uGain);
     if (type == 8) return noiseSimplexFbm2D(p, seed, uOctaves, uLacunarity, uGain);
     if (type == 9) return noiseValueFbm2D(p, seed, uOctaves, uLacunarity, uGain);
-    if (type == 10) return noisePatchwork2D(p, seed);
+    // The geometry seed is shared by humidity and temperature; the argument
+    // seed still changes their values independently inside the same regions.
+    if (type == 10) return noisePatchwork2D(p, uSeed ^ 0x7f4a7c15u, seed);
     return noisePerlin2D(p, seed);
 }
 
