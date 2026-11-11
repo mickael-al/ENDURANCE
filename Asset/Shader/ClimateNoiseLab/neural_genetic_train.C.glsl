@@ -28,7 +28,7 @@ layout(std430, binding = 3) buffer GeneticStateBuffer
 
 layout(binding = 0) uniform sampler2D uReferenceImage;
 
-uniform uint uPass;              // 0=initialise, 1=score, 2=evolve
+uniform uint uPass;              // 0=initialise, 1=crop score, 2=evolve, 3=validate
 uniform uint uPopulationSize;    // <= 256
 uniform uint uSourceIndex;       // 0 or 1
 uniform uint uGeneration;
@@ -41,6 +41,7 @@ uniform float uMutationScale;
 uniform int uReferenceChannel;   // 0=R, 1=G, 2=B, 3=luminance
 
 #define NEURAL_GENETIC_MAX_POPULATION 256
+#define NEURAL_GENETIC_VALIDATION_GRID 32u
 
 shared float reductionValues[64];
 shared float sharedScores[NEURAL_GENETIC_MAX_POPULATION];
@@ -65,9 +66,9 @@ float geneticRandomSigned(uint value)
     return geneticRandom01(value) * 2.0 - 1.0;
 }
 
-uint geneticPopulationBase(uint half, uint individual)
+uint geneticPopulationBase(uint populationHalf, uint individual)
 {
-    return (half * uPopulationSize + individual)
+    return (populationHalf * uPopulationSize + individual)
          * uint(NEURAL_PATTERN_PARAMETER_COUNT);
 }
 
@@ -129,6 +130,33 @@ float referencePatternValue(vec4 reference)
     return reference.r;
 }
 
+float geneticPatternError(ivec2 pixel, uint base)
+{
+    vec2 p = (vec2(pixel) + 0.5) / vec2(max(uReferenceSize, ivec2(1)));
+    float target = referencePatternValue(texelFetch(uReferenceImage, pixel, 0));
+    float predicted = noiseNeuralPattern2D01(p, uSeed, base);
+    float difference = predicted - target;
+
+    // A small class penalty helps preserve distinct five-level regions
+    // without turning the whole objective into hard quantisation.
+    float levelDifference = (round(predicted * 4.0) - round(target * 4.0)) * 0.25;
+    return difference * difference + levelDifference * levelDifference * 0.08;
+}
+
+float geneticReduceError(float errorSum)
+{
+    uint localIndex = gl_LocalInvocationID.x;
+    reductionValues[localIndex] = errorSum;
+    barrier();
+    for (uint stride = 32u; stride > 0u; stride >>= 1u)
+    {
+        if (localIndex < stride)
+            reductionValues[localIndex] += reductionValues[localIndex + stride];
+        barrier();
+    }
+    return reductionValues[0];
+}
+
 void scorePopulation()
 {
     uint individual = gl_WorkGroupID.x;
@@ -142,31 +170,56 @@ void scorePopulation()
     for (uint sampleIndex = localIndex; sampleIndex < sampleCount; sampleIndex += 64u)
     {
         ivec2 pixel = geneticSamplePixel(sampleIndex);
-        vec2 p = (vec2(pixel) + 0.5) / vec2(max(uReferenceSize, ivec2(1)));
-        float target = referencePatternValue(texelFetch(uReferenceImage, pixel, 0));
-        float predicted = noiseNeuralPattern2D01(p, uSeed, base);
-        float difference = predicted - target;
-        float error = difference * difference;
-
-        // A small class penalty helps preserve distinct five-level regions
-        // without turning the whole objective into hard quantisation.
-        float targetLevel = round(target * 4.0);
-        float predictedLevel = round(predicted * 4.0);
-        float levelDifference = (predictedLevel - targetLevel) * 0.25;
-        error += levelDifference * levelDifference * 0.08;
-        errorSum += error;
+        errorSum += geneticPatternError(pixel, base);
     }
 
-    reductionValues[localIndex] = errorSum;
-    barrier();
-    for (uint stride = 32u; stride > 0u; stride >>= 1u)
-    {
-        if (localIndex < stride)
-            reductionValues[localIndex] += reductionValues[localIndex + stride];
-        barrier();
-    }
+    float totalError = geneticReduceError(errorSum);
     if (localIndex == 0u)
-        geneticScores[individual] = reductionValues[0] / float(sampleCount);
+        geneticScores[individual] = totalError / float(sampleCount);
+}
+
+// The archive needs one comparable objective over the complete reference.
+// Crop offsets, generation and the adjustable training grid must not change it:
+// a zero error on one uniform crop does not mean a correct complete pattern.
+ivec2 geneticValidationPixel(uint sampleIndex)
+{
+    uvec2 cell = uvec2(sampleIndex % NEURAL_GENETIC_VALIDATION_GRID,
+                       sampleIndex / NEURAL_GENETIC_VALIDATION_GRID);
+    ivec2 size = max(uReferenceSize, ivec2(1));
+    ivec2 first = ivec2(cell) * size / int(NEURAL_GENETIC_VALIDATION_GRID);
+    ivec2 end = max(first + 1,
+        ivec2(cell + 1u) * size / int(NEURAL_GENETIC_VALIDATION_GRID));
+    uint h0 = geneticHash(sampleIndex ^ (uSeed * 0x85ebca6bu) ^ 0xd1b54a35u);
+    uint h1 = geneticHash(h0 ^ 0x68bc21ebu);
+    ivec2 jitter = ivec2(h0 % uint(end.x - first.x), h1 % uint(end.y - first.y));
+    return min(first + jitter, size - 1);
+}
+
+void validatePopulation()
+{
+    uint validationIndex = gl_WorkGroupID.x;
+    if (validationIndex >= 2u) return;
+    uint localIndex = gl_LocalInvocationID.x;
+    if (localIndex == 0u)
+    {
+        uint best = 0u;
+        for (uint individual = 1u; individual < uPopulationSize; ++individual)
+            if (geneticScores[individual] < geneticScores[best]) best = individual;
+        sharedBestIndex = best;
+    }
+    barrier();
+
+    // Individual zero is always the archived champion: reset/resume inserts it,
+    // and evolve copies the archive into zero of the destination population.
+    uint individual = validationIndex == 0u ? sharedBestIndex : 0u;
+    uint base = geneticPopulationBase(uSourceIndex, individual);
+    const uint sampleCount = NEURAL_GENETIC_VALIDATION_GRID * NEURAL_GENETIC_VALIDATION_GRID;
+    float errorSum = 0.0;
+    for (uint sampleIndex = localIndex; sampleIndex < sampleCount; sampleIndex += 64u)
+        errorSum += geneticPatternError(geneticValidationPixel(sampleIndex), base);
+    float totalError = geneticReduceError(errorSum);
+    if (localIndex == 0u)
+        geneticScores[uPopulationSize + validationIndex] = totalError / float(sampleCount);
 }
 
 uint selectTournamentParent(uint randomSeed)
@@ -201,9 +254,12 @@ void evolvePopulation()
             if (sharedScores[individual] < sharedScores[best]) best = individual;
         sharedBestIndex = best;
 
-        if (sharedScores[best] < geneticBestScore)
+        float candidateScore = geneticScores[uPopulationSize];
+        float incumbentScore = geneticScores[uPopulationSize + 1u];
+        geneticBestScore = incumbentScore;
+        if (candidateScore < incumbentScore)
         {
-            geneticBestScore = sharedScores[best];
+            geneticBestScore = candidateScore;
             geneticBestGeneration = uGeneration;
             uint source = geneticPopulationBase(uSourceIndex, best);
             for (uint parameter = 0u;
@@ -226,6 +282,18 @@ void evolvePopulation()
                 neuralPatternWeights[destination + parameter] =
                     geneticBestWeights[parameter];
             geneticScores[child] = geneticBestScore;
+            continue;
+        }
+        if (child == 1u)
+        {
+            // Keep the local crop winner too, even if it is not yet the best
+            // complete pattern. Otherwise the archive can erase local progress.
+            uint source = geneticPopulationBase(uSourceIndex, sharedBestIndex);
+            for (uint parameter = 0u;
+                 parameter < uint(NEURAL_PATTERN_PARAMETER_COUNT); ++parameter)
+                neuralPatternWeights[destination + parameter] =
+                    neuralPatternWeights[source + parameter];
+            geneticScores[child] = 1.0e30;
             continue;
         }
 
@@ -280,4 +348,5 @@ void main()
     if (uPass == 0u) initialisePopulation();
     else if (uPass == 1u) scorePopulation();
     else if (uPass == 2u) evolvePopulation();
+    else if (uPass == 3u) validatePopulation();
 }

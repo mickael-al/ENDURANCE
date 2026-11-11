@@ -80,14 +80,14 @@ private:
     bool m_modelLoaded=false;
 
     void release();
-    void waitForTraining();
+    bool waitForTraining();
     bool reloadShaders();
     void discoverUniforms();
     void discoverTrainingUniforms();
     bool loadReferenceImage();
     void allocateTextures();
     void allocateTrainingBuffers();
-    void resetTraining();
+    void resetTraining(bool preserveModel);
     void submitTrainingBatch();
     void pollTraining();
     bool saveModel();
