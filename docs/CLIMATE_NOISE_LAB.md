@@ -1,63 +1,78 @@
 # Climate Noise Lab
 
-Ouvrir `ENDURANCE/Scene/ClimateNoiseLab.scene`, puis lancer **Play**. La scene ne
-contient pas de geometrie : `ClimateNoiseLabComponent` enregistre un espace de
-travail ImGui docke et un compute shader produit cinq textures :
+Ouvrir `ENDURANCE/Scene/ClimateNoiseLab.scene`, puis lancer **Play**. La scène ne
+contient pas de géométrie : `ClimateNoiseLabComponent` enregistre un espace de
+travail ImGui docké et un compute shader produit cinq textures :
 
-1. temperature en niveaux de gris ;
-2. humidite en niveaux de gris ;
-3. climat brut, rouge = temperature et vert = humidite ;
-4. le meme climat apres l'attraction selectionnee ;
-5. le resultat de la matrice 5x5 avec la palette provisoire du terrain.
+1. température en niveaux de gris ;
+2. humidité en niveaux de gris ;
+3. climat brut, rouge = température et vert = humidité ;
+4. le même climat après les transformations et l'attraction sélectionnée ;
+5. le résultat de la matrice 5×5 avec la palette provisoire du terrain.
 
-Les deux axes peuvent utiliser independamment Perlin, Simplex, Value, bruit
-blanc, Voronoi, valeur de cellule, trois variantes fBm ou `Patchwork de regions`.
-`Climate frequency` reste la frequence mondiale du climat ; `Etendue monde`
-choisit la surface montree par la texture. Les multiplicateurs H/T permettent
-une comparaison sans changer cette frequence commune.
+## Sources climatiques
 
-## Patchwork de regions
+`Deux bruits indépendants` conserve les sources Perlin, Simplex, Value, bruit
+blanc, Voronoi, valeur de cellule, fBm et Patchwork.
 
-Ce candidat reproduit directement l'effet utile d'un filtre de peinture a
-l'huile, sans filtrer un voisinage de pixels. Il construit :
+`Neural Climate` évalue un réseau exporté qui produit simultanément :
 
-- une partition cellulaire deformee pour les grandes zones ;
-- une valeur constante evaluee au centre de chaque zone ;
-- un gradient seulement pres des frontieres ;
-- un second niveau de petites regions, present sur environ 30 % des cellules.
+```text
+x = humidité
+y = température
+```
 
-Une tendance Simplex a basse frequence correle les tons des zones voisines. Les
-frontieres sont partagees entre humidite et temperature quand leurs
-multiplicateurs de frequence sont identiques, mais chaque region recoit deux
-valeurs independantes. Cela evite que deux mosaïques distinctes se croisent et
-recreent artificiellement de nombreuses petites zones.
+Le modèle est stocké dans :
 
-Le preset `Patchwork regions` selectionne ce bruit sur les deux axes, conserve
-`climateFrequency = 0.0005`, utilise le remappage complet `[-1,1] -> [0,1]` et
-desactive l'attraction pour montrer le champ brut. Les constantes artistiques de
-cette premiere version sont dans :
+```text
+Asset/Shader/Noise/neural_climate_weights.glsl
+```
 
-`Asset/Shader/Noise/noise_regions_2d.glsl`
+Le fichier livré par défaut contient des poids neutres et renvoie 0,5/0,5. Le
+trainer le remplace après apprentissage. Cliquer ensuite sur
+**Recharger le shader / poids** sans fermer la scène.
 
-## Attraction
+Une image de référence occupe `Période image neuronale` mètres. Avec une origine
+monde nulle et une étendue égale à cette période, la texture montre exactement
+le domaine d'entraînement `[0,1]²`. Les entrées Fourier sont périodiques, tandis
+que quatre features Perlin utilisent les coordonnées non repliées pour faire
+varier le résultat hors de cette première image.
 
-Le mode `attractNearFifths01` est la fonction experimentale exacte : ses six
-reperes sont 0, .2, .4, .6, .8 et 1, et chaque axe possede une cible fixe. Le
-mode `Niveau matrice le plus proche` sert uniquement de comparaison avec les
-cinq noeuds reels de la matrice : 0, .25, .5, .75 et 1.
+Guide d'entraînement :
 
-Le shader peut etre modifie puis recharge depuis la barre de menu ou le panneau
-de reglages. Une recompilation echouee conserve le dernier programme valide et
-affiche le diagnostic. Les cinq textures sont generees en une seule passe et ne
-sont mises a jour que lorsqu'un parametre change, sauf si la mise a jour
-automatique est desactivee.
+```text
+Tools/ClimateNeural/README.md
+```
+
+## Transformations communes
+
+Les transformations suivantes fonctionnent sur les bruits classiques comme sur
+le modèle neuronal :
+
+- contraste séparé humidité/température ;
+- gamma séparé humidité/température ;
+- `attractNearFifths01` ;
+- attraction vers les cinq niveaux réels de la matrice ;
+- matrice discrète ou interpolation quintique.
+
+L'ordre est :
+
+```text
+source -> contraste/gamma -> attraction -> matrice
+```
+
+## Patchwork de régions
+
+Ce candidat construit une partition cellulaire déformée, des valeurs constantes
+au centre des zones, un gradient près des frontières et un niveau secondaire de
+petites régions. Il reste disponible pour comparer son résultat à l'approche
+neuronale dans le même outil.
 
 ## Validation GPU
 
-Le test headless compile exactement le compute shader de la scene, execute ses
-cinq images avec la matrice C++ de production et verifie le codage des canaux,
-le determinisme, l'activation de l'attraction, la vue finale et la presence de
-zones constantes dans le bruit Patchwork :
+Le test headless compile le compute shader réel, exécute ses cinq images et
+vérifie les sources scalaires, les canaux RG, les transformations, la matrice et
+la source Neural Climate, y compris avec le modèle neutre :
 
 ```sh
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_climate_noise_lab.py
