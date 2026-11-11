@@ -4,17 +4,21 @@
 #include "ShaderCompilation.hpp"
 #include "imgui-cmake/Header/imgui.h"
 #include "imgui-cmake/Header/imgui_internal.h"
+#include "stb-cmake/stb_image.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
+#include <fstream>
 #include <limits>
 #include <string>
+#include <vector>
 
 namespace
 {
 constexpr std::array<const char*,2> SourceNames{{
-    "Deux bruits independants", "Neural Climate (couple H/T)"
+    "Deux bruits independants", "Neural Climate GPU (couple H/T)"
 }};
 constexpr std::array<const char*,11> NoiseNames{{
     "Perlin","Simplex","Value quintique","Value cubique","Blanc par cellule",
@@ -25,24 +29,61 @@ constexpr std::array<const char*,3> AttractionNames{{
     "Aucune","attractNearFifths01 (cible fixe)","Niveau matrice le plus proche"
 }};
 constexpr std::array<int,5> Resolutions{{256,512,1024,1536,2048}};
+constexpr const char* ReferencePath = "../Asset/Shader/ClimateNoiseLab/climate_reference.png";
+constexpr const char* ModelPath = "../Asset/Shader/ClimateNoiseLab/neural_climate_model.bin";
+constexpr std::uint32_t ModelMagic = 0x4d4c434eu;
+constexpr std::uint32_t ModelVersion = 1u;
+
+struct ModelHeader
+{
+    std::uint32_t magic=ModelMagic;
+    std::uint32_t version=ModelVersion;
+    std::uint32_t parameterCount=338u;
+    std::uint32_t seed=0u;
+    float bestScore=0.0f;
+    std::uint32_t generation=0u;
+    std::uint32_t reserved0=0u;
+    std::uint32_t reserved1=0u;
+};
+static_assert(sizeof(ModelHeader)==32,"Stable Neural Climate model header expected");
+
 ImTextureID textureId(GLuint texture)
 { return reinterpret_cast<ImTextureID>(static_cast<std::intptr_t>(texture)); }
+
+std::uint32_t hash32(std::uint32_t value)
+{
+    value ^= value >> 16u;
+    value *= 0x7feb352du;
+    value ^= value >> 15u;
+    value *= 0x846ca68bu;
+    return value ^ (value >> 16u);
+}
 }
 
 ClimateNoiseLabPanel::ClimateNoiseLabPanel(ClimateNoiseLabComponent& owner):m_owner(owner) {}
 ClimateNoiseLabPanel::~ClimateNoiseLabPanel() { release(); }
-void ClimateNoiseLabPanel::init(GraphicsDataMisc*) { reloadShader(); m_dirty=true; }
+
+void ClimateNoiseLabPanel::init(GraphicsDataMisc*)
+{
+    reloadShaders();
+    loadReferenceImage();
+    allocateTrainingBuffers();
+    loadModel(false);
+    m_dirty=true;
+}
 
 void ClimateNoiseLabPanel::render(GraphicsDataMisc*)
 {
+    pollTraining();
     if(!m_owner.showWindow) return;
-    ImGui::SetNextWindowSize(ImVec2(1500,900),ImGuiCond_FirstUseEver);
+
+    ImGui::SetNextWindowSize(ImVec2(1600,920),ImGuiCond_FirstUseEver);
     if(!ImGui::Begin("Climate Noise Lab",nullptr,ImGuiWindowFlags_MenuBar|ImGuiWindowFlags_NoCollapse))
     { ImGui::End(); return; }
     if(ImGui::BeginMenuBar())
     {
-        if(ImGui::MenuItem("Generer")) m_generateRequested=true;
-        if(ImGui::MenuItem("Recharger le shader")) reloadShader();
+        if(ImGui::MenuItem("Generer l'apercu")) m_generateRequested=true;
+        if(ImGui::MenuItem("Recharger les shaders")) reloadShaders();
         if(ImGui::MenuItem("Reinitialiser le docking")) m_resetDock=true;
         ImGui::EndMenuBar();
     }
@@ -56,34 +97,88 @@ void ClimateNoiseLabPanel::render(GraphicsDataMisc*)
     drawSettings();
     if((m_owner.autoUpdate&&m_dirty)||m_generateRequested)
     { generate(); m_generateRequested=false; }
-    drawTextureWindow("Temperature##ClimateNoiseLab",m_textures[0],"Valeur [0,1] en niveaux de gris.");
-    drawTextureWindow("Humidite##ClimateNoiseLab",m_textures[1],"Valeur [0,1] en niveaux de gris.");
-    drawTextureWindow("Climat brut (R=T, G=H)##ClimateNoiseLab",m_textures[2],"Source puis contraste/gamma, avant attraction.");
-    drawTextureWindow("Apres attraction (R=T, G=H)##ClimateNoiseLab",m_textures[3],"Meme codage apres le traitement selectionne.");
-    drawTextureWindow("Resultat matrice##ClimateNoiseLab",m_textures[4],"Palette des 25 biomes depuis le climat traite.");
+
+    drawTextureWindow("Reference RG##ClimateNoiseLab",m_referenceTexture,
+        "Image d'entrainement : rouge = temperature, vert = humidite.");
+    drawTextureWindow("Temperature##ClimateNoiseLab",m_textures[0],
+        "Valeur [0,1] en niveaux de gris.");
+    drawTextureWindow("Humidite##ClimateNoiseLab",m_textures[1],
+        "Valeur [0,1] en niveaux de gris.");
+    drawTextureWindow("Climat brut (R=T, G=H)##ClimateNoiseLab",m_textures[2],
+        "Source puis contraste/gamma, avant attraction.");
+    drawTextureWindow("Apres attraction (R=T, G=H)##ClimateNoiseLab",m_textures[3],
+        "Meme codage apres le traitement selectionne.");
+    drawTextureWindow("Resultat matrice##ClimateNoiseLab",m_textures[4],
+        "Palette des 25 biomes depuis le climat traite.");
+
+    if(m_training && !m_trainingFence) submitTrainingBatch();
 }
 
 void ClimateNoiseLabPanel::release()
 {
+    m_training=false;
+    waitForTraining();
     if(m_program) glDeleteProgram(m_program);
+    if(m_trainingProgram) glDeleteProgram(m_trainingProgram);
     if(m_textures[0]) glDeleteTextures(static_cast<GLsizei>(m_textures.size()),m_textures.data());
-    m_program=0; m_textures.fill(0); m_allocatedResolution=0;
+    if(m_referenceTexture) glDeleteTextures(1,&m_referenceTexture);
+    const GLuint buffers[]={m_populationBuffer,m_scoreBuffer,m_bestBuffer,m_stateBuffer};
+    glDeleteBuffers(4,buffers);
+    m_program=m_trainingProgram=0;
+    m_textures.fill(0);
+    m_referenceTexture=0;
+    m_populationBuffer=m_scoreBuffer=m_bestBuffer=m_stateBuffer=0;
+    m_allocatedResolution=0;
 }
 
-bool ClimateNoiseLabPanel::reloadShader()
+void ClimateNoiseLabPanel::waitForTraining()
 {
-    std::string error;
-    Ge::ShaderCacheOptions cache; cache.enabled=true;
-    const GLuint next=Ge::buildShaderProgram({
-        {GL_COMPUTE_SHADER,"../Asset/Shader/ClimateNoiseLab/climate_noise_lab.C.glsl",{}}
-    },error,"Climate Noise Lab",cache);
-    if(!next)
+    if(!m_trainingFence) return;
+    glClientWaitSync(m_trainingFence,GL_SYNC_FLUSH_COMMANDS_BIT,GL_TIMEOUT_IGNORED);
+    glDeleteSync(m_trainingFence);
+    m_trainingFence=nullptr;
+    if(m_stateBuffer)
     {
-        m_owner.m_error=error.empty()?"Impossible de compiler le shader Climate Noise Lab.":error;
+        TrainingState state{};
+        glGetNamedBufferSubData(m_stateBuffer,0,sizeof(state),&state);
+        m_bestScore=state.bestScore;
+        m_completedGeneration=state.generation;
+        m_populationSource=state.sourceIndex;
+        if(std::isfinite(m_bestScore) && m_bestScore<1.0e20f) m_modelLoaded=true;
+        m_dirty=true;
+    }
+}
+
+bool ClimateNoiseLabPanel::reloadShaders()
+{
+    std::string previewError,trainingError;
+    Ge::ShaderCacheOptions cache; cache.enabled=true;
+    const GLuint preview=Ge::buildShaderProgram({
+        {GL_COMPUTE_SHADER,"../Asset/Shader/ClimateNoiseLab/climate_noise_lab.C.glsl",{}}
+    },previewError,"Climate Noise Lab preview",cache);
+    if(!preview)
+    {
+        m_owner.m_error=previewError.empty()?"Impossible de compiler l'apercu climatique.":previewError;
         return false;
     }
+    const GLuint trainer=Ge::buildShaderProgram({
+        {GL_COMPUTE_SHADER,"../Asset/Shader/ClimateNoiseLab/neural_genetic_train.C.glsl",{}}
+    },trainingError,"Climate Noise Lab genetic trainer",cache);
+    if(!trainer)
+    {
+        glDeleteProgram(preview);
+        m_owner.m_error=trainingError.empty()?"Impossible de compiler l'entrainement genetique.":trainingError;
+        return false;
+    }
+
     if(m_program) glDeleteProgram(m_program);
-    m_program=next; discoverUniforms(); m_owner.m_error.clear(); m_dirty=true;
+    if(m_trainingProgram) glDeleteProgram(m_trainingProgram);
+    m_program=preview;
+    m_trainingProgram=trainer;
+    discoverUniforms();
+    discoverTrainingUniforms();
+    m_owner.m_error.clear();
+    m_dirty=true;
     return true;
 }
 
@@ -109,6 +204,46 @@ void ClimateNoiseLabPanel::discoverUniforms()
     m_uniforms.matrixBlend=get("uMatrixBlend"); m_uniforms.biomeMatrix=get("uBiomeMatrix");
 }
 
+void ClimateNoiseLabPanel::discoverTrainingUniforms()
+{
+    const auto get=[&](const char* name){return glGetUniformLocation(m_trainingProgram,name);};
+    m_trainingUniforms.pass=get("uPass");
+    m_trainingUniforms.populationSize=get("uPopulationSize");
+    m_trainingUniforms.sourceIndex=get("uSourceIndex");
+    m_trainingUniforms.generation=get("uGeneration");
+    m_trainingUniforms.seed=get("uSeed");
+    m_trainingUniforms.referenceSize=get("uReferenceSize");
+    m_trainingUniforms.cropOffset=get("uCropOffset");
+    m_trainingUniforms.cropSize=get("uCropSize");
+    m_trainingUniforms.sampleGrid=get("uSampleGrid");
+    m_trainingUniforms.mutationScale=get("uMutationScale");
+    m_trainingUniforms.referenceImage=get("uReferenceImage");
+}
+
+bool ClimateNoiseLabPanel::loadReferenceImage()
+{
+    int components=0;
+    unsigned char* pixels=stbi_load(ReferencePath,&m_referenceWidth,&m_referenceHeight,&components,4);
+    if(!pixels)
+    {
+        m_referenceWidth=m_referenceHeight=0;
+        m_owner.m_error=std::string("Impossible de charger ")+ReferencePath+": "+stbi_failure_reason();
+        return false;
+    }
+    if(m_referenceTexture) glDeleteTextures(1,&m_referenceTexture);
+    glCreateTextures(GL_TEXTURE_2D,1,&m_referenceTexture);
+    glTextureStorage2D(m_referenceTexture,1,GL_RGBA8,m_referenceWidth,m_referenceHeight);
+    glTextureSubImage2D(m_referenceTexture,0,0,0,m_referenceWidth,m_referenceHeight,
+                        GL_RGBA,GL_UNSIGNED_BYTE,pixels);
+    glTextureParameteri(m_referenceTexture,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+    glTextureParameteri(m_referenceTexture,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTextureParameteri(m_referenceTexture,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_referenceTexture,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    glTextureParameteri(m_referenceTexture,GL_TEXTURE_MAX_LEVEL,0);
+    stbi_image_free(pixels);
+    return true;
+}
+
 void ClimateNoiseLabPanel::allocateTextures()
 {
     const int resolution=std::clamp(m_owner.textureResolution,64,2048);
@@ -129,14 +264,251 @@ void ClimateNoiseLabPanel::allocateTextures()
     m_allocatedResolution=resolution;
 }
 
+void ClimateNoiseLabPanel::allocateTrainingBuffers()
+{
+    waitForTraining();
+    const GLuint oldBuffers[]={m_populationBuffer,m_scoreBuffer,m_bestBuffer,m_stateBuffer};
+    glDeleteBuffers(4,oldBuffers);
+    glCreateBuffers(1,&m_populationBuffer);
+    glCreateBuffers(1,&m_scoreBuffer);
+    glCreateBuffers(1,&m_bestBuffer);
+    glCreateBuffers(1,&m_stateBuffer);
+
+    const GLsizeiptr populationBytes=static_cast<GLsizeiptr>(2ull*GeneticPopulation*
+        NeuralParameterCount*sizeof(float));
+    glNamedBufferData(m_populationBuffer,populationBytes,nullptr,GL_DYNAMIC_COPY);
+    glNamedBufferData(m_scoreBuffer,static_cast<GLsizeiptr>(GeneticPopulation*sizeof(float)),
+                      nullptr,GL_DYNAMIC_COPY);
+    std::vector<float> neutral(NeuralParameterCount,0.0f);
+    glNamedBufferData(m_bestBuffer,static_cast<GLsizeiptr>(neutral.size()*sizeof(float)),
+                      neutral.data(),GL_DYNAMIC_COPY);
+    TrainingState state{std::numeric_limits<float>::max(),0u,0u,0u};
+    glNamedBufferData(m_stateBuffer,sizeof(state),&state,GL_DYNAMIC_COPY);
+
+    m_populationInitialized=false;
+    m_populationSource=0;
+    m_submittedGeneration=m_completedGeneration=0;
+    m_bestScore=state.bestScore;
+}
+
+void ClimateNoiseLabPanel::resetTraining()
+{
+    m_training=false;
+    waitForTraining();
+    if(!m_trainingProgram || !m_populationBuffer) return;
+
+    std::vector<float> preservedWeights;
+    TrainingState preservedState{};
+    const bool preserve=m_modelLoaded && std::isfinite(m_bestScore) && m_bestScore<1.0e20f;
+    if(preserve)
+    {
+        preservedWeights.resize(NeuralParameterCount);
+        glGetNamedBufferSubData(m_bestBuffer,0,
+            static_cast<GLsizeiptr>(preservedWeights.size()*sizeof(float)),preservedWeights.data());
+        glGetNamedBufferSubData(m_stateBuffer,0,sizeof(preservedState),&preservedState);
+    }
+
+    TrainingState initial{std::numeric_limits<float>::max(),0u,0u,0u};
+    glNamedBufferSubData(m_stateBuffer,0,sizeof(initial),&initial);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,m_populationBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,m_scoreBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,m_bestBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,m_stateBuffer);
+    glUseProgram(m_trainingProgram);
+    glUniform1ui(m_trainingUniforms.pass,0u);
+    glUniform1ui(m_trainingUniforms.populationSize,GeneticPopulation);
+    glUniform1ui(m_trainingUniforms.sourceIndex,0u);
+    glUniform1ui(m_trainingUniforms.generation,0u);
+    glUniform1ui(m_trainingUniforms.seed,m_owner.seed);
+    const GLuint values=GeneticPopulation*NeuralParameterCount;
+    glDispatchCompute((values+63u)/64u,1u,1u);
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_BUFFER_UPDATE_BARRIER_BIT);
+
+    if(preserve)
+    {
+        glNamedBufferSubData(m_bestBuffer,0,
+            static_cast<GLsizeiptr>(preservedWeights.size()*sizeof(float)),preservedWeights.data());
+        glNamedBufferSubData(m_populationBuffer,0,
+            static_cast<GLsizeiptr>(preservedWeights.size()*sizeof(float)),preservedWeights.data());
+        preservedState.sourceIndex=0u;
+        glNamedBufferSubData(m_stateBuffer,0,sizeof(preservedState),&preservedState);
+        m_bestScore=preservedState.bestScore;
+        m_submittedGeneration=m_completedGeneration=preservedState.generation;
+    }
+    else
+    {
+        m_bestScore=initial.bestScore;
+        m_submittedGeneration=m_completedGeneration=0u;
+        m_modelLoaded=false;
+    }
+    m_populationSource=0u;
+    m_populationInitialized=true;
+    m_dirty=true;
+}
+
+void ClimateNoiseLabPanel::submitTrainingBatch()
+{
+    if(!m_trainingProgram || !m_referenceTexture || !m_populationInitialized || m_trainingFence)
+        return;
+
+    const int crop=std::max(1,std::min<int>(GeneticCropSize,
+        std::min(m_referenceWidth,m_referenceHeight)));
+    const int sampleGrid=std::clamp(m_owner.geneticSampleGrid,8,64);
+    const int generations=std::clamp(m_owner.geneticGenerationsPerBatch,1,16);
+
+    glUseProgram(m_trainingProgram);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,m_populationBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,m_scoreBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,m_bestBuffer);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,m_stateBuffer);
+    glBindTextureUnit(0,m_referenceTexture);
+    glUniform1i(m_trainingUniforms.referenceImage,0);
+    glUniform1ui(m_trainingUniforms.populationSize,GeneticPopulation);
+    glUniform1ui(m_trainingUniforms.seed,m_owner.seed);
+    glUniform2i(m_trainingUniforms.referenceSize,m_referenceWidth,m_referenceHeight);
+    glUniform1i(m_trainingUniforms.cropSize,crop);
+    glUniform1ui(m_trainingUniforms.sampleGrid,static_cast<GLuint>(sampleGrid));
+
+    for(int iteration=0;iteration<generations;++iteration)
+    {
+        const std::uint32_t generation=m_submittedGeneration;
+        const std::uint32_t randomX=hash32(m_owner.seed ^ generation*0x9e3779b9u);
+        const std::uint32_t randomY=hash32(randomX ^ 0x85ebca6bu);
+        const int maxX=std::max(0,m_referenceWidth-crop);
+        const int maxY=std::max(0,m_referenceHeight-crop);
+        const int offsetX=maxX?static_cast<int>(randomX%static_cast<std::uint32_t>(maxX+1)):0;
+        const int offsetY=maxY?static_cast<int>(randomY%static_cast<std::uint32_t>(maxY+1)):0;
+        const float decay=1.0f/std::sqrt(1.0f+static_cast<float>(generation)*0.002f);
+        const float mutation=std::max(m_owner.geneticMinimumMutation,
+                                      m_owner.geneticMutationScale*decay);
+
+        glUniform1ui(m_trainingUniforms.sourceIndex,m_populationSource);
+        glUniform1ui(m_trainingUniforms.generation,generation);
+        glUniform2i(m_trainingUniforms.cropOffset,offsetX,offsetY);
+        glUniform1f(m_trainingUniforms.mutationScale,mutation);
+
+        glUniform1ui(m_trainingUniforms.pass,1u);
+        glDispatchCompute(GeneticPopulation,1u,1u);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        glUniform1ui(m_trainingUniforms.pass,2u);
+        glDispatchCompute(1u,1u,1u);
+        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+
+        m_populationSource=1u-m_populationSource;
+        ++m_submittedGeneration;
+    }
+    glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_BUFFER_UPDATE_BARRIER_BIT);
+    m_trainingFence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+    glFlush();
+    if(!m_trainingFence)
+    {
+        m_training=false;
+        m_owner.m_error="Impossible de creer la fence d'entrainement GPU.";
+    }
+}
+
+void ClimateNoiseLabPanel::pollTraining()
+{
+    if(!m_trainingFence) return;
+    const GLenum state=glClientWaitSync(m_trainingFence,0,0);
+    if(state!=GL_ALREADY_SIGNALED && state!=GL_CONDITION_SATISFIED) return;
+    glDeleteSync(m_trainingFence);
+    m_trainingFence=nullptr;
+
+    TrainingState training{};
+    glGetNamedBufferSubData(m_stateBuffer,0,sizeof(training),&training);
+    m_bestScore=training.bestScore;
+    m_completedGeneration=training.generation;
+    m_populationSource=training.sourceIndex;
+    if(std::isfinite(m_bestScore) && m_bestScore<1.0e20f) m_modelLoaded=true;
+    m_dirty=true;
+}
+
+bool ClimateNoiseLabPanel::saveModel()
+{
+    waitForTraining();
+    if(!m_bestBuffer || !std::isfinite(m_bestScore) || m_bestScore>=1.0e20f)
+    {
+        m_owner.m_error="Aucun individu valide a sauvegarder.";
+        return false;
+    }
+    std::vector<float> weights(NeuralParameterCount);
+    glGetNamedBufferSubData(m_bestBuffer,0,
+        static_cast<GLsizeiptr>(weights.size()*sizeof(float)),weights.data());
+    ModelHeader header;
+    header.seed=m_owner.seed;
+    header.bestScore=m_bestScore;
+    header.generation=m_completedGeneration;
+    std::ofstream output(ModelPath,std::ios::binary|std::ios::trunc);
+    if(!output)
+    {
+        m_owner.m_error=std::string("Impossible d'ecrire ")+ModelPath;
+        return false;
+    }
+    output.write(reinterpret_cast<const char*>(&header),sizeof(header));
+    output.write(reinterpret_cast<const char*>(weights.data()),
+                 static_cast<std::streamsize>(weights.size()*sizeof(float)));
+    if(!output)
+    {
+        m_owner.m_error="Echec pendant la sauvegarde du modele climatique.";
+        return false;
+    }
+    m_owner.m_error.clear();
+    m_modelLoaded=true;
+    return true;
+}
+
+bool ClimateNoiseLabPanel::loadModel(bool reportMissing)
+{
+    waitForTraining();
+    std::ifstream input(ModelPath,std::ios::binary);
+    if(!input)
+    {
+        if(reportMissing) m_owner.m_error=std::string("Modele absent : ")+ModelPath;
+        return false;
+    }
+    ModelHeader header;
+    input.read(reinterpret_cast<char*>(&header),sizeof(header));
+    if(!input || header.magic!=ModelMagic || header.version!=ModelVersion ||
+       header.parameterCount!=NeuralParameterCount)
+    {
+        m_owner.m_error="Le modele Neural Climate est invalide ou incompatible.";
+        return false;
+    }
+    std::vector<float> weights(NeuralParameterCount);
+    input.read(reinterpret_cast<char*>(weights.data()),
+               static_cast<std::streamsize>(weights.size()*sizeof(float)));
+    if(!input)
+    {
+        m_owner.m_error="Le modele Neural Climate est tronque.";
+        return false;
+    }
+    glNamedBufferSubData(m_bestBuffer,0,
+        static_cast<GLsizeiptr>(weights.size()*sizeof(float)),weights.data());
+    TrainingState state{header.bestScore,header.generation,header.generation,0u};
+    glNamedBufferSubData(m_stateBuffer,0,sizeof(state),&state);
+    m_owner.seed=header.seed;
+    m_bestScore=header.bestScore;
+    m_submittedGeneration=m_completedGeneration=header.generation;
+    m_populationSource=0u;
+    m_populationInitialized=false;
+    m_modelLoaded=true;
+    m_training=false;
+    m_owner.m_error.clear();
+    m_dirty=true;
+    return true;
+}
+
 void ClimateNoiseLabPanel::generate()
 {
-    if(!m_program && !reloadShader()) return;
+    if(!m_program && !reloadShaders()) return;
     allocateTextures();
-    if(!m_textures[0]) return;
+    if(!m_textures[0] || !m_bestBuffer) return;
     GLint previousProgram=0; glGetIntegerv(GL_CURRENT_PROGRAM,&previousProgram);
     while(glGetError()!=GL_NO_ERROR) {}
     glUseProgram(m_program);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,m_bestBuffer);
     glUniform1ui(m_uniforms.resolution,static_cast<GLuint>(m_allocatedResolution));
     glUniform1ui(m_uniforms.seed,m_owner.seed);
     glUniform2f(m_uniforms.worldOrigin,m_owner.worldOriginX,m_owner.worldOriginZ);
@@ -153,10 +525,8 @@ void ClimateNoiseLabPanel::generate()
     glUniform1f(m_uniforms.gain,std::clamp(m_owner.gain,0.0f,1.0f));
     glUniform1f(m_uniforms.remapMinimum,m_owner.remapMinimum);
     glUniform1f(m_uniforms.remapMaximum,m_owner.remapMaximum);
-    glUniform2f(m_uniforms.postContrast,
-        m_owner.postContrastHumidity,m_owner.postContrastTemperature);
-    glUniform2f(m_uniforms.postGamma,
-        m_owner.postGammaHumidity,m_owner.postGammaTemperature);
+    glUniform2f(m_uniforms.postContrast,m_owner.postContrastHumidity,m_owner.postContrastTemperature);
+    glUniform2f(m_uniforms.postGamma,m_owner.postGammaHumidity,m_owner.postGammaTemperature);
     glUniform1i(m_uniforms.attractionMode,std::clamp(m_owner.attractionMode,0,2));
     glUniform2f(m_uniforms.attractionTarget,m_owner.attractionTargetHumidity,m_owner.attractionTargetTemperature);
     glUniform1f(m_uniforms.attractionMaxShift,std::clamp(m_owner.attractionMaxShift,0.0f,1.0f));
@@ -179,7 +549,8 @@ void ClimateNoiseLabPanel::generate()
             std::to_string(static_cast<unsigned>(error));
         return;
     }
-    m_owner.m_error.clear(); m_dirty=false;
+    m_owner.m_error.clear();
+    m_dirty=false;
 }
 
 void ClimateNoiseLabPanel::buildDockLayout(ImGuiID dockspace,ImVec2 size)
@@ -190,13 +561,15 @@ void ClimateNoiseLabPanel::buildDockLayout(ImGuiID dockspace,ImVec2 size)
     ImGuiID remaining=dockspace;
     const ImGuiID settings=ImGui::DockBuilderSplitNode(remaining,ImGuiDir_Left,.22f,nullptr,&remaining);
     ImGuiID top=ImGui::DockBuilderSplitNode(remaining,ImGuiDir_Up,.50f,nullptr,&remaining);
-    const ImGuiID temperature=ImGui::DockBuilderSplitNode(top,ImGuiDir_Left,.333f,nullptr,&top);
-    const ImGuiID humidity=ImGui::DockBuilderSplitNode(top,ImGuiDir_Left,.50f,nullptr,&top);
+    const ImGuiID reference=ImGui::DockBuilderSplitNode(top,ImGuiDir_Left,.333f,nullptr,&top);
+    const ImGuiID temperature=ImGui::DockBuilderSplitNode(top,ImGuiDir_Left,.50f,nullptr,&top);
+    const ImGuiID raw=ImGui::DockBuilderSplitNode(remaining,ImGuiDir_Left,.333f,nullptr,&remaining);
     const ImGuiID attracted=ImGui::DockBuilderSplitNode(remaining,ImGuiDir_Left,.50f,nullptr,&remaining);
     ImGui::DockBuilderDockWindow("Reglages##ClimateNoiseLab",settings);
+    ImGui::DockBuilderDockWindow("Reference RG##ClimateNoiseLab",reference);
     ImGui::DockBuilderDockWindow("Temperature##ClimateNoiseLab",temperature);
-    ImGui::DockBuilderDockWindow("Humidite##ClimateNoiseLab",humidity);
-    ImGui::DockBuilderDockWindow("Climat brut (R=T, G=H)##ClimateNoiseLab",top);
+    ImGui::DockBuilderDockWindow("Humidite##ClimateNoiseLab",top);
+    ImGui::DockBuilderDockWindow("Climat brut (R=T, G=H)##ClimateNoiseLab",raw);
     ImGui::DockBuilderDockWindow("Apres attraction (R=T, G=H)##ClimateNoiseLab",attracted);
     ImGui::DockBuilderDockWindow("Resultat matrice##ClimateNoiseLab",remaining);
     ImGui::DockBuilderFinish(dockspace);
@@ -233,8 +606,39 @@ void ClimateNoiseLabPanel::drawSettings()
     else
     {
         changed|=ImGui::DragFloat("Periode image neuronale (m)",&m_owner.neuralWorldPeriod,64,64,1000000,"%.0f");
-        ImGui::TextWrapped("Le PNG d'entrainement occupe une periode. Les Fourier se repetent, mais les features Perlin utilisent les coordonnees monde non repliees.");
-        ImGui::TextWrapped("Apres un nouvel entrainement, cliquez sur Recharger le shader. Le fichier de poids par defaut renvoie un climat neutre.");
+        ImGui::Text("Reference: %d x %d",m_referenceWidth,m_referenceHeight);
+        ImGui::TextUnformatted("Reseau fixe: 12 -> 8 -> 8 -> 8 -> 8 -> 2");
+        ImGui::TextUnformatted("32 tanh / 338 parametres / population 128");
+
+        ImGui::SeparatorText("Entrainement genetique GPU");
+        changed|=ImGui::SliderInt("Grille d'echantillons",&m_owner.geneticSampleGrid,8,64);
+        changed|=ImGui::SliderInt("Generations par lot",&m_owner.geneticGenerationsPerBatch,1,16);
+        changed|=ImGui::SliderFloat("Mutation initiale",&m_owner.geneticMutationScale,.005f,.6f,"%.4f",ImGuiSliderFlags_Logarithmic);
+        changed|=ImGui::SliderFloat("Mutation minimale",&m_owner.geneticMinimumMutation,.001f,.2f,"%.4f",ImGuiSliderFlags_Logarithmic);
+        ImGui::Text("Generation terminee: %u",m_completedGeneration);
+        if(std::isfinite(m_bestScore)&&m_bestScore<1.0e20f)
+            ImGui::Text("Meilleure erreur moyenne: %.8f",m_bestScore);
+        else ImGui::TextUnformatted("Meilleure erreur moyenne: pas encore mesuree");
+        if(m_trainingFence) ImGui::TextUnformatted("Lot GPU en cours...");
+
+        if(ImGui::Button(m_training?"Pause":"Lancer / reprendre",ImVec2(-1,0)))
+        {
+            if(m_training) m_training=false;
+            else
+            {
+                if(!m_populationInitialized) resetTraining();
+                m_training=m_populationInitialized;
+            }
+        }
+        if(ImGui::Button("Reinitialiser depuis zero",ImVec2(-1,0)))
+        {
+            m_modelLoaded=false;
+            resetTraining();
+        }
+        if(ImGui::Button("Sauvegarder le meilleur modele",ImVec2(-1,0))) saveModel();
+        if(ImGui::Button("Charger le modele sauvegarde",ImVec2(-1,0))) loadModel(true);
+        if(ImGui::Button("Recharger l'image de reference",ImVec2(-1,0)))
+        { if(loadReferenceImage()) m_dirty=true; }
     }
 
     ImGui::SeparatorText("Transformation de la sortie");
@@ -255,7 +659,7 @@ void ClimateNoiseLabPanel::drawSettings()
     changed|=ImGui::Checkbox("Transitions matrice lissees",&m_owner.matrixBlend);
     changed|=ImGui::Checkbox("Mise a jour automatique",&m_owner.autoUpdate);
     if(ImGui::Button("Generer",ImVec2(-1,0))) m_generateRequested=true;
-    if(ImGui::Button("Recharger le shader / poids",ImVec2(-1,0))) reloadShader();
+    if(ImGui::Button("Recharger les shaders",ImVec2(-1,0))) reloadShaders();
 
     if(ImGui::Button("Preset climat actuel",ImVec2(-1,0)))
     {
@@ -278,16 +682,19 @@ void ClimateNoiseLabPanel::drawSettings()
         m_owner.remapMinimum=-1.0f; m_owner.remapMaximum=1.0f;
         m_owner.attractionMode=0; m_owner.matrixBlend=true; changed=true;
     }
-    if(ImGui::Button("Preset Neural Climate",ImVec2(-1,0)))
+    if(ImGui::Button("Preset Neural Climate GPU",ImVec2(-1,0)))
     {
         m_owner.climateSource=1;
         m_owner.neuralWorldPeriod=32768.0f;
+        m_owner.worldExtent=m_owner.neuralWorldPeriod;
+        m_owner.worldOriginX=m_owner.worldOriginZ=0.0f;
         m_owner.postContrastHumidity=m_owner.postContrastTemperature=1;
         m_owner.postGammaHumidity=m_owner.postGammaTemperature=1;
         m_owner.attractionMode=0; m_owner.matrixBlend=true; changed=true;
     }
     if(ImGui::Button("Reinitialiser le docking",ImVec2(-1,0))) m_resetDock=true;
-    if(!m_owner.m_error.empty()) { ImGui::SeparatorText("Erreur"); ImGui::TextWrapped("%s",m_owner.m_error.c_str()); }
+    if(!m_owner.m_error.empty())
+    { ImGui::SeparatorText("Erreur"); ImGui::TextWrapped("%s",m_owner.m_error.c_str()); }
     if(changed) m_dirty=true;
     if(!m_owner.autoUpdate&&m_dirty) ImGui::TextUnformatted("Parametres modifies : cliquez sur Generer.");
     ImGui::End();
