@@ -9,8 +9,8 @@
 struct ptrClass;
 class ClimateNoiseLabPanel;
 
-// Scene-owned diagnostic tool. It displays the climate textures and owns a
-// small GPU genetic trainer for the fixed 4x8 tanh network.
+// Scene-owned diagnostic tool. It displays climate textures and owns a small
+// GPU genetic trainer for one fixed scalar 4x8 tanh pattern network.
 class ClimateNoiseLabComponent final : public Behaviour
 {
 public:
@@ -31,8 +31,6 @@ public:
     float worldOriginX = 0.0f;
     float worldOriginZ = 0.0f;
 
-    // 0 = two independent scalar noises, 1 = live GPU-trained neural climate.
-    std::int32_t climateSource = 0;
     float climateFrequency = 0.0005f;
     float humidityFrequencyMultiplier = 1.0f;
     float temperatureFrequencyMultiplier = 1.0f;
@@ -44,7 +42,7 @@ public:
     float remapMinimum = -0.32f;
     float remapMaximum = 0.32f;
 
-    // One reference image occupies this many world metres in neural mode.
+    // One complete reference pattern occupies this many world metres.
     float neuralWorldPeriod = 32768.0f;
 
     // Generic transformations applied after either source and before attraction.
@@ -59,9 +57,8 @@ public:
     float attractionMaxShift = 0.08f;
     bool matrixBlend = true;
 
-    // Genetic training remains deliberately small and deterministic. Population
-    // and crop size are fixed in code; these controls change its evaluation cost
-    // and mutation schedule without changing the network layout.
+    // 0=R, 1=G, 2=B, 3=luminance. Only one channel trains the scalar pattern.
+    std::int32_t geneticReferenceChannel = 0;
     std::int32_t geneticSampleGrid = 32;
     std::int32_t geneticGenerationsPerBatch = 2;
     float geneticMutationScale = 0.18f;
