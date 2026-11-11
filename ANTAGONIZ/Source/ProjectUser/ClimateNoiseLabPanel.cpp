@@ -13,9 +13,10 @@
 
 namespace
 {
-constexpr std::array<const char*,10> NoiseNames{{
+constexpr std::array<const char*,11> NoiseNames{{
     "Perlin","Simplex","Value quintique","Value cubique","Blanc par cellule",
-    "Voronoi","Valeur de cellule","fBm Perlin","fBm Simplex","fBm Value"}};
+    "Voronoi","Valeur de cellule","fBm Perlin","fBm Simplex","fBm Value",
+    "Patchwork de regions"}};
 constexpr std::array<const char*,3> AttractionNames{{
     "Aucune","attractNearFifths01 (cible fixe)","Niveau matrice le plus proche"}};
 constexpr std::array<int,5> Resolutions{{256,512,1024,1536,2048}};
@@ -135,8 +136,8 @@ void ClimateNoiseLabPanel::generate()
     glUniform1f(m_uniforms.climateFrequency,std::max(m_owner.climateFrequency,0.0f));
     glUniform1f(m_uniforms.humidityFrequencyMultiplier,std::max(m_owner.humidityFrequencyMultiplier,0.0f));
     glUniform1f(m_uniforms.temperatureFrequencyMultiplier,std::max(m_owner.temperatureFrequencyMultiplier,0.0f));
-    glUniform1i(m_uniforms.humidityNoiseType,std::clamp(m_owner.humidityNoise,0,9));
-    glUniform1i(m_uniforms.temperatureNoiseType,std::clamp(m_owner.temperatureNoise,0,9));
+    glUniform1i(m_uniforms.humidityNoiseType,std::clamp(m_owner.humidityNoise,0,10));
+    glUniform1i(m_uniforms.temperatureNoiseType,std::clamp(m_owner.temperatureNoise,0,10));
     glUniform1i(m_uniforms.octaves,std::clamp(m_owner.octaves,0,8));
     glUniform1f(m_uniforms.lacunarity,std::clamp(m_owner.lacunarity,1.0f,8.0f));
     glUniform1f(m_uniforms.gain,std::clamp(m_owner.gain,0.0f,1.0f));
@@ -233,6 +234,14 @@ void ClimateNoiseLabPanel::drawSettings()
     }
     if(ImGui::Button("Preset Simplex",ImVec2(-1,0)))
     { m_owner.humidityNoise=m_owner.temperatureNoise=1; changed=true; }
+    if(ImGui::Button("Preset Patchwork regions",ImVec2(-1,0)))
+    {
+        m_owner.humidityNoise=m_owner.temperatureNoise=10;
+        m_owner.climateFrequency=.0005f;
+        m_owner.humidityFrequencyMultiplier=m_owner.temperatureFrequencyMultiplier=1;
+        m_owner.remapMinimum=-1.0f; m_owner.remapMaximum=1.0f;
+        m_owner.attractionMode=0; m_owner.matrixBlend=true; changed=true;
+    }
     if(ImGui::Button("Reinitialiser le docking",ImVec2(-1,0))) m_resetDock=true;
     if(!m_owner.m_error.empty()) { ImGui::SeparatorText("Erreur"); ImGui::TextWrapped("%s",m_owner.m_error.c_str()); }
     if(changed) m_dirty=true;
