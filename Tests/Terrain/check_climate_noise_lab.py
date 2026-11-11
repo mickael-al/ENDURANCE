@@ -41,7 +41,9 @@ def read_texture(gl: GL, texture: int, resolution: int) -> bytes:
     return bytes(output)
 
 
-def dispatch(gl: GL, program: int, textures, resolution: int, attraction: int) -> list[bytes]:
+def dispatch(gl: GL, program: int, textures, resolution: int, attraction: int,
+             humidity_noise: int = 1, temperature_noise: int = 1,
+             remap: tuple[float, float] = (-0.32, 0.32)) -> list[bytes]:
     uniforms = {
         "uResolution": ("1ui", resolution),
         "uSeed": ("1ui", 1337),
@@ -50,13 +52,13 @@ def dispatch(gl: GL, program: int, textures, resolution: int, attraction: int) -
         "uClimateFrequency": ("1f", 0.0005),
         "uHumidityFrequencyMultiplier": ("1f", 1.0),
         "uTemperatureFrequencyMultiplier": ("1f", 1.0),
-        "uHumidityNoiseType": ("1i", 1),
-        "uTemperatureNoiseType": ("1i", 1),
+        "uHumidityNoiseType": ("1i", humidity_noise),
+        "uTemperatureNoiseType": ("1i", temperature_noise),
         "uOctaves": ("1i", 4),
         "uLacunarity": ("1f", 2.0),
         "uGain": ("1f", 0.5),
-        "uRemapMinimum": ("1f", -0.32),
-        "uRemapMaximum": ("1f", 0.32),
+        "uRemapMinimum": ("1f", remap[0]),
+        "uRemapMaximum": ("1f", remap[1]),
         "uAttractionMode": ("1i", attraction),
         "uAttractionTarget": ("2f", 0.5, 0.5),
         "uAttractionMaxShift": ("1f", 0.08),
@@ -76,6 +78,31 @@ def dispatch(gl: GL, program: int, textures, resolution: int, attraction: int) -
     return [read_texture(gl, texture, resolution) for texture in textures]
 
 
+def equal_horizontal_ratio(texture: bytes, resolution: int) -> float:
+    values = texture[0::4]
+    equal = 0
+    total = resolution * (resolution - 1)
+    for y in range(resolution):
+        row = y * resolution
+        equal += sum(values[row + x] == values[row + x + 1]
+                     for x in range(resolution - 1))
+    return equal / total
+
+
+def check_channels(outputs: list[bytes]) -> None:
+    temperature, humidity, combined, attracted, matrix = outputs
+    assert all(temperature[i] == temperature[i+1] == temperature[i+2]
+               for i in range(0, len(temperature), 4))
+    assert all(humidity[i] == humidity[i+1] == humidity[i+2]
+               for i in range(0, len(humidity), 4))
+    assert len(set(temperature[0::4])) > 16 and len(set(humidity[0::4])) > 16
+    assert all(combined[i] == temperature[i] and combined[i+1] == humidity[i]
+               and combined[i+2] == 0 and combined[i+3] == 255
+               for i in range(0, len(combined), 4))
+    assert attracted == combined, "Disabled attraction changed the climate"
+    assert len({matrix[i:i+4] for i in range(0, len(matrix), 4)}) > 16
+
+
 def main() -> int:
     try:
         with GL() as gl:
@@ -92,29 +119,33 @@ def main() -> int:
                     gl.glTexParameteri(0x0DE1, 0x2801, 0x2601)  # MIN / LINEAR
                     gl.glTexParameteri(0x0DE1, 0x2800, 0x2601)  # MAG / LINEAR
 
-                without = dispatch(gl, program, textures, resolution, attraction=0)
+                simplex = dispatch(gl, program, textures, resolution, attraction=0)
                 repeated = dispatch(gl, program, textures, resolution, attraction=0)
-                assert without == repeated, "Climate lab output is not deterministic"
-                temperature, humidity, combined, attracted, matrix = without
-                assert all(temperature[i] == temperature[i+1] == temperature[i+2]
-                           for i in range(0, len(temperature), 4))
-                assert all(humidity[i] == humidity[i+1] == humidity[i+2]
-                           for i in range(0, len(humidity), 4))
-                assert len(set(temperature[0::4])) > 16 and len(set(humidity[0::4])) > 16
-                assert all(combined[i] == temperature[i] and combined[i+1] == humidity[i]
-                           and combined[i+2] == 0 and combined[i+3] == 255
-                           for i in range(0, len(combined), 4))
-                assert attracted == combined, "Disabled attraction changed the climate"
-                assert len({matrix[i:i+4] for i in range(0, len(matrix), 4)}) > 16
+                assert simplex == repeated, "Climate lab output is not deterministic"
+                check_channels(simplex)
 
-                with_attraction = dispatch(gl, program, textures, resolution, attraction=1)
-                assert with_attraction[2] == combined, "Attraction changed the raw climate view"
-                assert with_attraction[3] != combined, "attractNearFifths01 had no visible effect"
-                assert with_attraction[4] != matrix, "Matrix view ignored the attracted climate"
+                patchwork = dispatch(gl, program, textures, resolution, attraction=0,
+                                     humidity_noise=10, temperature_noise=10,
+                                     remap=(-1.0, 1.0))
+                patchwork_repeated = dispatch(gl, program, textures, resolution, attraction=0,
+                                              humidity_noise=10, temperature_noise=10,
+                                              remap=(-1.0, 1.0))
+                assert patchwork == patchwork_repeated, "Patchwork output is not deterministic"
+                check_channels(patchwork)
+                assert patchwork[2] != simplex[2], "Patchwork duplicates the Simplex climate"
+                assert equal_horizontal_ratio(patchwork[0], resolution) > 0.08
+                assert equal_horizontal_ratio(patchwork[1], resolution) > 0.08
+
+                with_attraction = dispatch(gl, program, textures, resolution, attraction=1,
+                                           humidity_noise=10, temperature_noise=10,
+                                           remap=(-1.0, 1.0))
+                assert with_attraction[2] == patchwork[2], "Attraction changed the raw climate view"
+                assert with_attraction[3] != patchwork[2], "attractNearFifths01 had no visible effect"
+                assert with_attraction[4] != patchwork[4], "Matrix view ignored the attracted climate"
                 gl.check("Climate Noise Lab")
             finally:
                 gl.glDeleteTextures(5, textures)
-            print("PASS Climate Noise Lab: deterministic temperature/humidity, RG view, attraction and matrix output", flush=True)
+            print("PASS Climate Noise Lab: Simplex and patchwork regions, deterministic channels, attraction and matrix output", flush=True)
     except GLUnavailable as error:
         print(f"SKIP: {error}")
         return 77
