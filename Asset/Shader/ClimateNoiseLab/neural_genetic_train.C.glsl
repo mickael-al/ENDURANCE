@@ -6,7 +6,7 @@ layout(local_size_x = 64, local_size_y = 1, local_size_z = 1) in;
 // current half; evolution writes the other half before the CPU toggles it.
 layout(std430, binding = 0) buffer GeneticPopulationBuffer
 {
-    float neuralClimateWeights[];
+    float neuralPatternWeights[];
 };
 layout(std430, binding = 1) buffer GeneticScoreBuffer
 {
@@ -24,7 +24,7 @@ layout(std430, binding = 3) buffer GeneticStateBuffer
     uint geneticSourceIndex;
 };
 
-#include "../Noise/neural_climate_2d.glsl"
+#include "../Noise/neural_pattern_2d.glsl"
 
 layout(binding = 0) uniform sampler2D uReferenceImage;
 
@@ -38,6 +38,7 @@ uniform ivec2 uCropOffset;
 uniform int uCropSize;
 uniform uint uSampleGrid;
 uniform float uMutationScale;
+uniform int uReferenceChannel;   // 0=R, 1=G, 2=B, 3=luminance
 
 #define NEURAL_GENETIC_MAX_POPULATION 256
 
@@ -67,13 +68,13 @@ float geneticRandomSigned(uint value)
 uint geneticPopulationBase(uint half, uint individual)
 {
     return (half * uPopulationSize + individual)
-         * uint(NEURAL_CLIMATE_PARAMETER_COUNT);
+         * uint(NEURAL_PATTERN_PARAMETER_COUNT);
 }
 
 void initialisePopulation()
 {
     uint index = gl_GlobalInvocationID.x;
-    uint parameterCount = uint(NEURAL_CLIMATE_PARAMETER_COUNT);
+    uint parameterCount = uint(NEURAL_PATTERN_PARAMETER_COUNT);
     uint total = uPopulationSize * parameterCount;
     if (index < total)
     {
@@ -81,14 +82,14 @@ void initialisePopulation()
         uint parameter = index - individual * parameterCount;
         uint randomSeed = uSeed ^ (individual * 0x9e3779b9u)
                         ^ (parameter * 0x85ebca6bu);
-        // Individual zero is a neutral 0.5/0.5 network. The others start with
+        // Individual zero is a neutral 0.5 pattern. The others start with
         // small values so tanh is not immediately saturated.
-        neuralClimateWeights[index] = individual == 0u
+        neuralPatternWeights[index] = individual == 0u
             ? 0.0 : geneticRandomSigned(randomSeed) * 0.38;
     }
     if (index < uPopulationSize)
         geneticScores[index] = 1.0e30;
-    if (index < uint(NEURAL_CLIMATE_PARAMETER_COUNT))
+    if (index < uint(NEURAL_PATTERN_PARAMETER_COUNT))
         geneticBestWeights[index] = 0.0;
     if (index == 0u)
     {
@@ -119,6 +120,15 @@ ivec2 geneticSamplePixel(uint sampleIndex)
     return clamp(uCropOffset + ivec2(x, y), ivec2(0), uReferenceSize - 1);
 }
 
+float referencePatternValue(vec4 reference)
+{
+    if (uReferenceChannel == 1) return reference.g;
+    if (uReferenceChannel == 2) return reference.b;
+    if (uReferenceChannel == 3)
+        return dot(reference.rgb, vec3(0.2126, 0.7152, 0.0722));
+    return reference.r;
+}
+
 void scorePopulation()
 {
     uint individual = gl_WorkGroupID.x;
@@ -133,20 +143,17 @@ void scorePopulation()
     {
         ivec2 pixel = geneticSamplePixel(sampleIndex);
         vec2 p = (vec2(pixel) + 0.5) / vec2(max(uReferenceSize, ivec2(1)));
-        vec4 reference = texelFetch(uReferenceImage, pixel, 0);
-        // PNG convention: R=temperature, G=humidity. Network convention:
-        // x=humidity, y=temperature.
-        vec2 target = vec2(reference.g, reference.r);
-        vec2 predicted = noiseNeuralClimate2D01(p, uSeed, base);
-        vec2 difference = predicted - target;
-        float error = dot(difference, difference);
+        float target = referencePatternValue(texelFetch(uReferenceImage, pixel, 0));
+        float predicted = noiseNeuralPattern2D01(p, uSeed, base);
+        float difference = predicted - target;
+        float error = difference * difference;
 
-        // A small class penalty helps preserve distinct 5x5 climate regions
+        // A small class penalty helps preserve distinct five-level regions
         // without turning the whole objective into hard quantisation.
-        vec2 targetLevel = round(target * 4.0);
-        vec2 predictedLevel = round(predicted * 4.0);
-        vec2 levelDifference = (predictedLevel - targetLevel) * 0.25;
-        error += dot(levelDifference, levelDifference) * 0.08;
+        float targetLevel = round(target * 4.0);
+        float predictedLevel = round(predicted * 4.0);
+        float levelDifference = (predictedLevel - targetLevel) * 0.25;
+        error += levelDifference * levelDifference * 0.08;
         errorSum += error;
     }
 
@@ -200,8 +207,8 @@ void evolvePopulation()
             geneticBestGeneration = uGeneration;
             uint source = geneticPopulationBase(uSourceIndex, best);
             for (uint parameter = 0u;
-                 parameter < uint(NEURAL_CLIMATE_PARAMETER_COUNT); ++parameter)
-                geneticBestWeights[parameter] = neuralClimateWeights[source + parameter];
+                 parameter < uint(NEURAL_PATTERN_PARAMETER_COUNT); ++parameter)
+                geneticBestWeights[parameter] = neuralPatternWeights[source + parameter];
         }
     }
     memoryBarrierBuffer();
@@ -215,8 +222,8 @@ void evolvePopulation()
         {
             // Exact elitism from the best network seen over all generations.
             for (uint parameter = 0u;
-                 parameter < uint(NEURAL_CLIMATE_PARAMETER_COUNT); ++parameter)
-                neuralClimateWeights[destination + parameter] =
+                 parameter < uint(NEURAL_PATTERN_PARAMETER_COUNT); ++parameter)
+                neuralPatternWeights[destination + parameter] =
                     geneticBestWeights[parameter];
             geneticScores[child] = geneticBestScore;
             continue;
@@ -231,7 +238,7 @@ void evolvePopulation()
         bool immigrant = (child % 31u) == 30u;
 
         for (uint parameter = 0u;
-             parameter < uint(NEURAL_CLIMATE_PARAMETER_COUNT); ++parameter)
+             parameter < uint(NEURAL_PATTERN_PARAMETER_COUNT); ++parameter)
         {
             uint geneSeed = geneticHash(childSeed ^ (parameter * 0x9e3779b9u));
             float value;
@@ -242,8 +249,8 @@ void evolvePopulation()
             else
             {
                 value = (geneSeed & 1u) == 0u
-                    ? neuralClimateWeights[sourceA + parameter]
-                    : neuralClimateWeights[sourceB + parameter];
+                    ? neuralPatternWeights[sourceA + parameter]
+                    : neuralPatternWeights[sourceB + parameter];
                 float mutate = geneticRandom01(geneSeed ^ 0x13198a2eu);
                 if (mutate < 0.16)
                 {
@@ -254,7 +261,7 @@ void evolvePopulation()
                     value += approximatelyNormal * uMutationScale;
                 }
             }
-            neuralClimateWeights[destination + parameter] = clamp(value, -3.0, 3.0);
+            neuralPatternWeights[destination + parameter] = clamp(value, -3.0, 3.0);
         }
         geneticScores[child] = 1.0e30;
     }
