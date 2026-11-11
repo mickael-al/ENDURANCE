@@ -1,4 +1,12 @@
 #version 450 core
+
+// The genetic trainer writes the current best network here. The preview reads
+// it directly, so no generated GLSL or shader recompilation is needed.
+layout(std430, binding = 5) readonly buffer NeuralBestBuffer
+{
+    float neuralClimateWeights[];
+};
+
 #include "../Noise/noise_regions_2d.glsl"
 #include "../Noise/neural_climate_2d.glsl"
 
@@ -70,8 +78,11 @@ vec2 sampleClimate(vec2 world)
 {
     if (uClimateSource == 1)
     {
+        // Origin zero + extent equal to the period maps the complete reference
+        // image to [0,1]^2. Moving farther keeps Fourier periodic while the
+        // unwrapped Perlin inputs vary deterministically.
         vec2 p = world / max(uNeuralWorldPeriod, 1.0) + vec2(0.5);
-        return noiseNeuralClimate2D01(p, uSeed);
+        return noiseNeuralClimate2D01(p, uSeed, 0u);
     }
 
     vec2 base = world * uClimateFrequency;
