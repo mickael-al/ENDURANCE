@@ -1,25 +1,37 @@
-// Compact coordinate-network climate field.
-// The trainer and this runtime share the same 16 Fourier/Perlin features.
+// Fixed climate network shared by the preview and the GPU genetic trainer.
+// The including shader must declare an SSBO float array named
+// `neuralClimateWeights`. `weightBase` selects one individual in that array.
 #ifndef ENDURANCE_NEURAL_CLIMATE_2D_GLSL
 #define ENDURANCE_NEURAL_CLIMATE_2D_GLSL
 
 #include "noise_2d.glsl"
-#include "neural_climate_weights.glsl"
 
-#if NEURAL_CLIMATE_INPUT_COUNT != 16
-#error neural_climate_2d.glsl expects the 16-feature exporter contract
-#endif
-#if NEURAL_CLIMATE_OUTPUT_COUNT != 2
-#error Neural Climate must export humidity and temperature
-#endif
+#define NEURAL_CLIMATE_INPUT_COUNT 12
+#define NEURAL_CLIMATE_WIDTH 8
+#define NEURAL_CLIMATE_HIDDEN_LAYERS 4
+#define NEURAL_CLIMATE_PARAMETER_COUNT 338
 
+#define NEURAL_CLIMATE_W0_OFFSET 0
+#define NEURAL_CLIMATE_B0_OFFSET 96
+#define NEURAL_CLIMATE_W1_OFFSET 104
+#define NEURAL_CLIMATE_B1_OFFSET 168
+#define NEURAL_CLIMATE_W2_OFFSET 176
+#define NEURAL_CLIMATE_B2_OFFSET 240
+#define NEURAL_CLIMATE_W3_OFFSET 248
+#define NEURAL_CLIMATE_B3_OFFSET 312
+#define NEURAL_CLIMATE_WO_OFFSET 320
+#define NEURAL_CLIMATE_BO_OFFSET 336
+
+// Twelve stable inputs: two periodic Fourier bands per axis and four Perlin
+// values evaluated in unwrapped coordinates. The Fourier part can reproduce the
+// 2048x2048 reference tile; Perlin supplies deterministic variation outside it.
 void noiseNeuralClimateFeatures2D(vec2 p, uint seed,
                                   out float features[NEURAL_CLIMATE_INPUT_COUNT])
 {
     const float tau = 6.28318530717958647692;
-    vec2 phase1 = p * tau;
-    vec2 phase2 = p * (2.0 * tau);
-    vec2 phase4 = p * (4.0 * tau);
+    vec2 tile = fract(p);
+    vec2 phase1 = tile * tau;
+    vec2 phase2 = tile * (2.0 * tau);
 
     features[0] = sin(phase1.x);
     features[1] = cos(phase1.x);
@@ -29,69 +41,96 @@ void noiseNeuralClimateFeatures2D(vec2 p, uint seed,
     features[5] = cos(phase2.x);
     features[6] = sin(phase2.y);
     features[7] = cos(phase2.y);
-    features[8] = sin(phase4.x);
-    features[9] = cos(phase4.x);
-    features[10] = sin(phase4.y);
-    features[11] = cos(phase4.y);
 
-    // Absolute, unwrapped coordinates drive these features. Fourier coordinates
-    // repeat every reference tile, while Perlin changes between tiles and gives
-    // the trained mapping a deterministic source of infinite variation.
-    features[12] = noisePerlin2D(p,       seed ^ 0x243f6a88u);
-    features[13] = noisePerlin2D(p * 2.0, seed ^ 0x85a308d3u);
-    features[14] = noisePerlin2D(p * 4.0, seed ^ 0x13198a2eu);
-    features[15] = noisePerlin2D(p * 8.0, seed ^ 0x03707344u);
+    features[8]  = noisePerlin2D(p + vec2(11.7, -5.3),
+                                  seed ^ 0x243f6a88u);
+    features[9]  = noisePerlin2D(p * 2.0 + vec2(-7.1, 19.4),
+                                  seed ^ 0x85a308d3u);
+    features[10] = noisePerlin2D(p * 4.0 + vec2(31.2, 8.6),
+                                  seed ^ 0x13198a2eu);
+    features[11] = noisePerlin2D(p * 8.0 + vec2(-23.8, -14.5),
+                                  seed ^ 0x03707344u);
 }
 
-float noiseNeuralClimateSigmoid(float value)
+float noiseNeuralClimateWeight(uint weightBase, int index)
 {
-    value = clamp(value, -20.0, 20.0);
-    return 1.0 / (1.0 + exp(-value));
+    return neuralClimateWeights[weightBase + uint(index)];
 }
 
-// Returns x=humidity and y=temperature in [0,1]. The weights are constants
-// generated offline; runtime evaluation has no texture lookup or mutable state.
-vec2 noiseNeuralClimate2D01(vec2 p, uint seed)
+// Fixed 12 -> 8 -> 8 -> 8 -> 8 -> 2 MLP. The four hidden layers contain
+// exactly 32 tanh operations. The output layer is linear and remapped/clamped
+// to [0,1], so the six unused neurons of a direct vec2 output are avoided.
+vec2 noiseNeuralClimate2D01(vec2 p, uint seed, uint weightBase)
 {
     float inputValues[NEURAL_CLIMATE_INPUT_COUNT];
-    float hidden0[NEURAL_CLIMATE_HIDDEN0_COUNT];
-    float hidden1[NEURAL_CLIMATE_HIDDEN1_COUNT];
-    float outputValues[NEURAL_CLIMATE_OUTPUT_COUNT];
+    float layerA[NEURAL_CLIMATE_WIDTH];
+    float layerB[NEURAL_CLIMATE_WIDTH];
     noiseNeuralClimateFeatures2D(p, seed, inputValues);
 
-    for (int outputIndex = 0; outputIndex < NEURAL_CLIMATE_HIDDEN0_COUNT; ++outputIndex)
+    for (int outputIndex = 0; outputIndex < NEURAL_CLIMATE_WIDTH; ++outputIndex)
     {
-        float value = NEURAL_CLIMATE_B0[outputIndex];
-        int weightBase = outputIndex * NEURAL_CLIMATE_INPUT_COUNT;
+        float value = noiseNeuralClimateWeight(weightBase,
+            NEURAL_CLIMATE_B0_OFFSET + outputIndex);
+        int weights = NEURAL_CLIMATE_W0_OFFSET
+                    + outputIndex * NEURAL_CLIMATE_INPUT_COUNT;
         for (int inputIndex = 0; inputIndex < NEURAL_CLIMATE_INPUT_COUNT; ++inputIndex)
-            value += NEURAL_CLIMATE_W0[weightBase + inputIndex] * inputValues[inputIndex];
-        hidden0[outputIndex] = tanh(value);
+            value += noiseNeuralClimateWeight(weightBase, weights + inputIndex)
+                   * inputValues[inputIndex];
+        layerA[outputIndex] = tanh(value);
     }
 
-    for (int outputIndex = 0; outputIndex < NEURAL_CLIMATE_HIDDEN1_COUNT; ++outputIndex)
+    for (int outputIndex = 0; outputIndex < NEURAL_CLIMATE_WIDTH; ++outputIndex)
     {
-        float value = NEURAL_CLIMATE_B1[outputIndex];
-        int weightBase = outputIndex * NEURAL_CLIMATE_HIDDEN0_COUNT;
-        for (int inputIndex = 0; inputIndex < NEURAL_CLIMATE_HIDDEN0_COUNT; ++inputIndex)
-            value += NEURAL_CLIMATE_W1[weightBase + inputIndex] * hidden0[inputIndex];
-        hidden1[outputIndex] = tanh(value);
+        float value = noiseNeuralClimateWeight(weightBase,
+            NEURAL_CLIMATE_B1_OFFSET + outputIndex);
+        int weights = NEURAL_CLIMATE_W1_OFFSET + outputIndex * NEURAL_CLIMATE_WIDTH;
+        for (int inputIndex = 0; inputIndex < NEURAL_CLIMATE_WIDTH; ++inputIndex)
+            value += noiseNeuralClimateWeight(weightBase, weights + inputIndex)
+                   * layerA[inputIndex];
+        layerB[outputIndex] = tanh(value);
     }
 
-    for (int outputIndex = 0; outputIndex < NEURAL_CLIMATE_OUTPUT_COUNT; ++outputIndex)
+    for (int outputIndex = 0; outputIndex < NEURAL_CLIMATE_WIDTH; ++outputIndex)
     {
-        float value = NEURAL_CLIMATE_B2[outputIndex];
-        int weightBase = outputIndex * NEURAL_CLIMATE_HIDDEN1_COUNT;
-        for (int inputIndex = 0; inputIndex < NEURAL_CLIMATE_HIDDEN1_COUNT; ++inputIndex)
-            value += NEURAL_CLIMATE_W2[weightBase + inputIndex] * hidden1[inputIndex];
-        outputValues[outputIndex] = noiseNeuralClimateSigmoid(value);
+        float value = noiseNeuralClimateWeight(weightBase,
+            NEURAL_CLIMATE_B2_OFFSET + outputIndex);
+        int weights = NEURAL_CLIMATE_W2_OFFSET + outputIndex * NEURAL_CLIMATE_WIDTH;
+        for (int inputIndex = 0; inputIndex < NEURAL_CLIMATE_WIDTH; ++inputIndex)
+            value += noiseNeuralClimateWeight(weightBase, weights + inputIndex)
+                   * layerB[inputIndex];
+        layerA[outputIndex] = tanh(value);
     }
 
-    return clamp(vec2(outputValues[0], outputValues[1]), 0.0, 1.0);
+    for (int outputIndex = 0; outputIndex < NEURAL_CLIMATE_WIDTH; ++outputIndex)
+    {
+        float value = noiseNeuralClimateWeight(weightBase,
+            NEURAL_CLIMATE_B3_OFFSET + outputIndex);
+        int weights = NEURAL_CLIMATE_W3_OFFSET + outputIndex * NEURAL_CLIMATE_WIDTH;
+        for (int inputIndex = 0; inputIndex < NEURAL_CLIMATE_WIDTH; ++inputIndex)
+            value += noiseNeuralClimateWeight(weightBase, weights + inputIndex)
+                   * layerA[inputIndex];
+        layerB[outputIndex] = tanh(value);
+    }
+
+    vec2 outputValues;
+    for (int outputIndex = 0; outputIndex < 2; ++outputIndex)
+    {
+        float value = noiseNeuralClimateWeight(weightBase,
+            NEURAL_CLIMATE_BO_OFFSET + outputIndex);
+        int weights = NEURAL_CLIMATE_WO_OFFSET + outputIndex * NEURAL_CLIMATE_WIDTH;
+        for (int inputIndex = 0; inputIndex < NEURAL_CLIMATE_WIDTH; ++inputIndex)
+            value += noiseNeuralClimateWeight(weightBase, weights + inputIndex)
+                   * layerB[inputIndex];
+        outputValues[outputIndex] = clamp(0.5 + 0.5 * value, 0.0, 1.0);
+    }
+
+    // x = humidity, y = temperature.
+    return outputValues;
 }
 
-vec2 noiseNeuralClimate2D(vec2 p, uint seed)
+vec2 noiseNeuralClimate2D(vec2 p, uint seed, uint weightBase)
 {
-    return noiseNeuralClimate2D01(p, seed) * 2.0 - 1.0;
+    return noiseNeuralClimate2D01(p, seed, weightBase) * 2.0 - 1.0;
 }
 
 #endif
