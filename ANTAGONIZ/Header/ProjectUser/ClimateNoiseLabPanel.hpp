@@ -22,12 +22,12 @@ private:
     static constexpr std::size_t TextureCount = 5;
     static constexpr std::uint32_t GeneticPopulation = 128;
     static constexpr std::uint32_t GeneticCropSize = 512;
-    static constexpr std::uint32_t NeuralParameterCount = 338;
+    static constexpr std::uint32_t NeuralParameterCount = 329;
 
     struct Uniforms
     {
         GLint resolution=-1, seed=-1, worldOrigin=-1, worldExtent=-1;
-        GLint climateSource=-1, climateFrequency=-1, neuralWorldPeriod=-1;
+        GLint climateFrequency=-1, neuralWorldPeriod=-1;
         GLint humidityFrequencyMultiplier=-1, temperatureFrequencyMultiplier=-1;
         GLint humidityNoiseType=-1, temperatureNoiseType=-1;
         GLint octaves=-1, lacunarity=-1, gain=-1;
@@ -42,6 +42,7 @@ private:
         GLint pass=-1, populationSize=-1, sourceIndex=-1, generation=-1;
         GLint seed=-1, referenceSize=-1, cropOffset=-1, cropSize=-1;
         GLint sampleGrid=-1, mutationScale=-1, referenceImage=-1;
+        GLint referenceChannel=-1;
     } m_trainingUniforms;
 
     struct TrainingState
