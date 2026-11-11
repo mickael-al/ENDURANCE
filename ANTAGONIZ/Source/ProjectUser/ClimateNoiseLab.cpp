@@ -8,11 +8,14 @@
 #include "imgui-cmake/Header/imgui.h"
 
 REGISTER(Behaviour, ClimateNoiseLabComponent, seed, textureResolution, worldExtent,
-    worldOriginX, worldOriginZ, climateFrequency, humidityFrequencyMultiplier,
-    temperatureFrequencyMultiplier, humidityNoise, temperatureNoise, octaves,
-    lacunarity, gain, remapMinimum, remapMaximum, attractionMode,
-    attractionTargetHumidity, attractionTargetTemperature, attractionMaxShift,
-    matrixBlend, autoUpdate, showWindow);
+    worldOriginX, worldOriginZ, climateSource, climateFrequency,
+    humidityFrequencyMultiplier, temperatureFrequencyMultiplier,
+    humidityNoise, temperatureNoise, octaves, lacunarity, gain,
+    remapMinimum, remapMaximum, neuralWorldPeriod,
+    postContrastHumidity, postContrastTemperature,
+    postGammaHumidity, postGammaTemperature,
+    attractionMode, attractionTargetHumidity, attractionTargetTemperature,
+    attractionMaxShift, matrixBlend, autoUpdate, showWindow);
 
 ClimateNoiseLabComponent::ClimateNoiseLabComponent() = default;
 ClimateNoiseLabComponent::~ClimateNoiseLabComponent() { stop(); }
