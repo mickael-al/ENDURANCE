@@ -1,14 +1,14 @@
 #version 450 core
 
-// The genetic trainer writes the current best network here. The preview reads
-// it directly, so no generated GLSL or shader recompilation is needed.
+// The genetic trainer writes the current best scalar pattern here. The preview
+// reads it directly, so no generated GLSL or shader recompilation is needed.
 layout(std430, binding = 5) readonly buffer NeuralBestBuffer
 {
-    float neuralClimateWeights[];
+    float neuralPatternWeights[];
 };
 
 #include "../Noise/noise_regions_2d.glsl"
-#include "../Noise/neural_climate_2d.glsl"
+#include "../Noise/neural_pattern_2d.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -22,7 +22,6 @@ uniform uint uResolution;
 uniform uint uSeed;
 uniform vec2 uWorldOrigin;
 uniform float uWorldExtent;
-uniform int uClimateSource;
 uniform float uClimateFrequency;
 uniform float uNeuralWorldPeriod;
 uniform float uHumidityFrequencyMultiplier;
@@ -41,6 +40,8 @@ uniform vec2 uAttractionTarget;
 uniform float uAttractionMaxShift;
 uniform bool uMatrixBlend;
 uniform int uBiomeMatrix[25];
+
+const int NOISE_NEURAL_PATTERN = 11;
 
 const vec3 BIOME_COLORS[26] = vec3[26](
     vec3(.73,.83,.86), vec3(.53,.59,.57), vec3(.36,.42,.29), vec3(.19,.29,.23), vec3(.17,.25,.21),
@@ -74,24 +75,28 @@ float climateTo01(float value)
     return smoothstep(lower, upper, value);
 }
 
-vec2 sampleClimate(vec2 world)
+float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint seed)
 {
-    if (uClimateSource == 1)
+    if (type == NOISE_NEURAL_PATTERN)
     {
         // Origin zero + extent equal to the period maps the complete reference
-        // image to [0,1]^2. Moving farther keeps Fourier periodic while the
-        // unwrapped Perlin inputs vary deterministically.
-        vec2 p = world / max(uNeuralWorldPeriod, 1.0) + vec2(0.5);
-        return noiseNeuralClimate2D01(p, uSeed, 0u);
+        // image to [0,1]^2. The same trained scalar pattern can independently
+        // drive humidity or temperature through their two noise selectors.
+        vec2 p = world / max(uNeuralWorldPeriod, 1.0);
+        p = p * max(frequencyMultiplier, 0.0) + vec2(0.5);
+        return noiseNeuralPattern2D01(p, uSeed, 0u);
     }
 
-    vec2 base = world * uClimateFrequency;
-    float humidity = climateTo01(sampleNoise2D(
-        uHumidityNoiseType, base * uHumidityFrequencyMultiplier,
-        uSeed ^ 0x243f6a88u));
-    float temperature = climateTo01(sampleNoise2D(
-        uTemperatureNoiseType, base * uTemperatureFrequencyMultiplier,
-        uSeed ^ 0x85a308d3u));
+    vec2 p = world * uClimateFrequency * max(frequencyMultiplier, 0.0);
+    return climateTo01(sampleNoise2D(type, p, seed));
+}
+
+vec2 sampleClimate(vec2 world)
+{
+    float humidity = sampleClimateAxis(uHumidityNoiseType, world,
+        uHumidityFrequencyMultiplier, uSeed ^ 0x243f6a88u);
+    float temperature = sampleClimateAxis(uTemperatureNoiseType, world,
+        uTemperatureFrequencyMultiplier, uSeed ^ 0x85a308d3u);
     return vec2(humidity, temperature);
 }
 
