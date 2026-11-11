@@ -151,6 +151,7 @@ void ClimateNoiseLabPanel::waitForTraining()
 
 bool ClimateNoiseLabPanel::reloadShaders()
 {
+    waitForTraining();
     std::string previewError,trainingError;
     Ge::ShaderCacheOptions cache; cache.enabled=true;
     const GLuint preview=Ge::buildShaderProgram({
@@ -222,12 +223,15 @@ void ClimateNoiseLabPanel::discoverTrainingUniforms()
 
 bool ClimateNoiseLabPanel::loadReferenceImage()
 {
+    waitForTraining();
     int components=0;
     unsigned char* pixels=stbi_load(ReferencePath,&m_referenceWidth,&m_referenceHeight,&components,4);
     if(!pixels)
     {
         m_referenceWidth=m_referenceHeight=0;
-        m_owner.m_error=std::string("Impossible de charger ")+ReferencePath+": "+stbi_failure_reason();
+        const char* reason=stbi_failure_reason();
+        m_owner.m_error=std::string("Impossible de charger ")+ReferencePath+": "+
+            (reason?reason:"raison inconnue");
         return false;
     }
     if(m_referenceTexture) glDeleteTextures(1,&m_referenceTexture);
@@ -578,7 +582,14 @@ void ClimateNoiseLabPanel::buildDockLayout(ImGuiID dockspace,ImVec2 size)
 void ClimateNoiseLabPanel::drawSettings()
 {
     if(!ImGui::Begin("Reglages##ClimateNoiseLab")) { ImGui::End(); return; }
-    bool changed=ImGui::InputScalar("Seed",ImGuiDataType_U32,&m_owner.seed);
+    const bool seedChanged=ImGui::InputScalar("Seed",ImGuiDataType_U32,&m_owner.seed);
+    bool changed=seedChanged;
+    if(seedChanged)
+    {
+        m_training=false;
+        m_populationInitialized=false;
+        m_modelLoaded=false;
+    }
     int resolutionIndex=0,best=std::numeric_limits<int>::max();
     for(int i=0;i<static_cast<int>(Resolutions.size());++i)
     { const int d=std::abs(Resolutions[i]-m_owner.textureResolution); if(d<best){best=d;resolutionIndex=i;} }
@@ -638,7 +649,14 @@ void ClimateNoiseLabPanel::drawSettings()
         if(ImGui::Button("Sauvegarder le meilleur modele",ImVec2(-1,0))) saveModel();
         if(ImGui::Button("Charger le modele sauvegarde",ImVec2(-1,0))) loadModel(true);
         if(ImGui::Button("Recharger l'image de reference",ImVec2(-1,0)))
-        { if(loadReferenceImage()) m_dirty=true; }
+        {
+            if(loadReferenceImage())
+            {
+                m_modelLoaded=false;
+                resetTraining();
+                m_dirty=true;
+            }
+        }
     }
 
     ImGui::SeparatorText("Transformation de la sortie");
