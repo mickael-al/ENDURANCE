@@ -1,5 +1,6 @@
 #version 450 core
 #include "../Noise/noise_regions_2d.glsl"
+#include "../Noise/neural_climate_2d.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -13,7 +14,9 @@ uniform uint uResolution;
 uniform uint uSeed;
 uniform vec2 uWorldOrigin;
 uniform float uWorldExtent;
+uniform int uClimateSource;
 uniform float uClimateFrequency;
+uniform float uNeuralWorldPeriod;
 uniform float uHumidityFrequencyMultiplier;
 uniform float uTemperatureFrequencyMultiplier;
 uniform int uHumidityNoiseType;
@@ -23,14 +26,14 @@ uniform float uLacunarity;
 uniform float uGain;
 uniform float uRemapMinimum;
 uniform float uRemapMaximum;
+uniform vec2 uPostContrast;
+uniform vec2 uPostGamma;
 uniform int uAttractionMode;
-uniform vec2 uAttractionTarget; // x=humidity, y=temperature
+uniform vec2 uAttractionTarget;
 uniform float uAttractionMaxShift;
 uniform bool uMatrixBlend;
 uniform int uBiomeMatrix[25];
 
-// Same provisional ground palette as ProceduralTerrain/render.fs.glsl. The
-// matrix view intentionally ignores slope/rock shading: it visualizes climate.
 const vec3 BIOME_COLORS[26] = vec3[26](
     vec3(.73,.83,.86), vec3(.53,.59,.57), vec3(.36,.42,.29), vec3(.19,.29,.23), vec3(.17,.25,.21),
     vec3(.39,.42,.39), vec3(.47,.43,.30), vec3(.23,.32,.23), vec3(.21,.30,.27), vec3(.22,.29,.24),
@@ -51,9 +54,7 @@ float sampleNoise2D(int type, vec2 p, uint seed)
     if (type == 7) return noiseFbm2D(p, seed, uOctaves, uLacunarity, uGain);
     if (type == 8) return noiseSimplexFbm2D(p, seed, uOctaves, uLacunarity, uGain);
     if (type == 9) return noiseValueFbm2D(p, seed, uOctaves, uLacunarity, uGain);
-    // The geometry seed is shared by humidity and temperature; the argument
-    // seed still changes their values independently inside the same regions.
-    if (type == 10) return noisePatchwork2D(p, uSeed ^ 0x7f4a7c15u, seed);
+    if (type == 10) return noisePatchwork2D(p, seed);
     return noisePerlin2D(p, seed);
 }
 
@@ -65,8 +66,33 @@ float climateTo01(float value)
     return smoothstep(lower, upper, value);
 }
 
-// Private copy used by this experiment. The ClimateNoiseLab prefix avoids a
-// collision when the shared shaping library also exposes attractNearFifths01.
+vec2 sampleClimate(vec2 world)
+{
+    if (uClimateSource == 1)
+    {
+        vec2 p = world / max(uNeuralWorldPeriod, 1.0) + vec2(0.5);
+        return noiseNeuralClimate2D01(p, uSeed);
+    }
+
+    vec2 base = world * uClimateFrequency;
+    float humidity = climateTo01(sampleNoise2D(
+        uHumidityNoiseType, base * uHumidityFrequencyMultiplier,
+        uSeed ^ 0x243f6a88u));
+    float temperature = climateTo01(sampleNoise2D(
+        uTemperatureNoiseType, base * uTemperatureFrequencyMultiplier,
+        uSeed ^ 0x85a308d3u));
+    return vec2(humidity, temperature);
+}
+
+vec2 applyPostShape(vec2 climate)
+{
+    climate.x = noiseContrast01(climate.x, max(uPostContrast.x, 0.0));
+    climate.y = noiseContrast01(climate.y, max(uPostContrast.y, 0.0));
+    climate.x = noiseGamma01(climate.x, max(uPostGamma.x, 0.0001));
+    climate.y = noiseGamma01(climate.y, max(uPostGamma.y, 0.0001));
+    return clamp(climate, 0.0, 1.0);
+}
+
 float climateLabAttractNearFifths01(float value, float target, float maxShift)
 {
     value = clamp(value, 0.0, 1.0);
@@ -79,8 +105,6 @@ float climateLabAttractNearFifths01(float value, float target, float maxShift)
     return clamp((scaled + delta) / 5.0, 0.0, 1.0);
 }
 
-// Alternative useful for comparison: five matrix levels (0, .25, .5, .75, 1).
-// The displacement remains bounded and piecewise linear.
 float attractNearestMatrixLevel01(float value, float maxShift)
 {
     value = clamp(value, 0.0, 1.0);
@@ -134,20 +158,13 @@ void main()
 
     vec2 uv = (vec2(pixel) + 0.5) / float(uResolution);
     vec2 world = uWorldOrigin + (uv - 0.5) * uWorldExtent;
-    vec2 base = world * uClimateFrequency;
-
-    float humidity = climateTo01(sampleNoise2D(uHumidityNoiseType,
-        base * uHumidityFrequencyMultiplier, uSeed ^ 0x243f6a88u));
-    float temperature = climateTo01(sampleNoise2D(uTemperatureNoiseType,
-        base * uTemperatureFrequencyMultiplier, uSeed ^ 0x85a308d3u));
-    vec2 climate = vec2(humidity, temperature);
+    vec2 climate = applyPostShape(sampleClimate(world));
     vec2 attracted = applyAttraction(climate);
 
     ivec2 destination = ivec2(pixel);
-    imageStore(uTemperatureImage, destination, vec4(vec3(temperature), 1.0));
-    imageStore(uHumidityImage, destination, vec4(vec3(humidity), 1.0));
-    // Combined convention requested for the reference: red=temperature, green=humidity.
-    imageStore(uCombinedImage, destination, vec4(temperature, humidity, 0.0, 1.0));
+    imageStore(uTemperatureImage, destination, vec4(vec3(climate.y), 1.0));
+    imageStore(uHumidityImage, destination, vec4(vec3(climate.x), 1.0));
+    imageStore(uCombinedImage, destination, vec4(climate.y, climate.x, 0.0, 1.0));
     imageStore(uAttractedImage, destination, vec4(attracted.y, attracted.x, 0.0, 1.0));
     imageStore(uMatrixImage, destination, vec4(matrixColor(attracted), 1.0));
 }
