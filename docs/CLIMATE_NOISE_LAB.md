@@ -1,117 +1,110 @@
 # Climate Noise Lab
 
 Ouvrir `ENDURANCE/Scene/ClimateNoiseLab.scene`, puis lancer **Play**. La scène ne
-contient pas de géométrie. Le panneau ImGui affiche :
+contient pas de géométrie : `ClimateNoiseLabComponent` enregistre un espace de
+travail ImGui docké et un compute shader produit cinq textures :
 
-1. l'image de référence RG ;
-2. la température prédite ;
-3. l'humidité prédite ;
-4. le climat brut, rouge = température et vert = humidité ;
-5. le climat après transformation/attraction ;
-6. le résultat de la matrice 5×5.
+1. température en niveaux de gris ;
+2. humidité en niveaux de gris ;
+3. climat brut, rouge = température et vert = humidité ;
+4. le même climat après les transformations et l'attraction sélectionnée ;
+5. le résultat de la matrice 5×5 avec la palette provisoire du terrain.
 
-L'image est chargée directement depuis :
+L'image `Asset/Shader/ClimateNoiseLab/climate_reference.png` est affichée dans un
+sixième panneau de référence.
 
-```text
-Asset/Shader/ClimateNoiseLab/climate_reference.png
-```
+## Neural Pattern GPU
 
-Convention :
+L'image de référence décrit **un seul pattern scalaire**. Le canal utilisé pour
+l'apprentissage se choisit dans l'interface :
 
-```text
-R = température
-G = humidité
-B = ignoré
-```
+- rouge ;
+- vert ;
+- bleu ;
+- luminance.
 
-## Sources climatiques
-
-`Deux bruits indépendants` conserve Perlin, Simplex, Value, bruit blanc,
-Voronoï, valeur de cellule, fBm et Patchwork.
-
-`Neural Climate GPU` utilise un réseau fixe :
+Le réseau ne produit donc plus simultanément humidité et température. Il devient
+un bruit ordinaire nommé `Neural Pattern GPU`, sélectionnable indépendamment dans
+les menus **Humidité** et **Température**. On peut par exemple utiliser :
 
 ```text
-12 entrées -> 8 -> 8 -> 8 -> 8 -> 2 sorties
+Humidité    = Neural Pattern GPU
+Température = Simplex
 ```
 
-Les quatre couches de largeur 8 exécutent exactement 32 `tanh`. Les 338 poids et
-biais sont stockés dans un SSBO. La sortie est :
+ou l'inverse. Si les deux axes utilisent Neural Pattern avec les mêmes réglages,
+ils reçoivent le même pattern appris.
+
+La structure du réseau est fixe :
 
 ```text
-x = humidité
-y = température
+12 entrées -> 8 tanh -> 8 tanh -> 8 tanh -> 8 tanh -> 1 sortie
 ```
 
-Les 12 entrées combinent deux bandes Fourier par axe et quatre Perlin en
-coordonnées non repliées. La partie Fourier apprend la carte de référence ; les
-Perlin donnent une variation déterministe quand on dépasse une période.
+Cela représente exactement 32 activations `tanh` et 329 poids/biais. Les entrées
+combinent deux bandes Fourier par axe et quatre Perlin évalués dans des
+coordonnées non repliées. Le domaine de l'image occupe `Période Neural Pattern`
+mètres ; les Fourier se répètent sur cette période et les Perlin font varier le
+résultat au-delà.
 
 ## Entraînement génétique GPU
 
-Aucun script Python n'est utilisé. Le bouton **Lancer / reprendre** déclenche un
-compute shader qui entraîne 128 individus en parallèle.
+L'entraînement est entièrement intégré à l'éditeur, sans Python :
 
-À chaque génération :
+1. choisir le canal de référence ;
+2. cliquer sur **Réinitialiser depuis zéro** ;
+3. cliquer sur **Lancer / reprendre** ;
+4. observer la génération et la meilleure erreur ;
+5. mettre en pause ou sauvegarder le meilleur pattern.
 
-1. une fenêtre 512×512 est choisie à un offset déterministe pseudo-aléatoire ;
-2. une grille réglable de points est échantillonnée dans cette fenêtre ;
-3. chaque réseau est comparé aux canaux RG de l'image ;
-4. un tournoi choisit les parents ;
-5. croisement, mutation, élitisme et quelques immigrants produisent la génération suivante.
+À chaque génération, 128 individus sont comparés à une fenêtre 512×512 choisie
+avec un offset pseudo-aléatoire dans l'image. Une grille réglable de points est
+évaluée, puis tournoi, croisement, mutations, élitisme et immigrants construisent
+la génération suivante.
 
-Le coût se règle avec :
-
-- `Grille d'échantillons` : 8 à 64 par axe ;
-- `Générations par lot` : nombre de générations soumises avant de rafraîchir l'aperçu ;
-- `Mutation initiale` et `Mutation minimale`.
-
-Le panneau n'envoie un nouveau lot que lorsque la fence du précédent est
-terminée. Il n'accumule donc pas une file GPU sans limite.
-
-## Sauvegarde du modèle
-
-Le meilleur individu peut être sauvegardé depuis le panneau dans :
+Le shader d'entraînement est :
 
 ```text
-Asset/Shader/ClimateNoiseLab/neural_climate_model.bin
+Asset/Shader/ClimateNoiseLab/neural_genetic_train.C.glsl
 ```
 
-Ce fichier local est ignoré par Git. Il contient un en-tête court puis 338
-`float`. Au prochain lancement, le Lab le recharge automatiquement s'il existe.
-Le résultat courant est lu directement par le shader d'aperçu : aucune
-recompilation et aucun export GLSL ne sont nécessaires.
-
-## Domaine et transformations
-
-Avec :
+La fonction réseau partagée entre entraînement et aperçu est :
 
 ```text
-Origine X/Z = 0
-Étendue monde = Période image neuronale
+Asset/Shader/Noise/neural_pattern_2d.glsl
 ```
 
-l'aperçu couvre exactement une période de l'image apprise. Déplacer l'origine
-permet de regarder l'extrapolation pilotée par les entrées Perlin.
+Le meilleur modèle peut être sauvegardé localement dans :
 
-Les transformations restent disponibles après le réseau :
+```text
+Asset/Shader/ClimateNoiseLab/neural_pattern_model.bin
+```
+
+Ce fichier est ignoré par Git. Le modèle sauvegarde aussi la seed et le canal de
+référence afin d'éviter de reprendre un apprentissage incompatible.
+
+## Transformations communes
+
+Après le bruit choisi, les mêmes traitements fonctionnent pour toutes les
+sources, y compris Neural Pattern :
 
 - contraste séparé humidité/température ;
 - gamma séparé humidité/température ;
 - `attractNearFifths01` ;
-- attraction vers les cinq niveaux de la matrice ;
+- attraction vers les cinq niveaux réels de la matrice ;
 - matrice discrète ou interpolation quintique.
 
-Ordre :
+L'ordre est :
 
 ```text
-réseau -> contraste/gamma -> attraction -> matrice
+source -> contraste/gamma -> attraction -> matrice
 ```
 
-## Fichiers principaux
+Les presets **Neural Pattern -> humidité** et **Neural Pattern -> température**
+placent directement le pattern entraîné sur l'axe souhaité et conservent Simplex
+sur l'autre axe.
 
-```text
-Asset/Shader/ClimateNoiseLab/neural_genetic_train.C.glsl
-Asset/Shader/Noise/neural_climate_2d.glsl
-ANTAGONIZ/Source/ProjectUser/ClimateNoiseLabPanel.cpp
-```
+## Autres sources
+
+Les bruits classiques restent disponibles : Perlin, Simplex, Value, bruit blanc,
+Voronoï, valeur de cellule, variantes fBm et Patchwork de régions.
