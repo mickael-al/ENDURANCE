@@ -1,5 +1,5 @@
 #version 450 core
-#include "../Noise/noise_2d.glsl"
+#include "../Noise/noise_regions_2d.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -51,6 +51,7 @@ float sampleNoise2D(int type, vec2 p, uint seed)
     if (type == 7) return noiseFbm2D(p, seed, uOctaves, uLacunarity, uGain);
     if (type == 8) return noiseSimplexFbm2D(p, seed, uOctaves, uLacunarity, uGain);
     if (type == 9) return noiseValueFbm2D(p, seed, uOctaves, uLacunarity, uGain);
+    if (type == 10) return noisePatchwork2D(p, seed);
     return noisePerlin2D(p, seed);
 }
 
