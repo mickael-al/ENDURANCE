@@ -8,14 +8,14 @@
 #include "imgui-cmake/Header/imgui.h"
 
 REGISTER(Behaviour, ClimateNoiseLabComponent, seed, textureResolution, worldExtent,
-    worldOriginX, worldOriginZ, climateSource, climateFrequency,
+    worldOriginX, worldOriginZ, climateFrequency,
     humidityFrequencyMultiplier, temperatureFrequencyMultiplier,
     humidityNoise, temperatureNoise, octaves, lacunarity, gain,
     remapMinimum, remapMaximum, neuralWorldPeriod,
     postContrastHumidity, postContrastTemperature,
     postGammaHumidity, postGammaTemperature,
     attractionMode, attractionTargetHumidity, attractionTargetTemperature,
-    attractionMaxShift, matrixBlend,
+    attractionMaxShift, matrixBlend, geneticReferenceChannel,
     geneticSampleGrid, geneticGenerationsPerBatch,
     geneticMutationScale, geneticMinimumMutation,
     autoUpdate, showWindow);
@@ -53,7 +53,7 @@ void ClimateNoiseLabComponent::onGUI()
     ImGui::TextUnformatted("Climate Noise Lab");
     ImGui::Checkbox("Afficher la fenetre",&showWindow);
     ImGui::Checkbox("Mise a jour automatique",&autoUpdate);
-    ImGui::TextWrapped("Ouvrez ClimateNoiseLab.scene et lancez Play. Le reseau climatique s'entraine directement sur le GPU.");
+    ImGui::TextWrapped("Ouvrez ClimateNoiseLab.scene et lancez Play. Le pattern neuronal scalaire s'entraine directement sur le GPU.");
     if(!m_error.empty()) ImGui::TextWrapped("%s",m_error.c_str());
 }
 
