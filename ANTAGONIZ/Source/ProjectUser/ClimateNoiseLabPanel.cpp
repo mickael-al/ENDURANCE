@@ -69,7 +69,7 @@ bool ClimateNoiseLabPanel::reloadShader()
     std::string error;
     Ge::ShaderCacheOptions cache; cache.enabled=true;
     const GLuint next=Ge::buildShaderProgram({
-        {GL_COMPUTE_SHADER,"Asset/Shader/ClimateNoiseLab/climate_noise_lab.C.glsl",{}}
+        {GL_COMPUTE_SHADER,"../Asset/Shader/ClimateNoiseLab/climate_noise_lab.C.glsl",{}}
     },error,"Climate Noise Lab",cache);
     if(!next)
     {
