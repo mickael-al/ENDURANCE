@@ -1,79 +1,117 @@
 # Climate Noise Lab
 
 Ouvrir `ENDURANCE/Scene/ClimateNoiseLab.scene`, puis lancer **Play**. La scène ne
-contient pas de géométrie : `ClimateNoiseLabComponent` enregistre un espace de
-travail ImGui docké et un compute shader produit cinq textures :
+contient pas de géométrie. Le panneau ImGui affiche :
 
-1. température en niveaux de gris ;
-2. humidité en niveaux de gris ;
-3. climat brut, rouge = température et vert = humidité ;
-4. le même climat après les transformations et l'attraction sélectionnée ;
-5. le résultat de la matrice 5×5 avec la palette provisoire du terrain.
+1. l'image de référence RG ;
+2. la température prédite ;
+3. l'humidité prédite ;
+4. le climat brut, rouge = température et vert = humidité ;
+5. le climat après transformation/attraction ;
+6. le résultat de la matrice 5×5.
+
+L'image est chargée directement depuis :
+
+```text
+Asset/Shader/ClimateNoiseLab/climate_reference.png
+```
+
+Convention :
+
+```text
+R = température
+G = humidité
+B = ignoré
+```
 
 ## Sources climatiques
 
-`Deux bruits indépendants` conserve les sources Perlin, Simplex, Value, bruit
-blanc, Voronoi, valeur de cellule, fBm et Patchwork.
+`Deux bruits indépendants` conserve Perlin, Simplex, Value, bruit blanc,
+Voronoï, valeur de cellule, fBm et Patchwork.
 
-`Neural Climate` évalue un réseau exporté qui produit simultanément :
+`Neural Climate GPU` utilise un réseau fixe :
+
+```text
+12 entrées -> 8 -> 8 -> 8 -> 8 -> 2 sorties
+```
+
+Les quatre couches de largeur 8 exécutent exactement 32 `tanh`. Les 338 poids et
+biais sont stockés dans un SSBO. La sortie est :
 
 ```text
 x = humidité
 y = température
 ```
 
-Le modèle est stocké dans :
+Les 12 entrées combinent deux bandes Fourier par axe et quatre Perlin en
+coordonnées non repliées. La partie Fourier apprend la carte de référence ; les
+Perlin donnent une variation déterministe quand on dépasse une période.
+
+## Entraînement génétique GPU
+
+Aucun script Python n'est utilisé. Le bouton **Lancer / reprendre** déclenche un
+compute shader qui entraîne 128 individus en parallèle.
+
+À chaque génération :
+
+1. une fenêtre 512×512 est choisie à un offset déterministe pseudo-aléatoire ;
+2. une grille réglable de points est échantillonnée dans cette fenêtre ;
+3. chaque réseau est comparé aux canaux RG de l'image ;
+4. un tournoi choisit les parents ;
+5. croisement, mutation, élitisme et quelques immigrants produisent la génération suivante.
+
+Le coût se règle avec :
+
+- `Grille d'échantillons` : 8 à 64 par axe ;
+- `Générations par lot` : nombre de générations soumises avant de rafraîchir l'aperçu ;
+- `Mutation initiale` et `Mutation minimale`.
+
+Le panneau n'envoie un nouveau lot que lorsque la fence du précédent est
+terminée. Il n'accumule donc pas une file GPU sans limite.
+
+## Sauvegarde du modèle
+
+Le meilleur individu peut être sauvegardé depuis le panneau dans :
 
 ```text
-Asset/Shader/Noise/neural_climate_weights.glsl
+Asset/Shader/ClimateNoiseLab/neural_climate_model.bin
 ```
 
-Le fichier livré par défaut contient des poids neutres et renvoie 0,5/0,5. Le
-trainer le remplace après apprentissage. Cliquer ensuite sur
-**Recharger le shader / poids** sans fermer la scène.
+Ce fichier local est ignoré par Git. Il contient un en-tête court puis 338
+`float`. Au prochain lancement, le Lab le recharge automatiquement s'il existe.
+Le résultat courant est lu directement par le shader d'aperçu : aucune
+recompilation et aucun export GLSL ne sont nécessaires.
 
-Une image de référence occupe `Période image neuronale` mètres. Avec une origine
-monde nulle et une étendue égale à cette période, la texture montre exactement
-le domaine d'entraînement `[0,1]²`. Les entrées Fourier sont périodiques, tandis
-que quatre features Perlin utilisent les coordonnées non repliées pour faire
-varier le résultat hors de cette première image.
+## Domaine et transformations
 
-Guide d'entraînement :
+Avec :
 
 ```text
-Tools/ClimateNeural/README.md
+Origine X/Z = 0
+Étendue monde = Période image neuronale
 ```
 
-## Transformations communes
+l'aperçu couvre exactement une période de l'image apprise. Déplacer l'origine
+permet de regarder l'extrapolation pilotée par les entrées Perlin.
 
-Les transformations suivantes fonctionnent sur les bruits classiques comme sur
-le modèle neuronal :
+Les transformations restent disponibles après le réseau :
 
 - contraste séparé humidité/température ;
 - gamma séparé humidité/température ;
 - `attractNearFifths01` ;
-- attraction vers les cinq niveaux réels de la matrice ;
+- attraction vers les cinq niveaux de la matrice ;
 - matrice discrète ou interpolation quintique.
 
-L'ordre est :
+Ordre :
 
 ```text
-source -> contraste/gamma -> attraction -> matrice
+réseau -> contraste/gamma -> attraction -> matrice
 ```
 
-## Patchwork de régions
+## Fichiers principaux
 
-Ce candidat construit une partition cellulaire déformée, des valeurs constantes
-au centre des zones, un gradient près des frontières et un niveau secondaire de
-petites régions. Il reste disponible pour comparer son résultat à l'approche
-neuronale dans le même outil.
-
-## Validation GPU
-
-Le test headless compile le compute shader réel, exécute ses cinq images et
-vérifie les sources scalaires, les canaux RG, les transformations, la matrice et
-la source Neural Climate, y compris avec le modèle neutre :
-
-```sh
-EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_climate_noise_lab.py
+```text
+Asset/Shader/ClimateNoiseLab/neural_genetic_train.C.glsl
+Asset/Shader/Noise/neural_climate_2d.glsl
+ANTAGONIZ/Source/ProjectUser/ClimateNoiseLabPanel.cpp
 ```
