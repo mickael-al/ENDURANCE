@@ -62,9 +62,9 @@ float climateTo01(float value)
     return smoothstep(lower, upper, value);
 }
 
-// Exact experimental function requested for the lab. It creates six reference
-// positions (0, .2, .4, .6, .8, 1) and moves most strongly close to them.
-float attractNearFifths01(float value, float target, float maxShift)
+// Private copy used by this experiment. The ClimateNoiseLab prefix avoids a
+// collision when the shared shaping library also exposes attractNearFifths01.
+float climateLabAttractNearFifths01(float value, float target, float maxShift)
 {
     value = clamp(value, 0.0, 1.0);
     target = clamp(target, 0.0, 1.0);
@@ -88,8 +88,8 @@ float attractNearestMatrixLevel01(float value, float maxShift)
 vec2 applyAttraction(vec2 climate)
 {
     if (uAttractionMode == 1)
-        return vec2(attractNearFifths01(climate.x, uAttractionTarget.x, uAttractionMaxShift),
-                    attractNearFifths01(climate.y, uAttractionTarget.y, uAttractionMaxShift));
+        return vec2(climateLabAttractNearFifths01(climate.x, uAttractionTarget.x, uAttractionMaxShift),
+                    climateLabAttractNearFifths01(climate.y, uAttractionTarget.y, uAttractionMaxShift));
     if (uAttractionMode == 2)
         return vec2(attractNearestMatrixLevel01(climate.x, uAttractionMaxShift),
                     attractNearestMatrixLevel01(climate.y, uAttractionMaxShift));
