@@ -22,12 +22,14 @@ private:
     struct Uniforms
     {
         GLint resolution=-1, seed=-1, worldOrigin=-1, worldExtent=-1;
-        GLint climateFrequency=-1, humidityFrequencyMultiplier=-1;
-        GLint temperatureFrequencyMultiplier=-1, humidityNoiseType=-1;
-        GLint temperatureNoiseType=-1, octaves=-1, lacunarity=-1, gain=-1;
-        GLint remapMinimum=-1, remapMaximum=-1, attractionMode=-1;
-        GLint attractionTarget=-1, attractionMaxShift=-1, matrixBlend=-1;
-        GLint biomeMatrix=-1;
+        GLint climateSource=-1, climateFrequency=-1, neuralWorldPeriod=-1;
+        GLint humidityFrequencyMultiplier=-1, temperatureFrequencyMultiplier=-1;
+        GLint humidityNoiseType=-1, temperatureNoiseType=-1;
+        GLint octaves=-1, lacunarity=-1, gain=-1;
+        GLint remapMinimum=-1, remapMaximum=-1;
+        GLint postContrast=-1, postGamma=-1;
+        GLint attractionMode=-1, attractionTarget=-1, attractionMaxShift=-1;
+        GLint matrixBlend=-1, biomeMatrix=-1;
     } m_uniforms;
 
     ClimateNoiseLabComponent& m_owner;
