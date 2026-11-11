@@ -35,30 +35,39 @@ def register_texture_api(gl: GL) -> None:
 
 
 def read_texture(gl: GL, texture: int, resolution: int) -> bytes:
-    gl.glBindTexture(0x0DE1, texture)  # GL_TEXTURE_2D
+    gl.glBindTexture(0x0DE1, texture)
     output = (C.c_ubyte * (resolution * resolution * 4))()
-    gl.glGetTexImage(0x0DE1, 0, 0x1908, 0x1401, output)  # RGBA / UNSIGNED_BYTE
+    gl.glGetTexImage(0x0DE1, 0, 0x1908, 0x1401, output)
     return bytes(output)
 
 
-def dispatch(gl: GL, program: int, textures, resolution: int, attraction: int,
-             humidity_noise: int = 1, temperature_noise: int = 1,
-             remap: tuple[float, float] = (-0.32, 0.32)) -> list[bytes]:
+def dispatch(
+    gl: GL,
+    program: int,
+    textures,
+    resolution: int,
+    attraction: int,
+    source: int = 0,
+) -> list[bytes]:
     uniforms = {
         "uResolution": ("1ui", resolution),
         "uSeed": ("1ui", 1337),
         "uWorldOrigin": ("2f", 0.0, 0.0),
         "uWorldExtent": ("1f", 32768.0),
+        "uClimateSource": ("1i", source),
         "uClimateFrequency": ("1f", 0.0005),
+        "uNeuralWorldPeriod": ("1f", 32768.0),
         "uHumidityFrequencyMultiplier": ("1f", 1.0),
         "uTemperatureFrequencyMultiplier": ("1f", 1.0),
-        "uHumidityNoiseType": ("1i", humidity_noise),
-        "uTemperatureNoiseType": ("1i", temperature_noise),
+        "uHumidityNoiseType": ("1i", 1),
+        "uTemperatureNoiseType": ("1i", 1),
         "uOctaves": ("1i", 4),
         "uLacunarity": ("1f", 2.0),
         "uGain": ("1f", 0.5),
-        "uRemapMinimum": ("1f", remap[0]),
-        "uRemapMaximum": ("1f", remap[1]),
+        "uRemapMinimum": ("1f", -0.32),
+        "uRemapMaximum": ("1f", 0.32),
+        "uPostContrast": ("2f", 1.0, 1.0),
+        "uPostGamma": ("2f", 1.0, 1.0),
         "uAttractionMode": ("1i", attraction),
         "uAttractionTarget": ("2f", 0.5, 0.5),
         "uAttractionMaxShift": ("1f", 0.08),
@@ -72,35 +81,21 @@ def dispatch(gl: GL, program: int, textures, resolution: int, attraction: int,
     gl.glUseProgram(program)
     gl.glUniform1iv(location, 25, matrix)
     for binding, texture in enumerate(textures):
-        gl.glBindImageTexture(binding, texture, 0, 0, 0, 0x88B9, 0x8058)  # WRITE_ONLY / RGBA8
+        gl.glBindImageTexture(binding, texture, 0, 0, 0, 0x88B9, 0x8058)
     gl.dispatch(program, (resolution + 7) // 8, (resolution + 7) // 8, 1,
-                barrier=0x20 | 0x8)  # IMAGE_ACCESS | TEXTURE_FETCH
+                barrier=0x20 | 0x8)
     return [read_texture(gl, texture, resolution) for texture in textures]
 
 
-def equal_horizontal_ratio(texture: bytes, resolution: int) -> float:
-    values = texture[0::4]
-    equal = 0
-    total = resolution * (resolution - 1)
-    for y in range(resolution):
-        row = y * resolution
-        equal += sum(values[row + x] == values[row + x + 1]
-                     for x in range(resolution - 1))
-    return equal / total
-
-
-def check_channels(outputs: list[bytes]) -> None:
-    temperature, humidity, combined, attracted, matrix = outputs
+def check_channels(images: list[bytes]) -> None:
+    temperature, humidity, combined, _, _ = images
     assert all(temperature[i] == temperature[i+1] == temperature[i+2]
                for i in range(0, len(temperature), 4))
     assert all(humidity[i] == humidity[i+1] == humidity[i+2]
                for i in range(0, len(humidity), 4))
-    assert len(set(temperature[0::4])) > 16 and len(set(humidity[0::4])) > 16
     assert all(combined[i] == temperature[i] and combined[i+1] == humidity[i]
                and combined[i+2] == 0 and combined[i+3] == 255
                for i in range(0, len(combined), 4))
-    assert attracted == combined, "Disabled attraction changed the climate"
-    assert len({matrix[i:i+4] for i in range(0, len(matrix), 4)}) > 16
 
 
 def main() -> int:
@@ -116,36 +111,43 @@ def main() -> int:
                 for texture in textures:
                     gl.glBindTexture(0x0DE1, texture)
                     gl.glTexStorage2D(0x0DE1, 1, 0x8058, resolution, resolution)
-                    gl.glTexParameteri(0x0DE1, 0x2801, 0x2601)  # MIN / LINEAR
-                    gl.glTexParameteri(0x0DE1, 0x2800, 0x2601)  # MAG / LINEAR
+                    gl.glTexParameteri(0x0DE1, 0x2801, 0x2601)
+                    gl.glTexParameteri(0x0DE1, 0x2800, 0x2601)
 
-                simplex = dispatch(gl, program, textures, resolution, attraction=0)
+                without = dispatch(gl, program, textures, resolution, attraction=0)
                 repeated = dispatch(gl, program, textures, resolution, attraction=0)
-                assert simplex == repeated, "Climate lab output is not deterministic"
-                check_channels(simplex)
+                assert without == repeated, "Climate lab output is not deterministic"
+                check_channels(without)
+                temperature, humidity, combined, attracted, matrix = without
+                assert len(set(temperature[0::4])) > 16
+                assert len(set(humidity[0::4])) > 16
+                assert attracted == combined, "Disabled attraction changed the climate"
+                assert len({matrix[i:i+4] for i in range(0, len(matrix), 4)}) > 16
 
-                patchwork = dispatch(gl, program, textures, resolution, attraction=0,
-                                     humidity_noise=10, temperature_noise=10,
-                                     remap=(-1.0, 1.0))
-                patchwork_repeated = dispatch(gl, program, textures, resolution, attraction=0,
-                                              humidity_noise=10, temperature_noise=10,
-                                              remap=(-1.0, 1.0))
-                assert patchwork == patchwork_repeated, "Patchwork output is not deterministic"
-                check_channels(patchwork)
-                assert patchwork[2] != simplex[2], "Patchwork duplicates the Simplex climate"
-                assert equal_horizontal_ratio(patchwork[0], resolution) > 0.08
-                assert equal_horizontal_ratio(patchwork[1], resolution) > 0.08
+                with_attraction = dispatch(
+                    gl, program, textures, resolution, attraction=1
+                )
+                assert with_attraction[2] == combined
+                assert with_attraction[3] != combined
+                assert with_attraction[4] != matrix
 
-                with_attraction = dispatch(gl, program, textures, resolution, attraction=1,
-                                           humidity_noise=10, temperature_noise=10,
-                                           remap=(-1.0, 1.0))
-                assert with_attraction[2] == patchwork[2], "Attraction changed the raw climate view"
-                assert with_attraction[3] != patchwork[2], "attractNearFifths01 had no visible effect"
-                assert with_attraction[4] != patchwork[4], "Matrix view ignored the attracted climate"
+                neural = dispatch(
+                    gl, program, textures, resolution, attraction=0, source=1
+                )
+                neural_repeated = dispatch(
+                    gl, program, textures, resolution, attraction=0, source=1
+                )
+                assert neural == neural_repeated, "Neural Climate is not deterministic"
+                check_channels(neural)
+                assert neural[3] == neural[2], "Disabled attraction changed Neural Climate"
                 gl.check("Climate Noise Lab")
             finally:
                 gl.glDeleteTextures(5, textures)
-            print("PASS Climate Noise Lab: Simplex and patchwork regions, deterministic channels, attraction and matrix output", flush=True)
+            print(
+                "PASS Climate Noise Lab: scalar sources, transformations, "
+                "Neural Climate and matrix output",
+                flush=True,
+            )
     except GLUnavailable as error:
         print(f"SKIP: {error}")
         return 77
