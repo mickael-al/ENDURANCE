@@ -15,7 +15,10 @@ REGISTER(Behaviour, ClimateNoiseLabComponent, seed, textureResolution, worldExte
     postContrastHumidity, postContrastTemperature,
     postGammaHumidity, postGammaTemperature,
     attractionMode, attractionTargetHumidity, attractionTargetTemperature,
-    attractionMaxShift, matrixBlend, autoUpdate, showWindow);
+    attractionMaxShift, matrixBlend,
+    geneticSampleGrid, geneticGenerationsPerBatch,
+    geneticMutationScale, geneticMinimumMutation,
+    autoUpdate, showWindow);
 
 ClimateNoiseLabComponent::ClimateNoiseLabComponent() = default;
 ClimateNoiseLabComponent::~ClimateNoiseLabComponent() { stop(); }
@@ -50,7 +53,7 @@ void ClimateNoiseLabComponent::onGUI()
     ImGui::TextUnformatted("Climate Noise Lab");
     ImGui::Checkbox("Afficher la fenetre",&showWindow);
     ImGui::Checkbox("Mise a jour automatique",&autoUpdate);
-    ImGui::TextWrapped("Ouvrez ClimateNoiseLab.scene et lancez Play. Les cinq vues viennent d'un compute shader.");
+    ImGui::TextWrapped("Ouvrez ClimateNoiseLab.scene et lancez Play. Le reseau climatique s'entraine directement sur le GPU.");
     if(!m_error.empty()) ImGui::TextWrapped("%s",m_error.c_str());
 }
 
