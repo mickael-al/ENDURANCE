@@ -339,6 +339,102 @@ def check_neural_axis_seeds_and_frequency(lab):
                         assert abs(actual - expected) <= 1 / 255, (perlin, axis, frequency, actual, expected)
 
 
+def simplex2d(x, y, seed):
+    skew, unskew = 0.36602540378443864676, 0.21132486540518711775
+    cx, cy = math.floor(x + (x + y) * skew), math.floor(y + (x + y) * skew)
+    offset = (cx + cy) * unskew
+    dx, dy = x - cx + offset, y - cy + offset
+    mx, my = (1, 0) if dx > dy else (0, 1)
+    result = 0.0
+    for ox, oy, px, py in ((0, 0, dx, dy),
+                           (mx, my, dx - mx + unskew, dy - my + unskew),
+                           (1, 1, dx - 1 + 2 * unskew, dy - 1 + 2 * unskew)):
+        direction = hash32(((cx + ox) * 0x9E3779B9) ^ ((cy + oy) * 0x85EBCA6B) ^ seed) & 7
+        a = px if direction < 6 else py
+        b = py if direction < 4 else 0
+        gradient = (-a if direction & 1 else a) + (-b if direction & 2 else b)
+        result += max(0.5 - px * px - py * py, 0) ** 4 * gradient
+    return max(-1.0, min(1.0, result * 70))
+
+
+def simplex_fbm2d(x, y, seed):
+    # The test fixture uses 4 octaves, lacunarity 2 and gain 0.5.
+    return sum(simplex2d(x * 2 ** i, y * 2 ** i, (seed + i * 0x9E3779B9) & 0xffffffff)
+               * 0.5 ** i for i in range(4)) / 1.875
+
+
+def check_binary_five_noise(lab):
+    gl, size = lab.gl, 32
+    images = [lab.texture(size, size, rgba8=True) for _ in range(5)]
+    for binding, image in enumerate(images):
+        gl.glBindImageTexture(binding, image, 0, 0, 0, 0x88B9, 0x8058)
+    for name, suffix, args in (
+        ("uResolution", "1ui", (size,)), ("uWorldOrigin", "2f", (125.25, -79.5)),
+        ("uWorldExtent", "1f", (8192.0,)),
+        ("uHumidityFrequencyMultiplier", "1f", (1.0,)),
+        ("uTemperatureFrequencyMultiplier", "1f", (1.0,)),
+        ("uOctaves", "1i", (4,)), ("uLacunarity", "1f", (2.0,)), ("uGain", "1f", (0.5,)),
+        ("uRemapMinimum", "1f", (-0.32,)), ("uRemapMaximum", "1f", (0.32,)),
+        ("uPostContrast", "2f", (1.0, 1.0)), ("uPostGamma", "2f", (1.0, 1.0)),
+        ("uAttractionMode", "1i", (0,)),
+    ):
+        gl.uniform(lab.preview, name, suffix, *args)
+
+    def render(seed=SEED, frequency=0.0005):
+        gl.uniform(lab.preview, "uSeed", "1ui", seed)
+        gl.uniform(lab.preview, "uClimateFrequency", "1f", frequency)
+        gl.dispatch(lab.preview, size // 8, size // 8)
+        result = []
+        for image in images:
+            gl.glBindTexture(0x0DE1, image)
+            data = (C.c_ubyte * (size * size * 4))()
+            gl.glGetTexImage(0x0DE1, 0, 0x1908, 0x1401, data)
+            result.append(bytes(data))
+        return result
+
+    for noise_type, base in ((12, perlin2d), (13, simplex_fbm2d)):
+        gl.uniform(lab.preview, "uHumidityNoiseType", "1i", noise_type)
+        gl.uniform(lab.preview, "uTemperatureNoiseType", "1i", noise_type)
+        result = render()
+        assert result == render(), "Binary fields are not deterministic"
+        assert result[:2] != render(seed=SEED + 1)[:2], "Binary fields ignore the seed"
+        assert result[:2] != render(frequency=0.001)[:2], "Binary fields ignore spatial frequency"
+        assert result[0] != result[1], "Binary humidity and temperature share seeds"
+        assert result[2] == result[3], "Disabled attraction changed binary levels"
+        checked = 0
+        all_seeds = set()
+        for axis, salt in enumerate((0x85A308D3, 0x243F6A88)):
+            seeds = [hash32((SEED ^ salt) ^ ((i + 1) * 0x9E3779B9)) for i in range(5)]
+            all_seeds.update(seeds)
+            assert set(result[axis][0::4]) == {0, 51, 102, 153, 204, 255}, "Expected all six binary-sum levels"
+            assert result[axis][0::4] == result[axis][1::4] == result[axis][2::4]
+            assert set(result[axis][3::4]) == {255}
+            for y in range(size):
+                for x in range(size):
+                    px = (125.25 + ((x + 0.5) / size - 0.5) * 8192) * 0.0005
+                    py = (-79.5 + ((y + 0.5) / size - 0.5) * 8192) * 0.0005
+                    values = [base(px, py, seed) for seed in seeds]
+                    # float32/double can disagree exactly at a discontinuity.
+                    # Equality itself is covered separately at frequency zero.
+                    if min(map(abs, values)) < 0.0001:
+                        continue
+                    expected = 51 * sum(value > 0 for value in values)
+                    assert result[axis][(y * size + x) * 4] == expected, (noise_type, x, y, expected)
+                    checked += 1
+        assert len(all_seeds) == 10, "Five distinct layer seeds required per axis"
+        assert checked > 0.95 * size * size * 2
+        gl.uniform(lab.preview, "uRemapMinimum", "1f", (2.0))
+        gl.uniform(lab.preview, "uRemapMaximum", "1f", (3.0))
+        assert result == render(), "Smoothstep destroyed the binary sum levels"
+        # At p=0 all five base noises are exactly zero, so strict >0 yields 0.
+        zero = bytes([0, 0, 0, 255]) * (size * size)
+        assert render(frequency=0.0)[:2] == [zero, zero], "Zero noise was counted as positive"
+        if noise_type == 13:
+            gl.uniform(lab.preview, "uOctaves", "1i", 0)
+            assert render()[:2] == [zero, zero], "Zero-octave fBm should add nothing"
+            gl.uniform(lab.preview, "uOctaves", "1i", 4)
+
+
 def main():
     try:
         with GL() as gl:
@@ -347,7 +443,7 @@ def main():
             try:
                 for test in (check_initialization, check_validation_and_elitism,
                              check_full_image_oracle, check_preview_coordinates,
-                             check_neural_axis_seeds_and_frequency):
+                             check_neural_axis_seeds_and_frequency, check_binary_five_noise):
                     test(lab)
                     gl.check(test.__name__)
                     print(f"PASS {test.__name__}")

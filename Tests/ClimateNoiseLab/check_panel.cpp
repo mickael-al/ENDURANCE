@@ -251,6 +251,16 @@ extern "C" int climate_panel_tests()
                      "Shader reload/save/reset/load round trip changed the pattern");
         panel.generate();
         requirePanel(!panel.m_dirty, "Preview after shader reload failed: " + owner.m_error);
+        // New appended source IDs must pass through the CPU selector clamp;
+        // otherwise selecting an experimental noise silently evaluates Neural.
+        owner.humidityNoise=12;
+        owner.temperatureNoise=13;
+        panel.generate();
+        GLint selected=0;
+        glGetUniformiv(panel.m_program,panel.m_uniforms.humidityNoiseType,&selected);
+        requirePanel(selected==12,"CPU rejected the experimental Perlin source");
+        glGetUniformiv(panel.m_program,panel.m_uniforms.temperatureNoiseType,&selected);
+        requirePanel(selected==13,"CPU rejected the experimental fBm source");
         requirePanel(glGetError() == GL_NO_ERROR, "OpenGL error in production panel tests");
         std::cout << "PASS climate panel: pending reset, reference reload, model validation/resume, shader reload, preview\n";
         return 0;

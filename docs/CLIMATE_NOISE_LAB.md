@@ -158,6 +158,38 @@ sur l'autre axe.
 Les bruits classiques restent disponibles : Perlin, Simplex, Value, bruit blanc,
 Voronoï, valeur de cellule, variantes fBm et Patchwork de régions.
 
+## Sommes binaires expérimentales
+
+Deux sources supplémentaires sont disponibles indépendamment pour l'humidité
+et la température :
+
+- **Somme binaire x5 - Perlin (exp.)** ;
+- **Somme binaire x5 - fBm Simplex (exp.)**.
+
+Chaque canal évalue cinq bruits de même fréquence avec cinq seeds distinctes,
+dérivées de la seed de cet axe. Chaque bruit strictement supérieur à zéro ajoute
+`1/5` au résultat ; un bruit nul ou négatif n'ajoute rien :
+
+```glsl
+resultat = (positifs_sur_les_cinq_bruits) / 5.0;
+```
+
+Cela produit **six niveaux**, `0, 0.2, 0.4, 0.6, 0.8, 1`, et des frontières
+franches. La distribution des niveaux n'est pas forcée à être uniforme. Pour la
+version fBm, le seuil s'applique au résultat de chaque fBm complet, après le
+mélange de ses octaves. Les réglages Octaves, Lacunarité et Gain restent actifs.
+Avec zéro octave, la somme fBm vaut zéro.
+
+`Climate frequency` et les multiplicateurs H/T contrôlent la taille des motifs.
+Le remappage Smoothstep est ignoré car la somme est déjà dans [0,1]. Les
+transformations contraste/gamma et l'attraction restent disponibles ensuite.
+Les boutons **Test somme binaire x5 Perlin** et **Test somme binaire x5 fBm Simplex**
+placent la même méthode sur les deux axes, remettent contraste/gamma à 1,
+mettent l'apprentissage neuronal en pause, désactivent l'attraction et génèrent
+l'aperçu. Les seeds des deux axes restent
+distinctes. La matrice de biomes conserve ses cinq niveaux et ses réglages ;
+elle n'est pas redimensionnée pour cette expérience.
+
 ## Vérifications
 
 Depuis la racine du dépôt, sous Linux avec OpenGL 4.5/EGL disponible :
@@ -175,6 +207,8 @@ développement X11 pour construire le GLEW fourni. Un objet GLEW déjà compilé
 Les tests GPU vérifient notamment les scores face à un calcul CPU indépendant,
 le cas d'une fenêtre facile qui ne doit pas verrouiller le modèle, la
 reproductibilité et l'accord entre les coordonnées d'apprentissage et d'aperçu.
+Ils comparent aussi les deux sommes binaires avec un calcul CPU indépendant,
+vérifient les six niveaux, le seuil strict à zéro et l'effet des seeds/fréquences.
 Les tests du panneau exercent les buffers réels et les transitions de chargement
 et de réinitialisation sans lancer la scène complète.
 La variante `--fast-math` vérifie aussi le rejet des modèles contenant des NaN

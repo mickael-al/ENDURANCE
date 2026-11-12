@@ -43,6 +43,8 @@ uniform bool uMatrixBlend;
 uniform int uBiomeMatrix[25];
 
 const int NOISE_NEURAL_PATTERN = 11;
+const int NOISE_BINARY_PERLIN_5 = 12;
+const int NOISE_BINARY_SIMPLEX_FBM_5 = 13;
 
 const vec3 BIOME_COLORS[26] = vec3[26](
     vec3(.73,.83,.86), vec3(.53,.59,.57), vec3(.36,.42,.29), vec3(.19,.29,.23), vec3(.17,.25,.21),
@@ -76,6 +78,22 @@ float climateTo01(float value)
     return smoothstep(lower, upper, value);
 }
 
+// Experimental discrete climate: threshold each complete noise independently,
+// then add 1/5 for each strictly positive value. Five seeds give SIX levels.
+float climateLabBinarySum5(vec2 p, uint seed, bool simplexFbm)
+{
+    uint positives = 0u;
+    for (uint layer = 0u; layer < 5u; ++layer)
+    {
+        uint layerSeed = noiseInternalHash(seed ^ ((layer + 1u) * 0x9e3779b9u));
+        float value = simplexFbm
+            ? noiseSimplexFbm2D(p, layerSeed, uOctaves, uLacunarity, uGain)
+            : noisePerlin2D(p, layerSeed);
+        positives += value > 0.0 ? 1u : 0u;
+    }
+    return float(positives) * (1.0 / 5.0);
+}
+
 float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint seed)
 {
     if (type == NOISE_NEURAL_PATTERN)
@@ -96,6 +114,9 @@ float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint se
     }
 
     vec2 p = world * uClimateFrequency * max(frequencyMultiplier, 0.0);
+    // These values are already in [0,1]. Smoothstep would destroy the 0.2 steps.
+    if (type == NOISE_BINARY_PERLIN_5 || type == NOISE_BINARY_SIMPLEX_FBM_5)
+        return climateLabBinarySum5(p, seed, type == NOISE_BINARY_SIMPLEX_FBM_5);
     return climateTo01(sampleNoise2D(type, p, seed));
 }
 
