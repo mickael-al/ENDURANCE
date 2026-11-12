@@ -42,8 +42,10 @@ public:
     float remapMinimum = -0.32f;
     float remapMaximum = 0.32f;
 
-    // One complete reference pattern occupies this many world metres.
+    // Reference period in metres when climateFrequency is 0.0005.
     float neuralWorldPeriod = 32768.0f;
+    // Diagnostic view of the learned reference, before per-axis seed variation.
+    bool neuralReferencePreview = false;
 
     // Generic transformations applied after either source and before attraction.
     float postContrastHumidity = 1.0f;

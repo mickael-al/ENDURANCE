@@ -24,6 +24,7 @@ uniform vec2 uWorldOrigin;
 uniform float uWorldExtent;
 uniform float uClimateFrequency;
 uniform float uNeuralWorldPeriod;
+uniform bool uNeuralReferencePreview;
 uniform float uHumidityFrequencyMultiplier;
 uniform float uTemperatureFrequencyMultiplier;
 uniform int uHumidityNoiseType;
@@ -79,12 +80,19 @@ float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint se
 {
     if (type == NOISE_NEURAL_PATTERN)
     {
-        // Origin zero + extent equal to the period maps the complete reference
-        // image to [0,1]^2. The same trained scalar pattern can independently
-        // drive humidity or temperature through their two noise selectors.
+        // Preserve the old world scale at the default climate frequency. Both
+        // the common frequency and the per-axis multiplier now scale the MLP.
+        float frequencyScale = max(uClimateFrequency, 0.0) / 0.0005;
         vec2 p = world / max(uNeuralWorldPeriod, 1.0);
-        p = p * max(frequencyMultiplier, 0.0) + vec2(0.5);
-        return noiseNeuralPattern2D01(p, uSeed, 0u);
+        p = p * (frequencyScale * max(frequencyMultiplier, 0.0)) + vec2(0.5);
+        if (uNeuralReferencePreview)
+            return noiseNeuralPattern2D01(p, uSeed, 0u);
+
+        // Use the axis seed, including for the periodic Fourier features. Just
+        // changing Perlin's seed would leave Fourier-only learned models equal.
+        vec2 phase = vec2(noiseInternalUintTo01(noiseInternalHash(seed)),
+                          noiseInternalUintTo01(noiseInternalHash(seed ^ 0x68bc21ebu)));
+        return noiseNeuralPattern2D01(p + phase, seed, 0u);
     }
 
     vec2 p = world * uClimateFrequency * max(frequencyMultiplier, 0.0);

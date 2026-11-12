@@ -184,12 +184,44 @@ extern "C" int climate_panel_tests()
         badWeights.push_back(0);
         expectRejected(panel, valid, badWeights, "trailing data");
 
+        bad=valid;
+        bad.flags=2u;
+        expectRejected(panel,bad,weights,"unknown model flags");
+        bad.flags=0u;
+        expectRejected(panel,bad,weights,"unvalidated nonzero score");
+        valid.version=2u; // Existing saved weights remain compatible.
+        valid.flags=0u;
+        owner.autoUpdate=false;
+        panel.m_generateRequested=false;
         writeModelFile(valid, weights);
         requirePanel(panel.loadModel(true), "Valid model rejected: " + owner.m_error);
         requirePanel(readWeights(panel.m_bestBuffer) == weights && owner.seed == valid.seed &&
                      owner.geneticReferenceChannel == 2, "Loaded model data changed");
         requirePanel(!std::isfinite(panel.m_bestScore) || panel.m_bestScore >= 1e20f,
                      "Loaded model retained an incomparable score from another reference");
+        requirePanel(panel.m_generateRequested,"Loading with auto-update off did not request preview refresh");
+        requirePanel(panel.saveModel(),"Loaded weights with unknown score could not be saved: "+owner.m_error);
+        requirePanel(!panel.m_modelStatus.empty(),"Successful save did not report a destination");
+        {
+            std::ifstream saved(ModelPath,std::ios::binary);
+            ModelHeader header;
+            saved.read(reinterpret_cast<char*>(&header),sizeof(header));
+            requirePanel(saved && header.version==3u && header.flags==0u && header.bestScore==0.0f,
+                         "Save without validation did not mark its score unknown");
+        }
+        // A second save replaces the existing file; a failed write keeps it.
+        requirePanel(panel.saveModel(),"Replacing an existing pattern failed");
+        auto readFile=[]() {
+            std::ifstream input(ModelPath,std::ios::binary);
+            return std::string(std::istreambuf_iterator<char>(input),std::istreambuf_iterator<char>());
+        };
+        const auto savedBytes=readFile();
+        std::filesystem::create_directory(std::string(ModelPath)+".tmp");
+        requirePanel(!panel.saveModel(),"Invalid temporary destination unexpectedly writable");
+        requirePanel(readFile()==savedBytes,"Failed save damaged previous model");
+        std::filesystem::remove(std::string(ModelPath)+".tmp");
+        requirePanel(panel.loadModel(true),"Unvalidated v3 model could not be loaded");
+        requirePanel(readWeights(panel.m_bestBuffer)==weights,"Model round trip changed weights");
         panel.resetTraining(true);
         requirePanel(readWeights(panel.m_bestBuffer) == weights &&
                      readWeights(panel.m_populationBuffer) == weights,
@@ -211,8 +243,12 @@ extern "C" int climate_panel_tests()
         requirePanel(panel.reloadShaders(), "Shader reload failed: " + owner.m_error);
         requirePanel(readWeights(panel.m_bestBuffer) == trainedWeights,
                      "Shader reload discarded trained weights");
-        requirePanel(panel.m_bestScore >= 1e20f && !panel.saveModel(),
-                     "Shader reload retained/exported a stale validation score");
+        requirePanel(panel.m_bestScore >= 1e20f && panel.saveModel(),
+                     "Shader reload blocked saving valid weights without a score");
+        panel.resetTraining(false);
+        requirePanel(!panel.saveModel(),"An untrained zero-reset pattern overwrote the save");
+        requirePanel(panel.loadModel(true) && readWeights(panel.m_bestBuffer)==trainedWeights,
+                     "Shader reload/save/reset/load round trip changed the pattern");
         panel.generate();
         requirePanel(!panel.m_dirty, "Preview after shader reload failed: " + owner.m_error);
         requirePanel(glGetError() == GL_NO_ERROR, "OpenGL error in production panel tests");

@@ -1,3 +1,9 @@
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 #include "ClimateNoiseLabPanel.hpp"
 #include "ClimateNoiseLab.hpp"
 #include "ProceduralTerrainBiomes.hpp"
@@ -11,6 +17,7 @@
 #include <cstdint>
 #include <cstring>
 #include <fstream>
+#include <filesystem>
 #include <limits>
 #include <string>
 #include <vector>
@@ -33,7 +40,8 @@ constexpr int NeuralPatternNoise = 11;
 constexpr const char* ReferencePath = "../Asset/Shader/ClimateNoiseLab/climate_reference.png";
 constexpr const char* ModelPath = "../Asset/Shader/ClimateNoiseLab/neural_pattern_model.bin";
 constexpr std::uint32_t ModelMagic = 0x4d54504eu;
-constexpr std::uint32_t ModelVersion = 2u;
+constexpr std::uint32_t ModelVersion = 3u;
+constexpr std::uint32_t ModelHasValidationScore = 1u;
 
 struct ModelHeader
 {
@@ -44,7 +52,7 @@ struct ModelHeader
     float bestScore=0.0f;
     std::uint32_t generation=0u;
     std::uint32_t referenceChannel=0u;
-    std::uint32_t reserved=0u;
+    std::uint32_t flags=ModelHasValidationScore;
 };
 static_assert(sizeof(ModelHeader)==32,"Stable Neural Pattern model header expected");
 
@@ -238,6 +246,7 @@ void ClimateNoiseLabPanel::discoverUniforms()
     m_uniforms.worldOrigin=get("uWorldOrigin"); m_uniforms.worldExtent=get("uWorldExtent");
     m_uniforms.climateFrequency=get("uClimateFrequency");
     m_uniforms.neuralWorldPeriod=get("uNeuralWorldPeriod");
+    m_uniforms.neuralReferencePreview=get("uNeuralReferencePreview");
     m_uniforms.humidityFrequencyMultiplier=get("uHumidityFrequencyMultiplier");
     m_uniforms.temperatureFrequencyMultiplier=get("uTemperatureFrequencyMultiplier");
     m_uniforms.humidityNoiseType=get("uHumidityNoiseType");
@@ -378,6 +387,7 @@ void ClimateNoiseLabPanel::allocateTrainingBuffers()
 
     m_training=false;
     m_modelLoaded=false;
+    m_modelStatus.clear();
     m_populationInitialized=false;
     m_populationSource=0;
     m_submittedGeneration=m_completedGeneration=0;
@@ -434,6 +444,7 @@ void ClimateNoiseLabPanel::resetTraining(bool preserveModel)
         m_bestScore=initial.bestScore;
         m_submittedGeneration=m_completedGeneration=0u;
         m_modelLoaded=false;
+        m_modelStatus="Pattern reinitialise en memoire.";
     }
     m_populationSource=0u;
     m_populationInitialized=true;
@@ -537,10 +548,13 @@ void ClimateNoiseLabPanel::pollTraining()
 
 bool ClimateNoiseLabPanel::saveModel()
 {
+    m_modelStatus.clear();
     if(!waitForTraining()) return false;
-    if(!m_bestBuffer || !finiteFloat(m_bestScore) || m_bestScore<0.0f || m_bestScore>=1.0e20f)
+    // A loaded/trained network remains valid even when its score needs to be
+    // recomputed after loading or recompiling. Score validity is separate.
+    if(!m_bestBuffer || !m_modelLoaded)
     {
-        m_owner.m_error="Aucun pattern valide a sauvegarder.";
+        m_owner.m_error="Entrainez ou chargez un pattern avant de le sauvegarder.";
         return false;
     }
     std::vector<float> weights(NeuralParameterCount);
@@ -551,33 +565,65 @@ bool ClimateNoiseLabPanel::saveModel()
         m_owner.m_error="Le pattern contient des poids invalides; sauvegarde annulee.";
         return false;
     }
+    const bool hasScore=finiteFloat(m_bestScore) && m_bestScore>=0.0f && m_bestScore<1.0e20f;
     ModelHeader header;
     header.seed=m_owner.seed;
-    header.bestScore=m_bestScore;
+    header.bestScore=hasScore?m_bestScore:0.0f;
+    header.flags=hasScore?ModelHasValidationScore:0u;
     header.generation=m_completedGeneration;
     header.referenceChannel=static_cast<std::uint32_t>(
         std::clamp(m_owner.geneticReferenceChannel,0,3));
-    std::ofstream output(ModelPath,std::ios::binary|std::ios::trunc);
+
+    std::error_code error;
+    const auto destination=std::filesystem::absolute(ModelPath,error).lexically_normal();
+    if(error)
+    {
+        m_owner.m_error="Impossible de resoudre le chemin du modele : "+error.message();
+        return false;
+    }
+    auto temporary=destination;
+    temporary += ".tmp";
+    // Complete and close the replacement before touching the previous model.
+    std::ofstream output(temporary,std::ios::binary|std::ios::trunc);
     if(!output)
     {
-        m_owner.m_error=std::string("Impossible d'ecrire ")+ModelPath;
+        m_owner.m_error="Impossible d'ecrire le pattern : "+temporary.generic_u8string();
         return false;
     }
     output.write(reinterpret_cast<const char*>(&header),sizeof(header));
     output.write(reinterpret_cast<const char*>(weights.data()),
                  static_cast<std::streamsize>(weights.size()*sizeof(float)));
+    output.close();
     if(!output)
     {
-        m_owner.m_error="Echec pendant la sauvegarde du Neural Pattern.";
+        std::filesystem::remove(temporary,error);
+        m_owner.m_error="Echec pendant l'ecriture du pattern; la sauvegarde precedente est conservee.";
+        return false;
+    }
+#ifdef _WIN32
+    // std::filesystem::rename cannot replace an existing destination on Windows.
+    if(!MoveFileExW(temporary.c_str(),destination.c_str(),
+                   MOVEFILE_REPLACE_EXISTING|MOVEFILE_WRITE_THROUGH))
+        error=std::error_code(static_cast<int>(GetLastError()),std::system_category());
+#else
+    std::filesystem::rename(temporary,destination,error);
+#endif
+    if(error)
+    {
+        const auto reason=error.message();
+        std::filesystem::remove(temporary,error);
+        m_owner.m_error="Impossible de remplacer le pattern : "+destination.generic_u8string()+" : "+reason;
         return false;
     }
     m_owner.m_error.clear();
-    m_modelLoaded=true;
+    m_modelStatus="Pattern sauvegarde : "+destination.generic_u8string();
+    if(!hasScore) m_modelStatus+=" (score a recalculer)";
     return true;
 }
 
 bool ClimateNoiseLabPanel::loadModel(bool reportMissing)
 {
+    m_modelStatus.clear();
     if(!waitForTraining()) return false;
     std::ifstream input(ModelPath,std::ios::binary);
     if(!input)
@@ -587,9 +633,11 @@ bool ClimateNoiseLabPanel::loadModel(bool reportMissing)
     }
     ModelHeader header;
     input.read(reinterpret_cast<char*>(&header),sizeof(header));
-    if(!input || header.magic!=ModelMagic || header.version!=ModelVersion ||
+    if(!input || header.magic!=ModelMagic || (header.version!=2u && header.version!=ModelVersion) ||
+       (header.version>=3u && (header.flags & ~ModelHasValidationScore)!=0u) ||
        header.parameterCount!=NeuralParameterCount || header.referenceChannel>3u ||
-       !finiteFloat(header.bestScore) || header.bestScore<0.0f || header.bestScore>=1.0e20f)
+       !finiteFloat(header.bestScore) || header.bestScore<0.0f || header.bestScore>=1.0e20f ||
+       (header.version>=3u && !(header.flags & ModelHasValidationScore) && header.bestScore!=0.0f))
     {
         m_owner.m_error="Le modele Neural Pattern est invalide ou incompatible.";
         return false;
@@ -623,6 +671,8 @@ bool ClimateNoiseLabPanel::loadModel(bool reportMissing)
     m_modelLoaded=true;
     m_training=false;
     m_owner.m_error.clear();
+    m_modelStatus="Pattern charge; les poids sont disponibles, le score sera recalcule a la reprise.";
+    m_generateRequested=true;
     m_dirty=true;
     return true;
 }
@@ -642,6 +692,7 @@ void ClimateNoiseLabPanel::generate()
     glUniform1f(m_uniforms.worldExtent,std::max(m_owner.worldExtent,1.0f));
     glUniform1f(m_uniforms.climateFrequency,std::max(m_owner.climateFrequency,0.0f));
     glUniform1f(m_uniforms.neuralWorldPeriod,std::max(m_owner.neuralWorldPeriod,1.0f));
+    glUniform1i(m_uniforms.neuralReferencePreview,m_owner.neuralReferencePreview?1:0);
     glUniform1f(m_uniforms.humidityFrequencyMultiplier,std::max(m_owner.humidityFrequencyMultiplier,0.0f));
     glUniform1f(m_uniforms.temperatureFrequencyMultiplier,std::max(m_owner.temperatureFrequencyMultiplier,0.0f));
     glUniform1i(m_uniforms.humidityNoiseType,std::clamp(m_owner.humidityNoise,0,NeuralPatternNoise));
@@ -733,7 +784,13 @@ void ClimateNoiseLabPanel::drawSettings()
     changed|=ImGui::SliderFloat("Gain",&m_owner.gain,0,1,"%.3f");
     changed|=ImGui::DragFloatRange2("Smoothstep",&m_owner.remapMinimum,&m_owner.remapMaximum,.005f,-1,1,"Min %.3f","Max %.3f");
     if(m_owner.humidityNoise==NeuralPatternNoise || m_owner.temperatureNoise==NeuralPatternNoise)
+    {
         changed|=ImGui::DragFloat("Periode Neural Pattern (m)",&m_owner.neuralWorldPeriod,64,64,1000000,"%.0f");
+        ImGui::TextWrapped("Periode de reference a Climate frequency = 0.0005. Doubler la frequence divise la taille par deux.");
+        changed|=ImGui::Checkbox("Voir le pattern appris sans variation",&m_owner.neuralReferencePreview);
+        if(m_owner.neuralReferencePreview)
+            ImGui::TextWrapped("Vue de comparaison avec la reference : les deux axes utilisent les memes entrees. Decochez pour des variations humidite/temperature distinctes.");
+    }
 
     if(ImGui::CollapsingHeader("Entrainement Neural Pattern GPU",ImGuiTreeNodeFlags_DefaultOpen))
     {
@@ -784,6 +841,7 @@ void ClimateNoiseLabPanel::drawSettings()
         }
         if(ImGui::Button("Sauvegarder le meilleur pattern",ImVec2(-1,0))) saveModel();
         if(ImGui::Button("Charger le pattern sauvegarde",ImVec2(-1,0))) loadModel(true);
+        if(!m_modelStatus.empty()) ImGui::TextWrapped("%s",m_modelStatus.c_str());
         if(ImGui::Button("Recharger l'image de reference",ImVec2(-1,0)))
             loadReferenceImage();
     }
@@ -832,6 +890,8 @@ void ClimateNoiseLabPanel::drawSettings()
         m_owner.humidityNoise=NeuralPatternNoise;
         m_owner.temperatureNoise=1;
         m_owner.neuralWorldPeriod=32768.0f;
+        m_owner.climateFrequency=.0005f;
+        m_owner.neuralReferencePreview=false;
         m_owner.worldExtent=m_owner.neuralWorldPeriod;
         m_owner.worldOriginX=m_owner.worldOriginZ=0.0f;
         m_owner.humidityFrequencyMultiplier=m_owner.temperatureFrequencyMultiplier=1.0f;
@@ -844,6 +904,8 @@ void ClimateNoiseLabPanel::drawSettings()
         m_owner.humidityNoise=1;
         m_owner.temperatureNoise=NeuralPatternNoise;
         m_owner.neuralWorldPeriod=32768.0f;
+        m_owner.climateFrequency=.0005f;
+        m_owner.neuralReferencePreview=false;
         m_owner.worldExtent=m_owner.neuralWorldPeriod;
         m_owner.worldOriginX=m_owner.worldOriginZ=0.0f;
         m_owner.humidityFrequencyMultiplier=m_owner.temperatureFrequencyMultiplier=1.0f;

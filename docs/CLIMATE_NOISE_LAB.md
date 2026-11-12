@@ -32,8 +32,15 @@ Humidité    = Neural Pattern GPU
 Température = Simplex
 ```
 
-ou l'inverse. Si les deux axes utilisent Neural Pattern avec les mêmes réglages,
-ils reçoivent le même pattern appris.
+ou l'inverse. En génération normale, les deux axes réutilisent les mêmes poids
+mais reçoivent des seeds différentes, dérivées de la seed du monde. Un décalage
+de phase déterministe varie aussi les entrées Fourier : les deux cartes peuvent
+ainsi différer même si le réseau a appris à ignorer les entrées Perlin.
+
+**Voir le pattern appris sans variation** permet de comparer directement le
+réseau à l'image de référence, avec les entrées utilisées pendant l'apprentissage.
+Cette option est désactivée par défaut ; lorsqu'elle est activée, deux axes
+Neural avec les mêmes réglages affichent volontairement le même pattern.
 
 La structure du réseau est fixe :
 
@@ -43,9 +50,11 @@ La structure du réseau est fixe :
 
 Cela représente exactement 32 activations `tanh` et 329 poids/biais. Les entrées
 combinent deux bandes Fourier par axe et quatre Perlin évalués dans des
-coordonnées non repliées. Le domaine de l'image occupe `Période Neural Pattern`
-mètres ; les Fourier se répètent sur cette période et les Perlin font varier le
-résultat au-delà.
+coordonnées non repliées. `Période Neural Pattern` donne l'échelle en mètres à
+`Climate frequency = 0.0005`, avec les multiplicateurs d'axe à 1. La fréquence
+globale pilote aussi Neural : la doubler divise la taille des motifs par deux.
+À 0, la sortie devient constante dans l'espace. Les Fourier sont périodiques,
+tandis que les Perlin font varier le résultat au-delà du premier domaine.
 
 ## Entraînement génétique GPU
 
@@ -104,8 +113,16 @@ score est invalidé : il sera remesuré à la prochaine génération sur la réf
 actuelle. Les fichiers tronqués, les poids non finis ou hors de la plage de
 mutation [-3,3] et les scores invalides sont refusés avant de remplacer le modèle
 en mémoire. Recharger les shaders invalide aussi le score affiché sans effacer
-les poids. Il faut reprendre l'apprentissage pour mesurer et sauvegarder à
-nouveau le modèle.
+les poids. La sauvegarde reste disponible immédiatement pour un modèle chargé
+ou entraîné, même lorsque son score doit être recalculé. Un pattern qui vient
+d'être réinitialisé à zéro sans entraînement ne remplace pas une sauvegarde.
+
+Le format v3 distingue un score mesuré d'un score inconnu. Les fichiers v2
+restent lisibles, sans modifier leurs poids. Une écriture réussie affiche le
+chemin absolu du fichier dans le panneau. Le remplacement passe par un fichier
+temporaire entièrement écrit et fermé, afin de conserver la sauvegarde
+précédente en cas d'échec. Le chargement demande un rafraîchissement de l'aperçu
+même si la mise à jour automatique est désactivée.
 
 La sauvegarde contient le meilleur réseau, pas toute la population génétique :
 la reprise reconstruit une population avec ce candidat comme élite. Elle ne

@@ -243,6 +243,7 @@ def check_preview_coordinates(lab):
         ("uResolution", "1ui", (size,)), ("uSeed", "1ui", (SEED,)),
         ("uWorldOrigin", "2f", (0.0, 0.0)), ("uWorldExtent", "1f", (32768.0,)),
         ("uNeuralWorldPeriod", "1f", (32768.0,)),
+        ("uClimateFrequency", "1f", (0.0005,)), ("uNeuralReferencePreview", "1i", (1,)),
         ("uHumidityFrequencyMultiplier", "1f", (1.0,)), ("uTemperatureFrequencyMultiplier", "1f", (1.0,)),
         ("uHumidityNoiseType", "1i", (11,)), ("uTemperatureNoiseType", "1i", (11,)),
         ("uPostContrast", "2f", (1.0, 1.0)), ("uPostGamma", "2f", (1.0, 1.0)),
@@ -265,8 +266,77 @@ def check_preview_coordinates(lab):
             pixel = texture[index * 4:(index + 1) * 4]
             assert abs(pixel[0] / 255.0 - value) <= 1.0 / 255.0
             assert pixel[0] == pixel[1] == pixel[2] and pixel[3] == 255
-    assert results[0] == results[1], "Same neural source/settings must produce identical scalar axes"
+    assert results[0] == results[1], "Reference diagnostic must reproduce the learned scalar on both axes"
     assert results[2] == results[3], "Disabled attraction must preserve climate"
+
+
+def perlin2d(x, y, seed):
+    # Independent scalar CPU oracle for the vectorized GLSL implementation.
+    ix, iy = math.floor(x), math.floor(y)
+    fx, fy = x - ix, y - iy
+    fade = lambda v: v * v * v * (v * (v * 6 - 15) + 10)
+    corners = []
+    for ox, oy in ((0, 0), (1, 0), (0, 1), (1, 1)):
+        direction = hash32(((ix + ox) * 0x9E3779B9) ^ ((iy + oy) * 0x85EBCA6B) ^ seed) & 7
+        a = (fx - ox) if direction < 6 else (fy - oy)
+        b = (fy - oy) if direction < 4 else 0
+        corners.append((-a if direction & 1 else a) + (-b if direction & 2 else b))
+    mix = lambda a, b, t: a + (b - a) * t
+    return mix(mix(corners[0], corners[1], fade(fx)),
+               mix(corners[2], corners[3], fade(fx)), fade(fy))
+
+
+def check_neural_axis_seeds_and_frequency(lab):
+    gl, size = lab.gl, 16
+    images = [lab.texture(size, size, rgba8=True) for _ in range(5)]
+    for binding, image in enumerate(images):
+        gl.glBindImageTexture(binding, image, 0, 0, 0, 0x88B9, 0x8058)
+    gl.bind(lab.best, 5)
+    gl.uniform(lab.preview, "uResolution", "1ui", size)
+    gl.uniform(lab.preview, "uNeuralReferencePreview", "1i", 0)
+
+    def render(seed, frequency):
+        gl.uniform(lab.preview, "uSeed", "1ui", seed)
+        gl.uniform(lab.preview, "uClimateFrequency", "1f", frequency)
+        gl.dispatch(lab.preview, 2, 2)
+        result = []
+        for image in images[:2]:
+            gl.glBindTexture(0x0DE1, image)
+            data = (C.c_ubyte * (size * size * 4))()
+            gl.glGetTexImage(0x0DE1, 0, 0x1908, 0x1401, data)
+            result.append(bytes(data))
+        return result
+
+    for perlin in (False, True):
+        # Test a model that ignores all Perlin features, then one that ignores
+        # all Fourier features. Both must receive distinct deterministic inputs.
+        weights = [0.0] * PARAMETERS
+        weights[8 if perlin else 0], weights[96] = 0.7, 0.1
+        weights[104], weights[176], weights[248], weights[320], weights[328] = 0.9, 0.8, 0.7, 0.6, 0.1
+        lab.networks([weights] * POPULATION)
+        baseline = render(SEED, 0.0005)
+        assert baseline[0] != baseline[1], "Neural humidity and temperature still share inputs"
+        assert baseline == render(SEED, 0.0005), "Neural previews must be deterministic"
+        assert baseline != render(SEED + 1, 0.0005), "Neural seed does not affect the field"
+        assert baseline != render(SEED, 0.001), "Climate frequency does not affect the neural field"
+        for frequency in (0.0, 0.00025, 0.0005, 0.001):
+            result = render(SEED, frequency)
+            for axis, salt in enumerate((0x85A308D3, 0x243F6A88)):
+                axis_seed = SEED ^ salt
+                phase_x = (hash32(axis_seed) >> 8) / 16777215
+                phase_y = (hash32(axis_seed ^ 0x68BC21EB) >> 8) / 16777215
+                for y in range(size):
+                    for x in range(size):
+                        px = ((x + 0.5) / size - 0.5) * frequency / 0.0005 + 0.5 + phase_x
+                        py = ((y + 0.5) / size - 0.5) * frequency / 0.0005 + 0.5 + phase_y
+                        signal = (perlin2d(px + 11.7, py - 5.3, axis_seed ^ 0x243F6A88)
+                                  if perlin else math.sin(px * math.tau))
+                        value = math.tanh(0.1 + 0.7 * signal)
+                        for multiplier in (0.9, 0.8, 0.7):
+                            value = math.tanh(value * multiplier)
+                        expected = 0.5 + 0.5 * (0.1 + 0.6 * value)
+                        actual = result[axis][(y * size + x) * 4] / 255
+                        assert abs(actual - expected) <= 1 / 255, (perlin, axis, frequency, actual, expected)
 
 
 def main():
@@ -276,7 +346,8 @@ def main():
             lab = Lab(gl)
             try:
                 for test in (check_initialization, check_validation_and_elitism,
-                             check_full_image_oracle, check_preview_coordinates):
+                             check_full_image_oracle, check_preview_coordinates,
+                             check_neural_axis_seeds_and_frequency):
                     test(lab)
                     gl.check(test.__name__)
                     print(f"PASS {test.__name__}")

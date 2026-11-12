@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 
 class ClimateNoiseLabComponent;
 
@@ -27,7 +28,7 @@ private:
     struct Uniforms
     {
         GLint resolution=-1, seed=-1, worldOrigin=-1, worldExtent=-1;
-        GLint climateFrequency=-1, neuralWorldPeriod=-1;
+        GLint climateFrequency=-1, neuralWorldPeriod=-1, neuralReferencePreview=-1;
         GLint humidityFrequencyMultiplier=-1, temperatureFrequencyMultiplier=-1;
         GLint humidityNoiseType=-1, temperatureNoiseType=-1;
         GLint octaves=-1, lacunarity=-1, gain=-1;
@@ -78,6 +79,7 @@ private:
     bool m_training=false;
     bool m_populationInitialized=false;
     bool m_modelLoaded=false;
+    std::string m_modelStatus;
 
     void release();
     bool waitForTraining();
