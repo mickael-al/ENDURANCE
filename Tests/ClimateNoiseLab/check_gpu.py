@@ -80,6 +80,7 @@ class Lab:
         self.scores = gl.buffer(floats([GUARD] * (POPULATION + 4)), 1)
         self.best = gl.buffer(floats([0.0] * PARAMETERS), 2)
         self.state = gl.buffer(struct.pack("<fIII", 1e30, 0, 0, 0), 3)
+        self.matrix_stats = gl.buffer(bytes(26 * 16), 6)
         self.textures = []
         self.u("uPopulationSize", "1ui", POPULATION)
         self.u("uSourceIndex", "1ui", 0)
@@ -499,6 +500,82 @@ void main() {
             assert values == points, "Zero attraction must be the identity"
 
 
+def check_matrix_statistics(lab):
+    # Feed known climate coordinates through the real preview's matrix, colour
+    # and statistics path, bypassing only noise generation for this oracle.
+    gl = lab.gl
+    source = shader_source(ROOT / "Asset/Shader/ClimateNoiseLab/climate_noise_lab.C.glsl")
+    source = source.replace("void main()", "uniform vec2 uTestClimate;\nuniform bool uTestRamp;\nvoid main()")
+    source = source.replace("vec2 climate = applyPostShape(sampleClimate(world));",
+                            "vec2 climate = uTestRamp ? uv : uTestClimate;")
+    program = gl.compile([(0x91B9, source)], "matrix statistics oracle")
+    size = 65  # Partial workgroups + enough samples to overflow a Q24 uint32.
+    images = [lab.texture(size, size, rgba8=True) for _ in range(5)]
+    for binding, image in enumerate(images):
+        gl.glBindImageTexture(binding, image, 0, 0, 0, 0x88B9, 0x8058)
+    gl.bind(lab.matrix_stats, 6)
+    gl.uniform(program, "uResolution", "1ui", size)
+    gl.uniform(program, "uAttractionMode", "1i", 0)
+
+    def expected_weights(humidity, temperature, matrix, blend):
+        if not blend:
+            index = math.floor(humidity * 4 + .5) + 5 * math.floor(temperature * 4 + .5)
+            return {matrix[index]: 1.0}
+        x, y = min(3, math.floor(humidity * 4)), min(3, math.floor(temperature * 4))
+        fx, fy = humidity * 4 - x, temperature * 4 - y
+        fx = fx ** 3 * (fx * (fx * 6 - 15) + 10)
+        fy = fy ** 3 * (fy * (fy * 6 - 15) + 10)
+        weights = {}
+        for dx, wx in ((0, 1 - fx), (1, fx)):
+            for dy, wy in ((0, 1 - fy), (1, fy)):
+                id_ = matrix[x + dx + 5 * (y + dy)]
+                weights[id_] = weights.get(id_, 0) + wx * wy
+        return {id_: w for id_, w in weights.items() if w > 0}
+
+    normal = list(range(25))
+    for climate, ramp, blend, matrix in (
+        ((.5, .5), False, True, normal),       # One biome, 64-bit accumulation.
+        ((.375, .375), False, True, normal),   # Four equal contributors.
+        ((.0001, .0001), False, True, normal), # Rare weights must not count absent.
+        ((0, 1), False, True, normal),
+        ((.37, .66), False, False, normal),
+        ((0, 0), True, True, normal),         # All 25 biomes, varied weights.
+        ((0, 0), True, False, normal),
+        ((.375, .375), False, True, [7] * 25), # Repeated IDs must be merged.
+        ((0, 0), True, True, normal[::-1]),    # Read actual matrix IDs.
+    ):
+        gl.write(lab.matrix_stats, bytes(26 * 16))
+        gl.uniform(program, "uTestClimate", "2f", *climate)
+        gl.uniform(program, "uTestRamp", "1i", int(ramp))
+        gl.uniform(program, "uMatrixBlend", "1i", int(blend))
+        gl.glUniform1iv(gl.glGetUniformLocation(program, b"uBiomeMatrix"), 25,
+                        (C.c_int * 25)(*matrix))
+        gl.dispatch(program, (size + 7) // 8, (size + 7) // 8)
+        raw = struct.unpack("<104I", gl.read(lab.matrix_stats, 26 * 16))
+        actual = [(raw[i] + (raw[i + 1] << 32), raw[i + 2], raw[i + 3])
+                  for i in range(0, len(raw), 4)]
+        areas, dominant, presence = [0.0] * 26, [0] * 26, [0] * 26
+        for y in range(size):
+            for x in range(size):
+                p = ((x + .5) / size, (y + .5) / size) if ramp else climate
+                weights = expected_weights(*p, matrix, blend)
+                winner = min(weights, key=lambda id_: (-weights[id_], id_))
+                dominant[winner] += 1
+                for id_, weight in weights.items():
+                    areas[id_] += weight
+                    presence[id_] += 1
+        for id_, (area, wins, appears) in enumerate(actual):
+            assert abs(area / (1 << 24) - areas[id_]) < size * size * 2e-6, (id_, area, areas[id_])
+            assert wins == dominant[id_], (climate, ramp, blend, id_, wins, dominant[id_])
+            assert appears == presence[id_], (climate, ramp, id_, appears, presence[id_])
+        assert sum(row[1] for row in actual) == size * size, "Edge invocations were counted"
+        assert abs(sum(row[0] for row in actual) / (1 << 24) - size * size) < .002
+        if climate == (.5, .5) and not ramp:
+            assert actual[12][0] == size * size * (1 << 24), "Weighted total overflowed uint32"
+        if climate == (.0001, .0001):
+            assert actual[6][0] == 0 and actual[6][2] == size * size, "Quantized weights hid a present biome"
+
+
 def main():
     try:
         with GL() as gl:
@@ -508,7 +585,7 @@ def main():
                 for test in (check_initialization, check_validation_and_elitism,
                              check_full_image_oracle, check_preview_coordinates,
                              check_neural_axis_seeds_and_frequency, check_binary_five_noise,
-                             check_continuous_attraction):
+                             check_continuous_attraction, check_matrix_statistics):
                     test(lab)
                     gl.check(test.__name__)
                     print(f"PASS {test.__name__}")

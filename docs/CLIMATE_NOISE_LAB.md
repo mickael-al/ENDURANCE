@@ -13,6 +13,46 @@ travail ImGui docké et un compute shader produit cinq textures :
 L'image `Asset/Shader/ClimateNoiseLab/climate_reference.png` est affichée dans un
 sixième panneau de référence.
 
+## Répartition des biomes dans l'image
+
+La fenêtre **Résultat matrice** affiche l'image et un tableau des 25 biomes :
+
+- **Surface %** : somme des poids du biome, divisée par le nombre de pixels.
+  Un pixel mélangé à 70 % / 30 % contribue dans ces proportions aux deux biomes.
+  Le total est voisin de 100 % (arrondi d'affichage et accumulation Q24).
+- **Dominant %** : proportion de pixels où ce biome possède le poids le plus
+  élevé. Une égalité favorise le plus petit ID. Le total vaut 100 % avant arrondi.
+
+Les biomes absents sont affichés en rouge, ceux présents uniquement dans les
+mélanges en ambre. Le résumé indique combien de biomes sont présents et absents.
+Un pourcentage positif inférieur à 0.001 % est affiché **<0.001**, et non zéro.
+Le survol du nom indique le nombre de pixels concernés, même si leur poids est
+trop petit pour contribuer à l'accumulation Q24. Avec une matrice discrète,
+les colonnes Surface et Dominant coïncident.
+
+Ces statistiques portent sur **les pixels de la zone actuellement affichée**,
+après contraste/gamma et attraction. Une absence sur cet aperçu ne signifie
+pas que le biome est impossible dans tout le monde ; déplacer la zone, changer
+son étendue ou sa résolution permet d'étendre la vérification.
+
+L'image et le tableau sont côte à côte dans une fenêtre large, puis empilés
+dans une fenêtre étroite. Le tableau possède son propre défilement et un en-tête
+fixe. Les paramètres climatiques ne sont pas modifiés par cette mesure.
+
+Le compute existant réutilise directement les IDs et poids de la coloration :
+aucun nouveau bruit, aucune lecture des couleurs RGBA8 et aucune passe de calcul
+supplémentaire. Des compteurs partagés par groupe de 64 pixels réduisent les
+atomiques globales. Un SSBO de 416 octets contient les surfaces en Q24 sur deux
+mots uint32 (pour éviter les débordements), les comptes dominants et la présence.
+Il inclut l'ID Marine réservé, mais le tableau liste les biomes de la matrice 2D.
+Le code de mesure est isolé dans `ClimateNoiseLab/matrix_statistics.glsl`.
+
+Les statistiques sont recalculées à chaque génération de l'aperçu. Une fence
+est interrogée sans attente ; les 416 octets ne sont lus qu'une fois le calcul
+terminé. Si une nouvelle image remplace une génération encore en cours, ses
+anciens pourcentages sont écartés. Les frames sans nouvelle génération ne
+recomptent pas les pixels.
+
 ## Neural Pattern GPU
 
 L'image de référence décrit **un seul pattern scalaire**. Le canal utilisé pour
@@ -247,6 +287,10 @@ vérifient les six niveaux, le seuil strict à zéro et l'effet des seeds/fréqu
 Ils contrôlent aussi les transitions progressives, l'indépendance des réglages
 H/T, la conservation des plateaux, le retour exact au mode binaire et la
 continuité de l'attraction autour des anciennes coupures.
+La répartition est comparée à un oracle CPU sur les mélanges, les 25 biomes,
+les IDs répétés, les contributions minuscules et les groupes de bord incomplets.
+Les tests couvrent aussi les retenues des compteurs Q24, leur remise à zéro et
+le remplacement d'une génération avant sa lecture asynchrone.
 Les tests du panneau exercent les buffers réels et les transitions de chargement
 et de réinitialisation sans lancer la scène complète.
 La variante `--fast-math` vérifie aussi le rejet des modèles contenant des NaN

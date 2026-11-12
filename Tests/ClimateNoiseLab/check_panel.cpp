@@ -273,6 +273,57 @@ extern "C" int climate_panel_tests()
         glGetUniformfv(panel.m_program,panel.m_uniforms.binaryTransition,transition.data());
         requirePanel(transition[0]==0 && transition[1]==1,
                      "Out-of-range transition widths were not bounded");
+        // Statistics follow the current image, not an earlier async generation.
+        owner.humidityNoise=owner.temperatureNoise=1;
+        owner.climateFrequency=0;
+        owner.remapMinimum=-1; owner.remapMaximum=1;
+        owner.attractionMode=0; owner.matrixBlend=true;
+        owner.textureResolution=65;
+        panel.generate();
+        requirePanel(panel.m_matrixStatsFence && !panel.m_matrixStatsValid,
+                     "Preview did not request an asynchronous statistics result");
+        owner.textureResolution=64;
+        GLuint previousStatisticsBuffer=0;
+        glCreateBuffers(1,&previousStatisticsBuffer);
+        glNamedBufferData(previousStatisticsBuffer,16,nullptr,GL_DYNAMIC_DRAW);
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,previousStatisticsBuffer);
+        panel.generate();
+        GLint boundStatisticsBuffer=0;
+        glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING,6,&boundStatisticsBuffer);
+        requirePanel(static_cast<GLuint>(boundStatisticsBuffer)==previousStatisticsBuffer,
+                     "Preview leaked its statistics SSBO binding");
+        glFinish(); // Test-only wait; the production poll always uses timeout=0.
+        panel.pollMatrixStatistics();
+        requirePanel(panel.m_matrixStatsValid && !panel.m_matrixStatsFence && panel.m_matrixStatsPixels==4096,
+                     "Statistics belong to a stale generation or are invalid: "+panel.m_matrixStatsError);
+        for(std::size_t id=0;id<panel.m_matrixStats.size();++id)
+        {
+            const auto& stats=panel.m_matrixStats[id];
+            const std::uint64_t weight=stats.weightLow|(std::uint64_t(stats.weightHigh)<<32);
+            requirePanel(weight==(id==12 ? std::uint64_t(4096)<<24 : 0) &&
+                         stats.dominantPixels==(id==12 ? 4096u : 0u) &&
+                         stats.presentPixels==(id==12 ? 4096u : 0u),
+                         "Statistics were not cleared or did not count the current matrix");
+        }
+        glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,0);
+        glDeleteBuffers(1,&previousStatisticsBuffer);
+        // Exercise both responsive arrangements with real ImGui draw commands.
+        ImGui::CreateContext();
+        auto& io=ImGui::GetIO();
+        io.IniFilename=nullptr;
+        io.DisplaySize=ImVec2(1400,1000); io.DeltaTime=1.0f/60.0f;
+        unsigned char* fontPixels=nullptr; int fontWidth=0,fontHeight=0;
+        io.Fonts->GetTexDataAsRGBA32(&fontPixels,&fontWidth,&fontHeight);
+        for(const ImVec2 size:{ImVec2(950,700),ImVec2(370,620)})
+        {
+            ImGui::NewFrame();
+            ImGui::SetNextWindowPos(ImVec2(0,0));
+            ImGui::SetNextWindowSize(size);
+            panel.drawMatrixWindow();
+            ImGui::Render();
+            requirePanel(ImGui::GetDrawData()->TotalVtxCount>0,"Matrix window did not draw");
+        }
+        ImGui::DestroyContext();
         requirePanel(glGetError() == GL_NO_ERROR, "OpenGL error in production panel tests");
         std::cout << "PASS climate panel: pending reset, reference reload, model validation/resume, shader reload, preview\n";
         return 0;

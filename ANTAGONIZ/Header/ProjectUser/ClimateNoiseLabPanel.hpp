@@ -24,6 +24,13 @@ private:
     static constexpr std::uint32_t GeneticPopulation = 128;
     static constexpr std::uint32_t GeneticCropSize = 512;
     static constexpr std::uint32_t NeuralParameterCount = 329;
+    static constexpr std::size_t MatrixStatsBiomeCount = 26; // Includes Marine's palette ID.
+
+    struct MatrixBiomeStats
+    {
+        std::uint32_t weightLow=0, weightHigh=0, dominantPixels=0, presentPixels=0;
+    };
+    static_assert(sizeof(MatrixBiomeStats)==16,"Match the statistics SSBO uvec4 layout");
 
     struct Uniforms
     {
@@ -65,6 +72,12 @@ private:
     GLuint m_bestBuffer=0;
     GLuint m_stateBuffer=0;
     GLsync m_trainingFence=nullptr;
+    GLuint m_matrixStatsBuffer=0;
+    GLsync m_matrixStatsFence=nullptr;
+    std::array<MatrixBiomeStats,MatrixStatsBiomeCount> m_matrixStats{};
+    std::uint32_t m_matrixStatsPixels=0;
+    bool m_matrixStatsValid=false;
+    std::string m_matrixStatsError;
 
     int m_allocatedResolution=0;
     int m_referenceWidth=0;
@@ -96,6 +109,9 @@ private:
     bool saveModel();
     bool loadModel(bool reportMissing=false);
     void generate();
+    void pollMatrixStatistics();
+    void drawMatrixWindow();
+    void drawMatrixStatistics();
     void buildDockLayout(ImGuiID dockspace, ImVec2 size);
     void drawSettings();
     void drawTextureWindow(const char* name, GLuint texture, const char* description);

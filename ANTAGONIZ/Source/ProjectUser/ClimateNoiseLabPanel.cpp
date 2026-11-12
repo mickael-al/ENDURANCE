@@ -99,7 +99,10 @@ std::uint32_t hash32(std::uint32_t value)
 }
 }
 
-ClimateNoiseLabPanel::ClimateNoiseLabPanel(ClimateNoiseLabComponent& owner):m_owner(owner) {}
+ClimateNoiseLabPanel::ClimateNoiseLabPanel(ClimateNoiseLabComponent& owner):m_owner(owner)
+{
+    static_assert(MatrixStatsBiomeCount==ProceduralTerrain::BiomeCount,"Update the lab statistics layout with biome IDs");
+}
 ClimateNoiseLabPanel::~ClimateNoiseLabPanel() { release(); }
 
 void ClimateNoiseLabPanel::init(GraphicsDataMisc*)
@@ -114,6 +117,7 @@ void ClimateNoiseLabPanel::init(GraphicsDataMisc*)
 void ClimateNoiseLabPanel::render(GraphicsDataMisc*)
 {
     pollTraining();
+    pollMatrixStatistics();
     if(!m_owner.showWindow) return;
 
     ImGui::SetNextWindowSize(ImVec2(1600,920),ImGuiCond_FirstUseEver);
@@ -147,8 +151,7 @@ void ClimateNoiseLabPanel::render(GraphicsDataMisc*)
         "Sources puis contraste/gamma, avant attraction.");
     drawTextureWindow("Apres attraction (R=T, G=H)##ClimateNoiseLab",m_textures[3],
         "Meme codage apres le traitement selectionne.");
-    drawTextureWindow("Resultat matrice##ClimateNoiseLab",m_textures[4],
-        "Palette des 25 biomes depuis le climat traite.");
+    drawMatrixWindow();
 
     if(m_training && !m_trainingFence) submitTrainingBatch();
 }
@@ -158,16 +161,20 @@ void ClimateNoiseLabPanel::release()
     m_training=false;
     waitForTraining();
     if(m_trainingFence) { glDeleteSync(m_trainingFence); m_trainingFence=nullptr; }
+    if(m_matrixStatsFence) { glDeleteSync(m_matrixStatsFence); m_matrixStatsFence=nullptr; }
     if(m_program) glDeleteProgram(m_program);
     if(m_trainingProgram) glDeleteProgram(m_trainingProgram);
     if(m_textures[0]) glDeleteTextures(static_cast<GLsizei>(m_textures.size()),m_textures.data());
     if(m_referenceTexture) glDeleteTextures(1,&m_referenceTexture);
-    const GLuint buffers[]={m_populationBuffer,m_scoreBuffer,m_bestBuffer,m_stateBuffer};
-    glDeleteBuffers(4,buffers);
+    const GLuint buffers[]={m_populationBuffer,m_scoreBuffer,m_bestBuffer,m_stateBuffer,m_matrixStatsBuffer};
+    glDeleteBuffers(5,buffers);
     m_program=m_trainingProgram=0;
     m_textures.fill(0);
     m_referenceTexture=0;
     m_populationBuffer=m_scoreBuffer=m_bestBuffer=m_stateBuffer=0;
+    m_matrixStatsBuffer=0;
+    m_matrixStatsValid=false;
+    m_matrixStatsPixels=0;
     m_allocatedResolution=0;
 }
 
@@ -688,7 +695,21 @@ void ClimateNoiseLabPanel::generate()
     allocateTextures();
     if(!m_textures[0] || !m_bestBuffer) return;
     GLint previousProgram=0; glGetIntegerv(GL_CURRENT_PROGRAM,&previousProgram);
+    GLint previousStatsBuffer=0; glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING,6,&previousStatsBuffer);
     while(glGetError()!=GL_NO_ERROR) {}
+    // Discard a superseded readback, not the newly generated image. Clearing
+    // follows the preceding dispatch's BUFFER_UPDATE barrier on the GPU.
+    if(m_matrixStatsFence) { glDeleteSync(m_matrixStatsFence); m_matrixStatsFence=nullptr; }
+    m_matrixStatsValid=false;
+    m_matrixStatsError.clear();
+    if(!m_matrixStatsBuffer)
+    {
+        glCreateBuffers(1,&m_matrixStatsBuffer);
+        glNamedBufferData(m_matrixStatsBuffer,sizeof(m_matrixStats),nullptr,GL_STREAM_READ);
+    }
+    const GLuint zero=0;
+    glClearNamedBufferData(m_matrixStatsBuffer,GL_R32UI,GL_RED_INTEGER,GL_UNSIGNED_INT,&zero);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,m_matrixStatsBuffer);
     glUseProgram(m_program);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,m_bestBuffer);
     glUniform1ui(m_uniforms.resolution,static_cast<GLuint>(m_allocatedResolution));
@@ -723,7 +744,9 @@ void ClimateNoiseLabPanel::generate()
         glBindImageTexture(static_cast<GLuint>(i),m_textures[i],0,GL_FALSE,0,GL_WRITE_ONLY,GL_RGBA8);
     const GLuint groups=static_cast<GLuint>((m_allocatedResolution+7)/8);
     glDispatchCompute(groups,groups,1);
-    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
+    glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT|
+                    GL_SHADER_STORAGE_BARRIER_BIT|GL_BUFFER_UPDATE_BARRIER_BIT);
+    glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,static_cast<GLuint>(previousStatsBuffer));
     for(std::size_t i=0;i<m_textures.size();++i)
         glBindImageTexture(static_cast<GLuint>(i),0,0,GL_FALSE,0,GL_READ_ONLY,GL_RGBA8);
     glUseProgram(static_cast<GLuint>(previousProgram));
@@ -732,9 +755,126 @@ void ClimateNoiseLabPanel::generate()
     {
         m_owner.m_error="Erreur OpenGL pendant la generation du Climate Noise Lab: "+
             std::to_string(static_cast<unsigned>(error));
+        m_matrixStatsError="Statistiques indisponibles : la generation a echoue.";
         return;
     }
+    m_matrixStatsPixels=static_cast<std::uint32_t>(m_allocatedResolution*m_allocatedResolution);
+    m_matrixStatsFence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
+    if(m_matrixStatsFence) glFlush();
+    else m_matrixStatsError="Impossible de synchroniser les statistiques de la matrice.";
     m_dirty=false;
+}
+
+void ClimateNoiseLabPanel::pollMatrixStatistics()
+{
+    if(!m_matrixStatsFence) return;
+    const GLenum state=glClientWaitSync(m_matrixStatsFence,0,0);
+    if(state==GL_TIMEOUT_EXPIRED) return;
+    glDeleteSync(m_matrixStatsFence);
+    m_matrixStatsFence=nullptr;
+    if(state!=GL_ALREADY_SIGNALED && state!=GL_CONDITION_SATISFIED)
+    {
+        m_matrixStatsError="Echec de lecture des statistiques de la matrice.";
+        return;
+    }
+    glGetNamedBufferSubData(m_matrixStatsBuffer,0,sizeof(m_matrixStats),m_matrixStats.data());
+    std::uint64_t dominantTotal=0;
+    for(const auto& biome:m_matrixStats) dominantTotal+=biome.dominantPixels;
+    m_matrixStatsValid=m_matrixStatsPixels!=0 && dominantTotal==m_matrixStatsPixels;
+    if(!m_matrixStatsValid)
+        m_matrixStatsError="Compteurs de matrice incomplets ; regenerez l'apercu.";
+}
+
+void ClimateNoiseLabPanel::drawMatrixStatistics()
+{
+    if(!m_matrixStatsError.empty())
+    { ImGui::TextWrapped("%s",m_matrixStatsError.c_str()); return; }
+    if(!m_matrixStatsValid)
+    {
+        ImGui::TextWrapped("%s",m_matrixStatsFence?"Calcul des proportions en cours...":"Generez l'apercu pour mesurer les biomes.");
+        return;
+    }
+
+    std::uint32_t seen=0;
+    unsigned count=0,present=0,blendedOnly=0;
+    for(const auto id:ProceduralTerrain::BiomeMatrix2D)
+    {
+        if(seen & (1u<<id)) continue;
+        seen|=1u<<id;
+        ++count;
+        if(m_matrixStats[id].presentPixels)
+        {
+            ++present;
+            if(!m_matrixStats[id].dominantPixels) ++blendedOnly;
+        }
+    }
+    ImGui::Text("%u / %u biomes presents",present,count);
+    ImGui::TextWrapped("%u absents ; %u presents seulement en melange.",count-present,blendedOnly);
+    ImGui::TextWrapped("Surface : poids dans le melange. Dominant : pixels ou le biome arrive en tete.");
+    ImGui::TextDisabled("Image echantillonnee : %u pixels",m_matrixStatsPixels);
+    const float height=std::max(60.0f,ImGui::GetContentRegionAvail().y);
+    if(ImGui::BeginTable("BiomeProportions",3,ImGuiTableFlags_RowBg|ImGuiTableFlags_BordersInnerH|
+                        ImGuiTableFlags_ScrollY|ImGuiTableFlags_SizingStretchProp,ImVec2(0,height)))
+    {
+        ImGui::TableSetupColumn("Biome",ImGuiTableColumnFlags_WidthStretch);
+        ImGui::TableSetupColumn("Surface %",ImGuiTableColumnFlags_WidthFixed,80.0f);
+        ImGui::TableSetupColumn("Dominant %",ImGuiTableColumnFlags_WidthFixed,84.0f);
+        ImGui::TableSetupScrollFreeze(0,1);
+        ImGui::TableHeadersRow();
+        seen=0;
+        for(const auto id:ProceduralTerrain::BiomeMatrix2D)
+        {
+            if(seen & (1u<<id)) continue;
+            seen|=1u<<id;
+            const auto& biome=m_matrixStats[id];
+            const bool absent=biome.presentPixels==0;
+            const bool blendOnly=!absent && biome.dominantPixels==0;
+            const std::uint64_t weight=std::uint64_t(biome.weightLow)|(std::uint64_t(biome.weightHigh)<<32);
+            const double surface=100.0*double(weight)/(16777216.0*double(m_matrixStatsPixels));
+            const double dominant=100.0*double(biome.dominantPixels)/double(m_matrixStatsPixels);
+            ImGui::TableNextRow();
+            if(absent || blendOnly)
+                ImGui::PushStyleColor(ImGuiCol_Text,absent?ImVec4(1,.42f,.38f,1):ImVec4(1,.78f,.35f,1));
+            ImGui::TableNextColumn();
+            ImGui::TextWrapped("%02u  %s",id,ProceduralTerrain::BiomeNames[id]);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\nPresent dans %u pixels ; dominant dans %u.\nUne egalite de poids favorise le plus petit ID.",
+                    absent?"Absent de cette image":blendOnly?"Present seulement dans les melanges":"Present",
+                    biome.presentPixels,biome.dominantPixels);
+            ImGui::TableNextColumn();
+            if(!absent && surface<.001) ImGui::TextUnformatted("<0.001");
+            else ImGui::Text("%.3f",surface);
+            ImGui::TableNextColumn();
+            if(biome.dominantPixels && dominant<.001) ImGui::TextUnformatted("<0.001");
+            else ImGui::Text("%.3f",dominant);
+            if(absent || blendOnly) ImGui::PopStyleColor();
+        }
+        ImGui::EndTable();
+    }
+}
+
+void ClimateNoiseLabPanel::drawMatrixWindow()
+{
+    if(!ImGui::Begin("Resultat matrice##ClimateNoiseLab")) { ImGui::End(); return; }
+    ImGui::TextWrapped("Repartition sur la zone affichee, apres contraste/gamma et attraction.");
+    const ImVec2 available=ImGui::GetContentRegionAvail();
+    const float gap=ImGui::GetStyle().ItemSpacing.x;
+    const bool horizontal=available.x>=700.0f;
+    const float imageWidth=horizontal?available.x-360.0f-gap:available.x;
+    const float imageHeight=horizontal?available.y:std::max(1.0f,std::min(available.x,available.y*.42f));
+    if(ImGui::BeginChild("MatrixImage",ImVec2(imageWidth,imageHeight),false,
+                         ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse))
+    {
+        const float side=std::max(1.0f,std::min(imageWidth,imageHeight));
+        ImGui::SetCursorPosX(std::max(0.0f,(imageWidth-side)*.5f));
+        if(m_textures[4]) ImGui::Image(textureId(m_textures[4]),ImVec2(side,side));
+        else ImGui::TextUnformatted("Texture indisponible.");
+    }
+    ImGui::EndChild();
+    if(horizontal) ImGui::SameLine();
+    if(ImGui::BeginChild("MatrixStatistics",ImVec2(0,0))) drawMatrixStatistics();
+    ImGui::EndChild();
+    ImGui::End();
 }
 
 void ClimateNoiseLabPanel::buildDockLayout(ImGuiID dockspace,ImVec2 size)

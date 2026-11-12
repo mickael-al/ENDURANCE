@@ -13,6 +13,8 @@ layout(std430, binding = 5) readonly buffer NeuralBestBuffer
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
+#include "matrix_statistics.glsl"
+
 layout(rgba8, binding = 0) uniform writeonly image2D uTemperatureImage;
 layout(rgba8, binding = 1) uniform writeonly image2D uHumidityImage;
 layout(rgba8, binding = 2) uniform writeonly image2D uCombinedImage;
@@ -142,43 +144,54 @@ vec2 quintic(vec2 value)
     return value * value * value * (value * (value * 6.0 - 15.0) + 10.0);
 }
 
-vec3 matrixColor(vec2 climate)
+void matrixSample(vec2 climate, out ivec4 ids, out vec4 weights)
 {
     climate = clamp(climate, 0.0, 1.0);
     if (!uMatrixBlend)
     {
         ivec2 node = ivec2(round(climate * 4.0));
-        int id = uBiomeMatrix[node.x + node.y * 5];
-        return BIOME_COLORS[clamp(id, 0, 25)];
+        ids = ivec4(clamp(uBiomeMatrix[node.x + node.y * 5], 0, 25));
+        weights = vec4(1, 0, 0, 0);
+        return;
     }
 
     vec2 grid = climate * 4.0;
     ivec2 first = min(ivec2(floor(grid)), ivec2(3));
     ivec2 second = first + ivec2(1);
-    vec2 f = quintic(grid - vec2(first));
-    int id00 = uBiomeMatrix[first.x  + first.y  * 5];
-    int id10 = uBiomeMatrix[second.x + first.y  * 5];
-    int id01 = uBiomeMatrix[first.x  + second.y * 5];
-    int id11 = uBiomeMatrix[second.x + second.y * 5];
-    vec3 row0 = mix(BIOME_COLORS[clamp(id00,0,25)], BIOME_COLORS[clamp(id10,0,25)], f.x);
-    vec3 row1 = mix(BIOME_COLORS[clamp(id01,0,25)], BIOME_COLORS[clamp(id11,0,25)], f.x);
-    return mix(row0, row1, f.y);
+    // Roundoff near 1 must not create negative contributions in the matrix.
+    vec2 f = clamp(quintic(grid - vec2(first)), vec2(0.0), vec2(1.0));
+    ids = clamp(ivec4(uBiomeMatrix[first.x  + first.y  * 5],
+                      uBiomeMatrix[second.x + first.y  * 5],
+                      uBiomeMatrix[first.x  + second.y * 5],
+                      uBiomeMatrix[second.x + second.y * 5]), ivec4(0), ivec4(25));
+    weights = vec4((1.0-f.x)*(1.0-f.y), f.x*(1.0-f.y),
+                   (1.0-f.x)*f.y, f.x*f.y);
 }
 
 void main()
 {
+    climateMatrixStatsBegin();
     uvec2 pixel = gl_GlobalInvocationID.xy;
-    if (any(greaterThanEqual(pixel, uvec2(uResolution)))) return;
+    // Edge invocations must still reach both statistics barriers.
+    if (all(lessThan(pixel, uvec2(uResolution))))
+    {
+        vec2 uv = (vec2(pixel) + 0.5) / float(uResolution);
+        vec2 world = uWorldOrigin + (uv - 0.5) * uWorldExtent;
+        vec2 climate = applyPostShape(sampleClimate(world));
+        vec2 attracted = applyAttraction(climate);
+        ivec4 ids;
+        vec4 weights;
+        matrixSample(attracted, ids, weights);
+        vec3 colour = BIOME_COLORS[ids.x]*weights.x + BIOME_COLORS[ids.y]*weights.y
+                    + BIOME_COLORS[ids.z]*weights.z + BIOME_COLORS[ids.w]*weights.w;
+        climateMatrixStatsRecord(ids, weights);
 
-    vec2 uv = (vec2(pixel) + 0.5) / float(uResolution);
-    vec2 world = uWorldOrigin + (uv - 0.5) * uWorldExtent;
-    vec2 climate = applyPostShape(sampleClimate(world));
-    vec2 attracted = applyAttraction(climate);
-
-    ivec2 destination = ivec2(pixel);
-    imageStore(uTemperatureImage, destination, vec4(vec3(climate.y), 1.0));
-    imageStore(uHumidityImage, destination, vec4(vec3(climate.x), 1.0));
-    imageStore(uCombinedImage, destination, vec4(climate.y, climate.x, 0.0, 1.0));
-    imageStore(uAttractedImage, destination, vec4(attracted.y, attracted.x, 0.0, 1.0));
-    imageStore(uMatrixImage, destination, vec4(matrixColor(attracted), 1.0));
+        ivec2 destination = ivec2(pixel);
+        imageStore(uTemperatureImage, destination, vec4(vec3(climate.y), 1.0));
+        imageStore(uHumidityImage, destination, vec4(vec3(climate.x), 1.0));
+        imageStore(uCombinedImage, destination, vec4(climate.y, climate.x, 0.0, 1.0));
+        imageStore(uAttractedImage, destination, vec4(attracted.y, attracted.x, 0.0, 1.0));
+        imageStore(uMatrixImage, destination, vec4(colour, 1.0));
+    }
+    climateMatrixStatsEnd();
 }
