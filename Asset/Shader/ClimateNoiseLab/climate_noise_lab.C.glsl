@@ -9,6 +9,7 @@ layout(std430, binding = 5) readonly buffer NeuralBestBuffer
 
 #include "../Noise/noise_regions_2d.glsl"
 #include "../Noise/neural_pattern_2d.glsl"
+#include "climate_experiments.glsl"
 
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 
@@ -32,6 +33,7 @@ uniform int uTemperatureNoiseType;
 uniform int uOctaves;
 uniform float uLacunarity;
 uniform float uGain;
+uniform vec2 uBinaryTransition; // humidity, temperature; noise-value half-widths
 uniform float uRemapMinimum;
 uniform float uRemapMaximum;
 uniform vec2 uPostContrast;
@@ -78,23 +80,8 @@ float climateTo01(float value)
     return smoothstep(lower, upper, value);
 }
 
-// Experimental discrete climate: threshold each complete noise independently,
-// then add 1/5 for each strictly positive value. Five seeds give SIX levels.
-float climateLabBinarySum5(vec2 p, uint seed, bool simplexFbm)
-{
-    uint positives = 0u;
-    for (uint layer = 0u; layer < 5u; ++layer)
-    {
-        uint layerSeed = noiseInternalHash(seed ^ ((layer + 1u) * 0x9e3779b9u));
-        float value = simplexFbm
-            ? noiseSimplexFbm2D(p, layerSeed, uOctaves, uLacunarity, uGain)
-            : noisePerlin2D(p, layerSeed);
-        positives += value > 0.0 ? 1u : 0u;
-    }
-    return float(positives) * (1.0 / 5.0);
-}
-
-float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint seed)
+float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint seed,
+                        float binaryTransition)
 {
     if (type == NOISE_NEURAL_PATTERN)
     {
@@ -114,18 +101,19 @@ float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint se
     }
 
     vec2 p = world * uClimateFrequency * max(frequencyMultiplier, 0.0);
-    // These values are already in [0,1]. Smoothstep would destroy the 0.2 steps.
+    // Already in [0,1]: smooth individual thresholds, not the resulting sum.
     if (type == NOISE_BINARY_PERLIN_5 || type == NOISE_BINARY_SIMPLEX_FBM_5)
-        return climateLabBinarySum5(p, seed, type == NOISE_BINARY_SIMPLEX_FBM_5);
+        return climateLabSum5(p, seed, type == NOISE_BINARY_SIMPLEX_FBM_5,
+                              uOctaves, uLacunarity, uGain, binaryTransition);
     return climateTo01(sampleNoise2D(type, p, seed));
 }
 
 vec2 sampleClimate(vec2 world)
 {
     float humidity = sampleClimateAxis(uHumidityNoiseType, world,
-        uHumidityFrequencyMultiplier, uSeed ^ 0x243f6a88u);
+        uHumidityFrequencyMultiplier, uSeed ^ 0x243f6a88u, uBinaryTransition.x);
     float temperature = sampleClimateAxis(uTemperatureNoiseType, world,
-        uTemperatureFrequencyMultiplier, uSeed ^ 0x85a308d3u);
+        uTemperatureFrequencyMultiplier, uSeed ^ 0x85a308d3u, uBinaryTransition.y);
     return vec2(humidity, temperature);
 }
 
@@ -136,25 +124,6 @@ vec2 applyPostShape(vec2 climate)
     climate.x = noiseGamma01(climate.x, max(uPostGamma.x, 0.0001));
     climate.y = noiseGamma01(climate.y, max(uPostGamma.y, 0.0001));
     return clamp(climate, 0.0, 1.0);
-}
-
-float climateLabAttractNearFifths01(float value, float target, float maxShift)
-{
-    value = clamp(value, 0.0, 1.0);
-    target = clamp(target, 0.0, 1.0);
-    float scaled = value * 5.0;
-    float distance = abs(scaled - floor(scaled + 0.5));
-    float factor = 1.0 - distance * 2.0;
-    float limit = clamp(maxShift, 0.0, 1.0) * 5.0 * factor;
-    float delta = clamp(target * 5.0 - scaled, -limit, limit);
-    return clamp((scaled + delta) / 5.0, 0.0, 1.0);
-}
-
-float attractNearestMatrixLevel01(float value, float maxShift)
-{
-    value = clamp(value, 0.0, 1.0);
-    float target = round(value * 4.0) * 0.25;
-    return clamp(value + clamp(target - value, -maxShift, maxShift), 0.0, 1.0);
 }
 
 vec2 applyAttraction(vec2 climate)

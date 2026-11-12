@@ -32,6 +32,7 @@ private:
         GLint humidityFrequencyMultiplier=-1, temperatureFrequencyMultiplier=-1;
         GLint humidityNoiseType=-1, temperatureNoiseType=-1;
         GLint octaves=-1, lacunarity=-1, gain=-1;
+        GLint binaryTransition=-1;
         GLint remapMinimum=-1, remapMaximum=-1;
         GLint postContrast=-1, postGamma=-1;
         GLint attractionMode=-1, attractionTarget=-1, attractionMaxShift=-1;

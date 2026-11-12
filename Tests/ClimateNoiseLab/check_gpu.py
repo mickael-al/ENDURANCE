@@ -16,7 +16,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "Tests/Terrain"))
-from gl_headless import GL, GLUnavailable
+from gl_headless import GL, GLUnavailable, shader_source
 
 PARAMETERS = 329
 POPULATION = 4
@@ -374,6 +374,7 @@ def check_binary_five_noise(lab):
         ("uHumidityFrequencyMultiplier", "1f", (1.0,)),
         ("uTemperatureFrequencyMultiplier", "1f", (1.0,)),
         ("uOctaves", "1i", (4,)), ("uLacunarity", "1f", (2.0,)), ("uGain", "1f", (0.5,)),
+        ("uBinaryTransition", "2f", (0.0, 0.0)),
         ("uRemapMinimum", "1f", (-0.32,)), ("uRemapMaximum", "1f", (0.32,)),
         ("uPostContrast", "2f", (1.0, 1.0)), ("uPostGamma", "2f", (1.0, 1.0)),
         ("uAttractionMode", "1i", (0,)),
@@ -403,6 +404,7 @@ def check_binary_five_noise(lab):
         assert result[2] == result[3], "Disabled attraction changed binary levels"
         checked = 0
         all_seeds = set()
+        samples = [[], []]
         for axis, salt in enumerate((0x85A308D3, 0x243F6A88)):
             seeds = [hash32((SEED ^ salt) ^ ((i + 1) * 0x9E3779B9)) for i in range(5)]
             all_seeds.update(seeds)
@@ -414,6 +416,7 @@ def check_binary_five_noise(lab):
                     px = (125.25 + ((x + 0.5) / size - 0.5) * 8192) * 0.0005
                     py = (-79.5 + ((y + 0.5) / size - 0.5) * 8192) * 0.0005
                     values = [base(px, py, seed) for seed in seeds]
+                    samples[axis].append(values)
                     # float32/double can disagree exactly at a discontinuity.
                     # Equality itself is covered separately at frequency zero.
                     if min(map(abs, values)) < 0.0001:
@@ -434,6 +437,67 @@ def check_binary_five_noise(lab):
             assert render()[:2] == [zero, zero], "Zero-octave fBm should add nothing"
             gl.uniform(lab.preview, "uOctaves", "1i", 4)
 
+        # Compare the actual preview with the independent continuous CPU noises.
+        # One axis stays binary while the other gets a configurable soft band.
+        for humidity_width, temperature_width in ((0.1, 0.0), (0.0, 0.1), (0.1, 0.2)):
+            gl.uniform(lab.preview, "uBinaryTransition", "2f", humidity_width, temperature_width)
+            softened = render()
+            assert softened == render(), "Soft fields are not deterministic"
+            for axis, width in enumerate((temperature_width, humidity_width)):
+                if width == 0:
+                    assert softened[axis] == result[axis], "Transition setting changed the other axis"
+                    continue
+                assert len(set(softened[axis][0::4])) > 6, "Soft threshold still produces binary plateaus only"
+                for pixel, values in enumerate(samples[axis]):
+                    terms = [max(0.0, min(1.0, (n + width) / (2 * width))) for n in values]
+                    expected = sum(t * t * (3 - 2 * t) for t in terms) / 5
+                    assert abs(softened[axis][pixel * 4] / 255 - expected) <= 1 / 255
+                    if min(map(abs, values)) > width + 0.0001:
+                        assert softened[axis][pixel * 4] == result[axis][pixel * 4], "Smoothing modified a plateau outside its band"
+            assert softened[2] == softened[3], "Disabled attraction changed soft climate"
+        # Exactly zero is the midpoint of the soft threshold, unlike strict >0.
+        flat = render(frequency=0.0)
+        assert all(abs(value - 127.5) <= 0.5 for image in flat[:2] for value in image[0::4])
+        gl.uniform(lab.preview, "uBinaryTransition", "2f", 0.0, 0.0)
+        assert render() == result, "Setting transition back to zero did not restore the binary map"
+
+
+def check_continuous_attraction(lab):
+    # Exercise the production function on a dense ramp and around every former
+    # round() discontinuity. These properties catch jumps without duplicating
+    # its implementation in a CPU oracle.
+    gl = lab.gl
+    points = sorted(set([i / 4096 for i in range(4097)] +
+                        [mid + delta for mid in (0.125, 0.375, 0.625, 0.875)
+                         for delta in (-1e-6, 0, 1e-6)]))
+    points = struct.unpack(f"<{len(points)}f", floats(points))
+    source = "#version 450 core\n" + shader_source(ROOT / "Asset/Shader/ClimateNoiseLab/climate_experiments.glsl") + """
+layout(local_size_x=64) in;
+layout(std430,binding=6) readonly buffer Input { float points[]; };
+layout(std430,binding=7) writeonly buffer Output { float values[]; };
+uniform float uShift;
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+    if(i<uint(points.length())) values[i]=attractNearestMatrixLevel01(points[i],uShift);
+}
+"""
+    program = gl.compile([(0x91B9, source)], "continuous climate attraction")
+    gl.buffer(floats(points), 6)
+    output = gl.buffer(len(points) * 4, 7)
+    for shift in (0.0, 1e-10, 0.032, 0.5, 1.0):
+        gl.uniform(program, "uShift", "1f", shift)
+        gl.dispatch(program, (len(points) + 63) // 64)
+        values = struct.unpack(f"<{len(points)}f", gl.read(output, len(points) * 4))
+        assert all(math.isfinite(v) and 0 <= v <= 1 and abs(v - p) <= shift + 1e-7
+                   for p, v in zip(points, values))
+        for i in range(1, len(points)):
+            delta = values[i] - values[i - 1]
+            assert -2e-7 <= delta <= 8 * (points[i] - points[i - 1]) + 2e-7, "Attraction retains a jump or reverses climate ordering"
+        for level in (0, 0.25, 0.5, 0.75, 1):
+            assert values[points.index(level)] == level, "Attraction moved a matrix level"
+        if shift == 0:
+            assert values == points, "Zero attraction must be the identity"
+
 
 def main():
     try:
@@ -443,7 +507,8 @@ def main():
             try:
                 for test in (check_initialization, check_validation_and_elitism,
                              check_full_image_oracle, check_preview_coordinates,
-                             check_neural_axis_seeds_and_frequency, check_binary_five_noise):
+                             check_neural_axis_seeds_and_frequency, check_binary_five_noise,
+                             check_continuous_attraction):
                     test(lab)
                     gl.check(test.__name__)
                     print(f"PASS {test.__name__}")

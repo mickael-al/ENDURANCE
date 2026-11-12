@@ -28,7 +28,7 @@ constexpr std::array<const char*,14> NoiseNames{{
     "Perlin","Simplex","Value quintique","Value cubique","Blanc par cellule",
     "Voronoi","Valeur de cellule","fBm Perlin","fBm Simplex","fBm Value",
     "Patchwork de regions","Neural Pattern GPU",
-    "Somme binaire x5 - Perlin (exp.)","Somme binaire x5 - fBm Simplex (exp.)"
+    "Somme x5 - Perlin (exp.)","Somme x5 - fBm Simplex (exp.)"
 }};
 constexpr std::array<const char*,4> ReferenceChannelNames{{
     "Rouge","Vert","Bleu","Luminance"
@@ -257,6 +257,7 @@ void ClimateNoiseLabPanel::discoverUniforms()
     m_uniforms.temperatureNoiseType=get("uTemperatureNoiseType");
     m_uniforms.octaves=get("uOctaves"); m_uniforms.lacunarity=get("uLacunarity");
     m_uniforms.gain=get("uGain"); m_uniforms.remapMinimum=get("uRemapMinimum");
+    m_uniforms.binaryTransition=get("uBinaryTransition");
     m_uniforms.remapMaximum=get("uRemapMaximum");
     m_uniforms.postContrast=get("uPostContrast"); m_uniforms.postGamma=get("uPostGamma");
     m_uniforms.attractionMode=get("uAttractionMode");
@@ -704,6 +705,9 @@ void ClimateNoiseLabPanel::generate()
     glUniform1i(m_uniforms.octaves,std::clamp(m_owner.octaves,0,8));
     glUniform1f(m_uniforms.lacunarity,std::clamp(m_owner.lacunarity,1.0f,8.0f));
     glUniform1f(m_uniforms.gain,std::clamp(m_owner.gain,0.0f,1.0f));
+    glUniform2f(m_uniforms.binaryTransition,
+        std::clamp(m_owner.binaryTransitionHumidity,0.0f,1.0f),
+        std::clamp(m_owner.binaryTransitionTemperature,0.0f,1.0f));
     glUniform1f(m_uniforms.remapMinimum,m_owner.remapMinimum);
     glUniform1f(m_uniforms.remapMaximum,m_owner.remapMaximum);
     glUniform2f(m_uniforms.postContrast,m_owner.postContrastHumidity,m_owner.postContrastTemperature);
@@ -781,9 +785,16 @@ void ClimateNoiseLabPanel::drawSettings()
     changed|=ImGui::SliderFloat("Climate frequency",&m_owner.climateFrequency,.000001f,.02f,"%.7f",ImGuiSliderFlags_Logarithmic);
     changed|=ImGui::Combo("Humidite",&m_owner.humidityNoise,NoiseNames.data(),static_cast<int>(NoiseNames.size()));
     changed|=ImGui::Combo("Temperature",&m_owner.temperatureNoise,NoiseNames.data(),static_cast<int>(NoiseNames.size()));
-    if(m_owner.humidityNoise==BinaryPerlinNoise || m_owner.humidityNoise==BinarySimplexFbmNoise ||
-       m_owner.temperatureNoise==BinaryPerlinNoise || m_owner.temperatureNoise==BinarySimplexFbmNoise)
-        ImGui::TextWrapped("5 seeds par axe, chaque bruit > 0 ajoute 0.2. Sortie : 0, .2, .4, .6, .8, 1. Smoothstep ignore ; contraste/gamma et attraction restent appliques.");
+    const bool humiditySum5=m_owner.humidityNoise==BinaryPerlinNoise || m_owner.humidityNoise==BinarySimplexFbmNoise;
+    const bool temperatureSum5=m_owner.temperatureNoise==BinaryPerlinNoise || m_owner.temperatureNoise==BinarySimplexFbmNoise;
+    if(humiditySum5 || temperatureSum5)
+    {
+        if(humiditySum5)
+            changed|=ImGui::SliderFloat("Seuil transition H",&m_owner.binaryTransitionHumidity,0,1,"%.4f",ImGuiSliderFlags_AlwaysClamp);
+        if(temperatureSum5)
+            changed|=ImGui::SliderFloat("Seuil transition T",&m_owner.binaryTransitionTemperature,0,1,"%.4f",ImGuiSliderFlags_AlwaysClamp);
+        ImGui::TextWrapped("0 = binaire. 0.1 = transition de -0.1 a +0.1 sur chacun des 5 bruits, avant leur somme. Les plateaux restent inchanges hors transition. Ce seuil ne depend pas des pixels ; le Smoothstep global ci-dessous est ignore.");
+    }
     changed|=ImGui::SliderFloat("Multiplicateur H",&m_owner.humidityFrequencyMultiplier,.05f,8,"%.3f",ImGuiSliderFlags_Logarithmic);
     changed|=ImGui::SliderFloat("Multiplicateur T",&m_owner.temperatureFrequencyMultiplier,.05f,8,"%.3f",ImGuiSliderFlags_Logarithmic);
     changed|=ImGui::SliderInt("Octaves fBm",&m_owner.octaves,0,8);
@@ -867,6 +878,8 @@ void ClimateNoiseLabPanel::drawSettings()
         changed|=ImGui::SliderFloat("Cible temperature",&m_owner.attractionTargetTemperature,0,1,"%.3f");
         ImGui::TextWrapped("Six reperes : 0, .2, .4, .6, .8 et 1.");
     }
+    if(m_owner.attractionMode==2)
+        ImGui::TextWrapped("Attraction continue vers les niveaux 0, .25, .5, .75 et 1, sans saut lors du changement de cible.");
     changed|=ImGui::SliderFloat("Deplacement maximal",&m_owner.attractionMaxShift,0,.5f,"%.4f");
     changed|=ImGui::Checkbox("Transitions matrice lissees",&m_owner.matrixBlend);
     changed|=ImGui::Checkbox("Mise a jour automatique",&m_owner.autoUpdate);
@@ -900,6 +913,7 @@ void ClimateNoiseLabPanel::drawSettings()
         m_owner.postContrastHumidity=m_owner.postContrastTemperature=1;
         m_owner.postGammaHumidity=m_owner.postGammaTemperature=1;
         m_owner.attractionMode=0;
+        m_owner.binaryTransitionHumidity=m_owner.binaryTransitionTemperature=0;
         m_owner.octaves=4; m_owner.lacunarity=2; m_owner.gain=.5f;
         m_generateRequested=true;
         changed=true;
@@ -908,6 +922,17 @@ void ClimateNoiseLabPanel::drawSettings()
         binaryPreset(BinaryPerlinNoise);
     if(ImGui::Button("Test somme binaire x5 fBm Simplex",ImVec2(-1,0)))
         binaryPreset(BinarySimplexFbmNoise);
+    if(ImGui::Button("Preset climat x5 adouci",ImVec2(-1,0)))
+    {
+        binaryPreset(BinarySimplexFbmNoise);
+        m_owner.octaves=5;
+        m_owner.humidityFrequencyMultiplier=m_owner.temperatureFrequencyMultiplier=.1f;
+        m_owner.binaryTransitionHumidity=m_owner.binaryTransitionTemperature=.1f;
+        m_owner.postContrastHumidity=m_owner.postContrastTemperature=2;
+        m_owner.postGammaHumidity=1.5f; m_owner.postGammaTemperature=2;
+        m_owner.attractionMode=2; m_owner.attractionMaxShift=.032f;
+        m_owner.matrixBlend=true;
+    }
     if(ImGui::Button("Neural Pattern -> humidite",ImVec2(-1,0)))
     {
         m_owner.humidityNoise=NeuralPatternNoise;

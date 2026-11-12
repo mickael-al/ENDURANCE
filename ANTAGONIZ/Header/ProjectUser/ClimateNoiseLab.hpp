@@ -39,6 +39,10 @@ public:
     std::int32_t octaves = 4;
     float lacunarity = 2.0f;
     float gain = 0.5f;
+    // Experimental x5 sources: half-width around zero in noise-value units.
+    // Zero restores the binary threshold; 0.1 blends over [-0.1, +0.1].
+    float binaryTransitionHumidity = 0.1f;
+    float binaryTransitionTemperature = 0.1f;
     float remapMinimum = -0.32f;
     float remapMaximum = 0.32f;
 

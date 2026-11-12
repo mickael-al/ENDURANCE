@@ -255,12 +255,24 @@ extern "C" int climate_panel_tests()
         // otherwise selecting an experimental noise silently evaluates Neural.
         owner.humidityNoise=12;
         owner.temperatureNoise=13;
+        owner.binaryTransitionHumidity=.1f;
+        owner.binaryTransitionTemperature=.2f;
         panel.generate();
         GLint selected=0;
         glGetUniformiv(panel.m_program,panel.m_uniforms.humidityNoiseType,&selected);
         requirePanel(selected==12,"CPU rejected the experimental Perlin source");
         glGetUniformiv(panel.m_program,panel.m_uniforms.temperatureNoiseType,&selected);
         requirePanel(selected==13,"CPU rejected the experimental fBm source");
+        std::array<GLfloat,2> transition{};
+        glGetUniformfv(panel.m_program,panel.m_uniforms.binaryTransition,transition.data());
+        requirePanel(transition[0]==.1f && transition[1]==.2f,
+                     "Per-axis transition widths did not reach the preview shader");
+        owner.binaryTransitionHumidity=-1;
+        owner.binaryTransitionTemperature=2;
+        panel.generate();
+        glGetUniformfv(panel.m_program,panel.m_uniforms.binaryTransition,transition.data());
+        requirePanel(transition[0]==0 && transition[1]==1,
+                     "Out-of-range transition widths were not bounded");
         requirePanel(glGetError() == GL_NO_ERROR, "OpenGL error in production panel tests");
         std::cout << "PASS climate panel: pending reset, reference reload, model validation/resume, shader reload, preview\n";
         return 0;

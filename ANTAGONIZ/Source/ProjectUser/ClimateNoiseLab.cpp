@@ -11,6 +11,7 @@ REGISTER(Behaviour, ClimateNoiseLabComponent, seed, textureResolution, worldExte
     worldOriginX, worldOriginZ, climateFrequency,
     humidityFrequencyMultiplier, temperatureFrequencyMultiplier,
     humidityNoise, temperatureNoise, octaves, lacunarity, gain,
+    binaryTransitionHumidity, binaryTransitionTemperature,
     remapMinimum, remapMaximum, neuralWorldPeriod, neuralReferencePreview,
     postContrastHumidity, postContrastTemperature,
     postGammaHumidity, postGammaTemperature,
