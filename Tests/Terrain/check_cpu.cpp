@@ -70,6 +70,9 @@ static void fields()
     require(!validFieldDomain(p,1e11),"Integer noise-lattice overflow accepted");
     p.heightFrequency=1e10f;
     require(!validFieldDomain(p,1),"Excessive height frequency accepted");
+    p.heightFrequency=1.0f;
+    require(validFieldDomain(p,0x1p22),"Safe seven-octave height domain rejected");
+    require(!validFieldDomain(p,0x1p23),"Highest height octave can overflow the Simplex cell domain");
     p=FieldParameters{};p.mode=FieldMode::Sphere;
     require(validFieldDomain(p,1e10),"Analytic sphere unnecessarily restricted to noise domain");
     require(!validFieldDomain(p,0x1p61),"Sphere distance overflow accepted");

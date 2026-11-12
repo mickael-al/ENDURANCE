@@ -11,7 +11,7 @@ FieldColumn fieldProbeColumn(vec2 p)
     vec4 relief=fieldClampRelief(fieldRelief(p));
     float macroHeight=uBaseHeight;
     if(uHeightAmplitude>0.0)
-        macroHeight+=noisePerlin2D(p*uHeightFrequency, uSeed ^ (0x13198a2eu))*uHeightAmplitude;
+        macroHeight+=noiseSimplexFbm2D(p*uHeightFrequency, uSeed ^ (0x13198a2eu), 7, 2.0, 0.5)*uHeightAmplitude;
     float offset=uBandOffset;
     if(uBandOffsetVariation>0.0)
         offset+=uBandOffsetVariation*noisePerlin2D(p*0.0004, uSeed ^ (0xa4093822u));

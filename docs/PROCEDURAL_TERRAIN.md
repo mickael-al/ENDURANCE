@@ -32,6 +32,13 @@ ces réglages** recharge aussi cet include et invalide le binaire concerné quan
 son code change. Le relief macro, sa fréquence et les bandes 3D restent séparés
 de cette recette climatique.
 
+Le relief de base utilise un **fBm Simplex à 7 octaves**, lacunarité 2 et gain
+0,5, normalisé dans [-1, 1]. `heightFrequency` règle la première octave et
+`heightAmplitude` multiplie la somme normalisée ; la seed dédiée reste
+`seed ^ 0x13198a2e`. Ce relief est calculé une fois par colonne XZ. Il participe
+aussi à la sélection marine, donc changer sa forme change les côtes sans
+modifier les champs d'humidité et de température.
+
 Un lot de nouveaux chunks suit ces étapes :
 
 1. Le backend recherche les colonnes XZ et le champ de densité dans leurs caches bornés. Un travail peut partager les données d’un autre travail du même lot ou d’un lot précédent ; les entrées référencées restent protégées contre l’éviction.
@@ -126,8 +133,9 @@ recettes ainsi que le climat. Sa huitième octave atteint 0,0064 ; un facteur
 conservateur de 4 couvre le skew Simplex et la somme des coordonnées de cellule,
 soit 0,0256, inférieur à l'enveloppe. Si les defines climatiques augmentent ce
 produit au-delà de 0,25, adapter aussi `fixedNoiseCoordinateRate` dans
-`ProceduralTerrainField.hpp`. La fréquence macro de hauteur est contrôlée
-séparément par le maximum avec cette enveloppe.
+`ProceduralTerrainField.hpp`. Le relief macro est contrôlé séparément avec
+`heightFrequency × 2^6 × 4` : sept octaves et le même facteur conservateur
+Simplex. Le contrôle utilise le maximum entre ce produit et l'enveloppe fixe.
 
 ## Mémoire et extraction
 

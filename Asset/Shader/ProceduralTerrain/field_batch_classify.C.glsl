@@ -26,7 +26,7 @@ void main()
         {
             float macroHeight=uBaseHeight;
             if(uHeightAmplitude>0.0)
-                macroHeight+=noisePerlin2D(world*uHeightFrequency, uSeed ^ (0x13198a2eu))*uHeightAmplitude;
+                macroHeight+=noiseSimplexFbm2D(world*uHeightFrequency, uSeed ^ (0x13198a2eu), 7, 2.0, 0.5)*uHeightAmplitude;
             vec2 climate=noiseClimate2D(world,uSeed);
             float coast=(macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5;
             vec3 grid=vec3(clamp(climate,0.0,1.0)*4.0,clamp(coast,0.0,4.0));
