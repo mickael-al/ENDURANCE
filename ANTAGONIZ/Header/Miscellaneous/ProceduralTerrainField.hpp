@@ -119,9 +119,9 @@ namespace ProceduralTerrain
         // update it here too. Height remains the only configurable frequency.
         // 2^30 leaves room for rounding and +/-1 noise-cell neighbours.
         constexpr double fixedNoiseCoordinateRate = 0.25;
-        // Macro height uses 6 Simplex octaves: highest frequency is 2^5 times
-        // heightFrequency. Include the same conservative skew/cell-sum factor.
-        constexpr double heightNoiseCoordinateScale = 32.0 * 4.0;
+        // Macro height uses one Simplex octave at heightFrequency.
+        // Include the same conservative skew/cell-sum factor.
+        constexpr double heightNoiseCoordinateScale = 4.0;
         const double maximumFrequency = (std::max)(fixedNoiseCoordinateRate,
             static_cast<double>(p.heightFrequency) * heightNoiseCoordinateScale);
         return maximumAbsoluteWorldCoordinate * maximumFrequency <= 0x1p30;
