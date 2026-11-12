@@ -65,4 +65,7 @@ void ClimateNoiseLabComponent::load(std::string data)
     JS::ParseContext context(data);
     if(context.parseTo(*this)!=JS::Error::NoError)
         Ge::Debug::Warn("Invalid ClimateNoiseLabComponent parameters; check scene script JSON.");
+    // Retired x5 Perlin ID: retain saved Simplex ID 13 and migrate old scenes.
+    if(humidityNoise==12) humidityNoise=13;
+    if(temperatureNoise==12) temperatureNoise=13;
 }

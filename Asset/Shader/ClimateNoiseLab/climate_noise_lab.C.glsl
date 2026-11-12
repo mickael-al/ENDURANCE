@@ -47,7 +47,6 @@ uniform bool uMatrixBlend;
 uniform int uBiomeMatrix[25];
 
 const int NOISE_NEURAL_PATTERN = 11;
-const int NOISE_BINARY_PERLIN_5 = 12;
 const int NOISE_BINARY_SIMPLEX_FBM_5 = 13;
 
 const vec3 BIOME_COLORS[26] = vec3[26](
@@ -104,8 +103,8 @@ float sampleClimateAxis(int type, vec2 world, float frequencyMultiplier, uint se
 
     vec2 p = world * uClimateFrequency * max(frequencyMultiplier, 0.0);
     // Already in [0,1]: smooth individual thresholds, not the resulting sum.
-    if (type == NOISE_BINARY_PERLIN_5 || type == NOISE_BINARY_SIMPLEX_FBM_5)
-        return climateLabSum5(p, seed, type == NOISE_BINARY_SIMPLEX_FBM_5,
+    if (type == NOISE_BINARY_SIMPLEX_FBM_5)
+        return climateLabSum5(p, seed,
                               uOctaves, uLacunarity, uGain, binaryTransition);
     return climateTo01(sampleNoise2D(type, p, seed));
 }

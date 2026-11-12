@@ -89,6 +89,10 @@ extern "C" int climate_panel_tests()
         owner.geneticSampleGrid = 8;
         owner.geneticGenerationsPerBatch = 1;
         owner.textureResolution = 64;
+        // These fixtures need neutral output, independent of the chosen scene preset.
+        owner.postContrastHumidity=owner.postContrastTemperature=1;
+        owner.postGammaHumidity=owner.postGammaTemperature=1;
+        owner.attractionMode=0;
         ClimateNoiseLabPanel panel(owner);
         panel.init(nullptr);
         requirePanel(panel.m_program && panel.m_trainingProgram && panel.m_referenceTexture,
@@ -251,8 +255,8 @@ extern "C" int climate_panel_tests()
                      "Shader reload/save/reset/load round trip changed the pattern");
         panel.generate();
         requirePanel(!panel.m_dirty, "Preview after shader reload failed: " + owner.m_error);
-        // New appended source IDs must pass through the CPU selector clamp;
-        // otherwise selecting an experimental noise silently evaluates Neural.
+        // Saved source 13 must remain stable after deleting x5 Perlin (12).
+        // Legacy 12 is migrated to Simplex, never to the Neural source.
         owner.humidityNoise=12;
         owner.temperatureNoise=13;
         owner.binaryTransitionHumidity=.1f;
@@ -260,7 +264,7 @@ extern "C" int climate_panel_tests()
         panel.generate();
         GLint selected=0;
         glGetUniformiv(panel.m_program,panel.m_uniforms.humidityNoiseType,&selected);
-        requirePanel(selected==12,"CPU rejected the experimental Perlin source");
+        requirePanel(selected==13,"Legacy x5 Perlin source did not migrate to Simplex");
         glGetUniformiv(panel.m_program,panel.m_uniforms.temperatureNoiseType,&selected);
         requirePanel(selected==13,"CPU rejected the experimental fBm source");
         std::array<GLfloat,2> transition{};

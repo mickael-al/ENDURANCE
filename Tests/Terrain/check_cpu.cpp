@@ -68,8 +68,8 @@ static void fields()
     require(!validFieldDomain(p,std::numeric_limits<double>::quiet_NaN()),"NaN domain accepted under release flags");
     require(!validFieldDomain(p,std::numeric_limits<double>::infinity()),"Infinite domain accepted under release flags");
     require(!validFieldDomain(p,1e11),"Integer noise-lattice overflow accepted");
-    p.climateFrequency=1e10f;
-    require(!validFieldDomain(p,1),"Excessive climate frequency accepted");
+    p.heightFrequency=1e10f;
+    require(!validFieldDomain(p,1),"Excessive height frequency accepted");
     p=FieldParameters{};p.mode=FieldMode::Sphere;
     require(validFieldDomain(p,1e10),"Analytic sphere unnecessarily restricted to noise domain");
     require(!validFieldDomain(p,0x1p61),"Sphere distance overflow accepted");

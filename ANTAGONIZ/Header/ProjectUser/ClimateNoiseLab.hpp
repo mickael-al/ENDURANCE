@@ -32,19 +32,19 @@ public:
     float worldOriginZ = 0.0f;
 
     float climateFrequency = 0.0005f;
-    float humidityFrequencyMultiplier = 1.0f;
-    float temperatureFrequencyMultiplier = 1.0f;
-    std::int32_t humidityNoise = 1;
-    std::int32_t temperatureNoise = 1;
-    std::int32_t octaves = 4;
+    float humidityFrequencyMultiplier = 0.1f;
+    float temperatureFrequencyMultiplier = 0.1f;
+    std::int32_t humidityNoise = 13;
+    std::int32_t temperatureNoise = 13;
+    std::int32_t octaves = 8;
     float lacunarity = 2.0f;
     float gain = 0.5f;
-    // Experimental x5 sources: half-width around zero in noise-value units.
-    // Zero restores the binary threshold; 0.1 blends over [-0.1, +0.1].
-    float binaryTransitionHumidity = 0.1f;
-    float binaryTransitionTemperature = 0.1f;
-    float remapMinimum = -0.32f;
-    float remapMaximum = 0.32f;
+    // Adjustable reference for the validated x5 Simplex climate.
+    // Zero restores the binary threshold; 0.08 blends over [-0.08, +0.08].
+    float binaryTransitionHumidity = 0.08f;
+    float binaryTransitionTemperature = 0.08f;
+    float remapMinimum = -1.0f;
+    float remapMaximum = 1.0f;
 
     // Reference period in metres when climateFrequency is 0.0005.
     float neuralWorldPeriod = 32768.0f;
@@ -52,15 +52,15 @@ public:
     bool neuralReferencePreview = false;
 
     // Generic transformations applied after either source and before attraction.
-    float postContrastHumidity = 1.0f;
-    float postContrastTemperature = 1.0f;
-    float postGammaHumidity = 1.0f;
-    float postGammaTemperature = 1.0f;
+    float postContrastHumidity = 1.5f;
+    float postContrastTemperature = 1.5f;
+    float postGammaHumidity = 1.5f;
+    float postGammaTemperature = 2.0f;
 
-    std::int32_t attractionMode = 1;
+    std::int32_t attractionMode = 2;
     float attractionTargetHumidity = 0.5f;
     float attractionTargetTemperature = 0.5f;
-    float attractionMaxShift = 0.08f;
+    float attractionMaxShift = 0.0468f;
     bool matrixBlend = true;
 
     // 0=R, 1=G, 2=B, 3=luminance. Only one channel trains the scalar pattern.

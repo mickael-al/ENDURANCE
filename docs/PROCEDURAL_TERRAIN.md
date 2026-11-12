@@ -14,6 +14,24 @@ world = (origin + (sampleIndex - 1) * 2^lod) * baseSpacing
 
 `origin` est exprimé en voxels du niveau le plus fin. La fréquence des bruits ne dépend ni du chunk ni du LOD. Deux chunks, ou deux LOD, qui échantillonnent la même position utilisent donc les mêmes entrées. La seed participe directement au hachage entier des cellules de bruit ; elle n'est pas convertie en décalage flottant.
 
+Le climat de production utilise `noiseClimate2D(world, seed)` dans
+`Asset/Shader/Noise/climate_2d.glsl`. Les constantes `ENDURANCE_CLIMATE_` y
+regroupent la recette validée dans le laboratoire : somme de cinq fBm Simplex
+par canal, huit octaves, lacunarité 2, gain 0,5, fréquence 0,0005 et multiplicateur
+0,1 (fréquence effective 0,00005), seuil de transition 0,08, contraste 1,5,
+gamma humidité 1,5 et température 2. L'attraction continue vers le niveau de
+matrice le plus proche utilise un déplacement maximal de 0,0468. La matrice
+conserve son interpolation quintique. Le Smoothstep de remappage global du
+laboratoire n'intervient pas dans cette recette.
+
+Ces réglages sont des constantes de shader ; le composant terrain n'expose plus
+de fréquence climatique à l'exécution. La seed reste un paramètre du monde.
+Les anciennes scènes contenant `climateFrequency` restent lisibles : cette clé
+est ignorée, sans remplacer les nouvelles constantes. Le bouton **Régénérer avec
+ces réglages** recharge aussi cet include et invalide le binaire concerné quand
+son code change. Le relief macro, sa fréquence et les bandes 3D restent séparés
+de cette recette climatique.
+
 Un lot de nouveaux chunks suit ces étapes :
 
 1. Le backend recherche les colonnes XZ et le champ de densité dans leurs caches bornés. Un travail peut partager les données d’un autre travail du même lot ou d’un lot précédent ; les entrées référencées restent protégées contre l’éviction.
@@ -75,7 +93,6 @@ Le contrat C++ se trouve dans `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainF
 | `baseHeight` | 0 | Niveau moyen du terrain. |
 | `heightAmplitude` | 320 | Amplitude du relief à grande échelle. |
 | `heightFrequency` | 0,00015 | Fréquence du relief à grande échelle. |
-| `climateFrequency` | 0,0005 | Taille des régions d'humidité et de température. |
 | `bandOffset` | 0 | Décalage vertical de la zone 3D ; négatif pour l'enfouir. |
 | `bandOffsetVariation` | 0 | Amplitude de la variation signée du décalage. |
 | `detailScale` | 0,35 | Intensité du relief, de l'épaisseur, du décalage et des amplitudes 3D propres aux biomes. |
@@ -103,6 +120,14 @@ Les anciens réglages `bandThickness` et `bandVariation` ont été supprimés du
 Ces bornes supposent un relief propre au biome borné à [-640 ; 640], une épaisseur totale de biome à [0 ; 576] et un décalage relatif combiné à [-160 ; 160], avant `detailScale`. `fieldVolumeBand()` borne la somme du décalage de relief et de l’offset de la recette. `fieldVolumeEnvelope()` englobe toutes les positions possibles de cette bande pour le rejet des passes. Il utilise le même ordre d’addition que la recette et une marge vers l’extérieur : une réassociation flottante à grande coordonnée pourrait sinon supprimer un échantillon encore dans la bande. Une nouvelle fonction 3D doit conserver cette enveloppe ; l’élargir demande d’adapter ensemble les bornes C++, le rejet GPU et la recette. Sans cela, la sélection peut omettre une formation produite par le shader.
 
 Avant chaque travail, `validFieldDomain()` contrôle également les coordonnées maximales du halo, calculées en double. Le produit coordonnée × fréquence reste inférieur à 2³⁰ pour sécuriser les conversions en cellules entières des bruits. Les paramètres, les bornes et le domaine restent sous 2⁶⁰ afin d'éviter les débordements des intermédiaires flottants, notamment le calcul de distance du mode sphère. Ces contrôles empêchent les valeurs extrêmes d'atteindre les shaders ; ils ne compensent pas la perte progressive de précision des coordonnées `float` loin de l'origine.
+
+L'enveloppe fixe de ce contrôle vaut 0,25 et couvre les transformations des
+recettes ainsi que le climat. Sa huitième octave atteint 0,0064 ; un facteur
+conservateur de 4 couvre le skew Simplex et la somme des coordonnées de cellule,
+soit 0,0256, inférieur à l'enveloppe. Si les defines climatiques augmentent ce
+produit au-delà de 0,25, adapter aussi `fixedNoiseCoordinateRate` dans
+`ProceduralTerrainField.hpp`. La fréquence macro de hauteur est contrôlée
+séparément par le maximum avec cette enveloppe.
 
 ## Mémoire et extraction
 

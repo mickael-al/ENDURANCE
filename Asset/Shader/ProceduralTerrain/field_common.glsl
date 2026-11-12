@@ -19,7 +19,6 @@ uniform uint uFieldMode;
 uniform float uBaseHeight;
 uniform float uHeightAmplitude;
 uniform float uHeightFrequency;
-uniform float uClimateFrequency;
 uniform float uBandOffset;
 uniform float uBandOffsetVariation;
 uniform float uDetailScale;

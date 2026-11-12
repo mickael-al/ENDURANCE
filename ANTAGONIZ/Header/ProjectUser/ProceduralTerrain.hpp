@@ -40,7 +40,6 @@ public:
     float baseHeight = 0.0f;
     float heightAmplitude = 320.0f;
     float heightFrequency = 0.00015f;
-    float climateFrequency = 0.0005f;
     float bandOffset = 0.0f;
     float bandOffsetVariation = 0.0f;
     float detailScale = 0.35f;

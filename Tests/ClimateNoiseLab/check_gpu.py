@@ -394,7 +394,7 @@ def check_binary_five_noise(lab):
             result.append(bytes(data))
         return result
 
-    for noise_type, base in ((12, perlin2d), (13, simplex_fbm2d)):
+    for noise_type, base in ((13, simplex_fbm2d),):
         gl.uniform(lab.preview, "uHumidityNoiseType", "1i", noise_type)
         gl.uniform(lab.preview, "uTemperatureNoiseType", "1i", noise_type)
         result = render()
@@ -576,6 +576,111 @@ def check_matrix_statistics(lab):
             assert actual[6][0] == 0 and actual[6][2] == size * size, "Quantized weights hid a present biome"
 
 
+
+def check_fixed_terrain_climate(lab):
+    # Float readback compares the compact production recipe with the adjustable
+    # lab pipeline, not quantized preview pixels. Positions cover both signs,
+    # large worlds, and points reused by neighbouring chunks/LOD lattices.
+    gl = lab.gl
+    points = [(0.0, 0.0), (1.0, -1.0), (-32768.0, 32768.0),
+              (1e6, -1e6), (-1e6, 1e6), (64.0, 128.0)]
+    points += [((x - 16) * 2048.0 + 17.25, (y - 16) * 2048.0 - 39.5)
+               for y in range(32) for x in range(32)]
+    points += [(float(x), float(z)) for x in range(-128, 129, 16)
+               for z in (-128, 0, 128)]
+    source = shader_source(ROOT / "Asset/Shader/ClimateNoiseLab/climate_noise_lab.C.glsl")
+    source = source[:source.index("void main()")]
+    source += shader_source(ROOT / "Asset/Shader/Noise/climate_2d.glsl")
+    source += """
+layout(std430,binding=4) readonly buffer ClimatePositions { vec2 positions[]; };
+layout(std430,binding=7) writeonly buffer ClimateComparison { vec4 comparison[]; };
+void main() {
+    uint i=gl_WorkGroupID.x*64u+gl_LocalInvocationIndex;
+    if(i>=uint(positions.length())) return;
+    vec2 p=positions[i];
+    vec2 reference=applyAttraction(applyPostShape(sampleClimate(p)));
+    comparison[i]=vec4(reference,noiseClimate2D(p,uSeed));
+}
+"""
+    program = gl.compile([(0x91B9, source)], "fixed terrain versus validated lab climate")
+    positions_buffer = gl.buffer(floats([c for p in points for c in p]), 4)
+    output = gl.buffer(len(points) * 16, 7)
+    gl.bind(lab.best, 5)
+    for name, suffix, args in (
+        ("uClimateFrequency", "1f", (.0005,)),
+        ("uHumidityFrequencyMultiplier", "1f", (.1,)),
+        ("uTemperatureFrequencyMultiplier", "1f", (.1,)),
+        ("uHumidityNoiseType", "1i", (13,)), ("uTemperatureNoiseType", "1i", (13,)),
+        ("uOctaves", "1i", (8,)), ("uLacunarity", "1f", (2.0,)), ("uGain", "1f", (.5,)),
+        ("uBinaryTransition", "2f", (.08, .08)),
+        ("uPostContrast", "2f", (1.5, 1.5)), ("uPostGamma", "2f", (1.5, 2.0)),
+        ("uAttractionMode", "1i", (2,)), ("uAttractionMaxShift", "1f", (.0468,)),
+    ):
+        gl.uniform(program, name, suffix, *args)
+    maps = []
+    for seed in (0, 1, SEED, 0xffffffff):
+        gl.uniform(program, "uSeed", "1ui", seed)
+        gl.dispatch(program, (len(points) + 63) // 64)
+        raw = gl.read(output, len(points) * 16)
+        values = struct.unpack(f"<{len(points) * 4}f", raw)
+        largest_error = 0.0
+        for i, p in enumerate(points):
+            h, t, actual_h, actual_t = values[i * 4:i * 4 + 4]
+            assert all(math.isfinite(v) and 0 <= v <= 1 for v in (h, t, actual_h, actual_t))
+            error = max(abs(h - actual_h), abs(t - actual_t))
+            largest_error = max(largest_error, error)
+            assert error <= 2e-5, (seed, p, (h, t), (actual_h, actual_t), error)
+        assert any(abs(values[i] - values[i + 1]) > .01 for i in range(0, len(values), 4)), "Climate axes share a field"
+        gl.dispatch(program, (len(points) + 63) // 64)
+        assert gl.read(output, len(points) * 16) == raw, "Production climate is not deterministic"
+        maps.append(raw)
+        print(f"  climate seed={seed}: max float error {largest_error:.3g}")
+    assert len(set(maps)) == len(maps), "Production climate ignores the world seed"
+
+
+    # Execute the authoritative batching pipeline, including classification,
+    # packing and decoding. Climate coordinates must remain FP32 through it.
+    from field_batch_runner import BatchFieldRunner
+    runner = BatchFieldRunner(gl)
+    seen = {}
+    batches = (
+        (1.0, [dict(origin=(-128, 0, -128), lod=0, seed=SEED),
+               dict(origin=(-124, 0, -128), lod=0, seed=SEED),
+               dict(origin=(-128, 0, -128), lod=1, seed=SEED),
+               dict(origin=(20480, 0, 12288), lod=0, seed=0)]),
+        (2.5, [dict(origin=(8192, -32, -16384), lod=3, seed=1),
+               dict(origin=(-8192, 0, 16384), lod=5, seed=0xffffffff)]),
+    )
+    matched_seams = 0
+    for spacing, requests in batches:
+        results = runner.run_batch(requests, cells=4, padding=True,
+                                   uBaseSpacing=spacing, uHeightAmplitude=0.0,
+                                   uSeaLevel=-1000.0)
+        for request, result in zip(requests, results):
+            side, stride = result["side"], 1 << request["lod"]
+            origin = request["origin"]
+            samples = [((origin[0] + (x - 1) * stride) * spacing,
+                        (origin[2] + (z - 1) * stride) * spacing)
+                       for z in range(side) for x in range(side)]
+            gl.resize(positions_buffer, floats([v for p in samples for v in p]))
+            gl.resize(output, len(samples) * 16)
+            gl.bind(positions_buffer, 4)
+            gl.bind(lab.best, 5)
+            gl.bind(output, 7)
+            gl.uniform(program, "uSeed", "1ui", request["seed"])
+            gl.dispatch(program, (len(samples) + 63) // 64)
+            reference = struct.unpack(f"<{len(samples) * 4}f", gl.read(output, len(samples) * 16))
+            for i, p in enumerate(samples):
+                actual = result["columns"][i * 12 + 1:i * 12 + 3]
+                expected = reference[i * 4:i * 4 + 2]
+                assert max(abs(a - b) for a, b in zip(actual, expected)) <= 2e-5, ("batched column climate", request, p, actual, expected)
+                key = (request["seed"], *p)
+                if key in seen:
+                    assert actual == seen[key], "Climate differs at a shared chunk/LOD sample"
+                    matched_seams += 1
+                seen[key] = actual
+    assert matched_seams > 0, "The fixture did not exercise shared chunk/LOD samples"
+
 def main():
     try:
         with GL() as gl:
@@ -585,7 +690,8 @@ def main():
                 for test in (check_initialization, check_validation_and_elitism,
                              check_full_image_oracle, check_preview_coordinates,
                              check_neural_axis_seeds_and_frequency, check_binary_five_noise,
-                             check_continuous_attraction, check_matrix_statistics):
+                             check_continuous_attraction, check_matrix_statistics,
+                             check_fixed_terrain_climate):
                     test(lab)
                     gl.check(test.__name__)
                     print(f"PASS {test.__name__}")

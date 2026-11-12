@@ -107,7 +107,7 @@ class BiomeProbe:
             "uCells":("1ui",64),"uOrigin":("3i",0,0,0),"uLod":("1ui",0),
             "uBaseSpacing":("1f",1.),"uSeed":("1ui",1337),"uFieldMode":("1ui",0),
             "uBaseHeight":("1f",0.),"uHeightAmplitude":("1f",320.),
-            "uHeightFrequency":("1f",.00015),"uClimateFrequency":("1f",.0005),
+            "uHeightFrequency":("1f",.00015),
             "uBandOffset":("1f",0.),"uBandOffsetVariation":("1f",0.),
             "uDetailScale":("1f",.35),"uSeaLevel":("1f",0.),"uSeaBlendWidth":("1f",64.),
             "uBiomeOverride":("1i",biome),"uSphereCenter":("3f",0.,0.,0.),"uSphereRadius":("1f",48.),
@@ -190,7 +190,7 @@ def check_matrix_continuity(probe):
     gl=probe.gl
     fields=FieldRunner(gl)
     source=shader_source(SHADERS/"field_batch_classify.C.glsl")
-    source,count=re.subn(r"vec2 climate=smoothstep\([\s\S]*?;", "vec2 climate=uProbeClimate.xy;", source)
+    source,count=re.subn(r"vec2 climate=noiseClimate2D\(world,uSeed\);", "vec2 climate=uProbeClimate.xy;", source)
     assert count==1, "Production climate classification changed; update the point injection"
     needle="clamp(coast,0.0,4.0)"
     assert source.count(needle)==1

@@ -204,66 +204,76 @@ sur l'autre axe.
 Les bruits classiques restent disponibles : Perlin, Simplex, Value, bruit blanc,
 Voronoï, valeur de cellule, variantes fBm et Patchwork de régions.
 
-## Sommes x5 expérimentales
+## Climat validé pour le terrain — 12 novembre 2026
 
-Deux sources supplémentaires sont disponibles indépendamment pour l'humidité
-et la température :
+La recette retenue est **Somme x5 - fBm Simplex** sur les deux canaux. Les valeurs
+ci-dessous sont celles de la capture validée, et servent maintenant de valeurs
+par défaut à la scène du laboratoire et au bouton **Preset climat terrain valide**.
 
-- **Somme x5 - Perlin (exp.)** ;
-- **Somme x5 - fBm Simplex (exp.)**.
+| Réglage | Humidité | Température |
+| --- | --- | --- |
+| Fréquence climatique | 0.0005 | 0.0005 |
+| Multiplicateur spatial | 0.1 | 0.1 |
+| Fréquence effective | 0.00005 | 0.00005 |
+| Nombre de bruits / seeds | 5 | 5 |
+| Octaves par fBm | 8 | 8 |
+| Lacunarité | 2 | 2 |
+| Gain | 0.5 | 0.5 |
+| Seuil de transition | 0.08 | 0.08 |
+| Contraste | 1.5 | 1.5 |
+| Gamma | 1.5 | 2 |
+| Attraction | Niveau de matrice le plus proche, continu | Idem |
+| Déplacement maximal | 0.0468 | 0.0468 |
+| Interpolation de matrice | Quintique lissée | Idem |
 
-Le code de ces expériences et de l'attraction du laboratoire est isolé dans
-`Asset/Shader/ClimateNoiseLab/climate_experiments.glsl`. Il réutilise les bruits
-de `Noise/` sans ajouter de recette expérimentale à cette bibliothèque ni
-modifier les shaders du terrain.
+Le Smoothstep global affiché à `[-1, +1]` n'intervient pas dans cette source.
+Chaque fBm complet contribue `smoothstep(-0.08, 0.08, valeur) / 5`, puis on
+applique contraste, gamma et attraction. La seed reste celle du monde, avec des
+salts distincts pour l'humidité et la température. Aucun bruit aléatoire temporel
+ni aucune texture d'aperçu n'intervient dans le terrain.
 
-Chaque canal évalue cinq bruits de même fréquence avec cinq seeds distinctes,
-dérivées de la seed de cet axe. Avec **Seuil transition H/T = 0**, chaque bruit
-strictement supérieur à zéro ajoute `1/5` au résultat ; un bruit nul ou négatif
-n'ajoute rien :
+La version de production est dans **`Asset/Shader/Noise/climate_2d.glsl`** :
 
 ```glsl
-resultat = (positifs_sur_les_cinq_bruits) / 5.0;
+vec2 noiseClimate2D(vec2 world, uint seed); // x=humidité, y=température
 ```
 
-Cela produit **six niveaux**, `0, 0.2, 0.4, 0.6, 0.8, 1`, et des frontières
-franches. La distribution des niveaux n'est pas forcée à être uniforme. Pour la
-version fBm, le seuil s'applique au résultat de chaque fBm complet, après le
-mélange de ses octaves. Les réglages Octaves, Lacunarité et Gain restent actifs.
-Avec zéro octave et un seuil de transition nul, la somme fBm vaut zéro.
+Les réglages sont des `#define ENDURANCE_CLIMATE_*` regroupés en tête de fichier,
+compilés dans le shader. Le terrain n'a plus de paramètre `climateFrequency` à
+transmettre : les anciennes clés des scènes sont ignorées au chargement.
+Modifier les defines puis utiliser **Regenerer avec ces reglages** recharge le
+code ; le cache binaire tient compte du contenu des includes.
 
-Les réglages **Seuil transition H** et **Seuil transition T** sont indépendants,
-sauvegardés avec le composant de scène, et valent `0.1` par défaut. Avec un seuil
-positif `s`, chaque bruit contribue `0.2 * smoothstep(-s, s, bruit)`. Ainsi `0.1`
-crée une transition entre `-0.1` et `+0.1`, avant l'addition des cinq bruits.
-Hors de ces bandes, les contributions et les plateaux restent identiques au
-mode binaire. Un bruit exactement nul contribue alors `0.1` : cinq bruits nuls
-(notamment un fBm à zéro octave) donnent `0.5` avant contraste/gamma.
+Les deux canaux et les cinq couches sont évalués ensemble. À chaque octave,
+la cellule Simplex, les distances et les atténuations sont calculées une fois
+pour les dix champs. Les hash/gradients gardent leurs seeds distinctes. Les
+puissances fixes utilisent `x*sqrt(x)` pour le gamma 1.5 et `x*x` pour le gamma 2.
+Le climat complet est calculé une seule fois par colonne XZ, puis réutilisé par
+la génération volumique. Il n'ajoute aucun transfert CPU, buffer ou dispatch.
+Le relief, la hauteur de base et la sélection marine par hauteur restent des
+étapes distinctes du climat.
 
-Cette largeur est exprimée en valeurs de bruit, pas en pixels ni en mètres.
-Le champ ne dépend donc pas de la résolution d'aperçu ; la largeur en mètres
-varie avec la pente locale du bruit et la fréquence choisie. Aucun voisinage
-n'est échantillonné : toujours cinq bruits par canal, sans passe ni texture
-supplémentaire. Le changement de seuil est un uniform et ne recompile pas les
-shaders. Les autres sources de bruit ignorent ce réglage.
+## Référence ajustable du laboratoire
 
-`Climate frequency` et les multiplicateurs H/T contrôlent la taille des motifs.
-Le remappage Smoothstep est ignoré car la somme est déjà dans [0,1]. Les
-transformations contraste/gamma et l'attraction restent disponibles ensuite.
-Les boutons **Test somme binaire x5 Perlin** et **Test somme binaire x5 fBm Simplex**
-placent la même méthode sur les deux axes, remettent les seuils de transition à
-zéro et contraste/gamma à 1,
-mettent l'apprentissage neuronal en pause, désactivent l'attraction et génèrent
-l'aperçu. Les seeds des deux axes restent
-distinctes. La matrice de biomes conserve ses cinq niveaux et ses réglages ;
-elle n'est pas redimensionnée pour cette expérience.
+Le laboratoire conserve la référence ajustable dans
+`ClimateNoiseLab/climate_experiments.glsl` pour comparer les changements futurs.
+**L'expérience x5 Perlin est supprimée** (sélecteur, bouton et branche GLSL).
+Le Simplex x5 garde son ID sauvegardé `13` ; l'ancien ID `12` est migré vers `13`.
+Les autres bruits simples et l'outil Neural restent disponibles pour les tests.
 
-**Preset climat x5 adouci** reprend les réglages du test retenu : fBm Simplex
-x5 sur les deux axes, cinq octaves, lacunarité 2, gain 0.5, fréquence climatique
-0.0005 et multiplicateurs H/T à 0.1, contraste 2, gamma H à 1.5 et T à 2,
-attraction au niveau de matrice le plus proche avec déplacement maximal 0.032,
-matrice lissée. Les deux seuils de transition sont initialisés à 0.1 et restent
-réglables. La seed et le cadrage ne sont pas modifiés.
+Les seuils H/T peuvent toujours être modifiés indépendamment dans le laboratoire.
+`0` reproduit le mode binaire strict : chaque fBm positif ajoute `0.2`, et on
+obtient les six niveaux `0, 0.2, 0.4, 0.6, 0.8, 1`. Un seuil positif `s` produit
+une transition de `-s` à `+s` avant la somme. Un bruit nul contribue alors `0.1` ;
+cinq bruits nuls donnent `0.5` avant les transformations de sortie.
+
+Cette largeur s'exprime en valeurs de bruit, pas en pixels ou en mètres. Le champ
+reste indépendant de la résolution d'aperçu ; sa largeur physique varie avec la
+pente du bruit. Le bouton **Test somme binaire x5 fBm Simplex** remet les seuils
+à zéro, contraste/gamma à 1 et l'attraction à zéro pour isoler cette expérience.
+Le preset validé rétablit toutes les valeurs du tableau sans modifier la seed
+ni le cadrage. Les changements du laboratoire n'affectent pas automatiquement
+les constantes du terrain.
 
 ## Vérifications
 
@@ -282,7 +292,7 @@ développement X11 pour construire le GLEW fourni. Un objet GLEW déjà compilé
 Les tests GPU vérifient notamment les scores face à un calcul CPU indépendant,
 le cas d'une fenêtre facile qui ne doit pas verrouiller le modèle, la
 reproductibilité et l'accord entre les coordonnées d'apprentissage et d'aperçu.
-Ils comparent aussi les deux sommes binaires avec un calcul CPU indépendant,
+Ils comparent aussi la somme binaire Simplex avec un calcul CPU indépendant,
 vérifient les six niveaux, le seuil strict à zéro et l'effet des seeds/fréquences.
 Ils contrôlent aussi les transitions progressives, l'indépendance des réglages
 H/T, la conservation des plateaux, le retour exact au mode binaire et la
@@ -295,3 +305,7 @@ Les tests du panneau exercent les buffers réels et les transitions de chargemen
 et de réinitialisation sans lancer la scène complète.
 La variante `--fast-math` vérifie aussi le rejet des modèles contenant des NaN
 avec les optimisations flottantes utilisées par la compilation Release.
+
+La recette fixe et le climat réellement lu par les colonnes du terrain sont
+comparés en float32 à la référence ajustable du laboratoire, avec les réglages
+validés, plusieurs seeds et des positions positives/négatives.

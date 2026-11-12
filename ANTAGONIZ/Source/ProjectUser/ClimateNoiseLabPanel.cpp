@@ -24,12 +24,14 @@
 
 namespace
 {
-constexpr std::array<const char*,14> NoiseNames{{
+constexpr std::array<const char*,13> NoiseNames{{
     "Perlin","Simplex","Value quintique","Value cubique","Blanc par cellule",
     "Voronoi","Valeur de cellule","fBm Perlin","fBm Simplex","fBm Value",
     "Patchwork de regions","Neural Pattern GPU",
-    "Somme x5 - Perlin (exp.)","Somme x5 - fBm Simplex (exp.)"
+    "Somme x5 - fBm Simplex"
 }};
+// Combo indices differ from stable serialized IDs after retiring x5 Perlin (12).
+constexpr std::array<int,13> NoiseIds{{0,1,2,3,4,5,6,7,8,9,10,11,13}};
 constexpr std::array<const char*,4> ReferenceChannelNames{{
     "Rouge","Vert","Bleu","Luminance"
 }};
@@ -38,9 +40,22 @@ constexpr std::array<const char*,3> AttractionNames{{
 }};
 constexpr std::array<int,5> Resolutions{{256,512,1024,1536,2048}};
 constexpr int NeuralPatternNoise = 11;
-constexpr int BinaryPerlinNoise = 12;
 constexpr int BinarySimplexFbmNoise = 13;
-constexpr int LastNoise = static_cast<int>(NoiseNames.size()) - 1;
+constexpr int LastNoise = BinarySimplexFbmNoise;
+
+int canonicalNoiseId(int id)
+{
+    return id==12 ? BinarySimplexFbmNoise : std::clamp(id,0,LastNoise);
+}
+
+bool noiseCombo(const char* label,std::int32_t& id)
+{
+    id=canonicalNoiseId(id);
+    int selection=id==BinarySimplexFbmNoise ? 12 : id;
+    if(!ImGui::Combo(label,&selection,NoiseNames.data(),static_cast<int>(NoiseNames.size()))) return false;
+    id=NoiseIds[selection];
+    return true;
+}
 constexpr const char* ReferencePath = "../Asset/Shader/ClimateNoiseLab/climate_reference.png";
 constexpr const char* ModelPath = "../Asset/Shader/ClimateNoiseLab/neural_pattern_model.bin";
 constexpr std::uint32_t ModelMagic = 0x4d54504eu;
@@ -721,8 +736,10 @@ void ClimateNoiseLabPanel::generate()
     glUniform1i(m_uniforms.neuralReferencePreview,m_owner.neuralReferencePreview?1:0);
     glUniform1f(m_uniforms.humidityFrequencyMultiplier,std::max(m_owner.humidityFrequencyMultiplier,0.0f));
     glUniform1f(m_uniforms.temperatureFrequencyMultiplier,std::max(m_owner.temperatureFrequencyMultiplier,0.0f));
-    glUniform1i(m_uniforms.humidityNoiseType,std::clamp(m_owner.humidityNoise,0,LastNoise));
-    glUniform1i(m_uniforms.temperatureNoiseType,std::clamp(m_owner.temperatureNoise,0,LastNoise));
+    m_owner.humidityNoise=canonicalNoiseId(m_owner.humidityNoise);
+    m_owner.temperatureNoise=canonicalNoiseId(m_owner.temperatureNoise);
+    glUniform1i(m_uniforms.humidityNoiseType,m_owner.humidityNoise);
+    glUniform1i(m_uniforms.temperatureNoiseType,m_owner.temperatureNoise);
     glUniform1i(m_uniforms.octaves,std::clamp(m_owner.octaves,0,8));
     glUniform1f(m_uniforms.lacunarity,std::clamp(m_owner.lacunarity,1.0f,8.0f));
     glUniform1f(m_uniforms.gain,std::clamp(m_owner.gain,0.0f,1.0f));
@@ -923,10 +940,10 @@ void ClimateNoiseLabPanel::drawSettings()
 
     ImGui::SeparatorText("Sources de bruit");
     changed|=ImGui::SliderFloat("Climate frequency",&m_owner.climateFrequency,.000001f,.02f,"%.7f",ImGuiSliderFlags_Logarithmic);
-    changed|=ImGui::Combo("Humidite",&m_owner.humidityNoise,NoiseNames.data(),static_cast<int>(NoiseNames.size()));
-    changed|=ImGui::Combo("Temperature",&m_owner.temperatureNoise,NoiseNames.data(),static_cast<int>(NoiseNames.size()));
-    const bool humiditySum5=m_owner.humidityNoise==BinaryPerlinNoise || m_owner.humidityNoise==BinarySimplexFbmNoise;
-    const bool temperatureSum5=m_owner.temperatureNoise==BinaryPerlinNoise || m_owner.temperatureNoise==BinarySimplexFbmNoise;
+    changed|=noiseCombo("Humidite",m_owner.humidityNoise);
+    changed|=noiseCombo("Temperature",m_owner.temperatureNoise);
+    const bool humiditySum5=m_owner.humidityNoise==BinarySimplexFbmNoise;
+    const bool temperatureSum5=m_owner.temperatureNoise==BinarySimplexFbmNoise;
     if(humiditySum5 || temperatureSum5)
     {
         if(humiditySum5)
@@ -1026,7 +1043,7 @@ void ClimateNoiseLabPanel::drawSettings()
     if(ImGui::Button("Generer",ImVec2(-1,0))) m_generateRequested=true;
     if(ImGui::Button("Recharger les shaders",ImVec2(-1,0))) reloadShaders();
 
-    if(ImGui::Button("Preset climat actuel",ImVec2(-1,0)))
+    if(ImGui::Button("Preset Perlin historique",ImVec2(-1,0)))
     {
         m_owner.humidityNoise=m_owner.temperatureNoise=0; m_owner.climateFrequency=.0005f;
         m_owner.humidityFrequencyMultiplier=m_owner.temperatureFrequencyMultiplier=1;
@@ -1045,9 +1062,9 @@ void ClimateNoiseLabPanel::drawSettings()
         m_owner.remapMinimum=-1.0f; m_owner.remapMaximum=1.0f;
         m_owner.attractionMode=0; m_owner.matrixBlend=true; changed=true;
     }
-    const auto binaryPreset=[&](int noise) {
+    const auto binaryPreset=[&]() {
         m_training=false;
-        m_owner.humidityNoise=m_owner.temperatureNoise=noise;
+        m_owner.humidityNoise=m_owner.temperatureNoise=BinarySimplexFbmNoise;
         m_owner.climateFrequency=.0005f;
         m_owner.humidityFrequencyMultiplier=m_owner.temperatureFrequencyMultiplier=1;
         m_owner.postContrastHumidity=m_owner.postContrastTemperature=1;
@@ -1058,19 +1075,18 @@ void ClimateNoiseLabPanel::drawSettings()
         m_generateRequested=true;
         changed=true;
     };
-    if(ImGui::Button("Test somme binaire x5 Perlin",ImVec2(-1,0)))
-        binaryPreset(BinaryPerlinNoise);
     if(ImGui::Button("Test somme binaire x5 fBm Simplex",ImVec2(-1,0)))
-        binaryPreset(BinarySimplexFbmNoise);
-    if(ImGui::Button("Preset climat x5 adouci",ImVec2(-1,0)))
+        binaryPreset();
+    if(ImGui::Button("Preset climat terrain valide",ImVec2(-1,0)))
     {
-        binaryPreset(BinarySimplexFbmNoise);
-        m_owner.octaves=5;
+        binaryPreset();
+        m_owner.octaves=8;
         m_owner.humidityFrequencyMultiplier=m_owner.temperatureFrequencyMultiplier=.1f;
-        m_owner.binaryTransitionHumidity=m_owner.binaryTransitionTemperature=.1f;
-        m_owner.postContrastHumidity=m_owner.postContrastTemperature=2;
+        m_owner.binaryTransitionHumidity=m_owner.binaryTransitionTemperature=.08f;
+        m_owner.remapMinimum=-1; m_owner.remapMaximum=1;
+        m_owner.postContrastHumidity=m_owner.postContrastTemperature=1.5f;
         m_owner.postGammaHumidity=1.5f; m_owner.postGammaTemperature=2;
-        m_owner.attractionMode=2; m_owner.attractionMaxShift=.032f;
+        m_owner.attractionMode=2; m_owner.attractionMaxShift=.0468f;
         m_owner.matrixBlend=true;
     }
     if(ImGui::Button("Neural Pattern -> humidite",ImVec2(-1,0)))

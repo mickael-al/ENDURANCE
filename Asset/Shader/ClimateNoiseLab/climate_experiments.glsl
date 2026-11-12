@@ -1,5 +1,5 @@
-// Climate lab experiments only. Keep candidate recipes out of Noise/ until
-// a climate technique has been selected for the terrain.
+// Adjustable climate-lab reference and experimental shaping. The terrain uses
+// the fixed validated climate recipe; unrelated experiments stay in this file.
 #ifndef ENDURANCE_CLIMATE_EXPERIMENTS_GLSL
 #define ENDURANCE_CLIMATE_EXPERIMENTS_GLSL
 
@@ -7,16 +7,14 @@
 
 // Five complete noises with independent seeds. transition is a half-width in
 // noise-value units, not pixels or metres. Zero preserves the strict >0 test.
-float climateLabSum5(vec2 p, uint seed, bool simplexFbm, int octaves,
+float climateLabSum5(vec2 p, uint seed, int octaves,
                      float lacunarity, float gain, float transition)
 {
     float sum = 0.0;
     for (uint layer = 0u; layer < 5u; ++layer)
     {
         uint layerSeed = noiseInternalHash(seed ^ ((layer + 1u) * 0x9e3779b9u));
-        float value = simplexFbm
-            ? noiseSimplexFbm2D(p, layerSeed, octaves, lacunarity, gain)
-            : noisePerlin2D(p, layerSeed);
+        float value = noiseSimplexFbm2D(p, layerSeed, octaves, lacunarity, gain);
         sum += transition > 0.0
             ? smoothstep(-transition, transition, value)
             : (value > 0.0 ? 1.0 : 0.0);

@@ -40,7 +40,6 @@ def default_uniforms(cells, mode=0, **overrides):
         "uBaseHeight": ("1f", 0.0),
         "uHeightAmplitude": ("1f", 320.0),
         "uHeightFrequency": ("1f", 0.00015),
-        "uClimateFrequency": ("1f", 0.0005),
         "uBandOffset": ("1f", 0.0),
         "uBandOffsetVariation": ("1f", 0.0),
         "uDetailScale": ("1f", 0.35),

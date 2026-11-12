@@ -4,6 +4,8 @@
 // Full column preparation, weights and accumulation are tested independently
 // with BatchFieldRunner and the production kernels.
 
+#include "../../Asset/Shader/Noise/climate_2d.glsl"
+
 FieldColumn fieldProbeColumn(vec2 p)
 {
     vec4 relief=fieldClampRelief(fieldRelief(p));
@@ -13,9 +15,7 @@ FieldColumn fieldProbeColumn(vec2 p)
     float offset=uBandOffset;
     if(uBandOffsetVariation>0.0)
         offset+=uBandOffsetVariation*noisePerlin2D(p*0.0004, uSeed ^ (0xa4093822u));
-    vec2 climate=smoothstep(vec2(-0.32),vec2(0.32),
-        vec2(noisePerlin2D(p*uClimateFrequency, uSeed ^ (0x243f6a88u)),
-             noisePerlin2D(p*uClimateFrequency, uSeed ^ (0x85a308d3u))));
+    vec2 climate=noiseClimate2D(p,uSeed);
     float coast=clamp((macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5,0.0,4.0);
     uvec3 cell=min(uvec3(floor(vec3(climate*4.0,coast))),uvec3(3u));
     uint index=cell.x+4u*cell.y+16u*cell.z;
