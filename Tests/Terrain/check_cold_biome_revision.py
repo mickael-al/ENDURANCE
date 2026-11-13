@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import sys
 
 import numpy as np
@@ -18,14 +19,15 @@ from biome_test_support import BIOME_NAMES
 from check_biomes import BiomeProbe
 from check_biome_landforms import (HEIGHT_PROBE, DensityProbe, SCENE_OPTIONS,
     height_grid, density_metrics, check_targeted_pipeline, source_fingerprint)
-from biome_placement_probe import placement_for, anchor_probe, OmitPlacementProbe
-from check_gpu import FieldRunner
+from biome_placement_probe import placement_for, placements, anchor_probe, OmitPlacementProbe
+from check_gpu import FieldRunner, SHADERS
 from gl_headless import GL, GLUnavailable
 
-# biome, label, salt, expected signed centre-height addition when isolated.
+# biome, label, salt or placement variable, expected isolated centre height.
+# Polar placement is user-editable; look it up by role rather than an old salt.
 FEATURES=(
-    (0,'ice_massif',111,(400.,610.)),
-    (0,'ice_rift',109,(-910.,-690.)),
+    (0,'ice_massif','massif',None),
+    (0,'ice_rift','rift',(-910.,-690.)),
     (1,'frozen_mountain',211,(400.,580.)),
     (1,'underground_cave',209,None),
     (2,'tundra_peak',321,(795.,805.)),
@@ -38,6 +40,19 @@ FEATURES=(
     (6,'terraced_mountain',611,(615.,625.)),
     (6,'deep_chasm',613,(-805.,-795.)),
 )
+
+
+def polar_massif_range(directory=SHADERS):
+    """Read the editable amplitude, allowing terrace error and the raw clamp.
+
+    The production height clamp stays at 4096. It may reduce a high summit's
+    isolated contribution; this diagnostic must not reset artistic parameters.
+    """
+    source=(directory/'biomes/PolarIce/relief.C.glsl').read_text()
+    match=re.search(r'mix\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*massif\.variant\s*\)',source)
+    assert match,'Update PolarIce amplitude adapter after profile change'
+    low,high=map(float,match.groups())
+    return max(0.,low-50.),high+30.
 
 POLAR_CAVE_SOURCE=r'''
 layout(local_size_x=8,local_size_y=8) in;
@@ -67,7 +82,7 @@ void main() {
 
 
 def polar_cave_position(gl,site,seed):
-    placement=placement_for(0,109)
+    placement=next(p for p in placements(0) if p.variable=='rift')
     probe=BiomeProbe(gl,source=POLAR_CAVE_SOURCE.replace('SITE_CALL',placement.call()))
     result=probe.run(biome=0,size=1,origin=tuple(site[:2]),spacing=0.,uSeed=seed)
     return np.asarray(result['values'][:2])
@@ -173,8 +188,11 @@ def main():
             height=BiomeProbe(gl,source=HEIGHT_PROBE)
             reference=BiomeProbe(gl,directory=args.reference_shaders,source=HEIGHT_PROBE) if args.reference_shaders else None
             density=DensityProbe(gl);fields=FieldRunner(gl)
-            for biome,label,salt,expected in FEATURES:
-                placement=placement_for(biome,salt)
+            for biome,label,key,expected in FEATURES:
+                placement=(next(p for p in placements(biome) if p.variable==key)
+                           if isinstance(key,str) else placement_for(biome,key))
+                salt=placement.salt
+                if label=='ice_massif':expected=polar_massif_range()
                 sites,all_sites=anchor_probe(gl,biome,placement,seed=args.seed,size=6)
                 isolated=OmitPlacementProbe(gl,salt,source=HEIGHT_PROBE)
                 site,h,before,delta=select_site(height,isolated,reference,biome,sites,args.seed,expected)

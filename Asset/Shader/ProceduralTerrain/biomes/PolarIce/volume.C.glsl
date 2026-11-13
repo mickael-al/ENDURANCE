@@ -7,15 +7,56 @@
 #include "../../biome_landforms_3d.glsl"
 #include "shape.glsl"
 
+// Coarse ledges plus smaller fractures; all coordinates are metres, including Y.
+// Clamp each noise so the 2D swept-wall envelope remains conservative.
+vec2 polarRiftWallWarp(vec3 p, LandSite rift)
+{
+    vec3 q = vec3(rift.q.x, p.y, rift.q.y);
+    vec3 broad = q / vec3(180.0, 90.0, 130.0);
+    vec3 detail = q / vec3(55.0, 28.0, 45.0);
+    vec2 coarseNoise = clamp(vec2(noiseSimplex3D(broad, uSeed ^ 119u),
+        noiseSimplex3D(broad + vec3(17.1, 31.7, 9.2), uSeed ^ 120u)), -1.0, 1.0);
+    vec2 detailNoise = clamp(vec2(noiseSimplex3D(detail, uSeed ^ 121u),
+        noiseSimplex3D(detail + vec3(8.3, 12.6, 29.1), uSeed ^ 122u)), -1.0, 1.0);
+    return max(POLAR_RIFT_WALL_STRENGTH, 0.0)
+        * (coarseNoise * POLAR_RIFT_WALL_WARP + detailNoise * POLAR_RIFT_WALL_DETAIL);
+}
+
+float polarRiftWallDelta(vec3 p, FieldColumn column, LandSite rift)
+{
+    if (polarRiftWallCoverage(rift) <= 0.0 || rift.mask <= 0.08) return 0.0;
+    float weight = fieldSurfaceWeight(column, FIELD_BIOME_ID);
+    if (weight <= 0.0) return 0.0;
+    float depth = polarRiftDepth(rift) * (uDetailScale / 0.35);
+    float originalCut = polarRiftMask(rift);
+    // Undo only this biome's weighted incision to locate its blended rim.
+    // The returned delta is unweighted; accumulation applies the weight once.
+    float rim = column.terrain.x + column.blend.y + weight * originalCut * depth;
+    float depthFraction = (rim - p.y) / max(weight * depth, 0.0001);
+    float vertical = smoothstep(0.04, 0.18, depthFraction)
+        * (1.0 - smoothstep(0.82, 0.96, depthFraction));
+    if (vertical <= 0.0) return 0.0;
+    LandSite displaced = rift;
+    displaced.q += polarRiftWallWarp(p, rift) * vertical
+        * smoothstep(0.08, 0.20, rift.mask);
+    // Keep the compact population mask fixed; distort its internal contour.
+    // Unlike height noise, this moves the cliff sideways as Y changes and can
+    // create overhangs. Both the mouth and the floor return to the original cut.
+    return (originalCut - polarRiftMask(displaced)) * depth;
+}
+
 float fieldVolume(vec3 p, FieldColumn column)
 {
     if (!landVolumeEnabled(column)) return 0.0;
     LandSite site = landSparseSite(p.xz, 9600.0, 0.25, 107u, 0.65);
-    LandSite rift = landSparseSite(p.xz, 8000.0, 0.25, 109u, 0.80);
+    LandSite rift = landSparseSite(p.xz, POLAR_RIFT_SPACING, POLAR_RIFT_FOOTPRINT,
+        POLAR_RIFT_SALT, POLAR_RIFT_OCCUPANCY);
     float support = max(site.mask, rift.mask);
     if (support <= 0.0) return 0.0;
     float base = column.terrain.x - p.y;
-    float target = base;
+    float wallDelta = polarRiftWallDelta(p, column, rift);
+    float sculptedBase = base + wallDelta;
+    float target = sculptedBase;
     if (site.mask > 0.0)
     {
         vec3 q = landVolumeLocal(p, column, site);
@@ -51,11 +92,11 @@ float fieldVolume(vec3 p, FieldColumn column)
         float cavity = landEllipsoid(tunnel,
             vec3(r * mix(0.38, 0.51, site.variant), 30.0, r * 0.29));
         cavity += noiseSimplex3D(q * 0.018, uSeed ^ 108u) * 1.6;
-        float shelfTarget = landUnion(base, ice * uDetailScale, 6.0 * uDetailScale);
+        float shelfTarget = landUnion(sculptedBase, ice * uDetailScale, 6.0 * uDetailScale);
         shelfTarget = min(shelfTarget, cavity * uDetailScale);
         // The old nappe must not grow back over the floor of a new tear.
         float tear = polarRiftMask(rift);
-        target = mix(base, shelfTarget, site.mask * (1.0 - tear) / support);
+        target = mix(sculptedBase, shelfTarget, site.mask * (1.0 - tear) / support);
     }
     if (rift.mask > 0.0)
     {
@@ -72,7 +113,11 @@ float fieldVolume(vec3 p, FieldColumn column)
             uSeed ^ 110u) * 1.5;
         target = mix(target, min(target, hollow * uDetailScale), rift.mask / support);
     }
-    return landDelta(p, column, target, support);
+    // Displace the terrain BEFORE CSG: adding a negative wall delta after the
+    // cave's min() could excavate its positive exterior distance field as well.
+    // The cut already includes rift.mask; apply support only to the extra CSG.
+    float finalTarget = sculptedBase + support * (target - sculptedBase);
+    return landDelta(p, column, finalTarget, 1.0);
 }
 
 #include "../../field_volume_accumulate.glsl"

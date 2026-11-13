@@ -30,7 +30,7 @@ vec4 fieldRelief(vec2 p)
     h += site.mask * approach * mix(25.0, 72.0, site.variant);
 
     // Five times the old nominal separation, with a fourfold footprint. The
-    // curved glacial spine keeps the 450--580 m height, over much wider flanks.
+    // curved glacial spine uses the user's 450--1580 m range, over wider flanks.
     // Empty candidates and warped placement break the former visible grid.
     LandSite massif = landSparseSite(p, 20000.0, 0.80, 111u, 0.80);
     if (massif.mask > 0.0)
@@ -50,14 +50,16 @@ vec4 fieldRelief(vec2 p)
     // Four times the old separation, retaining narrow openings. Curved,
     // noise-shaped shoulders and tapered branches replace rectangular ends.
     // The deep incision is in the heightfield and cannot be band-clipped.
-    LandSite rift = landSparseSite(p, 8000.0, 1.5, 209u, 0.80);
+    LandSite rift = landSparseSite(p, POLAR_RIFT_SPACING, POLAR_RIFT_FOOTPRINT,
+        POLAR_RIFT_SALT, POLAR_RIFT_OCCUPANCY);
     float tear = polarRiftMask(rift);
-    h -= tear * mix(700.0, 900.0, rift.variant) / 0.35;
+    h -= tear * polarRiftDepth(rift) / 0.35;
 
-    // Local caves only need the usual ~202 m vertical envelope. The deep
-    // rift itself belongs to the heightfield, so its floor is never band-clipped.
+    // The flat floor keeps the usual cave band. Only the swept wall corridor
+    // opens a deep envelope for horizontal, height-dependent 3D displacement.
     float support = max(site.mask, rift.mask);
     float band = max(landBand(site, 560.0), landBand(rift, 576.0));
+    band = max(band, polarRiftWallBand(rift));
     return vec4(h, band, 0.0, support);
 }
 

@@ -1,5 +1,7 @@
 # Quatre biomes froids : largeur, espacement et silhouettes
 
+> Bilan de la passe du 13 novembre. Les réglages polaires ultérieurs de l’utilisateur et la sculpture 3D des parois sont décrits dans [POLAR_ICE_RIFT_3D.md](POLAR_ICE_RIFT_3D.md).
+
 Seconde passe du 13 novembre 2026, après le retour en jeu sur `e1c6f52`. La première passe atteignait les hauteurs demandées mais ses montagnes trop étroites et trop rapprochées révélaient la grille de placement. Cette correction concerne uniquement Glace polaire, Toundra gelée, Toundra et Taïga. Les autres recettes ne changent pas.
 
 ## Réglages actuels

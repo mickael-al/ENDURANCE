@@ -38,7 +38,7 @@ void main()
 """
     program=gl.compile([(0x91B9,source)],"compact column independent storage checks")
     gl.bind(gl.buffer(packed_biome_cells()),7)
-    widths=(0.,1e-8,.0001,.00019999,.0002,.00020001,.0043,.0045,1.,12.25,512.,576.)
+    widths=(0.,1e-8,.0001,.00019999,.0002,.00020001,.0043,.0045,1.,12.25,512.,576.,576.0000610351562,800.,4096.,7000.,8192.)
     controls=(0.,1/65535,0.12345,.5,.99999,1.)
     records=[]
     for i,width in enumerate(widths):
@@ -77,11 +77,16 @@ void main()
             original_width=f32(values[3]*f32(scale))
             active=original_width>f32(.0002)
             assert bool(encoded[7]&(1<<30))==active,"Packing changed the open/closed decision"
+            wide=values[3]>576.
+            assert bool(encoded[7]&(1<<31))==wide,"Packing changed the narrow/wide band range"
+            maximum=8192. if wide else 576.
+            expected_code=max(1,math.floor(f32(f32(values[3]/maximum)*65535.)+.5)) if values[3]>0. else 0
+            assert (encoded[5]&65535)==expected_code,"Band code differs from independent UNORM oracle"
             if active:
                 assert result[3]>=active_min,"Active micro-band closed during quantization"
                 # The minimum nonzero code uses a conservative one-bin budget;
                 # ordinary nearest rounding has half this error.
-                assert abs(result[3]-original_width)<=576/65535*scale+max(2e-5,abs(original_width)*2e-7)
+                assert abs(result[3]-original_width)<=maximum/65535*scale+max(2e-5,abs(original_width)*2e-7)
             else:
                 assert result[3]==0.,"Closed micro-band was reopened"
     print(f"PASS compact columns: {len(records)*6} GPU round trips, 32-byte stride, exact FP32 fields/IDs, UNORM16 control and active micro-band preservation")
@@ -205,6 +210,38 @@ def check_control_and_tiles(gl):
                 compared+=side**3
         assert clipped,"Large-origin fixture never reduced a dispatch"
         print(f"PASS conservative large-origin tile/Y bounds: {compared:,} densities identical to exhaustive GPU launches at +/-2^24, LOD 0/6/12")
+
+        # Extended bands must reach deep walls that the legacy ~202m envelope
+        # skipped. Retain both narrow/closed X tiles and the exact production
+        # point envelope; compare optimized dispatch against a full 3D launch.
+        for shaders in (directory,exhaustive_directory):
+            edit(shaders,"biomes/PolarIce/relief.C.glsl","fieldRelief",
+                 "return vec4(0.0,p.x<256.0 ? 7000.0 : 0.0,0.0,0.5);")
+        wide=BatchFieldRunner(gl,directory)
+        full_wide=BatchFieldRunner(gl,exhaustive_directory)
+        compared=affected=outside=0
+        for lod,origin_y in ((0,-1260),(0,1250),(5,-1500),(5,900),(8,-2048),(8,0)):
+            options=dict(cells=16,origin=(0,origin_y,0),lod=lod,
+                         uBaseHeight=0.,uHeightAmplitude=0.,uDetailScale=.35,uBiomeOverride=0)
+            optimized=wide.run(**options)
+            reference=full_wide.run(**options)
+            assert optimized["columns_raw"]==reference["columns_raw"]
+            assert optimized["density_raw"]==reference["density_raw"],("Wide-band dispatch lost deep samples",lod,origin_y)
+            side=optimized['side']
+            for z in range(side):
+                for x in range(side):
+                    height,band=optimized['columns'][(x+z*side)*12],optimized['columns'][(x+z*side)*12+3]
+                    for y in range(side):
+                        world_y=origin_y+(y-1)*(1<<lod)
+                        inside=band>.0002 and abs(world_y-height)<=160*.35+.5*band
+                        expected=f32(height-world_y)+(.5 if inside else 0.)
+                        actual=optimized['density'][x+y*side+z*side*side]
+                        assert actual==expected,("Wide-band independent oracle",lod,origin_y,x,y,z,actual,expected)
+                        affected+=int(inside and abs(world_y)>1000.)
+                        outside+=int(not inside)
+            compared+=side**3
+        assert affected>0 and outside>0,"Wide-band fixture missed deep or exterior samples"
+        print(f"PASS wide bands: {compared:,} densities match exhaustive launches and analytic envelope; {affected:,} modified samples beyond 1km; {outside:,} untouched exterior samples")
 
 
 def check_skips_and_aliases(gl):

@@ -659,3 +659,22 @@ Les vues de dessus utilisent la même étendue mondiale et la même échelle de
 couleur avant/après, par biome. Les profils sont à la même échelle horizontale.
 Ce sont des mesures de relief GLSL, pas des captures du jeu, des essais de
 collisions ou des mesures de performances sur la carte graphique cible.
+
+## Polar rift: horizontal 3D wall deformation
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_volume.py --output /tmp/polar-rift-volume
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_volume.py --seed 17 --output /tmp/polar-rift-volume-seed17
+```
+
+The test disables only the wall delta in a second diagnostic compilation,
+retaining identical columns, bands, shelves and caves. It measures lateral
+wall movement across the entire depth, multiple solid/air transitions proving
+sampled overhangs, unchanged mouth/floor, and effects beyond the old 201.6-m
+band. Targeted samples are compared against production accumulation and exact
+shared LOD points. Images are GLSL sections, not in-game screenshots.
+
+Wide bands use a separate packing-range flag in the existing 32-byte column.
+Widths up to576 preserve the legacy quantization; the extended raw maximum is
+8192. CPU bounds and conservative dispatch use the extended envelope. See
+[the implementation and controls](../../docs/POLAR_ICE_RIFT_3D.md).

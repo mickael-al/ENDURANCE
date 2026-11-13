@@ -1,0 +1,30 @@
+{
+  "seed": 17,
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "3351b46371fe758487b9669e34d69998dd39b423464c887b60a3fe57da4496fe",
+  "anchor": [
+    306.4400634765625,
+    -5805.08984375
+  ],
+  "variant": 0.8069503307342529,
+  "sampling_m": [
+    4.166666666666629,
+    2.7640366305907946
+  ],
+  "maximum_measured_lateral_shift_m": 43.73180394371349,
+  "median_measured_lateral_shift_m": 15.383852374119073,
+  "overhang_columns": 45,
+  "deep_changed_samples": 671,
+  "maximum_band_m": 2384.717529296875,
+  "opening_floor_max_difference": 0.0,
+  "pipeline": {
+    "anchor": [
+      344,
+      -440,
+      -5654
+    ],
+    "shared_exact_lod_samples": 125,
+    "production_density_samples": 1331
+  },
+  "note": "One targeted vertical section through production GLSL; not a gameplay or performance certification. Baseline omits only the wall delta and keeps identical columns and other 3D geometry."
+}

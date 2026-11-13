@@ -12,7 +12,7 @@
 vec4 fieldClampRelief(vec4 relief)
 {
     return clamp(relief, vec4(-FIELD_MAX_RELIEF_HEIGHT, 0.0, -160.0, 0.0),
-                         vec4(FIELD_MAX_RELIEF_HEIGHT, 576.0, 160.0, 1.0));
+                         vec4(FIELD_MAX_RELIEF_HEIGHT, FIELD_MAX_VOLUME_THICKNESS, 160.0, 1.0));
 }
 
 #endif

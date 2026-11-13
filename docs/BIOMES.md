@@ -17,7 +17,7 @@ Chaque dossier [biomes/&lt;Nom&gt;](../Asset/Shader/ProceduralTerrain/biomes/) c
 
 Les noms de fonction sont identiques entre biomes car chaque fichier constitue son propre programme compute. Conserver `FIELD_BIOME_ID`, les includes de `field_batch_common.glsl` / `field_weights.glsl`, et l’include final d’accumulation. Les 25 recettes terrestres n’utilisent plus un tableau commun de paramètres volumiques ; les constantes `FIELD_VOLUME`, `FIELD_SHAPE` et `FIELD_STYLE` restantes appartiennent uniquement au fond marin inchangé.
 
-La première révision des sept biomes froids et les fréquences **RKM** sont archivées dans [COLD_BIOME_REVISION.md](COLD_BIOME_REVISION.md). Les réglages actuels des quatre premiers biomes sont détaillés dans la [seconde révision : largeur et placement](COLD_BIOME_SPACING_REVISION.md). Les hauteurs de 400–800 m ci-dessous sont relatives au relief local, à `detailScale=0,35`.
+La première révision des sept biomes froids et les fréquences **RKM** sont archivées dans [COLD_BIOME_REVISION.md](COLD_BIOME_REVISION.md). La [seconde révision : largeur et placement](COLD_BIOME_SPACING_REVISION.md) documente les quatre premiers biomes. Les réglages polaires ultérieurs et leurs parois volumétriques sont décrits dans [POLAR_ICE_RIFT_3D.md](POLAR_ICE_RIFT_3D.md). Les hauteurs ci-dessous sont relatives au relief local, à `detailScale=0,35`.
 
 ## Formes présentes
 
@@ -25,7 +25,7 @@ Le macrorelief global s’ajoute toujours au relief propre au biome. Les sites r
 
 | ID — Nom / dossier | Relief 2D | Sculpture 3D localisée |
 | --- | --- | --- |
-| **0 — Glace polaire** / `PolarIce` | Cuvettes élargies ; déchirures courbes et ramifiées de 700–900 m de profondeur ; massifs de 450–580 m, largeur nominale ×4 et espacement ×5. | Nappes et tunnels quatre fois plus espacés ; petites grottes sous les failles, coordonnées sur leur contour bruité. |
+| **0 — Glace polaire** / `PolarIce` | Cuvettes élargies ; déchirures courbes et ramifiées de 700–900 m de profondeur ; massifs élargis, réglage utilisateur 450–1580 m soumis au plafond global de relief. | Nappes et tunnels espacés ; parois de faille déformées horizontalement en 3D avec surplombs et renfoncements ; petites grottes sous le fond. |
 | **1 — Toundra gelée** / `FrozenTundra` | Plaines élargies et pingos ; croupes glaciaires de 420–560 m avec cirque de flanc, largeur ×2,5 et espacement ×4. | Pingos ouverts conservés ; petites chambres souterraines avec entrée. |
 | **2 — Toundra** / `Tundra` | Grandes ondulations et demi-cirques ; massifs de 800 m à épaules décalées et arêtes courbes, largeur ×5 et espacement ×6. | Ancienne crête abritée ; rochers de 20 m indépendants. |
 | **3 — Taïga** / `Taiga` | Collines irrégulières élargies ; longues crêtes asymétriques de 700 m, largeur ×3 et espacement ×4 ; lits fossiles, berges et terrasses. | Arête oblongue et renfoncement antérieurs conservés. |
@@ -61,11 +61,11 @@ Ces formes sont des interprétations artistiques. Le relief à crêtes n’est p
 | Composante | Plage brute | Utilisation |
 | --- | --- | --- |
 | `.x` | −4096 à 4096 | Hauteur ajoutée au macrorelief, multipliée par `detailScale`. |
-| `.y` | 0 à 576 | Épaisseur **totale** de la bande 3D, multipliée par `detailScale`. Aucune épaisseur artistique de base n’est ajoutée. |
+| `.y` | 0 à 8192 | Épaisseur **totale** de la bande 3D, multipliée par `detailScale`. Aucune épaisseur artistique de base n’est ajoutée. |
 | `.z` | −160 à 160 | Décalage vertical de recette, multiplié par `detailScale`, puis associé au décalage global en mètres. |
 | `.w` | 0 à 1 | Contrôle propre à la recette. Les nouveaux biomes terrestres y exposent le masque de site ; le pipeline ne l’applique pas secrètement à la densité. |
 
-Avec `detailScale = 0,35`, une hauteur brute de 100 ajoute **35 m** et une bande de 576 couvre **201,6 m au total**. Les dimensions XZ ne sont pas multipliées par ce réglage. Modifier l’épaisseur de bande change où la 3D est autorisée ; cela ne change ni la fréquence de son bruit ni l’espacement des sites.
+Avec `detailScale = 0,35`, une hauteur brute de 100 ajoute **35 m** et une bande de 576 couvre **201,6 m au total**. La gamme étendue autorise jusqu’à **2867,2 m**, utilisée localement près des parois polaires. Le stockage de 32 octets conserve la précision antérieure pour les bandes ≤576 grâce à un indicateur de gamme séparé. Les dimensions XZ ne sont pas multipliées par ce réglage. Modifier l’épaisseur de bande change où la 3D est autorisée ; cela ne change ni la fréquence de son bruit ni l’espacement des sites.
 
 L’accumulation interpole les sorties 2D, puis la finalisation applique l’échelle et compacte les contrôles. `column.terrain.x` contient ensuite la hauteur mondiale finale ; `.w`, l’épaisseur totale en mètres. `column.blend.y` contient le décalage global en mètres, `.z` le décalage brut de recette, et `.w` le contrôle supplémentaire interpolé. Une bande nulle en biome isolé ferme la 3D ; à une transition, les bandes voisines contribuent également.
 
@@ -116,7 +116,7 @@ return landDelta(p, column, target, site.mask);
 
 `fieldVolume()` renvoie uniquement le **delta** : l’accumulateur écrit déjà la base une fois, puis ajoute `poidsLocal * delta` pour chaque biome actif. `landDelta()` applique explicitement le masque du site, adoucit la contribution entre 76 et 98 % de la demi-bande, puis revient à zéro. Il n’interprète pas `column.blend.w`.
 
-Les nouvelles recettes terrestres utilisent un décalage de recette nul ; `bandOffset` reste utilisable. Toute modification doit garder la densité de base hors de l’enveloppe définie par `fieldVolumeEnvelope()` : décalage brut dans ±160, épaisseur totale au maximum 576, avec l’échelle et le décalage global du générateur. Agrandir une forme au-delà de ces bornes demande de modifier aussi les rejets GPU et les bornes CPU ; augmenter seulement son rayon Y peut la tronquer.
+Les nouvelles recettes terrestres utilisent un décalage de recette nul ; `bandOffset` reste utilisable. Toute modification doit garder la densité de base hors de l’enveloppe définie par `fieldVolumeEnvelope()` : décalage brut dans ±160, épaisseur totale au maximum 8192 (le helper classique `landBand` reste limité à 576), avec l’échelle et le décalage global du générateur. Agrandir une forme au-delà de ces bornes demande de modifier aussi les rejets GPU et les bornes CPU ; augmenter seulement son rayon Y peut la tronquer.
 
 ## Accumulation, compilation et coût
 

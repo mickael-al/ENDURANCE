@@ -10,15 +10,24 @@ import json
 from pathlib import Path
 import numpy as np
 from scipy.spatial.distance import cdist
-from biome_placement_probe import (anchor_probe, placement_for, OmitPlacementProbe,
+from biome_placement_probe import (anchor_probe, placements, OmitPlacementProbe,
                                   INVERSE_SPARSE)
 from biome_test_support import BIOME_NAMES
 from check_biomes import BiomeProbe
 from check_biome_landforms import HEIGHT_PROBE, height_grid, SCENE_OPTIONS, source_fingerprint
+from check_cold_biome_revision import polar_massif_range
 from gl_headless import GL
 
-MOUNTAINS=((0,111,5.,4.,(440.,590.)),(1,211,4.,2.5,(415.,565.)),
-           (2,321,6.,5.,(790.,810.)),(3,421,4.,3.,(690.,710.)))
+MOUNTAINS=((0,'massif',None),(1,'mountain',(415.,565.)),
+           (2,'mountain',(790.,810.)),(3,'mountain',(690.,710.)))
+
+
+def footprint(placement):
+    return float(placement.arguments[1]) if placement.sparse else 1.
+
+
+def named_placement(biome,variable,directory):
+    return next(p for p in placements(biome,directory) if p.variable==variable)
 
 
 def nearest_distances(rows):
@@ -104,7 +113,7 @@ def render(output,records,images,rift):
         for col,data in enumerate((old,new)):
             ax=axes[row,col]
             ax.imshow(data,origin='lower',extent=np.array([-extent,extent,-extent,extent])/1000,
-                      cmap='terrain',vmin=-100,vmax=850,interpolation='nearest')
+                      cmap='terrain',vmin=-100,vmax=max(850.,float(old.max()),float(new.max())),interpolation='nearest')
             ax.set_title(f"{record['biome']} — {'before' if col==0 else 'after'}")
             ax.set_xlabel('World X (km)');ax.set_ylabel('World Z (km)')
         ax=axes[row,2]
@@ -149,19 +158,23 @@ def main():
         height=BiomeProbe(gl,source=HEIGHT_PROBE)
         prior=BiomeProbe(gl,directory=args.reference_shaders,source=HEIGHT_PROBE)
         fingerprints={b:source_fingerprint(b) for b in range(4)}
-        for biome,salt,spacing_ratio,width_ratio,expected in MOUNTAINS:
-            placement=placement_for(biome,salt)
-            oldplacement=placement_for(biome,salt,args.reference_shaders)
+        for biome,variable,expected in MOUNTAINS:
+            placement=named_placement(biome,variable,height.directory)
+            oldplacement=named_placement(biome,variable,args.reference_shaders)
+            salt=placement.salt
+            spacing_ratio=placement.spacing/oldplacement.spacing
+            width_ratio=spacing_ratio*min(max(footprint(placement),.01),1.)/min(max(footprint(oldplacement),.01),1.)
+            if biome==0:expected=polar_massif_range()
             newrows,newall=anchor_probe(gl,biome,placement,args.seed)
             oldrows,oldall=anchor_probe(gl,biome,oldplacement,args.seed,directory=args.reference_shaders)
-            assert abs(placement.spacing/oldplacement.spacing-spacing_ratio)<1.e-5
-            assert np.allclose(newall[:,2]/oldall[:,2],width_ratio,rtol=1.e-5)
+            if placement.salt==oldplacement.salt:
+                assert np.allclose(newall[:,2]/oldall[:,2],width_ratio,rtol=1.e-5)
             site=newrows[0]
             index=np.argmin(np.linalg.norm(newall[:,:2]-site[:2],axis=1))
             oldsite=oldall[index]
             extent=float(site[2])*1.6
             shape,_,metrics=isolated_shape(gl,height,biome,salt,site,height.directory,args.seed,extent)
-            oldshape,_,oldmetrics=isolated_shape(gl,prior,biome,salt,oldsite,args.reference_shaders,args.seed,extent)
+            oldshape,_,oldmetrics=isolated_shape(gl,prior,biome,oldplacement.salt,oldsite,args.reference_shaders,args.seed,extent)
             assert expected[0]<metrics['peak_absolute_m']<expected[1],('Peak height changed',biome,metrics)
             actual_ratio=metrics['equivalent_diameter_above_tenth_peak_m']/oldmetrics['equivalent_diameter_above_tenth_peak_m']
             assert actual_ratio>width_ratio*.8,('Widened footprint ineffective',biome,actual_ratio,width_ratio)
@@ -180,16 +193,18 @@ def main():
                 'world_anchor':site[:2].tolist(),'placement_anchor':site[10:12].tolist()}
             records.append(record);images.append((oldmap,newmap,world_extent,oldshape,shape,extent))
             print(f'PASS {BIOME_NAMES[biome]}: nominal spacing x{spacing_ratio:g}, width x{width_ratio:g}; measured width x{actual_ratio:.2f}; peak {metrics["peak_absolute_m"]:.1f} m',flush=True)
-        placement=placement_for(0,109);oldplacement=placement_for(0,109,args.reference_shaders)
+        placement=named_placement(0,'rift',height.directory)
+        oldplacement=named_placement(0,'rift',args.reference_shaders)
         rows,allrows=anchor_probe(gl,0,placement,args.seed)
         oldrows,oldall=anchor_probe(gl,0,oldplacement,args.seed,directory=args.reference_shaders)
         site=rows[0];index=np.argmin(np.linalg.norm(allrows[:,:2]-site[:2],axis=1));oldsite=oldall[index]
-        assert placement.spacing/oldplacement.spacing==4.
+        spacing_ratio=placement.spacing/oldplacement.spacing
         extent=max(site[2],oldsite[2])*1.4
-        shape,_,metrics=isolated_shape(gl,height,0,109,site,height.directory,args.seed,extent)
-        oldshape,_,oldmetrics=isolated_shape(gl,prior,0,109,oldsite,args.reference_shaders,args.seed,extent)
+        shape,_,metrics=isolated_shape(gl,height,0,placement.salt,site,height.directory,args.seed,extent)
+        oldshape,_,oldmetrics=isolated_shape(gl,prior,0,oldplacement.salt,oldsite,args.reference_shaders,args.seed,extent)
         assert 690<metrics['peak_absolute_m']<910,('Rift depth',metrics)
-        rift_record={'nominal_spacing_ratio':4.,'before':oldmetrics,'after':metrics,
+        rift_record={'nominal_spacing_ratio':spacing_ratio,'before':oldmetrics,'after':metrics,
+                     'salt_before':oldplacement.salt,'salt_after':placement.salt,
                      'nearest_neighbour_before':nearest_distances(oldrows),
                      'nearest_neighbour_after':nearest_distances(rows),
                      'maximum_final_boundary_jump_m':check_warp_edges(gl,0,placement,args.seed)}
@@ -198,7 +213,7 @@ def main():
                 'note':'Nominal spacings and widths are measured in the warped placement domain. Nearest-neighbour distances and contours are real world-space probes. A walk need not encounter every candidate. Atlas is not a gameplay rendering.'}
         (args.output/'cold_spacing_revision.json').write_text(json.dumps(result,indent=2)+'\n')
         render(args.output,records,images,(oldshape,shape,extent))
-        print(f'PASS Polar rift: depth {metrics["peak_absolute_m"]:.1f} m, spacing x4',flush=True)
+        print(f'PASS Polar rift: depth {metrics["peak_absolute_m"]:.1f} m, spacing x{spacing_ratio:g}',flush=True)
     return 0
 
 

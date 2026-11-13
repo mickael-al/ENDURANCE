@@ -36,10 +36,18 @@ class Placement:
 
 PLACEMENT_RE=re.compile(r'LandSite\s+(\w+)\s*=\s*(land(?:Sparse|Rkm)?Site)\(\s*p(?:\.xz)?\s*,\s*([^;]+)\);')
 
+def placement_constants(source):
+    # Read simple shared GLSL constants without evaluating shader expressions.
+    return dict(re.findall(r'\bconst\s+(?:float|uint)\s+(\w+)\s*=\s*([+-]?[\d.]+[uU]?)\s*;',source))
+
+def placement_arguments(arguments,constants):
+    return tuple(constants.get(x.strip(),x.strip()) for x in arguments.split(','))
+
 
 def placements(biome,directory=SHADERS,kind='relief'):
-    source=(directory/'biomes'/BIOME_NAMES[biome]/(kind+'.C.glsl')).read_text()
-    return [Placement(name,function,tuple(x.strip() for x in arguments.split(',')))
+    source=biome_recipe_source(directory/'biomes'/BIOME_NAMES[biome]/(kind+'.C.glsl'))
+    constants=placement_constants(source)
+    return [Placement(name,function,placement_arguments(arguments,constants))
             for name,function,arguments in PLACEMENT_RE.findall(source)]
 
 
@@ -139,7 +147,7 @@ class OmitPlacementProbe(BiomeProbe):
                 def disable(match):
                     nonlocal count
                     variable,function,arguments=match.groups()
-                    p=Placement(variable,function,tuple(x.strip() for x in arguments.split(',')))
+                    p=Placement(variable,function,placement_arguments(arguments,placement_constants(code)))
                     if p.salt!=self.salt:return match.group(0)
                     count+=1
                     condition='' if self.anchor is None else f'if(length({variable}.center-vec2({float(self.anchor[0])},{float(self.anchor[1])}))<1.0)'

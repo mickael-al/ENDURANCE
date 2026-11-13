@@ -62,12 +62,13 @@ def main():
                      uBiomeOverride=0,uHeightAmplitude=0.,uBaseHeight=3.)
         disabled_samples=0
         for scale in (0.,.35,1.,2.):
-            for raw in (-12.25,0.,12.25,35.,576.,800.):
+            for raw in (-12.25,0.,12.25,35.,576.,576.01,800.,4096.,8192.,9000.):
                 gl.uniform(polar_program,'probeThickness','1f',raw)
                 field=runner.run(**options,uDetailScale=scale)
-                width=min(max(raw,0.),576.)
-                code=max(1,math.floor(f32(f32(width/576.)*65535.)+.5)) if width>0 else 0
-                expected=f32(f32(code*f32(576./65535.))*f32(scale)) if f32(width*f32(scale))>.0002 else 0.
+                width=min(max(raw,0.),8192.)
+                maximum=576. if width<=576. else 8192.
+                code=max(1,math.floor(f32(f32(width/maximum)*65535.)+.5)) if width>0 else 0
+                expected=f32(f32(code*f32(maximum/65535.))*f32(scale)) if f32(width*f32(scale))>.0002 else 0.
                 assert all(math.isclose(v,expected,rel_tol=2e-7,abs_tol=1e-6)
                            for v in field['columns'][3::COLUMN_WORDS]),('Thickness has hidden addition',raw,scale)
                 disabled_samples+=verify_zero_columns(field)
@@ -87,8 +88,8 @@ def main():
                    for x in range(field['side'])
                    for value in [field['density'][x+y*field['side']+z*field['side']**2]])
         gl.check('biome-owned volume thickness')
-        print(f'PASS biome-owned thickness: 24 scale/width cases, negative and zero widths, '
-              f'upper clamp, locally noise-driven bands; {disabled_samples} unsculpted samples verified')
+        print(f'PASS biome-owned thickness: 40 scale/width cases, negative and zero widths, '
+              f'legacy/wide packed ranges, upper clamp, locally noise-driven bands; {disabled_samples} unsculpted samples verified')
 
         # Exercise both recipe and final accumulation clamps with an independent
         # fixed oracle. Peaks/rifts of +/-800 world metres must survive .35 scale.

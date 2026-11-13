@@ -58,7 +58,8 @@ PackedFieldColumn fieldPackColumn(FieldColumn column,float unscaledThickness)
     uint cell=(column.detail.x>>20u)&63u;
     stored.detail=uvec2((column.detail.y&0x3fffffffu)|((column.detail.z&3u)<<30u),
         ((column.detail.z>>2u)&255u)|(control<<8u)|(cell<<24u)
-        |(uint(column.terrain.w>0.0002)<<30u));
+        |(uint(column.terrain.w>0.0002)<<30u)
+        |(uint(unscaledThickness>FIELD_LEGACY_VOLUME_THICKNESS)<<31u));
     return stored;
 }
 
