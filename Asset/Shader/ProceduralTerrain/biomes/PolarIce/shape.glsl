@@ -20,7 +20,7 @@ float polarRiftMask(LandSite rift)
     float centerline = polarRiftCenterline(x, rift);
     float widthNoise = landPlacementValue(vec2(x / 140.0,
         rift.variant * 23.0), 115u);
-    float halfWidth = mix(80.0, 105.0, rift.variant) * (0.78 + 0.44 * widthNoise);
+    float halfWidth = mix(80.0, 405.0, rift.variant) * (0.78 + 0.44 * widthNoise);
     float edge = (landPlacementValue(rift.q / 95.0, 116u) - 0.5) * 0.22
         + (landPlacementValue(rift.q / 37.0, 117u) - 0.5) * 0.06;
     // An elliptical longitudinal envelope closes to a point naturally. Noise

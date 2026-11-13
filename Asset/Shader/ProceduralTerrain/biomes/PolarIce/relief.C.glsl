@@ -15,7 +15,7 @@ vec4 fieldRelief(vec2 p)
     vec2 q = landWarp(p, 5800.0, 400.0, 101u);
     float region = noiseSimplex2D(p / 12900.0, uSeed ^ 102u);
     float lake = smoothstep(0.05, 0.60, region);
-    vec2 cell = noiseCellularDistancesSquared2D(q / 960.0, uSeed ^ 103u);
+    vec2 cell = noiseCellularDistancesSquared2D(q / 700.0, uSeed ^ 103u);
     float bowl = smoothstep(0.04, 0.94, sqrt(cell.x));
     float plateau = smoothstep(0.08, 0.62,
         noiseSimplex2D(q / 6800.0, uSeed ^ 104u));
@@ -42,7 +42,7 @@ vec4 fieldRelief(vec2 p)
         float striations = landRidges(massif.q / vec2(1440.0, 760.0), 112u);
         float incision = mix(1.0, 0.76 + 0.24 * striations,
             smoothstep(0.0, 0.20, blade));
-        float iceHeight = peak * incision * mix(450.0, 580.0, massif.variant);
+        float iceHeight = peak * incision * mix(450.0, 1580.0, massif.variant);
         iceHeight = mix(iceHeight, landTerrace(iceHeight, 38.0, 0.28), 0.20);
         h += massif.mask * iceHeight / 0.35;
     }
@@ -50,7 +50,7 @@ vec4 fieldRelief(vec2 p)
     // Four times the old separation, retaining narrow openings. Curved,
     // noise-shaped shoulders and tapered branches replace rectangular ends.
     // The deep incision is in the heightfield and cannot be band-clipped.
-    LandSite rift = landSparseSite(p, 8000.0, 0.25, 109u, 0.80);
+    LandSite rift = landSparseSite(p, 8000.0, 1.5, 209u, 0.80);
     float tear = polarRiftMask(rift);
     h -= tear * mix(700.0, 900.0, rift.variant) / 0.35;
 
