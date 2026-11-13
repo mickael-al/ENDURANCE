@@ -46,6 +46,12 @@ def main():
     return vec4(8.0,width,-10.0,0.5);
 ''')
         path.write_text(source)
+        # Exercise the pipeline contract independently of where the production
+        # recipe places rare sites. A deliberately nonzero delta must still be
+        # suppressed for a zero band and outside the prepared envelope.
+        volume_path=directory/'biomes/PolarIce/volume.C.glsl'
+        volume_path.write_text(replace_body(volume_path.read_text(),'fieldVolume',
+                                           'return 1.0;'))
         runner=FieldRunner(gl,directory)
         polar_program=runner.relief_programs[0]
         for obsolete in ('uBandThickness','uBandVariation'):

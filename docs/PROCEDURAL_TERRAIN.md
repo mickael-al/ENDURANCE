@@ -32,9 +32,9 @@ ces réglages** recharge aussi cet include et invalide le binaire concerné quan
 son code change. Le relief macro, sa fréquence et les bandes 3D restent séparés
 de cette recette climatique.
 
-Le relief de base utilise un **Simplex à une seule octave**, via le helper fBm,
-dans [-1, 1]. La lacunarité 2 et le gain 0,5 n'ont pas d'effet avec une seule
-octave. `heightFrequency` règle sa fréquence et `heightAmplitude` multiplie
+Le relief de base utilise actuellement **cinq octaves de Simplex**, via le helper fBm,
+normalisées dans [-1, 1], avec lacunarité 2 et gain 0,5.
+`heightFrequency` règle sa fréquence et `heightAmplitude` multiplie
 sa valeur ; la seed dédiée reste
 `seed ^ 0x13198a2e`. Ce relief est calculé une fois par colonne XZ. Il participe
 aussi à la sélection marine, donc changer sa forme change les côtes sans
@@ -62,7 +62,7 @@ Chaque fonction 3D renvoie un **delta** par rapport à la densité de base `haut
 density[p] += biomeWeight(p) * biomeContribution(p);
 ```
 
-Le champ est positif dans le solide et négatif dans le vide ; sa surface est l’isovaleur zéro. Ce n’est pas une distance signée. Les recettes de départ appellent un helper commun avec leurs propres paramètres, mais leur corps peut être remplacé librement dans les bornes prévues. Les paramètres de plusieurs biomes ne sont plus mélangés avant un évaluateur unique. Comme cet évaluateur est non linéaire, les zones de transition peuvent différer de l’ancienne génération. La hauteur finale reste en FP32 ; la nouvelle quantification des contrôles secondaires peut également modifier légèrement le champ par rapport à la version stockant toutes les composantes en FP32.
+Le champ est positif dans le solide et négatif dans le vide ; sa surface est l’isovaleur zéro. Ce n’est pas une distance signée. Les 25 recettes terrestres composent désormais leurs propres reliefs et volumes, avec les primitives de `biome_landforms_2d.glsl` et `biome_landforms_3d.glsl`. Les sites 3D localisés comportent des ajouts de matière, des alcôves et des passages ; leur support s’annule avant les bords de cellule d’implantation. Le fond marin conserve son helper de recette historique. Les paramètres de plusieurs biomes ne sont pas mélangés avant un évaluateur unique. La hauteur finale reste en FP32 ; les contrôles secondaires restent compactés par le pipeline existant.
 
 L’épaisseur vient de `relief.y × detailScale`, après accumulation locale du relief. Le stockage quantifie `.y` sur 16 bits dans [0 ; 576] avant l’application de `detailScale`, et le décalage relatif sur 16 bits signés dans [-160 ; 160]. Aucun bruit global ni épaisseur artistique supplémentaire ne s’ajoute. Une métadonnée conserve la décision initiale de bande ouverte ou fermée ; un garde numérique empêche qu’une très petite bande active soit fermée par la quantification. Un biome peut donc piloter `.y` par du bruit et le ramener à zéro. Le décalage vertical reste indépendant de la hauteur de surface.
 
@@ -135,7 +135,7 @@ conservateur de 4 couvre le skew Simplex et la somme des coordonnées de cellule
 soit 0,0256, inférieur à l'enveloppe. Si les defines climatiques augmentent ce
 produit au-delà de 0,25, adapter aussi `fixedNoiseCoordinateRate` dans
 `ProceduralTerrainField.hpp`. Le relief macro est contrôlé séparément avec
-`heightFrequency × 4` : une seule octave et le même facteur conservateur
+`heightFrequency × 16 × 4` : fréquence de la cinquième octave et même facteur conservateur
 Simplex. Le contrôle utilise le maximum entre ce produit et l'enveloppe fixe.
 
 ## Mémoire et extraction

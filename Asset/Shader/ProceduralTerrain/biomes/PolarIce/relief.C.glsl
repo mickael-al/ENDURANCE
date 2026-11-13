@@ -1,36 +1,32 @@
 #version 450 core
-// Biome 0: PolarIce. The caller clamps and accumulates this 2D result.
-// x: relative height; y: total 3D band thickness; z: band offset; w: rock mask.
-// XYZ are in metres before detailScale; w is in [0,1].
+// Biome 0: PolarIce. World XZ is in metres; relief/vertical shape units
+// are scaled by uDetailScale. Site spacing, footprint and detail are independent.
 #define FIELD_BIOME_ID 0u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_relief_common.glsl"
-
-const float POLAR_BASIN_SPACING = 64.0;
-const float POLAR_BASIN_WARP = 1.618;
-const float POLAR_ROLL_AMPLITUDE = 18.0;
-const float POLAR_FINE_AMPLITUDE = 2.5;
+#include "../../biome_landforms_2d.glsl"
 
 vec4 fieldRelief(vec2 p)
 {
-    vec2 q = noiseRotate2D(p, vec2(0.8, 0.6));
-    float spacing = max(POLAR_BASIN_SPACING, 4.0);
-    vec2 warp = vec2(noisePerlin2D(q / (spacing * 3.0), uSeed ^ (100u)),
-        noisePerlin2D(q / (spacing * 3.0), uSeed ^ (101u)));
-    vec2 sites = noiseCellularDistancesSquared2D(q / spacing + warp * POLAR_BASIN_WARP, uSeed ^ (102u)) * 10.0;
+    // A cellular basin is a profile, not a cliff at every cell boundary.
+    // Warped 240 m bowls sit inside kilometre-scale plain / plateau regions.
+    vec2 q = landWarp(p, 1450.0, 100.0, 101u);
+    float region = noiseSimplex2D(p / 4300.0, uSeed ^ 102u);
+    float lake = smoothstep(0.05, 0.60, region);
+    vec2 cell = noiseCellularDistancesSquared2D(q / 240.0, uSeed ^ 103u);
+    float bowl = smoothstep(0.04, 0.94, sqrt(cell.x));
+    float plateau = smoothstep(0.08, 0.62,
+        noiseSimplex2D(q / 1700.0, uSeed ^ 104u));
+    float h = landFbm(p / 3900.0, 105u) * 94.0;
+    h += (bowl - 0.45) * mix(76.0, 14.0, lake);
+    h += plateau * (1.0 - lake) * 170.0 - lake * 110.0;
+    h += noiseSimplex2D(q / 42.0, uSeed ^ 106u) * 1.3 * (1.0 - 0.8 * lake);
 
-    float h = sites.x;
-    h += noisePerlin2D(p * 0.0006, uSeed ^ (103u)) * POLAR_ROLL_AMPLITUDE;
-    h += noisePerlin2D(p * 0.04, uSeed ^ (104u)) * POLAR_FINE_AMPLITUDE;
-    h += clamp(noiseContrast01(noisePerlin2D(p * 0.002, uSeed ^ (102u)) - 0.05, 40.0), 0.0, 1.0) * 300;//falaise
-
-    float lac = clamp(noiseContrast01(noisePerlin2D(p * 0.0002, uSeed ^ (102u)) - 0.05, 40.0), 0.0, 1.0);
-
-    h -= lac * 250;//lac glacé
-    h += noiseContrast01(noiseTriangle01(lac), 2.0) * noisePerlin2D01(p * 0.005, uSeed ^ (102u)) * 25;
-
-    return vec4(h, clamp(noiseContrast01(noisePerlin2D01(p * 0.001, uSeed ^ (104u))-0.1, 2.0),0.0,1.0) * 241, -40.0, 0.0);
+    // The exceptional shelf shares the same compact footprint in 2D and 3D.
+    LandSite site = landSite(p, 2400.0, 107u, 0.70);
+    float approach = 1.0 - smoothstep(0.10, 0.90, length(site.q) / site.radius);
+    h += site.mask * approach * mix(25.0, 72.0, site.variant);
+    return vec4(h, landBand(site, 560.0), 0.0, site.mask);
 }
 
 #include "../../field_surface_accumulate.glsl"

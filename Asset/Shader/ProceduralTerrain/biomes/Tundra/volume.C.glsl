@@ -1,26 +1,31 @@
 #version 450 core
-// Biome 2: Tundra. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 2: Tundra. World XZ is in metres; relief/vertical shape units
+// are scaled by uDetailScale. Site spacing, footprint and detail are independent.
 #define FIELD_BIOME_ID 2u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-30,2,52,.55);
-const vec4 FIELD_SHAPE = vec4(.65,.15,.20,.075);
-const vec4 FIELD_STYLE = vec4(.95,.10,.10,.10);
+#include "../../biome_landforms_3d.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if (!landVolumeEnabled(column)) return 0.0;
+    LandSite site = landSite(p.xz, 2600.0, 307u, 0.58);
+    if (site.mask <= 0.0) return 0.0;
+    vec3 q = landVolumeLocal(p, column, site);
+    float base = column.terrain.x - p.y;
+    float r = site.radius;
+    // A long reclining brow. One end curls upward; the opposite end is buried.
+    vec3 spine = q;
+    spine.z -= 0.14 * r * sin(q.x / (r * 0.50));
+    spine.y -= mix(0.0, 75.0, smoothstep(-r * 0.55, r * 0.50, q.x));
+    float rock = -landEllipsoid(spine, vec3(r * 0.69, 76.0, r * 0.23));
+    rock += noiseSimplex3D(q * 0.010, uSeed ^ 308u) * 2.0;
+    // Sheltered recess below the rising end, never a pervasive ground fissure.
+    vec3 shelter = q - vec3(r * 0.27, 35.0, r * 0.18);
+    float cavity = landEllipsoid(shelter, vec3(r * 0.27, 26.0, r * 0.24));
+    float target = landUnion(base, rock * uDetailScale, 6.0 * uDetailScale);
+    target = min(target, cavity * uDetailScale);
+    return landDelta(p, column, target, site.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

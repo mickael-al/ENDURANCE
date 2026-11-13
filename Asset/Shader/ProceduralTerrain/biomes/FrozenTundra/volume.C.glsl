@@ -1,26 +1,38 @@
 #version 450 core
-// Biome 1: FrozenTundra. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 1: FrozenTundra. World XZ is in metres; relief/vertical shape units
+// are scaled by uDetailScale. Site spacing, footprint and detail are independent.
 #define FIELD_BIOME_ID 1u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-20,3,72,.40);
-const vec4 FIELD_SHAPE = vec4(.35,.50,.15,.10);
-const vec4 FIELD_STYLE = vec4(.85,.70,.15,.30);
+#include "../../biome_landforms_3d.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if (!landVolumeEnabled(column)) return 0.0;
+    LandSite site = landSite(p.xz, 2200.0, 207u, 0.62);
+    if (site.mask <= 0.0) return 0.0;
+    vec3 q = landVolumeLocal(p, column, site);
+    float base = column.terrain.x - p.y;
+    float r = site.radius;
+    // An asymmetric pingo cap; a low end remains a ramp onto its broad roof.
+    vec3 cap = q;
+    cap.y -= 26.0 + 0.11 * q.x;
+    float solid = -landEllipsoid(cap, vec3(r * 0.53, 102.0, r * 0.47));
+    // Two site compositions: round cap or a broad tilted secondary plate.
+    if (site.variant > 0.48)
+    {
+        vec3 plate = q - vec3(-r * 0.19, 8.0, r * 0.04);
+        plate.y -= 0.14 * plate.x;
+        solid = landUnion(solid,
+            -landEllipsoid(plate, vec3(r * 0.42, 66.0, r * 0.30)), 16.0);
+    }
+    // Open the side of the pingo, leaving a continuous roof and ground floor.
+    vec3 chamber = q - vec3(r * 0.12, 39.0, r * 0.30);
+    float cavity = landEllipsoid(chamber, vec3(r * 0.28, 30.0, r * 0.35));
+    cavity += noiseSimplex3D(q * 0.014, uSeed ^ 208u) * 1.7;
+    float target = landUnion(base, solid * uDetailScale, 6.0 * uDetailScale);
+    target = min(target, cavity * uDetailScale);
+    return landDelta(p, column, target, site.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

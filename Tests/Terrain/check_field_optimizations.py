@@ -125,10 +125,15 @@ def check_control_and_tiles(gl):
 
         # The optional recipe helper itself must also ignore the control unless
         # the owning biome explicitly applies it to its prepared amplitudes.
+        # Terrestrial recipes no longer include this optional Marine helper.
+        helper_path=directory/"biomes/PolarIce/volume.C.glsl"
+        helper_path.write_text(helper_path.read_text().replace(
+            '#include "../../field_weights.glsl"',
+            '#include "../../field_weights.glsl"\n#include "../../biome_volume_common.glsl"'))
         edit(directory,"biomes/PolarIce/volume.C.glsl","fieldVolume","""
-    vec4 volume=FIELD_VOLUME;
+    vec4 volume=vec4(-20,30,72,0.4);
     volume.yz*=uDetailScale;
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    return fieldVolumeRecipeDelta(p,column,volume,vec4(.35,.50,.15,.10),vec4(.85,.70,.15,.30));
 """)
         helper_fields=[]
         for control in (0.,1.):

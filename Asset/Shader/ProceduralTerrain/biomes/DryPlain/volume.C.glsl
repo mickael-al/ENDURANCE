@@ -1,26 +1,27 @@
 #version 450 core
-// Biome 10: DryPlain. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 10: DryPlain. Terrain-only, world-space and deterministic.
 #define FIELD_BIOME_ID 10u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
+#include "../../biome_landforms_3d.glsl"
 
-const vec4 FIELD_VOLUME = vec4(-56,2,48,.70);
-const vec4 FIELD_SHAPE = vec4(.75,.10,.15,.07);
-const vec4 FIELD_STYLE = vec4(1.00,.25,.10,.10);
-
-float fieldVolume(vec3 p, FieldColumn column)
+// A rare elongated keel or a rounded butte, with a single side alcove.
+float fieldVolume(vec3 p,FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if(!landVolumeEnabled(column)) return 0.0;
+    LandSite s=landSite(p.xz,2600.0,10110u,.60);
+    if(s.mask<=0.0) return 0.0;
+    vec3 q=landVolumeLocal(p,column,s);
+    float base=column.terrain.x-p.y;
+    vec3 rock=q-vec3(.20*q.y,28.0,0.0);
+    vec3 radius=vec3(mix(.47,.26,s.variant)*s.radius,mix(64.0,108.0,s.variant),.17*s.radius);
+    float d=landEllipsoid(rock,radius);
+    d+=2.0*noiseSimplex3D(q*.014,uSeed^10111u);
+    float target=max(base,-d*uDetailScale);
+    vec3 c=q-vec3(.08*s.radius,12.0,.17*s.radius);
+    float alcove=landEllipsoid(c,vec3(.20*s.radius,35.0,.15*s.radius));
+    target=min(target,alcove*uDetailScale);
+    return landDelta(p,column,target,s.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

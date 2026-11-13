@@ -1,26 +1,36 @@
 #version 450 core
-// Biome 4: BorealBog. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 4: BorealBog. World XZ is in metres; relief/vertical shape units
+// are scaled by uDetailScale. Site spacing, footprint and detail are independent.
 #define FIELD_BIOME_ID 4u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-18,2,40,.65);
-const vec4 FIELD_SHAPE = vec4(.15,.70,.15,.09);
-const vec4 FIELD_STYLE = vec4(.95,.00,.15,.30);
+#include "../../biome_landforms_3d.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if (!landVolumeEnabled(column)) return 0.0;
+    LandSite site = landSite(p.xz, 2500.0, 507u, 0.55);
+    if (site.mask <= 0.0) return 0.0;
+    vec3 q = landVolumeLocal(p, column, site);
+    float base = column.terrain.x - p.y;
+    float r = site.radius;
+    // An unusually long, low mineral island. Its blunt roof is a running area,
+    // while the optional cavity is restricted to one shoreline-like flank.
+    vec3 bank = q - vec3(0.0, 4.0, 0.0);
+    bank.z -= r * 0.08 * sin(q.x / (r * 0.44));
+    float solid = -landEllipsoid(bank, vec3(r * 0.72, 74.0, r * 0.31));
+    if (site.variant > 0.55)
+    {
+        float spur = -landEllipsoid(q - vec3(-r * 0.32, -7.0, r * 0.12),
+            vec3(r * 0.31, 53.0, r * 0.26));
+        solid = landUnion(solid, spur, 15.0);
+    }
+    vec3 alcove = q - vec3(r * 0.10, 26.0, r * 0.28);
+    float cavity = landEllipsoid(alcove, vec3(r * 0.31, 20.0, r * 0.27));
+    cavity += noiseSimplex3D(q * 0.012, uSeed ^ 508u) * 1.0;
+    float target = landUnion(base, solid * uDetailScale, 6.0 * uDetailScale);
+    target = min(target, cavity * uDetailScale);
+    return landDelta(p, column, target, site.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

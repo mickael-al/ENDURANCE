@@ -1,6 +1,7 @@
 // Test-only point sampling of ONE selected production biome. The two recipe
 // bodies are extracted from that biome's actual compute entrypoints. These
-// controls describe its optional default helper; no biome parameters are mixed.
+// controls describe the actual column and conservative envelope; no recipe
+// constants or biome parameters are mixed.
 // Full column preparation, weights and accumulation are tested independently
 // with BatchFieldRunner and the production kernels.
 
@@ -11,7 +12,7 @@ FieldColumn fieldProbeColumn(vec2 p)
     vec4 relief=fieldClampRelief(fieldRelief(p));
     float macroHeight=uBaseHeight;
     if(uHeightAmplitude>0.0)
-        macroHeight+=noiseSimplexFbm2D(p*uHeightFrequency, uSeed ^ (0x13198a2eu), 1, 2.0, 0.5)*uHeightAmplitude;
+        macroHeight+=noiseSimplexFbm2D(p*uHeightFrequency, uSeed ^ (0x13198a2eu), 5, 2.0, 0.5)*uHeightAmplitude;
     float offset=uBandOffset;
     if(uBandOffsetVariation>0.0)
         offset+=uBandOffsetVariation*noisePerlin2D(p*0.0004, uSeed ^ (0xa4093822u));
@@ -34,17 +35,22 @@ FieldColumn fieldProbeColumn(vec2 p)
     return column;
 }
 
+// Test metadata: center offset, conservative low/high Y and 2D activity.
+// These controls remain meaningful for arbitrary per-biome SDF/density code.
 vec4 fieldProbeVolume(FieldColumn column)
 {
-    vec4 volume=FIELD_VOLUME;
-    volume.x=column.blend.y+clamp(column.blend.z+volume.x,-160.0,160.0)*uDetailScale;
-    volume.y*=uDetailScale*mix(0.55,1.0,column.blend.w);
-    volume.z*=uDetailScale*mix(0.85,1.0,column.blend.w);
-    return volume;
+    vec2 envelope=fieldVolumeEnvelope(column);
+    float centerOffset=column.blend.y+clamp(column.blend.z,-160.0,160.0)*uDetailScale;
+    return vec4(centerOffset,envelope,column.blend.w);
 }
 
 float fieldProbeDensity(vec3 p,FieldColumn column)
 {
-    precise float value=column.terrain.x-p.y+fieldVolume(p,column);
+    precise float value=column.terrain.x-p.y;
+    // Match field_volume_accumulate: a zero band and values outside the
+    // conservative envelope never execute a biome volume function.
+    vec2 envelope=fieldVolumeEnvelope(column);
+    if(column.terrain.w>0.0002 && p.y>=envelope.x && p.y<=envelope.y)
+        value+=fieldVolume(p,column);
     return value;
 }

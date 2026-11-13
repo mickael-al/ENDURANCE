@@ -1,20 +1,30 @@
 #version 450 core
-// Biome 21: RedDesert. The caller clamps and accumulates this 2D result.
-// x: relative height; y: total 3D band thickness; z: band offset; w: rock mask.
-// XYZ are in metres before detailScale; w is in [0,1].
+// Biome 21: RedDesert. Terrain-only multiscale recipe, November 2026.
 #define FIELD_BIOME_ID 21u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_relief_common.glsl"
+#include "../../biome_landforms_2d.glsl"
 
 vec4 fieldRelief(vec2 p)
 {
-    float dune = noiseDunes2D01(p, vec2(0.6, 0.8), 360.0, uSeed ^ (310u));
-    float secondary = noisePerlin2D(p * vec2(0.0017, 0.0041), uSeed ^ (311u));
-    float monument = noiseLandmark2D01(p, 768.0, uSeed ^ (312u), NOISE_MANHATTAN, 0.22, 0.34, 0.52);
-    float h = dune * 150.0 + secondary * 13.0;
-    h += noiseTerrace(monument * 440.0, 48.0, 0.40);
-    return vec4(h, 436.0, -78.0, monument);
+    // Compound dunes: asymmetric long waves, curved phase and smaller windward
+    // dunes. Wide low combes remain between them; no fractal rubble layer.
+    vec2 q=landWarp(p,3200.0,170.0,2101u);
+    vec2 wind=noiseRotate2D(q,vec2(.6,.8));
+    float region=landFbm(q/5200.0,2102u);
+    float bend=landFbm(q/1700.0,2103u);
+    float phase=fract(wind.x/440.0+.38*bend+.10*sin(wind.y/700.0));
+    float dune=phase<.72 ? smoothstep(0.0,.72,phase)
+                          : 1.0-smoothstep(.72,1.0,phase);
+    float compound=noiseDunes2D01(q,vec2(.8,.6),190.0,uSeed^2104u);
+    float crest=noiseContrast01(dune,1.18,.48);
+    float h=(112.0+34.0*region)*crest+13.0*compound*dune*(1.0-dune)
+        +24.0*landFbm(q/3500.0,2105u);
+    LandSite s=landSite(p,2900.0,2110u,.55);
+    // Flatten the sand beneath the rock site; low sandstone footing blends in.
+    h=mix(h,32.0+18.0*region,.68*s.mask);
+    h+=s.mask*20.0*(1.0-smoothstep(.1,.74,length(s.q)/s.radius));
+    return vec4(h,landBand(s,576.0),0.0,s.mask);
 }
 
 #include "../../field_surface_accumulate.glsl"

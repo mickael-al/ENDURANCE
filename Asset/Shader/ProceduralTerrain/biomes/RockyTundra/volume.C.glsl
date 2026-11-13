@@ -1,26 +1,35 @@
 #version 450 core
-// Biome 5: RockyTundra. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 5: RockyTundra. Multiscale terrain with sparse, bounded sculptural sites.
+// Positive density is solid; return only this biome's signed density delta.
 #define FIELD_BIOME_ID 5u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-36,10,110,.35);
-const vec4 FIELD_SHAPE = vec4(.50,.15,.35,.12);
-const vec4 FIELD_STYLE = vec4(.75,.85,.50,.60);
+#include "../../biome_landforms_3d.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    LandSite s=landSite(p.xz,2100.0,506u,.66);
+    if(s.mask<=0.0 || !landVolumeEnabled(column)) return 0.0;
+    vec3 q=landVolumeLocal(p,column,s);
+    float base=column.terrain.x-p.y;
+    // An inclined thick slab is added above the heightfield. A second, lower
+    // slab changes composition per site; their bases remain buried in ground.
+    vec3 a=q-vec3(-.12*s.radius,53.0,0.0);
+    a.x-=.72*a.y;
+    float rock=-landBox(a,vec3(.29*s.radius,91.0,.105*s.radius));
+    if(s.variant>.48)
+    {
+        vec3 b=q-vec3(.24*s.radius,24.0,.18*s.radius);
+        b.x+=.4*b.y;
+        rock=landUnion(rock,-landBox(b,vec3(.13*s.radius,54.0,.24*s.radius)),9.0);
+    }
+    rock+=noiseSimplex3D(q*.016,uSeed^507u)*2.5;
+    float target=max(base,rock*uDetailScale);
+    // Side-cut at the heel, never a repeated crack across every running slab.
+    float alcove=landEllipsoid(q-vec3(-.29*s.radius,12.0,.07*s.radius),
+                              vec3(.18*s.radius,33.0,.14*s.radius));
+    target=min(target,alcove*uDetailScale);
+    return landDelta(p,column,target,s.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

@@ -263,14 +263,21 @@ def check_weighted_oracle(gl):
 
 def check_free_recipes(gl,runner):
     options=dict(cells=8,origin=(-8,-8,-8),seed=1337,uBiomeOverride=0,uHeightAmplitude=0.)
-    before=runner.run(**options)
     other=runner.run(**dict(options,uBiomeOverride=11))
     with tempfile.TemporaryDirectory(prefix="terrain-free-recipes-") as temporary:
         directory=Path(temporary)/"shaders"
         copy_terrain_shaders(SHADERS,directory)
+        # Guarantee an open band at the fixture origin. Real PolarIce now has
+        # rare seeded sites, so a random origin is intentionally often quiet.
+        relief_path=directory/"biomes/PolarIce/relief.C.glsl"
+        relief_path.write_text(replace_body(relief_path.read_text(),"fieldRelief",
+                                           "return vec4(0.0,128.0,0.0,1.0);"))
+        baseline=BatchFieldRunner(gl,directory)
+        before=baseline.run(**options)
         path=directory/"biomes/PolarIce/volume.C.glsl"
         path.write_text(replace_body(path.read_text(),"fieldVolume", """
-    vec2 band=fieldVolumeBand(column,0.0);
+    vec2 band=vec2(column.terrain.x+column.blend.y
+        +clamp(column.blend.z,-160.0,160.0)*uDetailScale,0.5*column.terrain.w);
     float radial=length(vec3(p.x,0.0,p.z)-vec3(0.0));
     float rock=max(0.0,4.0-radial);
     return rock*smoothstep(0.0,1.0,band.y-abs(p.y-band.x));

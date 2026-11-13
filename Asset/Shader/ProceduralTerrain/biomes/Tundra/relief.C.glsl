@@ -1,19 +1,32 @@
 #version 450 core
-// Biome 2: Tundra. The caller clamps and accumulates this 2D result.
-// x: relative height; y: total 3D band thickness; z: band offset; w: rock mask.
-// XYZ are in metres before detailScale; w is in [0,1].
+// Biome 2: Tundra. World XZ is in metres; relief/vertical shape units
+// are scaled by uDetailScale. Site spacing, footprint and detail are independent.
 #define FIELD_BIOME_ID 2u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_relief_common.glsl"
+#include "../../biome_landforms_2d.glsl"
 
 vec4 fieldRelief(vec2 p)
 {
-    vec2 q = noiseRotate2D(p, vec2(0.6, -0.8));
-    float h = noiseFbmTerrain2D(q * vec2(0.0011, 0.0025), uSeed, 120u) * 95.0;
-    float tor = noiseLandmark2D01(p, 384.0, uSeed ^ (123u), NOISE_EUCLIDEAN, 0.20, 0.0, 0.60);
-    h += tor * 150.0 + noisePerlin2D(q * vec2(0.002, 0.006), uSeed ^ (124u)) * 10.0;
-    return vec4(h, 278.0, -44.0, tor);
+    vec2 warped = landWarp(p, 1900.0, 160.0, 301u);
+    vec2 q = noiseRotate2D(warped, vec2(0.6, 0.8));
+    // Long rolling tongues, soft shelves and broad saddles. The crossed low
+    // frequency term prevents every valley from becoming a parallel rail.
+    float broad = landFbm(q / vec2(1850.0, 4600.0), 302u);
+    float lobes = landFbm(q / vec2(520.0, 1700.0), 303u);
+    float region = smoothstep(-0.4, 0.55,
+        noiseSimplex2D(p / 4300.0, uSeed ^ 304u));
+    float h = broad * 112.0 + lobes * mix(20.0, 57.0, region);
+    h = mix(h, landTerrace(h, 40.0, 0.48), 0.22 * region);
+    h += noiseSimplex2D(q / 75.0, uSeed ^ 305u) * 1.4;
+
+    LandSite site = landSite(p, 2600.0, 307u, 0.58);
+    // An open half-cirque: the positive-X mouth stays at ordinary ground level.
+    vec2 local = site.q / site.radius;
+    float bowl = 1.0 - smoothstep(0.05, 0.82, length(local));
+    float openSide = 1.0 - smoothstep(-0.30, 0.35, local.x);
+    h -= site.mask * bowl * openSide * mix(25.0, 75.0, site.variant);
+    return vec4(h, landBand(site, 512.0), 0.0, site.mask);
 }
 
 #include "../../field_surface_accumulate.glsl"

@@ -71,8 +71,8 @@ static void fields()
     p.heightFrequency=1e10f;
     require(!validFieldDomain(p,1),"Excessive height frequency accepted");
     p.heightFrequency=1.0f;
-    require(validFieldDomain(p,0x1p28),"Safe single-octave height domain rejected");
-    require(!validFieldDomain(p,0x1p29),"Height noise can overflow the Simplex cell domain");
+    require(validFieldDomain(p,0x1p24),"Safe five-octave height domain rejected");
+    require(!validFieldDomain(p,0x1p25),"Height noise can overflow the Simplex cell domain");
     p=FieldParameters{};p.mode=FieldMode::Sphere;
     require(validFieldDomain(p,1e10),"Analytic sphere unnecessarily restricted to noise domain");
     require(!validFieldDomain(p,0x1p61),"Sphere distance overflow accepted");

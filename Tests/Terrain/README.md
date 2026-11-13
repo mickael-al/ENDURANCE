@@ -169,7 +169,9 @@ The polar fixture measures the current polar relief and volume, checks the
 Voronoi primitive against an independent oracle, continuity, finite values,
 conservative bounds, seed repeatability and matching chunk/LOD samples. It does
 not impose the former sparse-volume mask or an older artistic shape. `--reference-shaders /path/to/baseline/ProceduralTerrain`
-additionally compares the other 25 forced biome recipes against a saved baseline.
+additionally compares the unchanged Marine recipe against a saved baseline.
+The 25 land recipes were intentionally rebuilt; an old land-recipe snapshot is
+not expected to produce the same geometry.
 The optional image requires NumPy and Matplotlib; it visualizes measured geometry,
 not final materials or a rendered game screenshot.
 
@@ -273,10 +275,11 @@ pre-accumulation shader snapshot for historical comparisons; the production
 shader directory contains no legacy field entrypoints or all-biome aggregates.
 
 Each biome has exactly two shader files: `relief.C.glsl` defines `fieldRelief`,
-and `volume.C.glsl` defines `fieldVolume`. The latter's default recipe controls
-are named `FIELD_VOLUME`, `FIELD_SHAPE` and `FIELD_STYLE`. The functions and
-entrypoints live together, with no function alias macro or separately included
-per-biome implementation.
+and `volume.C.glsl` defines `fieldVolume`. The 25 terrestrial recipes use
+independent multiscale relief and implicit sculptural volumes. Shared placement
+(`biome_landforms_common.glsl`) depends only on noise hashing; the 2D and 3D
+helpers keep their noise libraries separate. Marine retains its older optional
+recipe helper. The functions and entrypoints live together.
 
 The pipeline fixture compiles all 52 biome specializations and checks
 all 26 forced IDs. Repeated fields are bitwise identical, including neighboring
@@ -344,8 +347,8 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biomes.py
 ```
 
 This test invokes the production GLSL for all 25 land recipes and the marine
-recipe. It checks finite/distinct height and volume signatures, real cavities
-inside the original solid, conservative vertical bounds, independent band
+recipe. It checks finite/distinct height and volume signatures, conservative
+vertical bounds, independent band
 offsets, all 25 paired matrix cells, smooth climate and shoreline transitions,
 and the exclusively marine lowest altitude slice. The accumulated density field
 is checked across matrix boundaries using the production batch passes.
@@ -367,6 +370,49 @@ contains sampled height ranges, interior cavity counts and a slope statistic.
 These are visual/debugging aids, not game screenshots. Finite sample coverage
 and low-slope fractions cannot prove a minimum traversable corridor width or a
 grapple route; those require route constraints and playtesting.
+
+## Rebuilt landforms, real density and player scale
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py
+# Optional actual GLSL measurements, gray atlas, sections and 1.80-m markers:
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild
+```
+
+Requires NumPy and SciPy; diagnostic rendering also requires Matplotlib.
+These tests target seeded sculpture sites instead of expecting a cave in an
+arbitrary chunk. They measure sign changes, open air under roofs (which may lie
+entirely above the original heightfield), band support, site/cell continuity,
+seed sensitivity, and height-grid slope/connectivity. Point probes are compared
+against the actual production accumulation near each sculpture, with bit-identical
+shared LOD samples. Each biome covers a high, low and intermediate shape variant;
+low variants may legitimately omit the sculpture or its cave. Source hashes
+protect retained measurements when `--merge --biomes ...` refreshes a subset.
+Use `--no-render` to save measurements separately, then run
+`python3 Tests/Terrain/render_biome_landforms.py /tmp/endurance-biome-rebuild`.
+The scene fixture uses macro height amplitude 1000, frequency
+0.000015, five octaves, and detailScale 0.35. Results and sampling limits are in
+`docs/BIOME_REBUILD_VALIDATION.md`.
+
+The images reconstruct the zero set of measured density samples, at equal physical
+XYZ scale. They are neither game screenshots nor a proof of collision-level
+traversability. The player reference is exactly 1.80 m. Macro and biome height,
+localized solids and cavities are included. Large-scale 32-m height sampling cannot
+resolve narrow obstacles; a controller test at actual travel speed remains needed.
+
+## Actual biome areas and site occurrence
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_world_scale.py
+```
+
+The unforced production classifier and biome weights are sampled using the saved
+terrain scene's camera, seed and selection radius. The report estimates projected
+areas, connected regions and seeded anchors whose own biome has sufficient weight.
+It uses the production placement hash, not a CPU noise approximation. Results and
+the map are described in `docs/BIOME_WORLD_SCALE.md`. A 100 m grid cannot resolve
+all small corridors; an anchor count does not prove a finished 3D passage survives
+the biome blend. This diagnostic does not change the scene or climate.
 
 ## G-buffer, shadows and world-coordinate decoding
 
