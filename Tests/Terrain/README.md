@@ -394,6 +394,29 @@ The scene fixture uses macro height amplitude 1000, frequency
 0.000015, five octaves, and detailScale 0.35. Results and sampling limits are in
 `docs/BIOME_REBUILD_VALIDATION.md`.
 
+For short, restartable runs, use five batches with the **same** output directory:
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 0 1 2 3 4
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 5 6 7 8 9
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 10 11 12 13 14
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 15 16 17 18 19
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 20 21 22 23 24
+python3 Tests/Terrain/render_biome_landforms.py /tmp/endurance-biome-rebuild
+```
+
+Each completed biome saves its sample arrays and then atomically publishes the
+JSON checkpoint. If interrupted, repeat the same command: `REUSE` identifies
+completed biomes and only missing ones run again. Rendering is a separate final
+step so an interruption during an atlas does not discard the measurements.
+Resume verifies archive integrity and rejects changed shader sources, scene
+uniforms or seeds. Adding results from another renderer is also rejected. To intentionally
+refresh changed biome IDs, use `--merge --biomes ...` instead; a new seed or global
+shader change should use a new output directory. Do not run simultaneous writers
+against the same output directory, and do not edit terrain sources during a run.
+The checkpoint regression checks run without OpenGL:
+`python3 Tests/Terrain/check_biome_checkpoints.py`.
+
 The images reconstruct the zero set of measured density samples, at equal physical
 XYZ scale. They are neither game screenshots nor a proof of collision-level
 traversability. The player reference is exactly 1.80 m. Macro and biome height,

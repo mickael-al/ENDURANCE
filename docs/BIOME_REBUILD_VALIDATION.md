@@ -100,3 +100,41 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_reload.py --glew-object /pa
 ```
 
 Les métriques sont reproductibles pour un pilote et un état de source donnés ; le contrat de seed est testé sur ce pilote, sans promettre des sorties binaires identiques entre fabricants de GPU.
+
+## Reprise par lots — 13 novembre 2026
+
+La refonte des 25 biomes est sauvegardée dans le commit `c28bd31`, branche
+`feature/terrain-noise-library` (PR #3). La reprise n'a trouvé aucune recette
+manquante : une revue des 50 fonctions et des dépendances a confirmé les
+appariements 2D/3D et les 25 empreintes des mesures enregistrées.
+
+La campagne des sites sculptés a été relancée en cinq lots indépendants, sous
+OpenGL 4.5 / Mesa llvmpipe, avec la seed 1337 et les paramètres décrits plus haut.
+
+| Lot | IDs | Biomes | Résultat |
+| --- | --- | --- | --- |
+| 1 | 0–4 | PolarIce à BorealBog | 5/5 réussis |
+| 2 | 5–9 | RockyTundra à ColdMarsh | 5/5 réussis, dont une interruption et reprise |
+| 3 | 10–14 | DryPlain à TemperateMarsh | 5/5 réussis |
+| 4 | 15–19 | RockDesert à TropicalJungle | 5/5 réussis |
+| 5 | 20–24 | VolcanicDesert à TropicalMangrove | 5/5 réussis |
+
+Les 25 enregistrements obtenus sont identiques aux mesures de `metrics.json`.
+Le script écrit désormais un checkpoint après chaque biome, avec remplacement
+atomique des échantillons puis du JSON. `--resume` reprend uniquement les biomes
+manquants. Les [commandes par lots](../Tests/Terrain/README.md#rebuilt-landforms-real-density-and-player-scale)
+séparent les mesures et le rendu des planches.
+
+Une interruption forcée après le sixième biome a conservé les six mesures
+terminées ; la reprise du lot 2 a réutilisé le biome 5 et calculé seulement les
+quatre suivants. Une reprise complète réutilise les 25 résultats sans ouvrir
+OpenGL. Le remplacement ciblé `--merge --biomes 0` préserve les 24 autres mesures.
+Six tests de régression sans GPU couvrent également l'échec d'écriture atomique,
+les archives corrompues et les données périmées (seed, sources, paramètres et
+renderer). Une mesure d'un ancien pilote n'est pas mélangée avec de nouvelles
+mesures d'un autre renderer.
+
+La prochaine étape de validation reste le parcours dans le jeu sur la machine
+cible : capsule de 1,80 m, collisions, grappin, transitions et performances.
+Les checkpoints facilitent la reprise du travail ; ils ne modifient pas les
+limites de conversation de ChatGPT Work.

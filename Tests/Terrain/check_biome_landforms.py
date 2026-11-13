@@ -16,6 +16,10 @@ from pathlib import Path
 import re
 import struct
 import sys
+import os
+import tempfile
+import zipfile
+import zlib
 
 import numpy as np
 from scipy import ndimage
@@ -287,24 +291,83 @@ def closeup_sample(height_probe,density_probe,sample,biome,seed):
     return density_probe.sample(biome,origin,1.5,low,(high-low)/128.,size=97,depth=129,seed=seed,**SCENE_OPTIONS)
 
 
+def valid_saved_sample(output, record):
+    path=output/f"biome_{record['id']:02d}_samples.npz"
+    required={'density','columns','origin','spacing','min_y','step_y',
+        'close_density','close_columns','close_origin','close_spacing','close_min_y','close_step_y',
+        'landscape_height','landscape_origin','seed','biome'}
+    try:
+        with zipfile.ZipFile(path) as archive:
+            if archive.testzip() is not None:return False
+        with np.load(path,allow_pickle=False) as sample:
+            return (required.issubset(sample.files) and int(sample['seed'])==record['seed']
+                and int(sample['biome'])==record['id'])
+    except (OSError,ValueError,KeyError,EOFError,zipfile.BadZipFile,zlib.error):
+        return False
+
+
+def write_checkpoint(output, records, renderer):
+    """Publish complete measurements atomically; a killed run keeps its last JSON."""
+    payload={"renderer":renderer,
+        "note":"Samples of actual GLSL fields. Height-grid slopes/connectivity are proxies; do not certify gameplay, collisions or GPU hardware performance.",
+        "records":sorted(records,key=lambda r:r['id'])}
+    temporary=None
+    try:
+        with tempfile.NamedTemporaryFile(mode='w',encoding='utf-8',dir=output,
+                prefix='.biome_metrics_',suffix='.tmp',delete=False) as file:
+            temporary=Path(file.name)
+            json.dump(payload,file,indent=2,ensure_ascii=False)
+            file.write('\n');file.flush();os.fsync(file.fileno())
+        temporary.replace(output/'biome_landform_metrics.json')
+    finally:
+        if temporary is not None:temporary.unlink(missing_ok=True)
+
+
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,help='Write measured diagnostic figures and JSON here')
     parser.add_argument('--biomes',type=int,nargs='+',default=list(range(25)))
     parser.add_argument('--seed',type=int,default=1337)
     parser.add_argument('--no-render',action='store_true',help='Save measurements without rendering figures')
-    parser.add_argument('--merge',action='store_true',help='Replace selected records in an existing output; reject stale retained sources')
+    continuation=parser.add_mutually_exclusive_group()
+    continuation.add_argument('--merge',action='store_true',help='Replace selected records in an existing output; reject stale retained sources')
+    continuation.add_argument('--resume',action='store_true',help='Keep completed biomes and continue missing ones; reject stale measurements')
     args=parser.parse_args()
+    if not args.biomes or any(b<0 or b>=25 for b in args.biomes):
+        parser.error('--biomes must contain terrestrial IDs from 0 to 24')
+    args.biomes=list(dict.fromkeys(args.biomes))
     records=[]
-    if args.merge:
-        if not args.output:parser.error('--merge requires --output')
-        old=json.loads((args.output/'biome_landform_metrics.json').read_text())
-        records=[r for r in old['records'] if r['id'] not in args.biomes]
+    if args.merge or args.resume:
+        if not args.output:parser.error('--merge/--resume requires --output')
+        checkpoint=args.output/'biome_landform_metrics.json'
+        if args.merge or checkpoint.exists():
+            old=json.loads(checkpoint.read_text())
+            records=[r for r in old['records'] if args.resume or r['id'] not in args.biomes]
         for record in records:
-            assert record['seed']==args.seed and record['source_sha256']==source_fingerprint(record['id']),('Stale retained measurements',record['id'])
+            if (record['seed']!=args.seed or record['scene_uniforms']!=SCENE_OPTIONS
+                    or record['source_sha256']!=source_fingerprint(record['id'])):
+                parser.error(f"Stale retained measurements for biome {record['id']}; use a new output or --merge --biomes to replace changed records")
+        # An interrupted array write is not a completed biome. Recompute selected
+        # records with missing samples rather than silently skipping them.
+        missing=[r['id'] for r in records if not valid_saved_sample(args.output,r)]
+        if any(b not in args.biomes for b in missing):
+            parser.error(f'Missing or corrupt retained samples for {missing}; include those IDs in --biomes')
+        records=[r for r in records if r['id'] not in missing]
+        if args.resume:
+            complete={r['id'] for r in records}
+            for biome in args.biomes:
+                if biome in complete:print(f'REUSE {biome:02d} {BIOME_NAMES[biome]}',flush=True)
+            args.biomes=[b for b in args.biomes if b not in complete]
+            if not args.biomes:
+                if not args.no_render:
+                    from render_biome_landforms import render_diagnostics
+                    render_diagnostics(args.output,sorted(records,key=lambda r:r['id']))
+                return 0
     try:
         with GL() as gl:
             print(f'OpenGL {gl.version}; renderer: {gl.renderer}',flush=True)
+            if records and old['renderer']!=gl.renderer:
+                parser.error('Renderer changed since checkpoint; use a new output directory')
             height_probe=BiomeProbe(gl,source=HEIGHT_PROBE);density_probe=DensityProbe(gl)
             fields=FieldRunner(gl)
             for biome in args.biomes:
@@ -350,12 +413,19 @@ def main():
                     args.output.mkdir(parents=True,exist_ok=True)
                     close=closeup_sample(height_probe,density_probe,sample,biome,args.seed)
                     close_data={'close_'+key:value for key,value in close.items()}
-                    np.savez_compressed(args.output/f'biome_{biome:02d}_samples.npz',**sample,**close_data,landscape_height=height,landscape_origin=origin)
+                    sample_path=args.output/f'biome_{biome:02d}_samples.npz'
+                    temporary=sample_path.with_suffix('.npz.tmp')
+                    try:
+                        with temporary.open('wb') as file:
+                            np.savez_compressed(file,**sample,**close_data,landscape_height=height,landscape_origin=origin)
+                            file.flush();os.fsync(file.fileno())
+                        temporary.replace(sample_path)
+                    finally:
+                        temporary.unlink(missing_ok=True)
+                    write_checkpoint(args.output,records,gl.renderer)
+                    print(f'CHECKPOINT {len(records)}/25 biomes saved',flush=True)
             if args.output:
                 records.sort(key=lambda r:r['id'])
-                (args.output/'biome_landform_metrics.json').write_text(json.dumps({"renderer":gl.renderer,
-                    "note":"Samples of actual GLSL fields. Height-grid slopes/connectivity are proxies; do not certify gameplay, collisions or GPU hardware performance.",
-                    "records":records},indent=2,ensure_ascii=False)+'\n')
                 if not args.no_render:
                     from render_biome_landforms import render_diagnostics
                     render_diagnostics(args.output,records)
