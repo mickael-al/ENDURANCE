@@ -17,7 +17,7 @@ Chaque dossier [biomes/&lt;Nom&gt;](../Asset/Shader/ProceduralTerrain/biomes/) c
 
 Les noms de fonction sont identiques entre biomes car chaque fichier constitue son propre programme compute. Conserver `FIELD_BIOME_ID`, les includes de `field_batch_common.glsl` / `field_weights.glsl`, et l’include final d’accumulation. Les 25 recettes terrestres n’utilisent plus un tableau commun de paramètres volumiques ; les constantes `FIELD_VOLUME`, `FIELD_SHAPE` et `FIELD_STYLE` restantes appartiennent uniquement au fond marin inchangé.
 
-La révision des sept biomes froids et les fréquences **RKM** sont détaillées dans [COLD_BIOME_REVISION.md](COLD_BIOME_REVISION.md). Les hauteurs de 400–800 m ci-dessous sont relatives au relief local, à `detailScale=0,35`.
+La première révision des sept biomes froids et les fréquences **RKM** sont archivées dans [COLD_BIOME_REVISION.md](COLD_BIOME_REVISION.md). Les réglages actuels des quatre premiers biomes sont détaillés dans la [seconde révision : largeur et placement](COLD_BIOME_SPACING_REVISION.md). Les hauteurs de 400–800 m ci-dessous sont relatives au relief local, à `detailScale=0,35`.
 
 ## Formes présentes
 
@@ -25,10 +25,10 @@ Le macrorelief global s’ajoute toujours au relief propre au biome. Les sites r
 
 | ID — Nom / dossier | Relief 2D | Sculpture 3D localisée |
 | --- | --- | --- |
-| **0 — Glace polaire** / `PolarIce` | Cuvettes et nappes conservées ; déchirures abruptes de 160–210 m de large, massifs de 450–580 m. | Dalle inclinée et tunnel conservés ; grottes sous les failles avec accès en rampe. |
-| **1 — Toundra gelée** / `FrozenTundra` | Plaines et pingos conservés ; montagnes ridged + fBm de 420–560 m. | Pingos ouverts conservés ; petites chambres souterraines avec entrée. |
-| **2 — Toundra** / `Tundra` | Langues de versant et demi-cirque conservés ; pics de 800 m à contreforts ridged + fBm. | Ancienne crête abritée ; rochers de 20 m indépendants. |
-| **3 — Taïga** / `Taiga` | Cordons conservés ; montagnes de 700 m et lits de rivières fossiles sinueux, berges et terrasses. | Arête oblongue et renfoncement antérieurs conservés. |
+| **0 — Glace polaire** / `PolarIce` | Cuvettes élargies ; déchirures courbes et ramifiées de 700–900 m de profondeur ; massifs de 450–580 m, largeur nominale ×4 et espacement ×5. | Nappes et tunnels quatre fois plus espacés ; petites grottes sous les failles, coordonnées sur leur contour bruité. |
+| **1 — Toundra gelée** / `FrozenTundra` | Plaines élargies et pingos ; croupes glaciaires de 420–560 m avec cirque de flanc, largeur ×2,5 et espacement ×4. | Pingos ouverts conservés ; petites chambres souterraines avec entrée. |
+| **2 — Toundra** / `Tundra` | Grandes ondulations et demi-cirques ; massifs de 800 m à épaules décalées et arêtes courbes, largeur ×5 et espacement ×6. | Ancienne crête abritée ; rochers de 20 m indépendants. |
+| **3 — Taïga** / `Taiga` | Collines irrégulières élargies ; longues crêtes asymétriques de 700 m, largeur ×3 et espacement ×4 ; lits fossiles, berges et terrasses. | Arête oblongue et renfoncement antérieurs conservés. |
 | **4 — Forêt boréale marécageuse** / `BorealBog` | Bassins et îlots conservés ; cuvettes de lac de 7–14 m. | Surplombs amplifiés et nouvelles cavités Perlin 3D accessibles. |
 | **5 — Toundra rocheuse** / `RockyTundra` | Hauteur du relief antérieur multipliée par deux. | Dalles antérieures conservées ; nouvelles grottes ouvertes. |
 | **6 — Steppe froide** / `ColdSteppe` | Ondulations conservées ; montagnes à strates de 620 m et failles abruptes de 800 m de profondeur. | Épaule sous-cavée antérieure conservée. |
@@ -81,18 +81,22 @@ Les helpers fournissent des opérations, pas une recette imposée. [biome_landfo
 | `landTerrace(height, stepHeight, softness)` | Paliers continus ; `stepHeight` est une hauteur brute. De 0,05 à 0,5, `softness` élargit les raccords ; au-delà, elle mélange progressivement vers la pente initiale, retrouvée à 1. |
 | `landSite(p, spacing, salt, occupancy)` | Site stable : centre mondial, coordonnées locales XZ tournées `q`, rayon, masque compact et variante. |
 | `landRkmSite(p, rkm, salt)` | Une population indépendante, intervalle nominal `1000/rkm` mètres par cellule ; une trajectoire ne rencontre pas nécessairement chaque site. |
+| `landSparseSite(p, spacing, footprintScale, salt, occupancy)` | Placement tourné et déformé, largeur indépendante ; `center` est dans le domaine déformé, jamais une position mondiale. |
+| `landPlacementValue(p, salt)` | Bruit scalaire lisse entre 0 et 1, partagé entre relief et volume sans dépendance de bibliothèque 2D/3D. |
 | `landMountain(site, peakMetres, salt)` | Profil pointu, contreforts ridged et fBm déformé ; sommet en mètres à `detailScale=0,35`. |
 | `landBand(site, rawThickness)` | Bande nulle hors site, ouverture progressive à son bord, épaisseur brute bornée à 576. |
 
-Les implantations initiales utilisent des cellules de **1,6 à 2,9 km**, avec des cellules vides. Les nouvelles populations RKM des IDs 0–6 utilisent en plus des cellules de **0,5 à 4 km**, toutes candidates, avec des sels indépendants. `occupancy` est une probabilité de présence par cellule, pas le pourcentage de sol sculpté. Le rayon varie de 20 à 28 % de `spacing` et le centre bouge au maximum de 16 % de cette taille par axe. Le support reste donc à l’intérieur de sa cellule, avec une marge minimale de 6 % par bord. Les sites d’une même implantation ne se recouvrent pas ; des biomes différents peuvent néanmoins contribuer ensemble aux transitions.
+Les implantations initiales utilisent des cellules de **1,6 à 2,9 km**, avec des cellules vides. Les populations utilisant `landRkmSite` emploient des cellules de **0,5 à 4 km**, toutes candidates, avec des sels indépendants. Les montagnes des IDs 0–3 et les failles/nappes polaires utilisent désormais `landSparseSite`, décrit ci-dessous. `occupancy` est une probabilité de présence par cellule, pas le pourcentage de sol sculpté. Le rayon varie de 20 à 28 % de `spacing` et le centre bouge au maximum de 16 % de cette taille par axe. Le support reste donc à l’intérieur de sa cellule, avec une marge minimale de 6 % par bord. Les sites d’une même implantation ne se recouvrent pas ; des biomes différents peuvent néanmoins contribuer ensemble aux transitions.
 
 Le masque vaut 1 jusqu’à 64 % du rayon, puis descend continûment à zéro. La grille sélectionne le candidat mais ne crée pas de marche de terrain à sa frontière. Aucun parcours de cellules voisines ni buffer de sites n’est nécessaire. **Conserver exactement les mêmes arguments de `landSite()` dans les deux fichiers du biome**, et distinguer l’espacement, le rayon de la forme et la fréquence du bruit sculptant sa surface.
+
+Pour `landSparseSite`, l’espacement de 6 à 20 km est nominal dans un domaine tourné par seed puis déformé par deux échelles de bruit lisse. La largeur se règle séparément par `footprintScale` : rayon = `spacing × mix(0,20, 0,28, variant) × footprintScale`. Le décalage des centres augmente en tenant compte de ce rayon, avec une marge de 2,5 % de cellule ; 20 % des sites de montagnes restent vides. Le masque reste compact et continu. La déformation ne se replie pas (borne de la perturbation jacobienne < 0,891), mais modifie les distances physiques : les multiplicateurs ne garantissent pas un minimum centre-à-centre au mètre près. `center` appartient au domaine déformé ; utiliser directement `q` pour sculpter, sans traiter `center` comme une position mondiale. Relief et volume doivent appeler exactement la même population. Les recettes anciennes et leurs placements restent inchangés.
 
 ## Construction du volume
 
 [biome_landforms_3d.glsl](../Asset/Shader/ProceduralTerrain/biome_landforms_3d.glsl) ajoute les primitives et le contrat de bande. `landVolumeEnabled(column)` rejette les modes analytiques, un `detailScale` nul et une bande fermée. Les recettes quittent aussi immédiatement les sites de masque nul ; plusieurs biomes chauds réservent leur 3D à certaines variantes.
 
-`landVolumeLocal(p, column, site)` renvoie un repère volontairement mixte : X et Z restent les coordonnées locales du site **en mètres monde**, tandis que Y est une hauteur **brute**, relative au terrain et au centre de bande :
+`landVolumeLocal(p, column, site)` renvoie un repère volontairement mixte : X et Z restent les coordonnées locales du site **en mètres de son domaine de placement** (mondial ou déformé), tandis que Y est une hauteur **brute**, relative au terrain et au centre de bande :
 
 ```glsl
 rawY = (p.y - column.terrain.x - column.blend.y) / uDetailScale

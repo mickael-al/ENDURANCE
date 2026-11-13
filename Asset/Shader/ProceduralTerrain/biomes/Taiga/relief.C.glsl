@@ -6,19 +6,49 @@
 #include "../../field_weights.glsl"
 #include "../../biome_landforms_2d.glsl"
 
+// A long folded ridge rather than a pointed mound: its wooded foothills run
+// out into offset spurs, while unequal slopes and lateral valleys open passes.
+float taigaRange(LandSite site)
+{
+    if (site.mask <= 0.0) return 0.0;
+    vec2 u = site.q / site.radius;
+    float radial = length(u);
+    float phase = site.variant * 6.28318530718;
+    float bend = 0.13 * (sin(u.x * 4.6 + phase) - sin(phase));
+    bend += 0.045 * noiseSimplex2D(u * 3.7 + site.variant * 21.0,
+        uSeed ^ 423u) * smoothstep(0.0, 0.18, radial);
+    float transverse = u.y - bend;
+    float flankWidth = mix(0.42, 0.70, smoothstep(-0.16, 0.16, transverse));
+    float across = pow(max(1.0 - abs(transverse) / flankWidth, 0.0), 0.82);
+    float along = pow(max(1.0 - abs(u.x) / 0.98, 0.0), 0.60);
+    float spine = across * along;
+    vec2 spurA = u - vec2(-0.28, 0.30);
+    spurA.y -= spurA.x * 0.42;
+    vec2 spurB = u - vec2(0.33, -0.24);
+    spurB.y += spurB.x * 0.60;
+    float foothillA = 0.60 * pow(max(1.0 - length(
+        spurA / vec2(0.55, 0.31)), 0.0), 0.75);
+    float foothillB = 0.48 * pow(max(1.0 - length(
+        spurB / vec2(0.47, 0.27)), 0.0), 0.75);
+    float profile = max(spine, max(foothillA, foothillB));
+    // Branching roughness strengthens away from the crest. The central
+    // watershed stays intact; the surrounding relief contains shallow passes.
+    float drainage = landRidges(u * vec2(5.5, 7.2) + site.variant * 37.0, 426u);
+    float flank = smoothstep(0.04, 0.32, abs(transverse));
+    profile *= mix(1.0, 0.72 + 0.28 * drainage,
+        flank * smoothstep(0.0, 0.20, radial));
+    return (700.0 / 0.35) * profile * site.mask;
+}
+
 vec4 fieldRelief(vec2 p)
 {
-    vec2 q = noiseRotate2D(landWarp(p, 2100.0, 230.0, 401u), vec2(0.8, -0.6));
-    float meander = noiseSimplex2D(q / vec2(2100.0, 1400.0), uSeed ^ 402u);
-    // Curved cordons have broad profiles and taper out into lateral passes.
-    float axis = q.x / 510.0 + meander * 1.35;
-    float rib = 0.5 + 0.5 * cos(axis * 3.14159265359);
-    rib = rib * rib * (3.0 - 2.0 * rib);
-    float passes = smoothstep(-0.32, 0.38,
-        noiseSimplex2D(q / vec2(1500.0, 780.0), uSeed ^ 403u));
-    float region = noiseSimplex2D(p / 5100.0, uSeed ^ 404u) * 0.5 + 0.5;
-    float h = landFbm(q / vec2(3300.0, 5100.0), 405u) * 105.0;
-    h += (rib - 0.30) * passes * mix(85.0, 190.0, region);
+    vec2 q = noiseRotate2D(landWarp(p, 7350.0, 805.0, 401u), vec2(0.8, -0.6));
+    // Broad irregular foothills replace the repeated cosine cordons. These
+    // wavelengths are 3-4 times the former base hills, at the same amplitude.
+    float rib = landRidges(q / vec2(4800.0, 8200.0), 403u);
+    float region = noiseSimplex2D(p / 17850.0, uSeed ^ 404u) * 0.5 + 0.5;
+    float h = landFbm(q / vec2(11550.0, 17850.0), 405u) * 105.0;
+    h += (rib - 0.30) * mix(85.0, 190.0, region);
     h += noiseSimplex2D(q / vec2(85.0, 230.0), uSeed ^ 406u) * 2.0 * rib;
 
     LandSite site = landSite(p, 2800.0, 407u, 0.65);
@@ -26,8 +56,9 @@ vec4 fieldRelief(vec2 p)
     float ramp = 1.0 - smoothstep(0.0, 1.0, dot(local, local));
     h += site.mask * ramp * mix(30.0, 80.0, site.variant);
 
-    LandSite mountain = landRkmSite(p, 0.5, 421u);
-    h += landMountain(mountain, 700.0, 423u);
+    // 8-km nominal placement, 2.4-3.36-km footprint: spacing x4 and width x3.
+    LandSite mountain = landSparseSite(p, 8000.0, 0.75, 421u, 0.80);
+    h += taigaRange(mountain);
 
     // Abandoned river reaches: a meandering low bed, broad eroded banks and
     // residual terraces. This models erosion's shape, not water simulation.

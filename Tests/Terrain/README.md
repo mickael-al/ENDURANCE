@@ -429,13 +429,14 @@ resolve narrow obstacles; a controller test at actual travel speed remains neede
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_cold_biome_revision.py --reference-shaders /path/to/pre-cold-revision/Asset/Shader/ProceduralTerrain --output /tmp/endurance-cold
 ```
 
-The reference directory should contain the recipes from `c28bd31` or `f8960ea`.
-With it, the test checks actual height/depth differences and doubled rocky tundra.
-Without it, placement, density, cavity and pipeline checks still run, but requested
-height changes against the previous version cannot be asserted. RKM denotes
-nominal placement cell spacing, not encounters along every route. Feature sites
-are deliberately targeted; cave connectivity is sampled, not a controller test.
-See [the revision report](../../docs/COLD_BIOME_REVISION.md).
+The optional reference adds a historical height comparison. Current feature
+heights are always checked by compiling the same production recipe with only
+that feature disabled, so changing ground noise does not contaminate the result.
+Placements are read from the recipes, including inverse-warped world anchors.
+RKM and sparse placement spacing are nominal, not encounters along every route.
+Feature sites are deliberately targeted; cave connectivity is sampled, not a
+controller test. See [the initial report](../../docs/COLD_BIOME_REVISION.md) and
+[the current spacing revision](../../docs/COLD_BIOME_SPACING_REVISION.md).
 
 ## Actual biome areas and site occurrence
 
@@ -633,3 +634,28 @@ invalide la classification et les 26 reliefs, celle de `noise_3d.glsl` les
 
 Le [catalogue](../../docs/NOISE_LIBRARY.md) contient les atlas issus de vrais
 échantillons GPU et la commande pour les régénérer.
+
+## Espacement et largeur des quatre biomes froids
+
+Le diagnostic de la seconde révision compare les shaders actuels à ceux du
+commit précédant cette révision (`578e793` local, arbre identique à `e1c6f52`
+publié). Extraire tout `Asset/Shader` pour conserver les dépendances de bruit :
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_cold_biome_spacing.py \
+  --reference-shaders ../ENDURANCE-before-spacing/Asset/Shader/ProceduralTerrain \
+  --output /tmp/endurance-cold-spacing
+```
+
+Il mesure 100 cellules par population, les distances réelles entre voisins,
+les empreintes et hauteurs isolées des montagnes, la profondeur des failles,
+la détermination par seed et la continuité sur les vraies frontières du domaine
+déformé. Une compilation diagnostique désactive seulement le masque du site
+mesuré pour retirer exactement le terrain environnant de sa contribution.
+L'inversion du domaine est uniquement dans les sondes de test. Elle n'ajoute
+aucun coût aux shaders de production.
+
+Les vues de dessus utilisent la même étendue mondiale et la même échelle de
+couleur avant/après, par biome. Les profils sont à la même échelle horizontale.
+Ce sont des mesures de relief GLSL, pas des captures du jeu, des essais de
+collisions ou des mesures de performances sur la carte graphique cible.

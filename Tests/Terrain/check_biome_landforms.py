@@ -29,6 +29,7 @@ from check_biomes import BiomeProbe, BIOMES, profile_probe_source
 from check_gpu import SHADERS, FieldRunner, lattice_values
 from field_batch_runner import default_uniforms
 from gl_headless import GL, GLUnavailable
+from biome_placement_probe import placements, anchor_probe, INVERSE_SPARSE
 
 SCENE_OPTIONS={"uHeightAmplitude":1000.,"uHeightFrequency":.000015,"uDetailScale":.35,
     "uBaseHeight":0.,"uSeaLevel":-100.,"uSeaBlendWidth":64.}
@@ -122,37 +123,29 @@ class DensityProbe(BiomeProbe):
 
 def site_recipe(biome):
     """Read placement inputs from the actual recipe; evaluate the hash on GPU."""
-    directory=SHADERS/'biomes'/BIOME_NAMES[biome]
-    relief=(directory/'relief.C.glsl').read_text()
-    volume=(directory/'volume.C.glsl').read_text()
-    pattern=r'landSite\(\s*p(?:\.xz)?\s*,\s*([^\)]+)\)'
-    a=re.findall(pattern,relief);b=re.findall(pattern,volume)
-    assert a and b,("Missing targeted site recipe",biome)
-    normalize=lambda x: re.sub(r'\s+','',x)
-    assert {normalize(x) for x in a}=={normalize(x) for x in b},("2D/3D placement mismatch",biome,a,b)
-    assert len(set(normalize(x) for x in a))==1,("Multiple site families need distinct diagnostic sampling",biome,a)
-    args=a[0]
-    spacing,salt,occupancy=[x.strip() for x in args.split(',')]
-    return args,float(spacing),float(occupancy)
+    primary=next(p for p in placements(biome) if p.variable=='site')
+    volume=next(p for p in placements(biome,kind='volume') if p.variable=='site')
+    assert primary==volume,("2D/3D placement mismatch",biome,primary,volume)
+    return primary.call(),primary.spacing,primary.occupancy
 
 
 def find_sites(gl, biome, seed=1337):
-    args,spacing,occupancy=site_recipe(biome)
-    probe=BiomeProbe(gl,source=SITE_PROBE.replace('SITE_CALL','landSite(p,'+args+')'))
-    result=probe.run(biome=biome,size=12,origin=(-5.5*spacing,-5.5*spacing),spacing=spacing,uSeed=seed)
-    data=np.asarray(result['values']).reshape(-1,16)
-    active=data[data[:,3]>.5]
+    _,spacing,occupancy=site_recipe(biome)
+    primary=next(p for p in placements(biome) if p.variable=='site')
+    rows,data=anchor_probe(gl,biome,primary,seed,size=12)
+    active=np.asarray(rows)
     assert len(active)>=3,("Too few seeded sites in 144 placement cells",biome,len(active),occupancy)
     # Keep a nearby example plus another shape variant for independent testing.
     distance=np.sum(active[:,:2]**2,axis=1)
-    sculpted=active[active[:,7]>.80]
+    sculpted=active[active[:,8]>.80]
     assert len(sculpted), ("No high-variant site found",biome)
     nearest=sculpted[np.argmin(np.sum(sculpted[:,:2]**2,axis=1))]
-    other=active[np.argmin(active[:,7])]
-    median=active[np.argmin(np.abs(active[:,7]-.5))]
+    other=active[np.argmin(active[:,8])]
+    median=active[np.argmin(np.abs(active[:,8]-.5))]
     sites=[]
     for row in (nearest,other,median):
-        sites.append({"center":[float(row[0]),float(row[1])],"radius":float(row[2]),"variant":float(row[7])})
+        sites.append({"center":[float(row[0]),float(row[1])],"radius":float(row[2]),"variant":float(row[8]),
+                      "domain_center":row[10:12].tolist()})
     return sites,{"spacing_m":spacing,"occupancy":occupancy,"active_cells":int(len(active)),"sampled_cells":144}
 
 
@@ -162,6 +155,7 @@ def source_fingerprint(biome):
     directory=SHADERS/'biomes'/BIOME_NAMES[biome]
     source='\n'.join(biome_recipe_source(directory/name) for name in ('relief.C.glsl','volume.C.glsl'))
     source+='\n'+profile_probe_source()+HEIGHT_PROBE+SITE_PROBE+DENSITY_PROBE
+    source+='\n'+(Path(__file__).parent/'biome_placement_probe.py').read_text()
     # Include every entry point used by the production comparison, so a recipe
     # image cannot silently inherit a report from an older accumulation path.
     for path in sorted(SHADERS.glob('*.C.glsl')):
@@ -192,11 +186,21 @@ def traversal_metrics(height,spacing):
 
 def check_site_edges(probe,biome,site,spacing,seed=1337,**options):
     center=np.asarray(site['center']);radius=site['radius']
+    primary=next(p for p in placements(biome) if p.variable=='site')
+    coordinate_probe=None
+    if primary.sparse:
+        center=np.asarray(site['domain_center'])
+        source=INVERSE_SPARSE+HEIGHT_PROBE.replace('FieldColumn c=fieldProbeColumn(p);',
+            f'p=probeWorldFromDomain(p,{primary.spacing},{primary.salt}u);\n'
+            'FieldColumn c=fieldProbeColumn(p);c.terrain.xy=p;')
+        coordinate_probe=BiomeProbe(probe.gl,source=source)
     recipe=(SHADERS/'biomes'/BIOME_NAMES[biome]/'relief.C.glsl').read_text()
-    multiple_supports=bool(re.search(r'\blandRkmSite\s*\(',recipe))
+    multiple_supports=bool(re.search(r'\bland(?:Rkm|Sparse)Site\s*\(',recipe))
     jumps=[]
 
     def sample(point):
+        if coordinate_probe is not None:
+            point=height_grid(coordinate_probe,biome,tuple(point),0.,size=1,seed=seed,**options)[0,0,:2]
         return height_grid(probe,biome,tuple(point),0.,size=1,seed=seed,**options)[0,0]
 
     def check_continuity(point,direction,label):

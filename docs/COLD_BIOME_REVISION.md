@@ -1,4 +1,6 @@
-# Révision des sept biomes froids — 13 novembre 2026
+# Première révision des sept biomes froids — 13 novembre 2026
+
+> Bilan historique de la première passe (`e1c6f52`). Les réglages et mesures des IDs 0–3 ci-dessous sont remplacés par la [seconde révision : largeur et placement](COLD_BIOME_SPACING_REVISION.md). Les IDs 4–6 restent inchangés.
 
 Cette passe répond au retour de jeu sur les IDs **0 à 6**. Les recettes des IDs 7 à 25 ne sont pas retouchées. Les nouveaux reliefs s’ajoutent aux formes précédentes, sauf la hauteur de la toundra rocheuse qui est multipliée par deux. Les montagnes utilisent un profil, des contreforts ridged, du fBm et de la déformation de coordonnées ; les grandes incisions sont sculptées en 2D, puis les grottes et rochers en densité 3D.
 

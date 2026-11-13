@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
-"""Probe the seven revised cold biomes at their actual GPU-generated RKM sites.
+"""Probe the seven revised cold biomes at their actual GPU-generated sites.
 
 RKM checks cover nominal placement cells, not encounters along an arbitrary path.
-Optional reference shaders isolate changes from the previously saved recipes.
+Feature omission isolates the current contribution; optional reference shaders
+are comparisons only and may have different ground and placement recipes.
 Figures show real GLSL samples, not game screenshots or collision guarantees.
 """
 from __future__ import annotations
 import argparse
 import json
-import math
 from pathlib import Path
 import sys
 
@@ -17,64 +17,60 @@ import numpy as np
 from biome_test_support import BIOME_NAMES
 from check_biomes import BiomeProbe
 from check_biome_landforms import (HEIGHT_PROBE, DensityProbe, SCENE_OPTIONS,
-    height_grid, density_metrics, check_targeted_pipeline, site_recipe, source_fingerprint)
+    height_grid, density_metrics, check_targeted_pipeline, source_fingerprint)
+from biome_placement_probe import placement_for, anchor_probe, OmitPlacementProbe
 from check_gpu import FieldRunner
 from gl_headless import GL, GLUnavailable
 
-# biome, label, RKM, salt, expected signed centre-height addition when isolated.
+# biome, label, salt, expected signed centre-height addition when isolated.
 FEATURES=(
-    (0,'ice_massif',.25,111,(400.,610.)),
-    (0,'ice_rift',.5,109,(-350.,-200.)),
-    (1,'frozen_mountain',.5,211,(400.,580.)),
-    (1,'underground_cave',2.,209,None),
-    (2,'tundra_peak',1.,321,(795.,805.)),
-    (2,'twenty_metre_rock',.5,322,None),
-    (3,'taiga_peak',.5,421,(695.,705.)),
-    (3,'ancient_river',1.,422,(-80.,-20.)),
-    (4,'lake_basin',1.,510,(-18.,-5.)),
-    (4,'bog_hole',.25,511,None),
-    (5,'rocky_hole',.25,5112,None),
-    (6,'terraced_mountain',.5,611,(615.,625.)),
-    (6,'deep_chasm',.25,613,(-805.,-795.)),
+    (0,'ice_massif',111,(400.,610.)),
+    (0,'ice_rift',109,(-910.,-690.)),
+    (1,'frozen_mountain',211,(400.,580.)),
+    (1,'underground_cave',209,None),
+    (2,'tundra_peak',321,(795.,805.)),
+    (2,'twenty_metre_rock',322,None),
+    (3,'taiga_peak',421,(695.,705.)),
+    (3,'ancient_river',422,(-80.,-20.)),
+    (4,'lake_basin',510,(-18.,-5.)),
+    (4,'bog_hole',511,None),
+    (5,'rocky_hole',5112,None),
+    (6,'terraced_mountain',611,(615.,625.)),
+    (6,'deep_chasm',613,(-805.,-795.)),
 )
 
-SITE_SOURCE=r'''
+POLAR_CAVE_SOURCE=r'''
 layout(local_size_x=8,local_size_y=8) in;
 struct ProbeSample { vec4 terrain; vec4 volume; vec4 samples; vec4 shape; };
 layout(std430,binding=6) writeonly buffer ProbeOutput { ProbeSample outputValues[]; };
-uniform uint uProbeSize;
 uniform vec2 uProbeOrigin;
-uniform float uProbeSpacing;
 void main() {
-    uvec2 i=gl_GlobalInvocationID.xy;
-    if(any(greaterThanEqual(i,uvec2(uProbeSize)))) return;
-    vec2 p=uProbeOrigin+vec2(i)*uProbeSpacing;
-    LandSite s=landRkmSite(p,RATE,SALT);
-    vec2 a=landRkmSite(s.center+vec2(1,0),RATE,SALT).q;
-    vec2 b=landRkmSite(s.center+vec2(0,1),RATE,SALT).q;
-    float legacy=landSite(s.center,LEGACY).mask;
-    outputValues[i.x+i.y*uProbeSize]=ProbeSample(vec4(s.center,s.radius,s.mask),
-        vec4(a,b),vec4(s.variant,legacy,0,0),vec4(0));
+    if(any(notEqual(gl_GlobalInvocationID.xy,uvec2(0)))) return;
+    vec2 p=uProbeOrigin;
+    LandSite s=SITE_CALL;
+    float x=-0.18*s.radius;
+    vec2 target=vec2(x,polarRiftCenterline(x,s));
+    // Invert the actual local domain, not an old analytic bend or merely its
+    // linearized Jacobian. The chamber lies away from the placement anchor.
+    for(int i=0;i<8;++i) {
+        vec2 error=SITE_CALL.q-target;
+        vec2 save=p;
+        p=save+vec2(.5,0);vec2 a=SITE_CALL.q;
+        p=save-vec2(.5,0);a-=SITE_CALL.q;
+        p=save+vec2(0,.5);vec2 b=SITE_CALL.q;
+        p=save-vec2(0,.5);b-=SITE_CALL.q;
+        p=save-inverse(mat2(a,b))*error;
+    }
+    outputValues[0]=ProbeSample(vec4(p,0,0),vec4(0),vec4(0),vec4(0));
 }
 '''
 
 
-def anchors(gl,biome,rate,salt,seed):
-    legacy,_,_=site_recipe(biome)
-    source=SITE_SOURCE.replace('RATE',str(float(rate))).replace('SALT',str(salt)+'u').replace('LEGACY',legacy)
-    probe=BiomeProbe(gl,source=source)
-    spacing=1000./rate
-    options=dict(biome=biome,size=6,origin=(-2.5*spacing,-2.5*spacing),spacing=spacing,uSeed=seed)
-    result=probe.run(**options)
-    assert result['raw']==probe.run(**options)['raw'],('RKM placement not repeatable',biome,salt)
-    changed=probe.run(**dict(options,uSeed=seed+1))
-    assert result['raw']!=changed['raw'],('RKM placement ignores seed',biome,salt)
-    data=np.asarray(result['values']).reshape(-1,16)
-    assert len(np.unique(data[:,:2],axis=0))==36,('Placement cells collapse',biome,salt)
-    expected=np.stack(np.meshgrid(np.arange(-3,3),np.arange(-3,3)),axis=-1).reshape(-1,2)
-    assert np.array_equal(np.floor(data[:,:2]/spacing).astype(int),expected)
-    # Cardinal perturbations recover the GPU's rotated local axes.
-    return sorted(data,key=lambda row:float(np.dot(row[:2],row[:2])))
+def polar_cave_position(gl,site,seed):
+    placement=placement_for(0,109)
+    probe=BiomeProbe(gl,source=POLAR_CAVE_SOURCE.replace('SITE_CALL',placement.call()))
+    result=probe.run(biome=0,size=1,origin=tuple(site[:2]),spacing=0.,uSeed=seed)
+    return np.asarray(result['values'][:2])
 
 
 def point(probe,biome,xy,seed):
@@ -85,27 +81,23 @@ def local_position(site,x,z):
     return site[:2]+x*np.array((site[4],site[6]))+z*np.array((site[5],site[7]))
 
 
-def select_site(height,reference,biome,sites,seed,expected):
+def select_site(height,isolated,reference,biome,sites,seed,expected):
     candidates=[]
     for site in sites:
         h=float(point(height,biome,site[:2],seed)[0])
+        without=float(point(isolated,biome,site[:2],seed)[0])
         before=float(point(reference,biome,site[:2],seed)[0]) if reference else None
-        delta=h-before if reference else None
+        delta=h-without
         candidates.append((site,h,before,delta))
-        if expected and reference and expected[0]<=delta<=expected[1]:return candidates[-1]
-        if expected is None and site[9]==0.:return candidates[-1]
-    if expected and reference:
-        raise AssertionError(('No isolated feature reaches requested height/depth',biome,expected,[r[3] for r in candidates]))
-    return candidates[0]
+        if expected is None or expected[0]<=delta<=expected[1]:return candidates[-1]
+    raise AssertionError(('No isolated feature reaches requested height/depth',biome,expected,[r[3] for r in candidates]))
 
 
 def feature_volume(height,density,biome,label,site,seed):
     center=site[:2].copy()
     extent=75.
     if label=='ice_rift':
-        x=-.18*site[2];v=site[8]
-        z=18.*math.sin(x/120.+v*6.2831853)+8.*math.sin(x/57.+v*2.)
-        center=local_position(site,x,z);extent=90.
+        center=polar_cave_position(height.gl,site,seed);extent=90.
     elif label=='bog_hole':center=local_position(site,15.,0.);extent=120.
     elif label=='rocky_hole':center=local_position(site,25.,0.);extent=140.
     elif label=='twenty_metre_rock':extent=45.
@@ -181,14 +173,18 @@ def main():
             height=BiomeProbe(gl,source=HEIGHT_PROBE)
             reference=BiomeProbe(gl,directory=args.reference_shaders,source=HEIGHT_PROBE) if args.reference_shaders else None
             density=DensityProbe(gl);fields=FieldRunner(gl)
-            for biome,label,rate,salt,expected in FEATURES:
-                sites=anchors(gl,biome,rate,salt,args.seed)
-                site,h,before,delta=select_site(height,reference,biome,sites,args.seed,expected)
+            for biome,label,salt,expected in FEATURES:
+                placement=placement_for(biome,salt)
+                sites,all_sites=anchor_probe(gl,biome,placement,seed=args.seed,size=6)
+                isolated=OmitPlacementProbe(gl,salt,source=HEIGHT_PROBE)
+                site,h,before,delta=select_site(height,isolated,reference,biome,sites,args.seed,expected)
+                rate=1000./placement.spacing
                 record={'biome':biome,'name':BIOME_NAMES[biome],'feature':label,'rkm':rate,
-                    'nominal_cell_spacing_m':1000./rate,'anchor':site[:2].tolist(),
-                    'height_m':h,'reference_height_m':before,'height_change_m':delta,
+                    'nominal_cell_spacing_m':placement.spacing,'placement':placement.function,'occupancy':placement.occupancy,'anchor':site[:2].tolist(),
+                    'height_m':h,'reference_height_m':before,'height_change_m':None if before is None else h-before,
+                    'isolated_contribution_m':delta,
                     'expected_isolated_change_m':expected,'placement_cells_probed':36,
-                    'selection':'nearest anchor with isolated target contribution (when reference supplied)',
+                    'selection':'nearest active anchor meeting contribution target with this feature omitted',
                     'source_sha256':fingerprints[biome]}
                 extent=max(180.,site[2]*1.1)
                 origin=tuple(site[:2]-extent)
@@ -208,20 +204,14 @@ def main():
                     record['pipeline']=check_targeted_pipeline(fields,density,sample,biome,args.seed)
                 assert source_fingerprint(biome)==fingerprints[biome],('Sources changed during measurement',biome)
                 records.append(record)
-                change=f'{delta:+.2f} m' if delta is not None else 'reference omitted'
-                print(f'PASS {biome:02d} {label}: {rate:g} RKM, {change}',flush=True)
+                change=f'isolated {delta:+.2f} m'
+                print(f'PASS {biome:02d} {label}: nominal {placement.spacing:g} m, {change}',flush=True)
                 if args.output:
                     args.output.mkdir(parents=True,exist_ok=True)
                     (args.output/'cold_biome_revision.json').write_text(json.dumps({'seed':args.seed,'renderer':gl.renderer,
                         'reference_shaders':str(args.reference_shaders) if args.reference_shaders else None,
-                        'note':'Targeted diagnostic sites selected among 36 cells per feature, not frequency estimates. RKM = inverse nominal cell spacing, not guaranteed path encounters. Heights at detailScale=.35; forced biomes; no gameplay certification.',
+                        'note':'Targeted diagnostic sites selected among 36 cells per feature, not frequency estimates. Spacing is read from each current placement recipe; warped spacing is not a guaranteed minimum path separation. Isolated contributions compare identical current recipes with only this feature disabled. Optional reference heights are comparisons only. Heights at detailScale=.35; forced biomes; no gameplay certification.',
                         'records':records},indent=2)+'\n')
-            if reference:
-                options=dict(SCENE_OPTIONS,uHeightAmplitude=0.)
-                new=height_grid(height,5,(-1000.,-1000.),31.25,size=65,seed=args.seed,**options)[:,:,0]
-                old=height_grid(reference,5,(-1000.,-1000.),31.25,size=65,seed=args.seed,**options)[:,:,0]
-                assert np.allclose(new,2*old,atol=.0001,rtol=1e-6),('Rocky tundra relief is not doubled',float(np.max(np.abs(new-2*old))))
-                print('PASS RockyTundra: exact doubled biome relief at 4,225 points',flush=True)
             assert all(source_fingerprint(b)==fingerprints[b] for b in range(7)), 'Sources changed during measurement'
             if args.output:render(args.output,profiles,sections)
     except GLUnavailable as error:

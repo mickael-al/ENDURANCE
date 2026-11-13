@@ -13,7 +13,6 @@ import json
 import hashlib
 import math
 from pathlib import Path
-import re
 import struct
 import sys
 
@@ -21,6 +20,7 @@ import numpy as np
 from scipy import ndimage
 
 from biome_test_support import ROOT, BIOME_NAMES, packed_biome_cells
+from biome_placement_probe import placements, anchor_probe
 from field_batch_runner import SHADERS, default_uniforms
 from gl_headless import GL, GLUnavailable, shader_source
 
@@ -64,21 +64,16 @@ void main() {
  values[i*28u+27u]=uintBitsToFloat(c.detail.w);
 }
 ''')],'production biome weights readback')
-        self.sites=gl.compile([(0x91B9,'#version 450 core\n'+
+        self.domain_center=gl.compile([(0x91B9,'#version 450 core\n'+
             shader_source(SHADERS/'field_common.glsl')+shader_source(SHADERS/'biome_landforms_common.glsl')+r'''
-layout(local_size_x=8,local_size_y=8) in;
+layout(local_size_x=1) in;
 layout(std430,binding=2) writeonly buffer Output { vec4 values[]; };
-uniform uint uPointSide;
-uniform float uSiteSpacing;uniform uint uSiteSalt;uniform float uSiteOccupancy;
-uniform vec2 uCellOrigin;
+uniform float uSiteSpacing;uniform uint uSiteSalt;
+uniform vec2 uWorldCenter;
 void main() {
- uvec2 i=gl_GlobalInvocationID.xy;if(any(greaterThanEqual(i,uvec2(uPointSide))))return;
- vec2 p=(uCellOrigin+vec2(i)+.5)*uSiteSpacing;
- LandSite s=landSite(p,uSiteSpacing,uSiteSalt,uSiteOccupancy);
- LandSite centered=landSite(s.center,uSiteSpacing,uSiteSalt,uSiteOccupancy);
- values[i.x+i.y*uPointSide]=vec4(s.center,centered.mask>.5?s.radius:-1.,s.variant);
+ values[0]=vec4(landSparseDomain(uWorldCenter,uSiteSpacing,uSiteSalt),0,0);
 }
-''')],'actual seeded landform anchors')
+''')],'production placement domain at world disk center')
         self.mapping=gl.buffer(packed_biome_cells())
         self.jobs=gl.buffer(16*48);self.columns=gl.buffer(0);self.output=gl.buffer(0);self.points=gl.buffer(0)
 
@@ -112,21 +107,31 @@ void main() {
 
     def anchors(self,biome,center,radius):
         gl=self.gl
-        recipe=(SHADERS/'biomes'/BIOME_NAMES[biome]/'relief.C.glsl').read_text()
-        args=re.findall(r'landSite\(p,\s*([\d.]+),\s*(\d+)u,\s*([\d.]+)\)',recipe)
-        assert len(set(args))==1,(biome,'Update diagnostic for multiple placement families')
-        spacing,salt,occupancy=map(float,args[0]);salt=int(salt)
-        low=np.floor((np.asarray(center)-radius)/spacing).astype(int)
-        high=np.floor((np.asarray(center)+radius)/spacing).astype(int)
+        primary=[p for p in placements(biome) if p.variable in ('site','s')]
+        assert len(primary)==1,(biome,'Expected one primary sculpted site')
+        placement=primary[0]
+        spacing,occupancy=placement.spacing,placement.occupancy
+        domain_center=np.asarray(center,dtype=float)
+        domain_radius=radius
+        if placement.sparse:
+            gl.resize(self.output,16);gl.bind(self.output,2)
+            params={'uSeed':('1ui',int(self.settings['seed'])),
+                'uSiteSpacing':('1f',spacing),'uSiteSalt':('1ui',placement.salt),
+                'uWorldCenter':('2f',*map(float,center))}
+            for name,args in params.items():gl.uniform(self.domain_center,name,*args)
+            gl.dispatch(self.domain_center,1)
+            domain_center=np.frombuffer(gl.read(self.output,16),dtype='<f4')[:2].copy()
+            # The production warp's Jacobian perturbation is < .891. Thus
+            # this domain-space disk contains every anchor in the world disk,
+            # including at nonzero camera positions and on warped cell edges.
+            domain_radius=radius*1.891
+        low=np.floor((domain_center-domain_radius)/spacing).astype(int)
+        high=np.floor((domain_center+domain_radius)/spacing).astype(int)
         side=int((high-low).max()+1)
-        gl.bind(self.mapping,7);gl.resize(self.output,side*side*16);gl.bind(self.output,2)
-        params={'uSeed':('1ui',int(self.settings['seed'])),'uPointSide':('1ui',side),
-            'uSiteSpacing':('1f',spacing),'uSiteSalt':('1ui',salt),'uSiteOccupancy':('1f',occupancy),
-            'uCellOrigin':('2f',*map(float,low))}
-        for name,args in params.items():gl.uniform(self.sites,name,*args)
-        gl.dispatch_extent(self.sites,side,side)
-        data=np.frombuffer(gl.read(self.output,side*side*16),dtype='<f4').copy().reshape(-1,4)
-        data=data[(data[:,2]>0)&(np.linalg.norm(data[:,:2]-center,axis=1)<=radius)]
+        active,_=anchor_probe(gl,biome,placement,seed=int(self.settings['seed']),
+            size=side,origin=tuple((low+.5)*spacing),min_active_fraction=0.)
+        data=np.asarray(active).reshape(-1,16)[:,[0,1,2,8]]
+        data=data[np.linalg.norm(data[:,:2]-center,axis=1)<=radius]
         return data,spacing,occupancy
 
 
@@ -223,7 +228,8 @@ def main():
                 'sampled_disk_area_km2':float(inside.sum()*spacing**2/1e6),'analytic_disk_area_km2':math.pi*radius**2/1e6,
                 'notes':['Plan-view area estimates on a regular grid; not triangulated ground surface area.',
                     'Four-neighbor connectivity; sub-grid corridors, islands and contacts may be missed.',
-                    'Site anchors are production landSite outputs at the scene seed, weighted by the actual unforced classifier.',
+                    'Primary site anchors use production placement at the scene seed, including inverse-warped world positions, weighted by the actual unforced classifier.',
+                    'For warped sites, radius_m describes support in the placement domain; world-space footprints are distorted.',
                     'An active anchor is not proof of a passable cave or intact visible sculpture after blending.',
                     'World generation is unbounded; disk is the saved camera selection radius, not the total planet.',
                     'Scene climateFrequency is legacy; climate_2d.glsl defines production climate frequencies.'],
