@@ -8,12 +8,14 @@
 #include "shape.glsl"
 
 // Coarse ledges plus smaller fractures; all coordinates are metres, including Y.
+// A larger noise scale spaces the features out without increasing displacement.
 // Clamp each noise so the 2D swept-wall envelope remains conservative.
 vec2 polarRiftWallWarp(vec3 p, LandSite rift)
 {
     vec3 q = vec3(rift.q.x, p.y, rift.q.y);
-    vec3 broad = q / vec3(180.0, 90.0, 130.0);
-    vec3 detail = q / vec3(55.0, 28.0, 45.0);
+    float scale = max(POLAR_RIFT_WALL_NOISE_SCALE, 0.01);
+    vec3 broad = q / (scale * vec3(180.0, 90.0, 130.0));
+    vec3 detail = q / (scale * vec3(55.0, 28.0, 45.0));
     vec2 coarseNoise = clamp(vec2(noiseSimplex3D(broad, uSeed ^ 119u),
         noiseSimplex3D(broad + vec3(17.1, 31.7, 9.2), uSeed ^ 120u)), -1.0, 1.0);
     vec2 detailNoise = clamp(vec2(noiseSimplex3D(detail, uSeed ^ 121u),

@@ -665,6 +665,8 @@ collisions ou des mesures de performances sur la carte graphique cible.
 ```sh
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_volume.py --output /tmp/polar-rift-volume
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_volume.py --seed 17 --output /tmp/polar-rift-volume-seed17
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_variation.py --output /tmp/polar-rift-variation
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_coverage.py --output /tmp/polar-rift-coverage
 ```
 
 The test disables only the wall delta in a second diagnostic compilation,
@@ -673,6 +675,15 @@ wall movement across the entire depth, multiple solid/air transitions proving
 sampled overhangs, unchanged mouth/floor, and effects beyond the old 201.6-m
 band. Targeted samples are compared against production accumulation and exact
 shared LOD points. Images are GLSL sections, not in-game screenshots.
+
+The wall section selects an unbranched site to avoid mistaking a junction's
+change of nearest wall for displacement. The variation fixture checks 98 sites
+across two seeds, optional 0–3 branches, independent branch layouts, determinism,
+and twelve distinct silhouettes in the same local orientation. Its second
+compilation changes only the wall noise scale to compare wavelength and RMS
+amplitude. The coverage fixture checks the swept contour of 24 sites at 193²
+points each, with 13 horizontal shifts including every corner of the displacement
+envelope. Changed mask samples must remain within full wall coverage.
 
 Wide bands use a separate packing-range flag in the existing 32-byte column.
 Widths up to576 preserve the legacy quantization; the extended raw maximum is

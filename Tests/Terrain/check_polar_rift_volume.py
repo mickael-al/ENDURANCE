@@ -109,21 +109,24 @@ def main():
     with GL() as gl:
         placement=next(p for p in placements(0) if p.variable=='rift')
         rows,_=anchor_probe(gl,0,placement,args.seed,size=6)
-        height=BiomeProbe(gl,source=HEIGHT_PROBE)
+        height_source=HEIGHT_PROBE.replace('vec4(0),c.blend',
+            f'vec4(float(polarRiftBranchCount({placement.call()})),0,0,0),c.blend')
+        height=BiomeProbe(gl,source=height_source)
         chosen=None
-        # A broad nearby opening; low-variant widths are too narrow for a clear
-        # single-plane diagnostic of both walls and the branching contour.
+        # Isolate a broad unbranched opening: when two cuts join, the innermost
+        # crossing can jump to another wall and overstate noise displacement.
+        # The separate variation and coverage fixtures exercise branched cuts.
         for site in rows:
             if not .45<site[8]<.9:continue
             column=height_grid(height,0,tuple(site[:2]),0,size=1,seed=args.seed,**SCENE_OPTIONS)[0,0]
-            if column[0]<700:
+            if column[0]<700 and column[8]==0:
                 chosen=(site,column);break
         assert chosen is not None,'No suitable diagnostic site'
         site,column=chosen
         axis=np.array((site[5],site[7]));axis/=np.linalg.norm(axis)
         source=SECTION.replace('AXIS',f'vec2({axis[0]:.9g},{axis[1]:.9g})').replace('RIFT_CALL',placement.call('xz'))
         actual=BiomeProbe(gl,source=source);baseline=NoWallProbe(gl,source=source)
-        # Width encompasses the main cut and its near branch; height includes
+        # Width encompasses the main cut and both walls; height includes
         # complete surface transitions outside both the opening and floor.
         nominal_depth=700.+200.*site[8]
         extent=800.;size=385
@@ -166,7 +169,7 @@ def main():
         sample=DensityProbe(gl).sample(0,tuple(world-4),1.,float(y[j]-4),1.,size=9,depth=9,seed=args.seed,**SCENE_OPTIONS)
         pipeline=check_targeted_pipeline(FieldRunner(gl),DensityProbe(gl),sample,0,args.seed)
         result=dict(seed=args.seed,renderer=gl.renderer,source_sha256=fingerprint,
-            anchor=site[:2].tolist(),variant=float(site[8]),sampling_m=[float(x[1]-x[0]),float(y[1]-y[0])],
+            anchor=site[:2].tolist(),variant=float(site[8]),branches=int(column[8]),sampling_m=[float(x[1]-x[0]),float(y[1]-y[0])],
             maximum_measured_lateral_shift_m=float(measured.max()),median_measured_lateral_shift_m=float(np.median(measured)),
             overhang_columns=overhang_columns,deep_changed_samples=int(np.sum(changed&middle&far)),
             maximum_band_m=float(aa[:,:,1].max()),opening_floor_max_difference=float(np.max(np.abs(difference[outside]))),
