@@ -192,23 +192,57 @@ def traversal_metrics(height,spacing):
 
 def check_site_edges(probe,biome,site,spacing,seed=1337,**options):
     center=np.asarray(site['center']);radius=site['radius']
+    recipe=(SHADERS/'biomes'/BIOME_NAMES[biome]/'relief.C.glsl').read_text()
+    multiple_supports=bool(re.search(r'\blandRkmSite\s*\(',recipe))
     jumps=[]
+
+    def sample(point):
+        return height_grid(probe,biome,tuple(point),0.,size=1,seed=seed,**options)[0,0]
+
+    def check_continuity(point,direction,label):
+        # Another independent population may cross this site's edge. Its
+        # height and band need not be zero, but their differences must converge
+        # as the interval shrinks. This accepts steep continuous cliffs while
+        # rejecting a finite jump; a single absolute slope cap cannot do both.
+        # Keep the smallest interval above coordinate float32 quantization.
+        ulp=abs(float(np.spacing(np.float32(max(1.0,float(np.max(np.abs(point))))))))
+        small=max(.002,8.0*ulp)
+        previous=None
+        for step in (small*16.,small*4.,small):
+            left=sample(point-direction*step)
+            right=sample(point+direction*step)
+            jump=np.abs(left[[0,3]].astype(float)-right[[0,3]].astype(float))
+            # Band storage is quantized (~3 mm at detailScale=.35); height
+            # arithmetic also has finite precision. Allow that numerical floor.
+            magnitude=np.maximum(np.abs(left[[0,3]]),np.abs(right[[0,3]]))
+            tolerance=np.maximum(.015,32.0*np.abs(np.spacing(magnitude.astype(np.float32))))
+            if previous is not None:
+                assert np.all(jump<=previous*.60+tolerance),("Nonconvergent height/band jump",biome,label,step,previous.tolist(),jump.tolist())
+            previous=jump
+
     for angle in np.arange(8)*math.pi/4:
         direction=np.asarray((math.cos(angle),math.sin(angle)))
-        inside=height_grid(probe,biome,tuple(center+direction*(radius-.01)),0.,size=1,seed=seed,**options)[0,0]
-        outside=height_grid(probe,biome,tuple(center+direction*(radius+.01)),0.,size=1,seed=seed,**options)[0,0]
-        assert outside[3]==0.,("3D band leaks outside the site",biome,angle,outside[3])
+        point=center+direction*radius
+        inside=sample(point-direction*.01)
+        outside=sample(point+direction*.01)
         jump=abs(float(inside[0]-outside[0]));jumps.append(jump)
-        assert jump<.10,("Relief jumps at site support edge",biome,angle,jump)
+        if multiple_supports:
+            check_continuity(point,direction,('site support',angle))
+        else:
+            assert outside[3]==0.,("3D band leaks outside the site",biome,angle,outside[3])
+            assert jump<.10,("Relief jumps at site support edge",biome,angle,jump)
     cell=np.floor(center/spacing)
     for axis in (0,1):
         point=center.copy();point[axis]=(cell[axis]+1)*spacing
-        delta=np.zeros(2);delta[axis]=.001
-        left=height_grid(probe,biome,tuple(point-delta),0.,size=1,seed=seed,**options)[0,0]
-        right=height_grid(probe,biome,tuple(point+delta),0.,size=1,seed=seed,**options)[0,0]
-        assert left[3]==right[3]==0.,("Placement cell edge enables a volume",biome,axis)
+        direction=np.zeros(2);direction[axis]=1.
+        left=sample(point-direction*.001)
+        right=sample(point+direction*.001)
         jump=abs(float(left[0]-right[0]));jumps.append(jump)
-        assert jump<.05,("Relief jumps across a placement cell",biome,axis,jump)
+        if multiple_supports:
+            check_continuity(point,direction,('placement cell',axis))
+        else:
+            assert left[3]==right[3]==0.,("Placement cell edge enables a volume",biome,axis)
+            assert jump<.05,("Relief jumps across a placement cell",biome,axis,jump)
     return max(jumps)
 
 

@@ -16,7 +16,7 @@ vec4 fieldRelief(vec2 p)
     float region = smoothstep(-0.35, 0.50,
         noiseSimplex2D(p / 4100.0, uSeed ^ 503u));
     float h = landFbm(p / 3400.0, 504u) * 45.0;
-    h -= basin * mix(13.0, 37.0, region);
+    h -= basin * mix(24.0, 54.0, region);
     vec2 ribs = noiseRotate2D(q, vec2(0.6, -0.8));
     float cordon = noiseSimplex2D(ribs / vec2(220.0, 1100.0), uSeed ^ 505u);
     h += smoothstep(-0.10, 0.65, cordon) * 22.0 * (1.0 - 0.5 * basin);
@@ -27,7 +27,14 @@ vec4 fieldRelief(vec2 p)
     vec2 local = site.q / (site.radius * vec2(0.85, 0.55));
     float island = 1.0 - smoothstep(0.0, 1.0, dot(local, local));
     h += site.mask * island * mix(20.0, 54.0, site.variant);
-    return vec4(h, landBand(site, 416.0), 0.0, site.mask);
+    // Small closed depressions can later host lakes; this does not create water.
+    LandSite lake = landRkmSite(p, 1.0, 510u);
+    vec2 lakeQ = lake.q / vec2(65.0 + 30.0 * lake.variant, 45.0 + 20.0 * lake.variant);
+    float lakeBowl = 1.0 - smoothstep(0.12, 1.0, dot(lakeQ, lakeQ));
+    h -= lake.mask * lakeBowl * mix(7.0, 14.0, lake.variant) / 0.35;
+    LandSite hole = landRkmSite(p, 0.25, 511u);
+    float mask = max(site.mask, hole.mask);
+    return vec4(h, max(landBand(site, 544.0), landBand(hole, 416.0)), 0.0, mask);
 }
 
 #include "../../field_surface_accumulate.glsl"

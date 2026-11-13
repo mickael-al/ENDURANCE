@@ -27,7 +27,7 @@ Les identifiants et noms des 26 dossiers sont déclarés dans [`ProceduralTerrai
 
 | Composante | Signification | Bornes avant `detailScale` |
 | --- | --- | --- |
-| `x` | Hauteur propre au biome, ajoutée à la hauteur macro. | −640 à +640 m |
+| `x` | Hauteur propre au biome, ajoutée à la hauteur macro. | −4096 à +4096 (avant `detailScale`) |
 | `y` | Épaisseur **totale** de la bande 3D. Zéro ferme cette bande. | 0 à 576 m |
 | `z` | Décalage de la bande utilisé par la recette volumique. | −160 à +160 m |
 | `w` | Contrôle supplémentaire dont chaque fonction 3D définit le sens. | 0 à 1 |

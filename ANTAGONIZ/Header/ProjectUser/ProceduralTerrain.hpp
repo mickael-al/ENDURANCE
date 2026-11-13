@@ -36,7 +36,7 @@ public:
     bool measureGenerationTimings = true;
     std::uint32_t vertexBudgetMiB = 256;
     std::uint32_t maxResidentChunks = 2048;
-    std::uint32_t maxSelectedChunks = 1024;
+    std::uint32_t maxSelectedChunks = 2048;
     float baseHeight = 0.0f;
     float heightAmplitude = 320.0f;
     float heightFrequency = 0.00015f;

@@ -1,5 +1,7 @@
 # Reconstruction des 25 biomes — mesures et vérification
 
+> **Bilan historique des commits `c28bd31` / `f8960ea`.** La révision suivante modifie les IDs 0–6 et relève le plafond de hauteur. Les anciens atlas et empreintes de ce bilan ne décrivent donc plus ces recettes courantes. Voir [la révision des sept biomes froids](COLD_BIOME_REVISION.md) pour les mesures actualisées.
+
 Révision du 13 novembre 2026. Les 50 recettes terrestres précédentes sont remplacées ; le climat, Marine et les réglages de la scène sont conservés. La description des formes, des unités et les sources de conception figurent dans [BIOMES.md](BIOMES.md). Les [fiches initiales](BIOME_TOPOGRAPHY_PROPOSAL.md) décrivent l'intention ; leur catalogue n'est pas une liste de fonctionnalités toutes réalisées.
 
 ## Ce qui a été exécuté

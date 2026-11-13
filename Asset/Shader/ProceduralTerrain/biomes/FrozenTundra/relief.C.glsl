@@ -27,7 +27,20 @@ vec4 fieldRelief(vec2 p)
     vec2 local = site.q / (site.radius * vec2(0.76, 0.68));
     float mound = 1.0 - smoothstep(0.0, 1.0, dot(local, local));
     h += site.mask * mound * mix(85.0, 150.0, site.variant);
-    return vec4(h, landBand(site, 544.0), 0.0, site.mask);
+
+    // Ridged multifractal buttresses, low-frequency fBm and a bounded mountain
+    // profile produce actual 420--560 m peaks at the reference detailScale=.35.
+    // Mountain rate is a tuning default (.5 RKM); the user specified only
+    // the cave rate for this biome.
+    LandSite mountain = landRkmSite(p, 0.50, 211u);
+    h += landMountain(mountain, mix(420.0, 560.0, mountain.variant), 212u);
+
+    // Small underground chambers have their own, much denser population:
+    // 2 RKM -> one candidate every 500 m, independently of the old pingos.
+    LandSite cave = landRkmSite(p, 2.0, 209u);
+    float support = max(site.mask, cave.mask);
+    float band = max(landBand(site, 544.0), landBand(cave, 192.0));
+    return vec4(h, band, 0.0, support);
 }
 
 #include "../../field_surface_accumulate.glsl"

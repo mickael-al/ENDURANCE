@@ -153,8 +153,9 @@ def check_recipes(gl):
             height,band,offset=data[i*16],data[i*16+3],data[i*16+4]
             lower,upper=data[i*16+5:i*16+7]
             assert lower<=upper and lower<=height+offset<=upper,("Invalid volume envelope",biome,lower,upper,height,offset)
-            assert min(height,lower)>=-700.802,("Biome escaped conservative lower bound",biome,height,band,offset,lower)
-            assert max(height,upper)<=700.802,("Biome escaped conservative upper bound",biome,height,band,offset,upper)
+            # Independent CPU-contract oracle: 320 + (4096 + 160 + 576/2)*.35.
+            assert min(height,lower)>=-1910.402,("Biome escaped conservative lower bound",biome,height,band,offset,lower)
+            assert max(height,upper)<=1910.402,("Biome escaped conservative upper bound",biome,height,band,offset,upper)
         heights.add(tuple(round(v,4) for v in h))
         carved=0
         for i in range(sample["size"]**2):

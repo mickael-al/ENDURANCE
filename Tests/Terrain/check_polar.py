@@ -187,7 +187,7 @@ def check_relief(probe):
     epsilon_jump = max(abs(values[i*16+j]-heights[i])
                        for i in range(size*size) for j in range(8, 12))
     assert epsilon_jump < .1, ("Polar relief has a discontinuous local jump", epsilon_jump)
-    assert all(-700.801 <= h <= 700.801 for h in heights)
+    assert all(-1910.401 <= h <= 1910.401 for h in heights)
     print(f"PASS polar relief: {minima} local minima in 512x512 m, "
           f"height span {span:.3f} m, {gentle:.2%} of slopes below30deg, "
           f"{steep:.2%} above45deg, "
@@ -206,8 +206,8 @@ def check_volume(probe):
         values = sample["values"]
         for i in range(sample["size"]**2):
             h, band, offset = values[16*i], values[16*i+3], values[16*i+4]
-            assert min(h, h+offset-.5*band) >= -700.801
-            assert max(h, h+offset+.5*band) <= 700.801
+            assert min(h, h+offset-.5*band) >= -1910.401
+            assert max(h, h+offset+.5*band) <= 1910.401
             total += 1
             for j, base in enumerate((-8., -24., 16., 40.)):
                 density = values[16*i+8+j]
@@ -229,7 +229,7 @@ def check_scene_height(probe):
     sample = probe.run(biome=0, size=65, origin=(-12000., -12000.), spacing=375.,
                        uHeightAmplitude=1000., uHeightFrequency=.000015)
     values = sample["values"]
-    bound = 1000.+640.*.35+.5*(576.*.35)+160.*.35
+    bound = 1000.+4096.*.35+.5*(576.*.35)+160.*.35
     for i in range(sample["size"]**2):
         height, band, offset = values[i*16], values[i*16+3], values[i*16+4]
         assert min(height, height+offset-band*.5) >= -bound

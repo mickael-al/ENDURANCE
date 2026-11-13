@@ -17,19 +17,21 @@ Chaque dossier [biomes/&lt;Nom&gt;](../Asset/Shader/ProceduralTerrain/biomes/) c
 
 Les noms de fonction sont identiques entre biomes car chaque fichier constitue son propre programme compute. Conserver `FIELD_BIOME_ID`, les includes de `field_batch_common.glsl` / `field_weights.glsl`, et l’include final d’accumulation. Les 25 recettes terrestres n’utilisent plus un tableau commun de paramètres volumiques ; les constantes `FIELD_VOLUME`, `FIELD_SHAPE` et `FIELD_STYLE` restantes appartiennent uniquement au fond marin inchangé.
 
+La révision des sept biomes froids et les fréquences **RKM** sont détaillées dans [COLD_BIOME_REVISION.md](COLD_BIOME_REVISION.md). Les hauteurs de 400–800 m ci-dessous sont relatives au relief local, à `detailScale=0,35`.
+
 ## Formes présentes
 
 Le macrorelief global s’ajoute toujours au relief propre au biome. Les sites remarquables apparaissent par endroits ; les sculptures de la dernière colonne ne recouvrent pas toute leur région.
 
 | ID — Nom / dossier | Relief 2D | Sculpture 3D localisée |
 | --- | --- | --- |
-| **0 — Glace polaire** / `PolarIce` | Cuvettes de Voronoï déformées, alternance de nappes basses et plateaux, approche douce des sites. | Dalle de glace épaisse inclinée, lèvre relevée et large tunnel latéral. |
-| **1 — Toundra gelée** / `FrozenTundra` | Plaines aplaties, dômes, joints polygonaux peu profonds et grande butte rare. | Capot de pingo asymétrique, parfois seconde plaque inclinée, chambre ouverte sur un côté. |
-| **2 — Toundra** / `Tundra` | Langues de versant allongées, selles, terrasses douces et demi-cirque ouvert. | Longue crête couchée dont une extrémité se relève, abri sous ce flanc. |
-| **3 — Taïga** / `Taiga` | Cordons courbes et vallées longitudinales, interruptions latérales et rampes. | Arête oblongue courbée, épaule arrondie et renfoncement sur un seul côté. |
-| **4 — Forêt boréale marécageuse** / `BorealBog` | Bassins cellulaires larges et peu profonds, cordons bas, îlots allongés. | Long îlot minéral bas, parfois un éperon, alcôve de rive latérale. |
-| **5 — Toundra rocheuse** / `RockyTundra` | Crêtes à plusieurs échelles redistribuées, terrasses et grandes rampes de dalle. | Dalle épaisse inclinée, parfois une seconde dalle divergente, entaille au pied. |
-| **6 — Steppe froide** / `ColdSteppe` | Longues vagues asymétriques, relief étiré et escarpement terminé en rampe. | Épaule rocheuse basse et allongée, bec sous-cavé à une extrémité. |
+| **0 — Glace polaire** / `PolarIce` | Cuvettes et nappes conservées ; déchirures abruptes de 160–210 m de large, massifs de 450–580 m. | Dalle inclinée et tunnel conservés ; grottes sous les failles avec accès en rampe. |
+| **1 — Toundra gelée** / `FrozenTundra` | Plaines et pingos conservés ; montagnes ridged + fBm de 420–560 m. | Pingos ouverts conservés ; petites chambres souterraines avec entrée. |
+| **2 — Toundra** / `Tundra` | Langues de versant et demi-cirque conservés ; pics de 800 m à contreforts ridged + fBm. | Ancienne crête abritée ; rochers de 20 m indépendants. |
+| **3 — Taïga** / `Taiga` | Cordons conservés ; montagnes de 700 m et lits de rivières fossiles sinueux, berges et terrasses. | Arête oblongue et renfoncement antérieurs conservés. |
+| **4 — Forêt boréale marécageuse** / `BorealBog` | Bassins et îlots conservés ; cuvettes de lac de 7–14 m. | Surplombs amplifiés et nouvelles cavités Perlin 3D accessibles. |
+| **5 — Toundra rocheuse** / `RockyTundra` | Hauteur du relief antérieur multipliée par deux. | Dalles antérieures conservées ; nouvelles grottes ouvertes. |
+| **6 — Steppe froide** / `ColdSteppe` | Ondulations conservées ; montagnes à strates de 620 m et failles abruptes de 800 m de profondeur. | Épaule sous-cavée antérieure conservée. |
 | **7 — Forêt boréale** / `BorealForest` | Grandes coupoles, vallons et dôme monumental ponctuel. | Deux masses polies soudées, silhouette en dos de roche, fente latérale. |
 | **8 — Forêt froide** / `ColdForest` | Fonds de vallée en U, crêtes sur les parois, cirque en croissant à large ouverture. | Épaule haute et balcon épais, alcôve orientée vers l’intérieur du site. |
 | **9 — Marécage froid** / `ColdMarsh` | Bassins aplatis, niveaux de berge doux, couronne rompue par deux sorties. | Deux lèvres de berge basses et longues, petit sous-cavage sur l’une d’elles. |
@@ -58,7 +60,7 @@ Ces formes sont des interprétations artistiques. Le relief à crêtes n’est p
 
 | Composante | Plage brute | Utilisation |
 | --- | --- | --- |
-| `.x` | −640 à 640 | Hauteur ajoutée au macrorelief, multipliée par `detailScale`. |
+| `.x` | −4096 à 4096 | Hauteur ajoutée au macrorelief, multipliée par `detailScale`. |
 | `.y` | 0 à 576 | Épaisseur **totale** de la bande 3D, multipliée par `detailScale`. Aucune épaisseur artistique de base n’est ajoutée. |
 | `.z` | −160 à 160 | Décalage vertical de recette, multiplié par `detailScale`, puis associé au décalage global en mètres. |
 | `.w` | 0 à 1 | Contrôle propre à la recette. Les nouveaux biomes terrestres y exposent le masque de site ; le pipeline ne l’applique pas secrètement à la densité. |
@@ -78,9 +80,11 @@ Les helpers fournissent des opérations, pas une recette imposée. [biome_landfo
 | `landWarp(p, wavelength, amplitude, salt)` | Déformation XZ par deux Simplex ; longueur d’onde et amplitude exprimées en mètres. |
 | `landTerrace(height, stepHeight, softness)` | Paliers continus ; `stepHeight` est une hauteur brute. De 0,05 à 0,5, `softness` élargit les raccords ; au-delà, elle mélange progressivement vers la pente initiale, retrouvée à 1. |
 | `landSite(p, spacing, salt, occupancy)` | Site stable : centre mondial, coordonnées locales XZ tournées `q`, rayon, masque compact et variante. |
+| `landRkmSite(p, rkm, salt)` | Une population indépendante, intervalle nominal `1000/rkm` mètres par cellule ; une trajectoire ne rencontre pas nécessairement chaque site. |
+| `landMountain(site, peakMetres, salt)` | Profil pointu, contreforts ridged et fBm déformé ; sommet en mètres à `detailScale=0,35`. |
 | `landBand(site, rawThickness)` | Bande nulle hors site, ouverture progressive à son bord, épaisseur brute bornée à 576. |
 
-Les placements actuels utilisent des cellules de **1,6 à 2,9 km**, avec des cellules vides. `occupancy` est une probabilité de présence par cellule, pas le pourcentage de sol sculpté. Le rayon varie de 20 à 28 % de `spacing` et le centre bouge au maximum de 16 % de cette taille par axe. Le support reste donc à l’intérieur de sa cellule, avec une marge minimale de 6 % par bord. Les sites d’une même implantation ne se recouvrent pas ; des biomes différents peuvent néanmoins contribuer ensemble aux transitions.
+Les implantations initiales utilisent des cellules de **1,6 à 2,9 km**, avec des cellules vides. Les nouvelles populations RKM des IDs 0–6 utilisent en plus des cellules de **0,5 à 4 km**, toutes candidates, avec des sels indépendants. `occupancy` est une probabilité de présence par cellule, pas le pourcentage de sol sculpté. Le rayon varie de 20 à 28 % de `spacing` et le centre bouge au maximum de 16 % de cette taille par axe. Le support reste donc à l’intérieur de sa cellule, avec une marge minimale de 6 % par bord. Les sites d’une même implantation ne se recouvrent pas ; des biomes différents peuvent néanmoins contribuer ensemble aux transitions.
 
 Le masque vaut 1 jusqu’à 64 % du rayon, puis descend continûment à zéro. La grille sélectionne le candidat mais ne crée pas de marche de terrain à sa frontière. Aucun parcours de cellules voisines ni buffer de sites n’est nécessaire. **Conserver exactement les mêmes arguments de `landSite()` dans les deux fichiers du biome**, et distinguer l’espacement, le rayon de la forme et la fréquence du bruit sculptant sa surface.
 

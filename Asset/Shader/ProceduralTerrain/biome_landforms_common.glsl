@@ -40,4 +40,13 @@ LandSite landSite(vec2 p,float spacing,uint salt,float occupancy)
     return LandSite(q,center,radius,mask,variant);
 }
 
+// RKM is a nominal occurrence rate per kilometre, not kilometres per site:
+// .25 -> 4 km cells, .5 -> 2 km, 1 -> 1 km, 2 -> .5 km.
+// One jittered candidate per square cell; a walking route need not intersect
+// every footprint. Different feature salts provide independent populations.
+LandSite landRkmSite(vec2 p,float rkm,uint salt)
+{
+    return landSite(p,1000.0/max(rkm,0.001),salt,1.0);
+}
+
 #endif

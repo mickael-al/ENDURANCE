@@ -50,4 +50,22 @@ float landBand(LandSite site,float rawThickness)
 {
     return clamp(rawThickness,0.0,576.0)*smoothstep(0.0,0.08,site.mask);
 }
+
+// A bounded peak with asymmetric ridged buttresses and secondary fBm detail.
+// Exact centre height is peakMetres at the scene's reference detailScale=.35;
+// changing detailScale deliberately scales the whole biome as before.
+float landMountain(LandSite site,float peakMetres,uint salt)
+{
+    if(site.mask<=0.0) return 0.0;
+    float radius=max(site.radius,1.0);
+    float radial=length(site.q)/radius;
+    float envelope=pow(max(1.0-radial,0.0),1.15);
+    vec2 q=landWarp(site.q,radius*.55,radius*.055,salt)
+        +site.variant*vec2(173.0,297.0);
+    float ridges=landRidges(q/(radius*.43),salt^0x7521u);
+    float broad=clamp(.5+.5*landFbm(q/(radius*.8),salt^0x6837u),0.0,1.0);
+    float buttress=.48+.38*ridges+.14*broad;
+    float profile=envelope*mix(1.0,buttress,smoothstep(0.0,.28,radial));
+    return (peakMetres/.35)*profile*site.mask;
+}
 #endif

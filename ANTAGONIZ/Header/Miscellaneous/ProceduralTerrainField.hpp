@@ -42,7 +42,11 @@ namespace ProceduralTerrain
     };
 
     // Analytic conservative bounds, not extrema estimated from chunk corners.
-    // Biome height is clamped to [-640,640], total biome thickness to [0,576],
+    // Mirror FIELD_MAX_RELIEF_HEIGHT in field_limits.glsl. FP32 height does not
+    // use the packed 16-bit width/offset representation.
+    constexpr float maximumBiomeReliefHeight = 4096.0f;
+
+    // Biome height is clamped to [-4096,4096], total biome thickness to [0,576],
     // and the combined recipe offset to [-160,160], before detailScale.
     inline FieldHeightBounds fieldHeightBounds(const FieldParameters& p) noexcept
     {
@@ -51,8 +55,8 @@ namespace ProceduralTerrain
         if (p.mode == FieldMode::Sphere)
             return {p.sphereCenter[1] - p.sphereRadius, p.sphereCenter[1] + p.sphereRadius};
 
-        const float minimumHeight = p.baseHeight - p.heightAmplitude - 640.0f * p.detailScale;
-        const float maximumHeight = p.baseHeight + p.heightAmplitude + 640.0f * p.detailScale;
+        const float minimumHeight = p.baseHeight - p.heightAmplitude - maximumBiomeReliefHeight * p.detailScale;
+        const float maximumHeight = p.baseHeight + p.heightAmplitude + maximumBiomeReliefHeight * p.detailScale;
         const float halfThickness = 0.5f * (576.0f * p.detailScale);
         return {
             minimumHeight + (std::min)(0.0f, p.bandOffset - p.bandOffsetVariation - 160.0f * p.detailScale - halfThickness),

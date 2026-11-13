@@ -423,6 +423,20 @@ traversability. The player reference is exactly 1.80 m. Macro and biome height,
 localized solids and cavities are included. Large-scale 32-m height sampling cannot
 resolve narrow obstacles; a controller test at actual travel speed remains needed.
 
+## Seven cold biomes: RKM, tall peaks and deep cuts
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_cold_biome_revision.py --reference-shaders /path/to/pre-cold-revision/Asset/Shader/ProceduralTerrain --output /tmp/endurance-cold
+```
+
+The reference directory should contain the recipes from `c28bd31` or `f8960ea`.
+With it, the test checks actual height/depth differences and doubled rocky tundra.
+Without it, placement, density, cavity and pipeline checks still run, but requested
+height changes against the previous version cannot be asserted. RKM denotes
+nominal placement cell spacing, not encounters along every route. Feature sites
+are deliberately targeted; cave connectivity is sampled, not a controller test.
+See [the revision report](../../docs/COLD_BIOME_REVISION.md).
+
 ## Actual biome areas and site occurrence
 
 ```sh

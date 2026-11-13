@@ -26,7 +26,19 @@ vec4 fieldRelief(vec2 p)
     float bowl = 1.0 - smoothstep(0.05, 0.82, length(local));
     float openSide = 1.0 - smoothstep(-0.30, 0.35, local.x);
     h -= site.mask * bowl * openSide * mix(25.0, 75.0, site.variant);
-    return vec4(h, landBand(site, 512.0), 0.0, site.mask);
+
+    // RKM is a nominal rate/km: one summit per 1-km placement cell.
+    // Peaked mass + feedback ridges + fBm, with an 800-m summit above the
+    // underlying relief at detailScale=.35 (not 800 unscaled shader units).
+    LandSite mountain = landRkmSite(p, 1.0, 321u);
+    h += landMountain(mountain, 800.0, 323u);
+
+    // Independent 20-m boulders, nominally one site per 2 km. Only their
+    // compact footprint opens a volume band; the whole cell is not voxelized.
+    LandSite rocks = landRkmSite(p, 0.5, 322u);
+    rocks.mask *= 1.0 - smoothstep(27.0, 42.0, length(rocks.q));
+    return vec4(h, max(landBand(site, 512.0), landBand(rocks, 192.0)),
+        0.0, max(site.mask, rocks.mask));
 }
 
 #include "../../field_surface_accumulate.glsl"

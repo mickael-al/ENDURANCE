@@ -2,6 +2,8 @@
 #ifndef ENDURANCE_FIELD_COMMON_GLSL
 #define ENDURANCE_FIELD_COMMON_GLSL
 
+#include "field_limits.glsl"
+
 uniform uint uCells;
 #ifdef FIELD_BATCHED
 // Each invocation selects a GPU job before evaluating any world-space noise.

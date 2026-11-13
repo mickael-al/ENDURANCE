@@ -21,7 +21,10 @@ vec4 fieldRelief(vec2 p)
     vec2 t=s.q/s.radius;
     float slab=clamp(.62+.34*t.x-abs(t.y)*.57,0.0,1.0);
     h+=s.mask*slab*(145.0+90.0*s.variant);
-    return vec4(h,landBand(s,576.0),0.0,s.mask);
+    // User-requested doubling affects relief amplitude, not horizontal scale.
+    h *= 2.0;
+    LandSite hole=landRkmSite(p,0.25,5112u);
+    return vec4(h,max(landBand(s,576.0),landBand(hole,416.0)),0.0,max(s.mask,hole.mask));
 }
 
 #include "../../field_surface_accumulate.glsl"

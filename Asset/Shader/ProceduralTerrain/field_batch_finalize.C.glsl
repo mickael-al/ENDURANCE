@@ -14,7 +14,7 @@ void main()
     uint sampleIndex=p.x+p.y*side;
     FieldColumn column=scratchColumns[fieldJobs[job].storage.y*uColumnStride+sampleIndex];
     vec4 relief=clamp(vec4(column.terrain.x,column.terrain.w,column.blend.zw),
-        vec4(-640.0,0.0,-160.0,0.0),vec4(640.0,576.0,160.0,1.0));
+        vec4(-FIELD_MAX_RELIEF_HEIGHT,0.0,-160.0,0.0),vec4(FIELD_MAX_RELIEF_HEIGHT,576.0,160.0,1.0));
     precise float height=uintBitsToFloat(column.detail.w)+relief.x*uDetailScale;
     column.terrain.x=height;
     column.terrain.w=relief.y*uDetailScale;

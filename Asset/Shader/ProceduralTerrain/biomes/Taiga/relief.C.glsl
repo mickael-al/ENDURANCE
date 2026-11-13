@@ -25,6 +25,30 @@ vec4 fieldRelief(vec2 p)
     vec2 local = site.q / (site.radius * vec2(0.86, 0.46));
     float ramp = 1.0 - smoothstep(0.0, 1.0, dot(local, local));
     h += site.mask * ramp * mix(30.0, 80.0, site.variant);
+
+    LandSite mountain = landRkmSite(p, 0.5, 421u);
+    h += landMountain(mountain, 700.0, 423u);
+
+    // Abandoned river reaches: a meandering low bed, broad eroded banks and
+    // residual terraces. This models erosion's shape, not water simulation.
+    // 1 RKM: one placement cell/km, with independent orientation and seed.
+    LandSite river = landRkmSite(p, 1.0, 422u);
+    if (river.mask > 0.0)
+    {
+        vec2 t = river.q;
+        float bend = river.radius * 0.18 * sin(t.x / (river.radius * 0.58)
+            + river.variant * 5.0);
+        bend += noiseSimplex2D(t / vec2(220.0, 310.0), uSeed ^ 424u) * 17.0;
+        float distanceToBed = abs(t.y - bend);
+        float halfWidth = mix(50.0, 85.0, river.variant);
+        float bed = 1.0 - smoothstep(halfWidth * 0.28, halfWidth, distanceToBed);
+        float banks = 1.0 - smoothstep(halfWidth, halfWidth * 1.65, distanceToBed);
+        float incision = mix(30.0, 52.0, river.variant) * bed + 13.0 * banks;
+        // Interrupted terrace steps merge back into the banks rather than
+        // producing an infinite stripe pattern across the biome.
+        float bankDetail = (banks - bed) * landRidges(t / 95.0, 425u) * 5.0;
+        h -= river.mask * (incision + bankDetail) / 0.35;
+    }
     return vec4(h, landBand(site, 544.0), 0.0, site.mask);
 }
 
