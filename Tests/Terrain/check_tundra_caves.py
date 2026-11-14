@@ -17,10 +17,10 @@ from scipy import ndimage
 from biome_test_support import biome_recipe_source
 from check_biomes import BiomeProbe, profile_probe_source
 from check_biome_landforms import (
-    DensityProbe, SCENE_OPTIONS, check_targeted_pipeline, site_recipe,
+    DensityProbe, SCENE_OPTIONS, check_targeted_pipeline,
     source_fingerprint,
 )
-from check_gpu import FieldRunner
+from check_gpu import FieldRunner, ROOT
 from gl_headless import GL
 
 
@@ -37,9 +37,9 @@ CANDIDATES = HEADER + r'''
 void main() {
  uvec2 i=gl_GlobalInvocationID.xy;
  if(any(greaterThanEqual(i,uvec2(uProbeSize)))) return;
- vec2 p=uProbeOrigin+vec2(i)*uProbeSpacing;
- LandSite s=SITE_CALL;
- p=s.center;s=SITE_CALL;
+ vec2 p=(vec2(i)-floor(float(uProbeSize)/2.0)+0.5)*TUNDRA_CAVE_SPACING;
+ LandSite s=tundraCaveSite(p);
+ p=s.center;s=tundraCaveSite(p);
  float presence=tundraCavePresence(s);
  outputValues[i.x+i.y*uProbeSize]=ProbeSample(
   vec4(p,s.mask,presence),vec4(s.radius,s.variant,0,0),vec4(0),vec4(0));
@@ -61,6 +61,118 @@ void main() {
 }
 '''
 
+# A cave that never reaches the ground can pass a population/count test. Probe
+# through the original ground plane to identify actual entrances instead.
+SURFACE = HEADER + r'''
+void main() {
+ uvec2 i=gl_GlobalInvocationID.xy;
+ if(any(greaterThanEqual(i,uvec2(uProbeSize)))) return;
+ vec2 p=uProbeOrigin+vec2(i)*uProbeSpacing;
+ FieldColumn c=fieldProbeColumn(p);
+ vec4 d;
+ const float offset[4]=float[4](8.0,0.0,-8.0,-16.0);
+ for(uint j=0u;j<4u;++j)
+  d[j]=fieldProbeDensity(vec3(p.x,c.terrain.x+offset[j],p.y),c);
+ outputValues[i.x+i.y*uProbeSize]=ProbeSample(c.terrain,d,vec4(0),c.blend);
+}
+'''
+
+
+def saved_camera():
+    scene=json.loads((ROOT/'ENDURANCE/Scene/Terrain.scene').read_text(),strict=False)
+    position=scene['freeCamPos']
+    return np.array([position['x'],position['z']],dtype=float)
+
+
+def surface_openings(after, before):
+    # Positive solid at H-8 in the reference must now be air, continuously up
+    # through H and H+8. This excludes mere underground changed densities.
+    return (before[:,:,6]>0)&np.all(after[:,:,4:7]<0,axis=2)
+
+
+def local_visibility(gl,baseline_directory,previous_directory,seed):
+    camera=saved_camera();extent=4096.;spacing=16.;size=513
+    origin=np.floor((camera-extent)/spacing)*spacing
+    options=dict(biome=2,size=size,origin=tuple(origin),spacing=spacing,uSeed=seed,**SCENE_OPTIONS)
+    current=BiomeProbe(gl,source=SURFACE)
+    reference=BiomeProbe(gl,directory=baseline_directory,source=SURFACE)
+    after=values(current,**options);before=values(reference,**options)
+    apertures=surface_openings(after,before)
+    z,x=np.nonzero(apertures)
+    assert len(x)>0, 'No actual ground opening in the saved-camera 8-km test region'
+    world=np.column_stack((origin[0]+x*spacing,origin[1]+z*spacing))
+    distance=np.linalg.norm(world-camera,axis=1)
+    assert distance.min()<4000., 'All visible cave entrances are more than 4km from the saved camera'
+    labels,count=ndimage.label(apertures)
+    populations=np.bincount(labels.ravel());populations[0]=0
+    largest_area=float(populations.max(initial=0)*spacing**2)
+    assert largest_area>=2048., 'Ground entrances are too small to survive ordinary distant sampling'
+    old=None;old_apertures=None
+    if previous_directory:
+        old=values(BiomeProbe(gl,directory=previous_directory,source=SURFACE),**options)
+        old_apertures=surface_openings(old,before)
+    metrics=dict(camera_xz_m=camera.tolist(),map_origin_m=origin.tolist(),map_width_m=extent*2,
+        map_spacing_m=spacing,ground_aperture_samples=int(apertures.sum()),
+        separate_sampled_apertures=int(count),nearest_ground_aperture_m=float(distance.min()),
+        largest_sampled_aperture_area_m2=largest_area,
+        previous_ground_aperture_samples=int(old_apertures.sum()) if old_apertures is not None else None)
+    return metrics,dict(seed=seed,camera=camera,origin=origin,spacing=spacing,
+        height=after[:,:,0],apertures=apertures,previous=old_apertures,nearest=world[np.argmin(distance)])
+
+
+def world_lattice_visibility(actual,baseline,candidate,seed):
+    records=[]
+    for spacing in (8.,16.,32.):
+        origin=np.floor((candidate[:2]-512.)/spacing)*spacing
+        size=int(1024./spacing)+1
+        columns=actual.sample(2,tuple(origin),spacing,0.,1.,size=size,depth=1,seed=seed,**SCENE_OPTIONS)['columns']
+        low=float(np.floor((columns[:,:,0].min()-150.)/spacing)*spacing)
+        high=float(np.ceil((columns[:,:,0].max()+100.)/spacing)*spacing)
+        options=dict(biome=2,origin=tuple(origin),spacing=spacing,min_y=low,step_y=spacing,
+            size=size,depth=int(round((high-low)/spacing))+1,seed=seed,**SCENE_OPTIONS)
+        after=actual.sample(**options);before=baseline.sample(**options)
+        air=after['density']<0
+        excavated=(before['density']>0)&air
+        labels,_=ndimage.label(air,structure=ndimage.generate_binary_structure(3,1))
+        exterior=np.unique(labels[(before['density']<-.5)&air]);exterior=exterior[exterior>0]
+        connected=excavated&np.isin(labels,exterior)
+        assert connected.sum()>=8, ('Nearby cave disappears on the world-aligned coarse lattice',spacing,int(connected.sum()))
+        records.append(dict(world_lattice_spacing_m=spacing,new_air_nodes=int(excavated.sum()),
+            new_air_nodes_connected_to_exterior=int(connected.sum())))
+    return records
+
+
+def render_local(path, maps):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LightSource
+    from matplotlib.patches import Circle
+    fig,axes=plt.subplots(len(maps),3,figsize=(15,5*len(maps)),squeeze=False,constrained_layout=True)
+    for row,m in enumerate(maps):
+        h=m['height'];spacing=m['spacing'];origin=m['origin'];n=h.shape[0]
+        extent=(origin[0],origin[0]+(n-1)*spacing,origin[1],origin[1]+(n-1)*spacing)
+        shade=LightSource(315,40).shade(h,cmap=plt.get_cmap('Greys'),vert_exag=1,dx=spacing,dy=spacing)
+        for index,(mask,title) in enumerate(((m['previous'],'Previous cave distribution'),
+                                           (m['apertures'],'Corrected ground entrances'),
+                                           (m['apertures'],'Nearest ground entrance, zoom'))):
+            ax=axes[row,index]
+            ax.imshow(shade,origin='lower',extent=extent,aspect='equal')
+            if mask is not None:
+                color=np.zeros((*mask.shape,4));color[mask]=[.05,.55,.8,1.]
+                ax.imshow(color,origin='lower',extent=extent,aspect='equal')
+                if index!=2:
+                    labels,count=ndimage.label(mask)
+                    for z,x in ndimage.center_of_mass(mask,labels,range(1,count+1)):
+                        ax.add_patch(Circle((origin[0]+x*spacing,origin[1]+z*spacing),130.,fill=False,color='#00a5da',lw=.8))
+            ax.plot(*m['camera'],'+',color='#c64a31',ms=9)
+            if index==2:
+                center=m['nearest'];ax.set_xlim(center[0]-350,center[0]+350);ax.set_ylim(center[1]-350,center[1]+350)
+            ax.set_title(f'{title} — seed {m["seed"]}')
+            ax.set_xlabel('World X (m)');ax.set_ylabel('World Z (m)')
+    fig.suptitle('Actual ground openings near the saved camera — blue: air at H-8, H and H+8; +: camera',fontsize=12)
+    fig.savefig(path,dpi=110);plt.close(fig)
+
 
 def values(probe, **options):
     return np.asarray(probe.run(**options)['values'],dtype=np.float32).reshape(options['size'],options['size'],16)
@@ -76,7 +188,7 @@ class WithoutCaves(DensityProbe):
             volume=biome_recipe_source(directory/'volume.C.glsl')
             volume=re.sub(r'^#version[^\n]*\n','',volume,count=1)
             volume,count=re.subn(
-                r'target\s*=\s*tundraCarveCaves\(p,\s*column,\s*site,\s*target\);',
+                r'target\s*=\s*tundraCarveCaves\(p,\s*column,\s*\w+,\s*target\);',
                 '/* New cave carving omitted for preservation regression. */',volume)
             assert count == 1, 'Update cave omission adapter after entrypoint change'
             self.programs[biome]=self.gl.compile(
@@ -86,21 +198,19 @@ class WithoutCaves(DensityProbe):
 
 
 def find_candidates(gl, seed):
-    call,spacing,_=site_recipe(2)
     size=61
-    origin=(-size//2*spacing+.5*spacing,)*2
-    rows=values(BiomeProbe(gl,source=CANDIDATES.replace('SITE_CALL',call)),
-                biome=2,size=size,origin=origin,spacing=spacing,uSeed=seed).reshape(-1,16)
+    rows=values(BiomeProbe(gl,source=CANDIDATES),
+                biome=2,size=size,origin=(0.,0.),spacing=1.,uSeed=seed).reshape(-1,16)
     active=rows[:,2]>.99
     eligible=active&(rows[:,3]>.99)
     candidates=rows[eligible]
-    candidates=candidates[np.argsort(np.sum(candidates[:,:2]**2,axis=1))]
+    candidates=candidates[np.argsort(np.sum((candidates[:,:2]-saved_camera())**2,axis=1))]
     assert len(candidates)>=3, 'Too few fully eligible candidates to test real entrances'
-    assert 0 < eligible.mean() < .15, 'Ground cave population is no longer scarce'
-    assert np.all(rows[~active,3]==0), 'Caves enabled outside existing active land sites'
-    return candidates,dict(cells_sampled=len(rows),existing_active_sites=int(active.sum()),
+    assert 0 < eligible.mean() < .50, 'Ground cave population is no longer selective'
+    assert np.all(rows[~active,3]==0), 'Caves enabled outside their independent candidate sites'
+    return candidates,dict(cells_sampled=len(rows),independent_active_sites=int(active.sum()),
         fully_eligible_caves=int(eligible.sum()),eligible_cell_fraction=float(eligible.mean()),
-        tested_selection='Three nearest fully eligible candidates, without geometry filtering')
+        tested_selection='Three nearest fully eligible candidates to the saved camera, without geometry filtering')
 
 
 def sample_cave(actual, baseline, omitted, candidate, seed):
@@ -116,9 +226,11 @@ def sample_cave(actual, baseline, omitted, candidate, seed):
                  size=size,depth=depth,seed=seed,**SCENE_OPTIONS)
     after=actual.sample(**options);before=baseline.sample(**options)
     legacy=omitted.sample(**options)
-    assert np.array_equal(before['columns'],after['columns']), 'Caves changed existing 2D columns or band'
+    assert np.array_equal(before['columns'][:,:,0],after['columns'][:,:,0]), 'Caves changed existing relief height'
+    assert np.array_equal(before['columns'][:,:,2:],after['columns'][:,:,2:]), 'Caves changed existing offset or pilot'
+    assert np.all(after['columns'][:,:,1]>=before['columns'][:,:,1]), 'Caves shrank an existing 3D band'
     assert np.array_equal(before['density'],legacy['density']), 'Omitting caves does not restore exact previous Tundra density'
-    assert np.array_equal(before['columns'],legacy['columns'])
+    assert np.array_equal(after['columns'],legacy['columns'])
     return after,before
 
 
@@ -160,7 +272,8 @@ def broad_preservation(gl,baseline_directory,seed):
     current=BiomeProbe(gl,source=BROAD)
     prior=BiomeProbe(gl,directory=baseline_directory,source=BROAD)
     after=values(current,**options);before=values(prior,**options)
-    assert np.array_equal(after[:,:,:4],before[:,:,:4]), 'Broad-map terrain or band changed'
+    assert np.array_equal(after[:,:,:3],before[:,:,:3]), 'Broad-map height or climate changed'
+    assert np.all(after[:,:,3]>=before[:,:,3]), 'Broad-map caves shrank an existing band'
     assert np.array_equal(after[:,:,12:],before[:,:,12:]), 'Broad-map blend controls changed'
     delta=after[:,:,4:12]-before[:,:,4:12]
     assert np.max(delta)<=0, 'Broad-map cave change adds solid'
@@ -170,11 +283,16 @@ def broad_preservation(gl,baseline_directory,seed):
     # Compare the omitted entrypoint against the old tree over all eight depths.
     omitted=WithoutCaves(gl);omitted.main_source=BROAD
     omitted_data=values(omitted,**options)
-    assert np.array_equal(omitted_data,before), 'Legacy Tundra changed outside the new carving call'
+    assert np.array_equal(omitted_data[:,:,4:12],before[:,:,4:12]), 'Legacy Tundra changed outside the new carving call'
+    independent=changed&(before[:,:,3]==0)
+    assert independent.sum()>0, 'New caves still depend on the old sites having a volume band'
+    assert independent.sum()==changed.sum(), 'Some new cave changes overlap a previously enabled 3D band'
+    assert np.array_equal(after[before[:,:,3]>0],before[before[:,:,3]>0]), 'New cave bands or carving altered original 3D site columns'
     return dict(area_km2=2304.,columns_sampled=int(changed.size),
         sampled_depths_below_surface_m=list(range(0,128,16)),
         altered_column_fraction=float(changed.mean()),exactly_unchanged_column_fraction=float((~changed).mean()),
-        columns_and_controls_unchanged_exactly=True,legacy_3d_unchanged_exactly=True)
+        changed_columns_without_previous_band=int(independent.sum()),
+        height_and_controls_unchanged_exactly=True,legacy_3d_unchanged_exactly=True)
 
 
 def marine_preservation(gl,baseline_directory):
@@ -222,6 +340,7 @@ def render(path,samples):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference-shaders',required=True,type=Path)
+    parser.add_argument('--previous-shaders',type=Path,help='Optional snapshot of the first, overly sparse cave implementation')
     parser.add_argument('--output',required=True,type=Path)
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     assert (args.reference_shaders/'biomes/Tundra/volume.C.glsl').is_file()
@@ -230,10 +349,13 @@ def main():
                           for name in ('relief.C.glsl','volume.C.glsl'))
     with GL() as gl:
         actual=DensityProbe(gl);baseline=DensityProbe(gl);baseline.directory=args.reference_shaders
-        omitted=WithoutCaves(gl);records=[];pictures=[]
+        omitted=WithoutCaves(gl);records=[];pictures=[];local_maps=[]
         for seed in (1337,17):
             broad=broad_preservation(gl,args.reference_shaders,seed)
             candidates,population=find_candidates(gl,seed)
+            local,local_map=local_visibility(gl,args.reference_shaders,args.previous_shaders,seed)
+            local_maps.append(local_map)
+            local['world_lattices']=world_lattice_visibility(actual,baseline,candidates[0],seed)
             caves=[]
             for index,candidate in enumerate(candidates[:3]):
                 after,before=sample_cave(actual,baseline,omitted,candidate,seed)
@@ -252,14 +374,15 @@ def main():
                     pictures.append((seed,after,before,removed,roofed))
                 caves.append(record)
                 print(json.dumps(dict(seed=seed,cave=index,**record)),flush=True)
-            records.append(dict(seed=seed,broad_preservation=broad,population=population,caves=caves))
+            records.append(dict(seed=seed,broad_preservation=broad,population=population,local_visibility=local,caves=caves))
         marine=marine_preservation(gl,args.reference_shaders)
         assert source_fingerprint(2)==fingerprint, 'Production source changed during validation'
         report=dict(renderer=gl.renderer,source_sha256=fingerprint,
             prior_tundra_source_sha256=hashlib.sha256(before_source.encode()).hexdigest(),
             records=records,marine_bit_preservation=marine,
-            note='Actual production GLSL; six nearest fully eligible caves across two seeds. Exact old 2D controls and legacy 3D, carve-only density, roof/floor, exterior connectivity, broad-map scarcity, and cavity-wall production/LOD checks. Diagnostic geometry sampling does not certify player collision or Windows GPU performance.')
+            note='Actual production GLSL; six nearest fully eligible caves across two seeds. Exact old relief/controls and legacy 3D, independent new cave bands, carve-only density, roof/floor, exterior connectivity, broad-map scarcity, actual ground openings near the saved camera, world-aligned 8/16/32m samples, and cavity-wall production/LOD checks. Diagnostic geometry sampling does not certify player collision or Windows GPU performance.')
         render(args.output/'tundra_caves.png',pictures)
+        render_local(args.output/'tundra_caves_local.png',local_maps)
         (args.output/'tundra_caves.json').write_text(json.dumps(report,indent=2)+'\n')
         print('PASS Tundra cave preservation, connectivity, scarcity, Marine and production/LOD checks',flush=True)
     return 0

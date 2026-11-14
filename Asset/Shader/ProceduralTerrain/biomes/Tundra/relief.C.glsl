@@ -5,6 +5,7 @@
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
 #include "../../biome_landforms_2d.glsl"
+#include "cave_sites.glsl"
 
 // A wide, asymmetric rock massif: one curved arête, offset shoulders and
 // two glacial scoops in its flanks. Its summit is anchored at q=0 so that
@@ -69,7 +70,12 @@ vec4 fieldRelief(vec2 p)
     // compact footprint opens a volume band; the whole cell is not voxelized.
     LandSite rocks = landRkmSite(p, 0.5, 322u);
     rocks.mask *= 1.0 - smoothstep(27.0, 42.0, length(rocks.q));
-    return vec4(h, max(landBand(site, 512.0), landBand(rocks, 192.0)),
+    float band = max(landBand(site, 512.0), landBand(rocks, 192.0));
+    // A separate cave population can open the ground where neither old 3D
+    // sculpture exists. Its support is disjoint from both original bands.
+    if (max(site.mask, rocks.mask) <= 0.0)
+        band = max(band, tundraCaveBand(tundraCaveSite(p)));
+    return vec4(h, band,
         0.0, max(site.mask, rocks.mask));
 }
 

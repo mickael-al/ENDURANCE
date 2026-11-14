@@ -13,7 +13,6 @@ float fieldVolume(vec3 p, FieldColumn column)
     LandSite site = landSite(p.xz, 2600.0, 307u, 0.58);
     LandSite rocks = landRkmSite(p.xz, 0.5, 322u);
     rocks.mask *= 1.0 - smoothstep(27.0, 42.0, length(rocks.q));
-    if (max(site.mask, rocks.mask) <= 0.0) return 0.0;
     float base = column.terrain.x - p.y;
     float target = base;
     if (site.mask > 0.0)
@@ -46,7 +45,13 @@ float fieldVolume(vec3 p, FieldColumn column)
         float withStone = landUnion(target, stone * uDetailScale, 1.2 * uDetailScale);
         target = mix(target, withStone, rocks.mask);
     }
-    target = tundraCarveCaves(p, column, site, target);
+    // New caves have independent sites; old brows and boulders keep their
+    // original geometry and bands. The placement clearance separates them.
+    if (max(site.mask, rocks.mask) <= 0.0)
+    {
+        LandSite cave = tundraCaveSite(p.xz);
+        target = tundraCarveCaves(p, column, cave, target);
+    }
     // Individual site masks have already been applied exactly once above.
     return landDelta(p, column, target, 1.0);
 }

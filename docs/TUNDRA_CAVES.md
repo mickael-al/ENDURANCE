@@ -1,23 +1,27 @@
 # Tundra : grottes rares accessibles depuis le sol
 
-Le relief de `Tundra` est conservé à l'identique : montagnes, ondulations, cuvettes, bande 3D et paramètres 2D. L'ajout se trouve dans [caves.glsl](../Asset/Shader/ProceduralTerrain/biomes/Tundra/caves.glsl), appelé à la fin de [volume.C.glsl](../Asset/Shader/ProceduralTerrain/biomes/Tundra/volume.C.glsl), après les formations existantes.
+Le relief de `Tundra` et ses anciennes formations 3D sont conservés. Les grottes forment une **population supplémentaire indépendante**, avec leurs propres emplacements et leur propre bande 3D locale. Le placement se trouve dans [cave_sites.glsl](../Asset/Shader/ProceduralTerrain/biomes/Tundra/cave_sites.glsl), la géométrie dans [caves.glsl](../Asset/Shader/ProceduralTerrain/biomes/Tundra/caves.glsl), appelée par [volume.C.glsl](../Asset/Shader/ProceduralTerrain/biomes/Tundra/volume.C.glsl).
 
-Une petite partie des sites existants accueille une salle souterraine, une salle secondaire et une galerie à deux segments qui débouche au sol. À `uDetailScale = 0.35`, la salle principale mesure environ 180–250 m de longueur et 36–44 m de hauteur, avec son centre à 32–40 m sous le terrain. Le bruit 3D déforme ses parois de quelques mètres. Les hauteurs suivent le terrain local, comme les autres sculptures du biome ; ce n'est pas un plancher horizontal fixe en coordonnées monde.
+Chaque grotte comprend une salle souterraine, une salle secondaire et une galerie qui débouche au sol. À `uDetailScale = 0.35`, la salle principale mesure environ 200–270 m de longueur et 52–68 m de hauteur, avec son centre à 48–60 m sous le terrain. Le segment d'entrée a un rayon de 60 m, pour une ouverture au niveau du sol d'environ 100 m avant le bruit. Les hauteurs suivent le terrain local ; ce n'est pas un plancher horizontal fixe en coordonnées monde.
 
 ## Réglages
 
-Les constantes sont au début de `Tundra/caves.glsl` :
+Les constantes de répartition sont au début de `Tundra/cave_sites.glsl` ; le réglage des parois reste dans `caves.glsl` :
 
 | Réglage | Valeur | Effet |
 | --- | --- | --- |
-| `TUNDRA_CAVE_REGION_SCALE` | 9000 m | Taille du bruit qui organise les régions où des grottes sont possibles ; ce n'est pas la distance entre deux entrées. |
-| `TUNDRA_CAVE_REGION_THRESHOLD` | 0,58 | Augmenter réduit la surface des régions admissibles. |
-| `TUNDRA_CAVE_SITE_CHANCE` | 0,35 | Fraction des sites existants retenus avant le filtre régional ; diminuer raréfie les grottes. Mettre `0.0` les désactive. |
+| `TUNDRA_CAVE_SPACING` | 1800 m | Taille des cellules candidates indépendantes ; ce n'est pas la distance entre deux grottes. |
+| `TUNDRA_CAVE_REGION_SCALE` | 3000 m | Taille du bruit qui organise les régions où des grottes sont possibles. |
+| `TUNDRA_CAVE_REGION_THRESHOLD` | 0,35 | Augmenter réduit la surface des régions admissibles. |
+| `TUNDRA_CAVE_SITE_CHANCE` | 0,85 | Fraction des nouvelles candidates retenues avant les filtres de région et de dégagement ; diminuer raréfie les grottes. Mettre `0.0` les désactive. |
+| `TUNDRA_CAVE_BAND` | 768 unités brutes | Bande locale des nouvelles grottes, soit 268,8 m au total à l'échelle 0,35. |
 | `TUNDRA_CAVE_WALL_AMPLITUDE` | 4 m | Déformation maximale des parois, à l'échelle verticale de référence. |
 
-Le masque régional utilise un bruit de valeur continu dans un domaine déformé, évalué au centre de chaque site. La sélection concerne la grotte entière : une limite du masque ne peut pas couper sa galerie. La forme reste contenue loin des frontières des cellules de placement. Les orientations, tailles et positions des sites existants varient ; tous les sites ne contiennent pas une grotte.
+Le masque régional utilise un bruit de valeur continu dans un domaine déformé, évalué au centre de chaque nouvelle candidate. La sélection concerne la grotte entière : une limite du masque ne peut pas couper sa galerie. Les centres sont décalés et les orientations varient. Une vérification des voisins rejette les candidates dont l'enveloppe toucherait une ancienne formation 3D ou un rocher.
 
-Les salles et leur galerie occupent la bande 3D historique de 512 unités brutes, sans ouvrir de bande supplémentaire. Les autres formations gardent donc leur fondu d'origine. L'opération enlève uniquement de la matière et son influence s'annule progressivement hors de la cavité.
+Les nouvelles bandes s'ouvrent uniquement là où les anciennes étaient nulles. Les montagnes, le relief, le décalage et le pilotage existants restent identiques ; les anciens sites 3D gardent aussi exactement leur bande et leur fondu. L'opération enlève uniquement de la matière et son influence s'annule progressivement hors de la cavité.
+
+La première version liait au contraire les grottes aux anciennes formations et les filtrait trop fortement : avec la seed 1337, aucune ne se trouvait dans les 8 premiers kilomètres depuis la caméra sauvegardée. La première, à 9,4 km, avait une ouverture de 44 m pour des voxels de 64 m. La répartition indépendante et l'entrée élargie corrigent ces deux limitations, sans déplacer la caméra ni introduire de position spéciale dans les shaders.
 
 ## Fonction 3D commune retrouvée
 
@@ -35,10 +39,10 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_tundra_caves.py \
   --output /tmp/tundra-caves
 ```
 
-Il vérifie la conservation exacte des colonnes et du volume historique lorsque le nouvel appel est désactivé, la rareté, le sol et le plafond des salles, leur connexion à l'air extérieur, ainsi que l'accumulation réelle et les points communs aux LOD près d'une paroi excavée. Le résultat marin est également comparé bit à bit à la référence.
+Il vérifie la conservation exacte du relief et du volume historique lorsque le nouvel appel est désactivé, la rareté, le sol et le plafond des salles, leur connexion à l'air extérieur, ainsi que l'accumulation réelle et les points communs aux LOD près d'une paroi excavée. Il exige maintenant des entrées réellement ouvertes près de la caméra sauvegardée, des cavités sur les grilles mondiales de 8, 16 et 32 m, et de nouvelles excavations là où la bande 3D précédente était nulle. Le résultat marin est également comparé bit à bit à la référence.
 
-Les six grottes échantillonnées sur deux seeds ont toutes un sol et un plafond, avec 100 % de l'air nouvellement excavé sous plafond connecté à l'extérieur. Leur dégagement vertical mesuré est de 35–50 m. Sur deux cartes de 2304 km², seulement 0,037–0,065 % des colonnes échantillonnées changent. Les 2662 densités de production et 250 points LOD ciblés concordent ; les 266256 densités marines comparées restent identiques. Les 26 biomes passent également les tests généraux de compilation, accumulation, transitions et LOD.
+Les rapports enregistrent les six grottes les plus proches sur deux seeds, les cartes de 2304 km² et la zone locale autour de la caméra. Ils distinguent les bandes ajoutées, les véritables entrées au sol et la visibilité des cavités aux différentes résolutions. Les tests généraux couvrent également les 26 biomes, l'accumulation, les transitions et les LOD.
 
-[Coupes des grottes](biome-validation/tundra_caves.png) · [Mesures](biome-validation/tundra_caves.json)
+[Entrées près de la caméra, avant/après](biome-validation/tundra_caves_local.png) · [Coupes des grottes](biome-validation/tundra_caves.png) · [Mesures](biome-validation/tundra_caves.json)
 
 **Régénérer le terrain** après mise à jour des shaders. Les mesures OpenGL/Mesa vérifient la géométrie et le pipeline ; le parcours du joueur et les performances sur le GPU Windows restent à apprécier dans le jeu.
