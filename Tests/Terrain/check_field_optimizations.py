@@ -38,7 +38,7 @@ void main()
 """
     program=gl.compile([(0x91B9,source)],"compact column independent storage checks")
     gl.bind(gl.buffer(packed_biome_cells()),7)
-    widths=(0.,1e-8,.0001,.00019999,.0002,.00020001,.0043,.0045,1.,12.25,512.,576.,576.0000610351562,800.,4096.,7000.,8192.)
+    widths=(0.,1e-8,.0001,.00019999,.0002,.00020001,.0043,.0045,1.,12.25,512.,576.,576.0000610351562,800.,4096.,7000.,8192.,9000.,16384.)
     controls=(0.,1/65535,0.12345,.5,.99999,1.)
     records=[]
     for i,width in enumerate(widths):
@@ -79,7 +79,7 @@ void main()
             assert bool(encoded[7]&(1<<30))==active,"Packing changed the open/closed decision"
             wide=values[3]>576.
             assert bool(encoded[7]&(1<<31))==wide,"Packing changed the narrow/wide band range"
-            maximum=8192. if wide else 576.
+            maximum=16384. if wide else 576.
             expected_code=max(1,math.floor(f32(f32(values[3]/maximum)*65535.)+.5)) if values[3]>0. else 0
             assert (encoded[5]&65535)==expected_code,"Band code differs from independent UNORM oracle"
             if active:
@@ -211,16 +211,16 @@ def check_control_and_tiles(gl):
         assert clipped,"Large-origin fixture never reduced a dispatch"
         print(f"PASS conservative large-origin tile/Y bounds: {compared:,} densities identical to exhaustive GPU launches at +/-2^24, LOD 0/6/12")
 
-        # Extended bands must reach deep walls that the legacy ~202m envelope
-        # skipped. Retain both narrow/closed X tiles and the exact production
+        # Extended bands must retain pillars beyond the former 1433.6m
+        # half-band. Retain both open/closed X tiles and the exact production
         # point envelope; compare optimized dispatch against a full 3D launch.
         for shaders in (directory,exhaustive_directory):
             edit(shaders,"biomes/PolarIce/relief.C.glsl","fieldRelief",
-                 "return vec4(0.0,p.x<256.0 ? 7000.0 : 0.0,0.0,0.5);")
+                 "return vec4(0.0,p.x<256.0 ? 16384.0 : 0.0,0.0,0.5);")
         wide=BatchFieldRunner(gl,directory)
         full_wide=BatchFieldRunner(gl,exhaustive_directory)
         compared=affected=outside=0
-        for lod,origin_y in ((0,-1260),(0,1250),(5,-1500),(5,900),(8,-2048),(8,0)):
+        for lod,origin_y in ((0,-2930),(0,2915),(5,-3150),(5,2700),(8,-3072),(8,0)):
             options=dict(cells=16,origin=(0,origin_y,0),lod=lod,
                          uBaseHeight=0.,uHeightAmplitude=0.,uDetailScale=.35,uBiomeOverride=0)
             optimized=wide.run(**options)
@@ -237,11 +237,11 @@ def check_control_and_tiles(gl):
                         expected=f32(height-world_y)+(.5 if inside else 0.)
                         actual=optimized['density'][x+y*side+z*side*side]
                         assert actual==expected,("Wide-band independent oracle",lod,origin_y,x,y,z,actual,expected)
-                        affected+=int(inside and abs(world_y)>1000.)
+                        affected+=int(inside and abs(world_y)>2000.)
                         outside+=int(not inside)
             compared+=side**3
         assert affected>0 and outside>0,"Wide-band fixture missed deep or exterior samples"
-        print(f"PASS wide bands: {compared:,} densities match exhaustive launches and analytic envelope; {affected:,} modified samples beyond 1km; {outside:,} untouched exterior samples")
+        print(f"PASS wide bands: {compared:,} densities match exhaustive launches and analytic envelope; {affected:,} modified samples beyond 2km; {outside:,} untouched exterior samples")
 
 
 def check_skips_and_aliases(gl):

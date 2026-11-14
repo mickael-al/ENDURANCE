@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Probe the remaining isolated cold features at their GPU-generated sites.
-FrozenTundra chains have their own check_frozen_chains.py fixture.
+FrozenTundra chains and Taiga pillars have their own dedicated fixtures.
 
 RKM checks cover nominal placement cells, not encounters along an arbitrary path.
 Feature omission isolates the current contribution; optional reference shaders
@@ -32,7 +32,8 @@ FEATURES=(
     (2,'tundra_peak',321,(795.,805.)),
     (2,'twenty_metre_rock',322,None),
     (3,'taiga_peak',421,(695.,705.)),
-    (3,'ancient_river',422,(-80.,-20.)),
+    # The user removed Taiga's old river population before adding pillars.
+    # Keep its unchanged mountain check; check_taiga_pillars.py covers new 3D.
     (4,'lake_basin',510,(-18.,-5.)),
     (4,'bog_hole',511,None),
     (5,'rocky_hole',5112,None),
@@ -146,10 +147,15 @@ def render(output,profiles,sections):
     import matplotlib.pyplot as plt
     fig,axes=plt.subplots(6,2,figsize=(13,18),constrained_layout=True)
     primaries=('ice_massif','frozen_mountain','tundra_peak','taiga_peak','lake_basin','rocky_hole','deep_chasm')
-    secondaries=('ice_rift','underground_cave','twenty_metre_rock','ancient_river','bog_hole','rocky_hole','terraced_mountain')
+    secondaries=('ice_rift','underground_cave','twenty_metre_rock',None,'bog_hole','rocky_hole','terraced_mountain')
     for row,biome in enumerate((0,2,3,4,5,6)):
         for column,label in enumerate((primaries[biome],secondaries[biome])):
             ax=axes[row,column]
+            if label is None:
+                ax.text(.5,.5,'Taiga 3D pillars tested separately\ncheck_taiga_pillars.py',
+                        ha='center',va='center',transform=ax.transAxes)
+                ax.set_axis_off()
+                continue
             if column==1 and label in sections:
                 sample=sections[label];d=sample['density'];mid=d.shape[0]//2
                 x=np.arange(d.shape[2])*sample['spacing']

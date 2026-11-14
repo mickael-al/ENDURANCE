@@ -45,9 +45,9 @@ namespace ProceduralTerrain
     // Mirror FIELD_MAX_RELIEF_HEIGHT in field_limits.glsl. FP32 height does not
     // use the packed 16-bit width/offset representation.
     constexpr float maximumBiomeReliefHeight = 10240.0f;
-    constexpr float maximumBiomeVolumeThickness = 8192.0f;
+    constexpr float maximumBiomeVolumeThickness = 16384.0f;
 
-    // Biome height is clamped to [-10240,10240], total biome thickness to [0,8192],
+    // Biome height is clamped to [-10240,10240], total biome thickness to [0,16384],
     // with the legacy packed precision retained for widths <=576,
     // and the combined recipe offset to [-160,160], before detailScale.
     inline FieldHeightBounds fieldHeightBounds(const FieldParameters& p) noexcept

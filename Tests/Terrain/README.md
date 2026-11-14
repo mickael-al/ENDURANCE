@@ -1,5 +1,29 @@
 # Terrain validation
 
+## Taiga tilted porous cylinders
+
+```sh
+python3 Tests/Terrain/generate_taiga_pillar_sites.py
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_taiga_pillars.py \
+  --reference-shaders /path/to/pre-pillar/ProceduralTerrain \
+  --output /tmp/taiga-pillars
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/calibrate_taiga_pillar_porosity.py
+```
+
+The reference is the actual user-edited Taiga before these additions (remote
+commit `6960a33ecd8ca16a4478e2c818e3ea7ce76fd6c8`, directory
+`Asset/Shader/ProceduralTerrain`). Its height and controls must remain bitwise
+identical, and the new density may only add stone. Validation covers packed
+blue-noise placement including toroidal seams, diameter, actual vertical height,
+rigid tilt/azimuth, cylinder-contained carving, measured 30% void, band coverage
+on slopes, production accumulation and shared LOD samples. The 48-km placement
+period and the distinction between isolated porosity and terrain union are
+documented in `docs/TAIGA_PILLARS.md`. Tests require NumPy/SciPy; rendered
+diagnostics additionally require Matplotlib. Calibration executes the production
+Perlin shader, not a CPU approximation.
+
+## FrozenTundra regions and massifs
+
 FrozenTundra combines large mountain regions, detailed plains and rare connected
 3D caves. The raw relief limit remains 10240, mirrored by CPU bounds.
 
@@ -455,7 +479,7 @@ Placements are read from the recipes, including inverse-warped world anchors.
 RKM and sparse placement spacing are nominal, not encounters along every route.
 Feature sites are deliberately targeted; cave connectivity is sampled, not a
 controller test. See [the initial report](../../docs/COLD_BIOME_REVISION.md) and
-[the current spacing revision](../../docs/COLD_BIOME_SPACING_REVISION.md).
+[the historical spacing revision](../../docs/COLD_BIOME_SPACING_REVISION.md).
 
 ## Actual biome areas and site occurrence
 
@@ -706,7 +730,9 @@ envelope. Changed mask samples must remain within full wall coverage.
 
 Wide bands use a separate packing-range flag in the existing 32-byte column.
 Widths up to576 preserve the legacy quantization; the extended raw maximum is
-8192. CPU bounds and conservative dispatch use the extended envelope. See
+16384 so tilted Taiga pillars also fit above lower adjacent terrain. Wide bands
+use a raw quantization step of 16384/65535 (about0.25); FP32 relief heights are
+unchanged. CPU bounds and conservative dispatch use the extended envelope. See
 [the implementation and controls](../../docs/POLAR_ICE_RIFT_3D.md).
 
 ## Polar mountains: sparse broad Perlin cavities

@@ -28,13 +28,13 @@ static void fields()
     FieldParameters p;
     require(validFieldParameters(p), "Default field parameters rejected");
     auto b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+5393.6f)<0.001f && std::abs(b.maximumY-5393.6f)<0.001f, "Default conservative field bounds changed");
+    require(std::abs(b.minimumY+6827.2f)<0.001f && std::abs(b.maximumY-6827.2f)<0.001f, "Default conservative field bounds changed");
     p.bandOffset=-200;
     b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+5593.6f)<0.001f && std::abs(b.maximumY-5193.6f)<0.001f, "Negative offset bounds");
+    require(std::abs(b.minimumY+7027.2f)<0.001f && std::abs(b.maximumY-6627.2f)<0.001f, "Negative offset bounds");
     p.bandOffset=200;
     b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+5193.6f)<0.001f && std::abs(b.maximumY-5593.6f)<0.001f, "Positive offset bounds");
+    require(std::abs(b.minimumY+6627.2f)<0.001f && std::abs(b.maximumY-7027.2f)<0.001f, "Positive offset bounds");
     p=FieldParameters{};
     for (int biome=-1;biome<=25;++biome)
     {
