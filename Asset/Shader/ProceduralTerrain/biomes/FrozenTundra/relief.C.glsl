@@ -9,10 +9,14 @@ vec4 fieldRelief(vec2 p)
 {
     // Future spatial mask: replace 1.0 with a function of world XZ p.
     // 0 = no mountains, 1 = mountains everywhere; placement remains identical.
-    float mountainPresence = 1.0;
-    mountainPresence = clamp(mountainPresence, 0.0, 1.0);
-    if (mountainPresence <= 0.0) return vec4(0.0);
-    float h = frozenChainHeight(p) * mountainPresence / 0.35;
+
+    
+    float mountainPresence = noiseSimplexFbm2D(p/1650,305u,1,2.0,0.5);
+    float h = 0.0;
+  //  if (mountainPresence > 0.5)
+    {
+        h += frozenChainHeight(p) * 2.0;
+    }
     return vec4(h, 0.0, 0.0, 0.0);
 }
 
