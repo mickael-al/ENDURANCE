@@ -689,3 +689,19 @@ Wide bands use a separate packing-range flag in the existing 32-byte column.
 Widths up to576 preserve the legacy quantization; the extended raw maximum is
 8192. CPU bounds and conservative dispatch use the extended envelope. See
 [the implementation and controls](../../docs/POLAR_ICE_RIFT_3D.md).
+
+## Polar mountains: sparse broad Perlin cavities
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_massif_caves.py --output /tmp/polar-massif-caves
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_massif_caves.py --seed 17 --output /tmp/polar-massif-caves-seed17
+```
+
+The fixture omits only mountain cavity CSG in a second compilation, retaining
+identical columns and other sculptures. Six active massifs are sampled for
+finite deterministic densities, sparse excavation, no solid additions, roofed
+pockets and surface openings. Protected crests, skirts, rift regions, roots and
+outside-band samples must stay unchanged. Targeted production accumulation and
+shared LOD checks run inside a newly carved pocket. The generated section uses
+real GLSL; it does not certify collision, accessibility or GPU performance.
+See [controls and implementation](../../docs/POLAR_ICE_MASSIF_CAVES.md).

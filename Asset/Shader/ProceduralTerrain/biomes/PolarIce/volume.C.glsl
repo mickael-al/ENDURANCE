@@ -47,14 +47,42 @@ float polarRiftWallDelta(vec3 p, FieldColumn column, LandSite rift)
     return (originalCut - polarRiftMask(displaced)) * depth;
 }
 
+float polarMassifCarve(vec3 p, FieldColumn column, LandSite massif,
+    float support, float target)
+{
+    if (support <= 0.08 || POLAR_MASSIF_CAVE_MAX_DEPTH <= 0.0) return target;
+    float weight = fieldSurfaceWeight(column, FIELD_BIOME_ID);
+    float scale = uDetailScale / 0.35;
+    float depth = polarMassifCaveDepth(massif) * scale * weight;
+    if (depth <= 0.001) return target;
+    float belowSurface = column.terrain.x + column.blend.y - p.y;
+    float envelope = smoothstep(0.08, 1.0, support)
+        * (1.0 - smoothstep(0.65 * depth, depth, belowSurface))
+        * (1.0 - smoothstep(0.0, 40.0 * scale * weight, -belowSurface));
+    if (envelope <= 0.0) return target;
+    // World Y makes this a genuine 3D field, not a surface-following height
+    // displacement. A single broad Perlin lobe cuts occasional large pockets.
+    vec3 wavelength = max(POLAR_MASSIF_CAVE_SCALE, vec3(1.0));
+    vec3 q = vec3(massif.q.x, p.y, massif.q.y) / wavelength;
+    uint caveSeed = noiseInternalHash(floatBitsToUint(massif.center.x)
+        ^ noiseInternalHash(floatBitsToUint(massif.center.y)) ^ uSeed ^ 123u);
+    float n = noisePerlin3D(q + vec3(17.3, 29.1, 43.7), caveSeed);
+    float threshold = mix(1.0, clamp(POLAR_MASSIF_CAVE_THRESHOLD, 0.0, 1.0), envelope);
+    float cavity = (threshold - n) * min(wavelength.x, min(wavelength.y, wavelength.z)) * 0.5;
+    return min(target, cavity);
+}
+
 float fieldVolume(vec3 p, FieldColumn column)
 {
     if (!landVolumeEnabled(column)) return 0.0;
     LandSite site = landSparseSite(p.xz, 9600.0, 0.25, 107u, 0.65);
     LandSite rift = landSparseSite(p.xz, POLAR_RIFT_SPACING, POLAR_RIFT_FOOTPRINT,
         POLAR_RIFT_SALT, POLAR_RIFT_OCCUPANCY);
+    LandSite massif = landSparseSite(p.xz, POLAR_MASSIF_SPACING, POLAR_MASSIF_FOOTPRINT,
+        POLAR_MASSIF_SALT, POLAR_MASSIF_OCCUPANCY);
+    float massifCaves = polarMassifCaveSupport(massif, rift);
     float support = max(site.mask, rift.mask);
-    if (support <= 0.0) return 0.0;
+    if (max(support, massifCaves) <= 0.0) return 0.0;
     float base = column.terrain.x - p.y;
     float wallDelta = polarRiftWallDelta(p, column, rift);
     float sculptedBase = base + wallDelta;
@@ -119,6 +147,7 @@ float fieldVolume(vec3 p, FieldColumn column)
     // cave's min() could excavate its positive exterior distance field as well.
     // The cut already includes rift.mask; apply support only to the extra CSG.
     float finalTarget = sculptedBase + support * (target - sculptedBase);
+    finalTarget = polarMassifCarve(p, column, massif, massifCaves, finalTarget);
     return landDelta(p, column, finalTarget, 1.0);
 }
 

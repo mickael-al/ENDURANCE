@@ -32,12 +32,11 @@ vec4 fieldRelief(vec2 p)
     // Five times the old nominal separation, with a fourfold footprint. The
     // curved glacial spine uses the user's 450--1580 m range, over wider flanks.
     // Empty candidates and warped placement break the former visible grid.
-    LandSite massif = landSparseSite(p, 20000.0, 0.80, 111u, 0.80);
+    LandSite massif = landSparseSite(p, POLAR_MASSIF_SPACING, POLAR_MASSIF_FOOTPRINT,
+        POLAR_MASSIF_SALT, POLAR_MASSIF_OCCUPANCY);
     if (massif.mask > 0.0)
     {
-        vec2 v = massif.q / massif.radius;
-        float spine = v.y + 0.18 * v.x + 0.12 * v.x * v.x;
-        float blade = length(vec2(v.x * 1.12, spine * 1.80));
+        float blade = polarMassifBlade(massif);
         float peak = pow(max(1.0 - blade, 0.0), 0.95);
         float striations = landRidges(massif.q / vec2(1440.0, 760.0), 112u);
         float incision = mix(1.0, 0.76 + 0.24 * striations,
@@ -58,8 +57,11 @@ vec4 fieldRelief(vec2 p)
     // The flat floor keeps the usual cave band. Only the swept wall corridor
     // opens a deep envelope for horizontal, height-dependent 3D displacement.
     float support = max(site.mask, rift.mask);
+    float massifCaves = polarMassifCaveSupport(massif, rift);
     float band = max(landBand(site, 560.0), landBand(rift, 576.0));
     band = max(band, polarRiftWallBand(rift));
+    band = max(band, polarMassifCaveBand(massif, massifCaves));
+    support = max(support, massifCaves);
     return vec4(h, band, 0.0, support);
 }
 

@@ -25,7 +25,7 @@ Le macrorelief global s’ajoute toujours au relief propre au biome. Les sites r
 
 | ID — Nom / dossier | Relief 2D | Sculpture 3D localisée |
 | --- | --- | --- |
-| **0 — Glace polaire** / `PolarIce` | Cuvettes élargies ; déchirures de 700–900 m, courbure et zéro à trois branches propres à chaque site ; massifs élargis, réglage utilisateur 450–1580 m soumis au plafond global de relief. | Nappes et tunnels espacés ; parois de faille déformées horizontalement en 3D avec surplombs et renfoncements, bruit étalé ×2,5 ; petites grottes sous le fond. |
+| **0 — Glace polaire** / `PolarIce` | Cuvettes élargies ; déchirures de 700–900 m, courbure et zéro à trois branches propres à chaque site ; massifs élargis, réglage utilisateur 450–1580 m soumis au plafond global de relief. | Cavités larges et rares en Perlin 3D dans les flancs des massifs ; nappes et tunnels espacés ; parois de faille avec surplombs et renfoncements, bruit étalé ×2,5 ; petites grottes sous le fond. |
 | **1 — Toundra gelée** / `FrozenTundra` | Plaines élargies et pingos ; croupes glaciaires de 420–560 m avec cirque de flanc, largeur ×2,5 et espacement ×4. | Pingos ouverts conservés ; petites chambres souterraines avec entrée. |
 | **2 — Toundra** / `Tundra` | Grandes ondulations et demi-cirques ; massifs de 800 m à épaules décalées et arêtes courbes, largeur ×5 et espacement ×6. | Ancienne crête abritée ; rochers de 20 m indépendants. |
 | **3 — Taïga** / `Taiga` | Collines irrégulières élargies ; longues crêtes asymétriques de 700 m, largeur ×3 et espacement ×4 ; lits fossiles, berges et terrasses. | Arête oblongue et renfoncement antérieurs conservés. |

@@ -3,6 +3,53 @@
 #ifndef ENDURANCE_POLAR_ICE_SHAPE_GLSL
 #define ENDURANCE_POLAR_ICE_SHAPE_GLSL
 
+// Broad, sparse cavities in the exceptional massifs. Scale is in local X/Y/Z
+// metres; a higher threshold gives fewer/smaller pockets, not finer noise.
+const float POLAR_MASSIF_SPACING = 20000.0;
+const float POLAR_MASSIF_FOOTPRINT = 0.80;
+const uint POLAR_MASSIF_SALT = 111u;
+const float POLAR_MASSIF_OCCUPANCY = 0.80;
+const vec3 POLAR_MASSIF_CAVE_SCALE = vec3(850.0, 650.0, 850.0);
+const float POLAR_MASSIF_CAVE_THRESHOLD = 0.50;
+const float POLAR_MASSIF_CAVE_MAX_DEPTH = 360.0;
+
+float polarMassifBlade(LandSite massif)
+{
+    vec2 v = massif.q / massif.radius;
+    float spine = v.y + 0.18 * v.x + 0.12 * v.x * v.x;
+    return length(vec2(v.x * 1.12, spine * 1.80));
+}
+
+float polarMassifCaveSupport(LandSite massif, LandSite rift)
+{
+    if (massif.mask <= 0.0) return 0.0;
+    float blade = polarMassifBlade(massif);
+    // Preserve the crest, the low skirts and the existing rift population.
+    return massif.mask * smoothstep(0.20, 0.32, blade)
+        * (1.0 - smoothstep(0.62, 0.82, blade))
+        * (1.0 - smoothstep(0.0, 0.12, rift.mask));
+}
+
+float polarMassifCaveDepth(LandSite massif)
+{
+    float peak = pow(max(1.0 - polarMassifBlade(massif), 0.0), 0.95);
+    // Minimum striation multiplier .76; terrace mix can remove at most 3.8m.
+    // Retain at least 35% of this conservative mountain thickness as its root.
+    float thickness = max(peak * 0.76 * mix(450.0, 1580.0, massif.variant)
+        - 3.8, 0.0) * massif.mask;
+    return min(max(POLAR_MASSIF_CAVE_MAX_DEPTH, 0.0), thickness * 0.65);
+}
+
+float polarMassifCaveBand(LandSite massif, float support)
+{
+    if (support <= 0.0 || POLAR_MASSIF_CAVE_MAX_DEPTH <= 0.0) return 0.0;
+    // Full landDelta influence throughout the excavation, with room above the
+    // surface for open mouths. The volume starts only once support exceeds .08.
+    float halfBand = (max(polarMassifCaveDepth(massif), 40.0) / 0.35 + 32.0) / 0.76;
+    return min(2.0 * halfBand, FIELD_MAX_VOLUME_THICKNESS)
+        * smoothstep(0.0, 0.08, support);
+}
+
 // Shared placement and dimensions: edit once for both relief and volume.
 // landSparseSite currently caps the footprint scale at 1.0; retain the user's
 // requested value here without silently changing the established placement.
