@@ -35,36 +35,9 @@ float frozenMassif(LandSite site)
 vec4 fieldRelief(vec2 p)
 {
     vec2 q = landWarp(p, 5950.0, 315.0, 201u);
-    float broad = landFbm(q / 9450.0, 202u);
-    // Flatten the plain gently; preserve broad convex rises rather than bowls.
-    float h = broad * abs(broad) * 120.0;
-    float dome = noiseSimplex2D(q / 2275.0, uSeed ^ 203u);
-    dome = smoothstep(0.08, 0.70, dome);
-    float region = smoothstep(-0.45, 0.45,
-        noiseSimplex2D(p / 16800.0, uSeed ^ 204u));
-    h += dome * mix(24.0, 100.0, region);
-    // Shallow polygon seams: under 0.7 m deep at the default detail scale.
-    vec2 cell = sqrt(noiseCellularDistancesSquared2D(q / 145.0, uSeed ^ 205u));
-    float seam = 1.0 - smoothstep(0.012, 0.15, cell.y - cell.x);
-    h -= seam * 1.8;
-    h += noiseSimplex2D(q / 52.0, uSeed ^ 206u) * 1.0;
+    float h = 0.0;
 
-    LandSite site = landSite(p, 2200.0, 207u, 0.62);
-    vec2 local = site.q / (site.radius * vec2(0.76, 0.68));
-    float mound = 1.0 - smoothstep(0.0, 1.0, dot(local, local));
-    h += site.mask * mound * mix(85.0, 150.0, site.variant);
-
-    // Nominal spacing 2 -> 8 km; footprint 0.8--1.12 -> 2--2.8 km wide.
-    // Rotated, warped placement and empty sites remove the regular rows.
-    LandSite mountain = landSparseSite(p, 8000.0, 0.625, 211u, 0.80);
-    h += frozenMassif(mountain);
-
-    // Small underground chambers have their own, much denser population:
-    // 2 RKM -> one candidate every 500 m, independently of the old pingos.
-    LandSite cave = landRkmSite(p, 2.0, 209u);
-    float support = max(site.mask, cave.mask);
-    float band = max(landBand(site, 544.0), landBand(cave, 192.0));
-    return vec4(h, band, 0.0, support);
+    return vec4(h, 0.0, 0.0, 0.0);
 }
 
 #include "../../field_surface_accumulate.glsl"

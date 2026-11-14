@@ -41,7 +41,7 @@ vec4 fieldRelief(vec2 p)
         float striations = landRidges(massif.q / vec2(1440.0, 760.0), 112u);
         float incision = mix(1.0, 0.76 + 0.24 * striations,
             smoothstep(0.0, 0.20, blade));
-        float iceHeight = peak * incision * mix(450.0, 1580.0, massif.variant);
+        float iceHeight = peak * incision * mix(900.0, 3160.0, massif.variant);
         iceHeight = mix(iceHeight, landTerrace(iceHeight, 38.0, 0.28), 0.20);
         h += massif.mask * iceHeight / 0.35;
     }

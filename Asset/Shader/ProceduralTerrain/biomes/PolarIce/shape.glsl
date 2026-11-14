@@ -6,18 +6,35 @@
 // Broad, sparse cavities in the exceptional massifs. Scale is in local X/Y/Z
 // metres; a higher threshold gives fewer/smaller pockets, not finer noise.
 const float POLAR_MASSIF_SPACING = 20000.0;
-const float POLAR_MASSIF_FOOTPRINT = 0.80;
+const float POLAR_MASSIF_FOOTPRINT = 3.20;
 const uint POLAR_MASSIF_SALT = 111u;
 const float POLAR_MASSIF_OCCUPANCY = 0.80;
 const vec3 POLAR_MASSIF_CAVE_SCALE = vec3(850.0, 650.0, 850.0);
-const float POLAR_MASSIF_CAVE_THRESHOLD = 0.50;
-const float POLAR_MASSIF_CAVE_MAX_DEPTH = 360.0;
+const float POLAR_MASSIF_CAVE_THRESHOLD = 0.45;
+const float POLAR_MASSIF_CAVE_MAX_DEPTH = 450.0;
 
 float polarMassifBlade(LandSite massif)
 {
     vec2 v = massif.q / massif.radius;
+
+    // Direction autour du sommet : continuité sur tout le contour.
+    vec2 direction = v / max(length(v), 0.0001);
+    vec2 phase = massif.variant * vec2(17.3, 31.7);
+
+    // Grandes ramifications et variations secondaires.
+    float lobes =
+        0.75 * landPlacementValue(direction * 3.0 + phase, 131u)
+        + 0.25 * landPlacementValue(direction * 7.0 + phase, 132u);
+
+    // Certaines directions s'étendent, d'autres se rétractent.
+    // On reste dans l'empreinte existante pour éviter sa découpe ronde.
+    float reach = mix(
+        0.45, 0.95,
+        smoothstep(0.20, 0.80, lobes)
+    );
+
     float spine = v.y + 0.18 * v.x + 0.12 * v.x * v.x;
-    return length(vec2(v.x * 1.12, spine * 1.80));
+    return length(vec2(v.x * 1.12, spine * 1.80)) / reach;
 }
 
 float polarMassifCaveSupport(LandSite massif, LandSite rift)
@@ -35,7 +52,7 @@ float polarMassifCaveDepth(LandSite massif)
     float peak = pow(max(1.0 - polarMassifBlade(massif), 0.0), 0.95);
     // Minimum striation multiplier .76; terrace mix can remove at most 3.8m.
     // Retain at least 35% of this conservative mountain thickness as its root.
-    float thickness = max(peak * 0.76 * mix(450.0, 1580.0, massif.variant)
+    float thickness = max(peak * 0.76 * mix(900.0, 3160.0, massif.variant)
         - 3.8, 0.0) * massif.mask;
     return min(max(POLAR_MASSIF_CAVE_MAX_DEPTH, 0.0), thickness * 0.65);
 }
