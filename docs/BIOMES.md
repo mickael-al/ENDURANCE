@@ -19,14 +19,16 @@ Les noms de fonction sont identiques entre biomes car chaque fichier constitue s
 
 La première révision des sept biomes froids et les fréquences **RKM** sont archivées dans [COLD_BIOME_REVISION.md](COLD_BIOME_REVISION.md). La [seconde révision : largeur et placement](COLD_BIOME_SPACING_REVISION.md) documente les quatre premiers biomes. Les réglages polaires ultérieurs et leurs parois volumétriques sont décrits dans [POLAR_ICE_RIFT_3D.md](POLAR_ICE_RIFT_3D.md). Les hauteurs ci-dessous sont relatives au relief local, à `detailScale=0,35`.
 
+La toundra gelée a ensuite été reconstruite en [chaînes montagneuses](FROZEN_TUNDRA_CHAINS.md). Le plafond global de relief est maintenant ±10240 unités brutes.
+
 ## Formes présentes
 
 Le macrorelief global s’ajoute toujours au relief propre au biome. Les sites remarquables apparaissent par endroits ; les sculptures de la dernière colonne ne recouvrent pas toute leur région.
 
 | ID — Nom / dossier | Relief 2D | Sculpture 3D localisée |
 | --- | --- | --- |
-| **0 — Glace polaire** / `PolarIce` | Cuvettes élargies ; déchirures de 700–900 m, courbure et zéro à trois branches propres à chaque site ; massifs élargis, réglage utilisateur 450–1580 m soumis au plafond global de relief. | Cavités larges et rares en Perlin 3D dans les flancs des massifs ; nappes et tunnels espacés ; parois de faille avec surplombs et renfoncements, bruit étalé ×2,5 ; petites grottes sous le fond. |
-| **1 — Toundra gelée** / `FrozenTundra` | Plaines élargies et pingos ; croupes glaciaires de 420–560 m avec cirque de flanc, largeur ×2,5 et espacement ×4. | Pingos ouverts conservés ; petites chambres souterraines avec entrée. |
+| **0 — Glace polaire** / `PolarIce` | Cuvettes élargies ; déchirures de 700–900 m, courbure et zéro à trois branches propres à chaque site ; massifs élargis, réglage utilisateur 900–3160 m soumis au plafond global de relief. | Cavités larges et rares en Perlin 3D dans les flancs des massifs ; nappes et tunnels espacés ; parois de faille avec surplombs et renfoncements, bruit étalé ×2,5 ; petites grottes sous le fond. |
+| **1 — Toundra gelée** / `FrozenTundra` | Chaînes courbes ; massifs de largeur longitudinale 1–6 km, écarts nominaux −500 à +250 m, sommets réglés à 1400–3200 m ; cols, crêtes secondaires et cirques. `mountainPresence = 1.0` pilote leur présence. | Aucune sculpture 3D pour cette nouvelle recette ; anciens pingos et grottes retirés. |
 | **2 — Toundra** / `Tundra` | Grandes ondulations et demi-cirques ; massifs de 800 m à épaules décalées et arêtes courbes, largeur ×5 et espacement ×6. | Ancienne crête abritée ; rochers de 20 m indépendants. |
 | **3 — Taïga** / `Taiga` | Collines irrégulières élargies ; longues crêtes asymétriques de 700 m, largeur ×3 et espacement ×4 ; lits fossiles, berges et terrasses. | Arête oblongue et renfoncement antérieurs conservés. |
 | **4 — Forêt boréale marécageuse** / `BorealBog` | Bassins et îlots conservés ; cuvettes de lac de 7–14 m. | Surplombs amplifiés et nouvelles cavités Perlin 3D accessibles. |
@@ -60,7 +62,7 @@ Ces formes sont des interprétations artistiques. Le relief à crêtes n’est p
 
 | Composante | Plage brute | Utilisation |
 | --- | --- | --- |
-| `.x` | −4096 à 4096 | Hauteur ajoutée au macrorelief, multipliée par `detailScale`. |
+| `.x` | −10240 à 10240 | Hauteur ajoutée au macrorelief, multipliée par `detailScale`. |
 | `.y` | 0 à 8192 | Épaisseur **totale** de la bande 3D, multipliée par `detailScale`. Aucune épaisseur artistique de base n’est ajoutée. |
 | `.z` | −160 à 160 | Décalage vertical de recette, multiplié par `detailScale`, puis associé au décalage global en mètres. |
 | `.w` | 0 à 1 | Contrôle propre à la recette. Les nouveaux biomes terrestres y exposent le masque de site ; le pipeline ne l’applique pas secrètement à la densité. |

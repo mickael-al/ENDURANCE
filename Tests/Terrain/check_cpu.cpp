@@ -28,13 +28,13 @@ static void fields()
     FieldParameters p;
     require(validFieldParameters(p), "Default field parameters rejected");
     auto b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+3243.2f)<0.001f && std::abs(b.maximumY-3243.2f)<0.001f, "Default conservative field bounds changed");
+    require(std::abs(b.minimumY+5393.6f)<0.001f && std::abs(b.maximumY-5393.6f)<0.001f, "Default conservative field bounds changed");
     p.bandOffset=-200;
     b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+3443.2f)<0.001f && std::abs(b.maximumY-3043.2f)<0.001f, "Negative offset bounds");
+    require(std::abs(b.minimumY+5593.6f)<0.001f && std::abs(b.maximumY-5193.6f)<0.001f, "Negative offset bounds");
     p.bandOffset=200;
     b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+3043.2f)<0.001f && std::abs(b.maximumY-3443.2f)<0.001f, "Positive offset bounds");
+    require(std::abs(b.minimumY+5193.6f)<0.001f && std::abs(b.maximumY-5593.6f)<0.001f, "Positive offset bounds");
     p=FieldParameters{};
     for (int biome=-1;biome<=25;++biome)
     {
@@ -199,22 +199,23 @@ static void lod()
     std::cout << "PASS demo defaults: " << output.size() << "/" << p.maxLeaves << " selected leaves\n";
 
     // Saved terrain scene: larger macro relief and 40.096 km selection radius,
-    // collision disabled, selection limit 2048. Preserve coverage near peaks
+    // collision disabled, selection limit 3072. Preserve coverage near peaks
     // and deep cuts without raising resident/vertex budgets.
     FieldParameters sceneField;
     sceneField.heightAmplitude=1000.0f;
     const auto sceneBounds=fieldHeightBounds(sceneField);
-    p.viewDistance=40096.0f;p.fullResolutionRadius=0.0f;
+    p.viewDistance=40096.0f;p.fullResolutionRadius=0.0f;p.maxLeaves=3072;
     p.minimumY=sceneBounds.minimumY-coarseSpacing;
     p.maximumY=sceneBounds.maximumY+coarseSpacing;
     std::size_t largest=0;
     for (const glm::vec3 camera : {glm::vec3(80,180,120),glm::vec3(2048,1000,2048),
-                                  glm::vec3(4095,-1000,4095),glm::vec3(20000,1200,-20000)})
+                                  glm::vec3(4095,-1000,4095),glm::vec3(20000,1200,-20000),
+                                  glm::vec3(8000,3000,8000),glm::vec3(-8000,5000,-8000)})
     {
         require(selectLodChunks(camera,p,output,error),error.c_str());
         largest=std::max(largest,output.size());
     }
-    std::cout << "PASS tall-terrain scene: four camera positions, at most " << largest
+    std::cout << "PASS tall-terrain scene: six camera positions, at most " << largest
               << "/" << p.maxLeaves << " selected leaves\n";
 }
 

@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Probe the seven revised cold biomes at their actual GPU-generated sites.
+"""Probe the remaining isolated cold features at their GPU-generated sites.
+FrozenTundra chains have their own check_frozen_chains.py fixture.
 
 RKM checks cover nominal placement cells, not encounters along an arbitrary path.
 Feature omission isolates the current contribution; optional reference shaders
@@ -28,8 +29,6 @@ from gl_headless import GL, GLUnavailable
 FEATURES=(
     (0,'ice_massif','massif',None),
     (0,'ice_rift','rift',(-910.,-690.)),
-    (1,'frozen_mountain',211,(400.,580.)),
-    (1,'underground_cave',209,None),
     (2,'tundra_peak',321,(795.,805.)),
     (2,'twenty_metre_rock',322,None),
     (3,'taiga_peak',421,(695.,705.)),
@@ -45,7 +44,7 @@ FEATURES=(
 def polar_massif_range(directory=SHADERS):
     """Read the editable amplitude, allowing terrace error and the raw clamp.
 
-    The production height clamp stays at 4096. It may reduce a high summit's
+    The production height clamp is 10240. It may reduce a high summit's
     isolated contribution; this diagnostic must not reset artistic parameters.
     """
     source=(directory/'biomes/PolarIce/relief.C.glsl').read_text()
@@ -145,12 +144,12 @@ def render(output,profiles,sections):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    fig,axes=plt.subplots(7,2,figsize=(13,20),constrained_layout=True)
+    fig,axes=plt.subplots(6,2,figsize=(13,18),constrained_layout=True)
     primaries=('ice_massif','frozen_mountain','tundra_peak','taiga_peak','lake_basin','rocky_hole','deep_chasm')
     secondaries=('ice_rift','underground_cave','twenty_metre_rock','ancient_river','bog_hole','rocky_hole','terraced_mountain')
-    for biome in range(7):
+    for row,biome in enumerate((0,2,3,4,5,6)):
         for column,label in enumerate((primaries[biome],secondaries[biome])):
-            ax=axes[biome,column]
+            ax=axes[row,column]
             if column==1 and label in sections:
                 sample=sections[label];d=sample['density'];mid=d.shape[0]//2
                 x=np.arange(d.shape[2])*sample['spacing']
@@ -169,7 +168,7 @@ def render(output,profiles,sections):
             ax.set_aspect('equal',adjustable='datalim');ax.grid(alpha=.2)
             handles,_=ax.get_legend_handles_labels()
             if handles:ax.legend(fontsize=8)
-    fig.suptitle('ENDURANCE — 7 revised cold biomes / actual GLSL probes\nEqual physical X/Y scale; forced biomes; not gameplay or performance certification',fontsize=14)
+    fig.suptitle('ENDURANCE — 6 cold biomes / actual GLSL probes; FrozenTundra tested separately\nEqual physical X/Y scale; forced biomes; not gameplay or performance certification',fontsize=14)
     fig.savefig(output/'cold_biome_profiles.png',dpi=135)
     plt.close(fig)
 

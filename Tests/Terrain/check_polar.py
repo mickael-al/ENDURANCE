@@ -229,7 +229,7 @@ def check_scene_height(probe):
     sample = probe.run(biome=0, size=65, origin=(-12000., -12000.), spacing=375.,
                        uHeightAmplitude=1000., uHeightFrequency=.000015)
     values = sample["values"]
-    bound = 1000.+4096.*.35+.5*(8192.*.35)+160.*.35
+    bound = 1000.+10240.*.35+.5*(8192.*.35)+160.*.35
     for i in range(sample["size"]**2):
         height, band, offset = values[i*16], values[i*16+3], values[i*16+4]
         assert min(height, height+offset-band*.5) >= -bound

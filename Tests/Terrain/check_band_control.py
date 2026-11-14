@@ -92,18 +92,18 @@ def main():
               f'legacy/wide packed ranges, upper clamp, locally noise-driven bands; {disabled_samples} unsculpted samples verified')
 
         # Exercise both recipe and final accumulation clamps with an independent
-        # fixed oracle. Peaks/rifts of +/-800 world metres must survive .35 scale.
+        # fixed oracle. Peaks/rifts of +/-3200 world metres must survive .35 scale.
         gl.uniform(polar_program,'probeSpatialBand','1i',0)
         gl.uniform(polar_program,'probeThickness','1f',0.)
         for scale in (.35,1.):
-            for raw in (-5000.,-4096.,-800./.35,-1000.,0.,1000.,800./.35,4096.,5000.):
+            for raw in (-12000.,-10240.,-3200./.35,-1000.,0.,1000.,3200./.35,10240.,12000.):
                 gl.uniform(polar_program,'probeHeight','1f',raw)
                 field=runner.run(**options,uDetailScale=scale)
-                expected=f32(3.+f32(f32(min(max(raw,-4096.),4096.))*f32(scale)))
+                expected=f32(3.+f32(f32(min(max(raw,-10240.),10240.))*f32(scale)))
                 assert all(math.isclose(v,expected,rel_tol=2e-7,abs_tol=1e-5)
                            for v in field['columns'][0::COLUMN_WORDS]),('Raw height clamp/scale mismatch',raw,scale)
                 verify_zero_columns(field)
-        print('PASS relief height: 18 signed height/scale cases, +/-800m retained, +/-4096 raw clamp, packed bands unchanged')
+        print('PASS relief height: 18 signed height/scale cases, +/-3200m retained, +/-10240 raw clamp, packed bands unchanged')
 
 
 if __name__=='__main__':

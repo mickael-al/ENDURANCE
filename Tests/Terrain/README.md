@@ -1,5 +1,18 @@
 # Terrain validation
 
+FrozenTundra now uses connected heightfield chains. Its dedicated fixture replaces
+the old isolated pingo/cave checks; the other isolated sculptures retain their
+existing tests. The raw relief limit is 10240, mirrored by CPU bounds.
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_chains.py --output /tmp/frozen-chains
+```
+
+This runs two seeds, 8192 width/gap records including negative blocks, the
+presence mask at 0/0.5/1, a larger-neighbourhood reference, deterministic heights,
+production accumulation and exact shared LOD samples. The saved large-view scene
+uses a 3072-leaf selection limit; CPU checks cover six camera positions.
+
 Run these commands from the repository root. They test the production C++ and
 GLSL files directly. There is no window or full game launch requirement.
 

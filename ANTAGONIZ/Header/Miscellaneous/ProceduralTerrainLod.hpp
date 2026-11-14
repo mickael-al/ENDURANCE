@@ -27,7 +27,7 @@ namespace ProceduralTerrain
         float minimumY = -1024.0f;
         float maximumY = 1024.0f;
         float fullResolutionRadius = 128.0f;
-        // The +/-4096 raw height envelope needs 1097 leaves at the default
+        // The +/-10240 raw height envelope needs 1189 leaves at the default
         // fixture camera. This bounds selection metadata, not GPU vertex memory.
         std::uint32_t maxLeaves = 2048;
     };

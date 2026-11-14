@@ -35,7 +35,11 @@ def shader_source(path: Path, defines: str = "", stack: tuple[Path, ...] = ()) -
     path = path.resolve()
     if path in stack:
         raise RuntimeError(f"Recursive shader include: {path}")
-    source = path.read_text(encoding="utf-8")
+    try:
+        source = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # Windows-edited shader comments may still be CP1252. Preserve files.
+        source = path.read_text(encoding="cp1252")
     source = re.sub(
         r'^\s*#include\s+"([^"]+)"\s*$',
         lambda match: shader_source(path.parent / match.group(1), stack=stack + (path,)),

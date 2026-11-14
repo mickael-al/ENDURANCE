@@ -1,0 +1,53 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "6ac729ab4a29b5e1ae58846a40a392c016f8c8ed4cce95ec09973bcb15cbd351",
+  "records": [
+    {
+      "seed": 1337,
+      "dimensions_tested": 4096,
+      "width_range_m": [
+        1001.6159057617188,
+        5998.38427734375
+      ],
+      "gap_range_m": [
+        -499.583984375,
+        249.583984375
+      ],
+      "maximum_gap_error_m": 0.014862060546875,
+      "peak_sample_m": 2804.168701171875,
+      "pipeline": {
+        "anchor": [
+          -15310,
+          2800,
+          13302
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "seed": 17,
+      "dimensions_tested": 4096,
+      "width_range_m": [
+        1000.36962890625,
+        5999.63037109375
+      ],
+      "gap_range_m": [
+        -499.9324951171875,
+        249.9324951171875
+      ],
+      "maximum_gap_error_m": 0.01324462890625,
+      "peak_sample_m": 2883.630859375,
+      "pipeline": {
+        "anchor": [
+          910,
+          2878,
+          -2210
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    }
+  ],
+  "note": "Widths and gaps measured along rotated chain axis; curved contours and connecting passes change visible ground separation. Presence 0/.5/1 tested; bounded neighbourhood matches 7x7-block reference; not a performance or collision certification."
+}

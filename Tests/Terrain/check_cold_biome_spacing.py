@@ -18,7 +18,8 @@ from check_biome_landforms import HEIGHT_PROBE, height_grid, SCENE_OPTIONS, sour
 from check_cold_biome_revision import polar_massif_range
 from gl_headless import GL
 
-MOUNTAINS=((0,'massif',None),(1,'mountain',(415.,565.)),
+# FrozenTundra chains use check_frozen_chains.py, not isolated LandSites.
+MOUNTAINS=((0,'massif',None),
            (2,'mountain',(790.,810.)),(3,'mountain',(690.,710.)))
 
 
@@ -107,7 +108,7 @@ def render(output,records,images,rift):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    fig,axes=plt.subplots(4,3,figsize=(12,14),constrained_layout=True)
+    fig,axes=plt.subplots(len(records),3,figsize=(12,3.5*len(records)),constrained_layout=True)
     for row,record in enumerate(records):
         old,new,extent,shape_old,shape_new,local_extent=images[row]
         for col,data in enumerate((old,new)):

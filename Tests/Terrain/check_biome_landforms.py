@@ -364,7 +364,7 @@ def write_checkpoint(output, records, renderer):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,help='Write measured diagnostic figures and JSON here')
-    parser.add_argument('--biomes',type=int,nargs='+',default=list(range(25)))
+    parser.add_argument('--biomes',type=int,nargs='+',default=[b for b in range(25) if b != 1])
     parser.add_argument('--seed',type=int,default=1337)
     parser.add_argument('--no-render',action='store_true',help='Save measurements without rendering figures')
     continuation=parser.add_mutually_exclusive_group()
@@ -373,6 +373,8 @@ def main():
     args=parser.parse_args()
     if not args.biomes or any(b<0 or b>=25 for b in args.biomes):
         parser.error('--biomes must contain terrestrial IDs from 0 to 24')
+    if 1 in args.biomes:
+        parser.error('FrozenTundra is now a heightfield chain: use check_frozen_chains.py for biome 1')
     args.biomes=list(dict.fromkeys(args.biomes))
     records=[]
     if args.merge or args.resume:
