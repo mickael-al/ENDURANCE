@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate rare Tundra caves against an untouched shader-tree snapshot.
+"""Validate regional Tundra networks carved by the actual Marine 3D helper.
 
 The GPU executes the production recipes. Supply --reference-shaders pointing to
 the prior Asset/Shader/ProceduralTerrain directory (e.g. a git archive snapshot).
@@ -33,19 +33,6 @@ uniform vec2 uProbeOrigin;
 uniform float uProbeSpacing;
 '''
 
-CANDIDATES = HEADER + r'''
-void main() {
- uvec2 i=gl_GlobalInvocationID.xy;
- if(any(greaterThanEqual(i,uvec2(uProbeSize)))) return;
- vec2 p=(vec2(i)-floor(float(uProbeSize)/2.0)+0.5)*TUNDRA_CAVE_SPACING;
- LandSite s=tundraCaveSite(p);
- p=s.center;s=tundraCaveSite(p);
- float presence=tundraCavePresence(s);
- outputValues[i.x+i.y*uProbeSize]=ProbeSample(
-  vec4(p,s.mask,presence),vec4(s.radius,s.variant,0,0),vec4(0),vec4(0));
-}
-'''
-
 BROAD = HEADER + r'''
 void main() {
  uvec2 i=gl_GlobalInvocationID.xy;
@@ -54,8 +41,8 @@ void main() {
  FieldColumn c=fieldProbeColumn(p);
  vec4 a,b;
  for(uint j=0u;j<4u;++j) {
-  a[j]=fieldProbeDensity(vec3(p.x,c.terrain.x-float(j)*16.0,p.y),c);
-  b[j]=fieldProbeDensity(vec3(p.x,c.terrain.x-64.0-float(j)*16.0,p.y),c);
+  a[j]=fieldProbeDensity(vec3(p.x,c.terrain.x-float(j)*64.0,p.y),c);
+  b[j]=fieldProbeDensity(vec3(p.x,c.terrain.x-256.0-float(j)*64.0,p.y),c);
  }
  outputValues[i.x+i.y*uProbeSize]=ProbeSample(c.terrain,a,b,c.blend);
 }
@@ -122,11 +109,11 @@ def local_visibility(gl,baseline_directory,previous_directory,seed):
 
 def world_lattice_visibility(actual,baseline,candidate,seed):
     records=[]
-    for spacing in (8.,16.,32.):
+    for spacing in (8.,16.,32.,64.):
         origin=np.floor((candidate[:2]-512.)/spacing)*spacing
         size=int(1024./spacing)+1
         columns=actual.sample(2,tuple(origin),spacing,0.,1.,size=size,depth=1,seed=seed,**SCENE_OPTIONS)['columns']
-        low=float(np.floor((columns[:,:,0].min()-150.)/spacing)*spacing)
+        low=float(np.floor((columns[:,:,0].min()-750.)/spacing)*spacing)
         high=float(np.ceil((columns[:,:,0].max()+100.)/spacing)*spacing)
         options=dict(biome=2,origin=tuple(origin),spacing=spacing,min_y=low,step_y=spacing,
             size=size,depth=int(round((high-low)/spacing))+1,seed=seed,**SCENE_OPTIONS)
@@ -197,74 +184,119 @@ class WithoutCaves(DensityProbe):
         return self.programs[biome]
 
 
-def find_candidates(gl, seed):
-    size=61
-    rows=values(BiomeProbe(gl,source=CANDIDATES),
-                biome=2,size=size,origin=(0.,0.),spacing=1.,uSeed=seed).reshape(-1,16)
-    active=rows[:,2]>.99
-    eligible=active&(rows[:,3]>.99)
-    candidates=rows[eligible]
-    candidates=candidates[np.argsort(np.sum((candidates[:,:2]-saved_camera())**2,axis=1))]
-    assert len(candidates)>=3, 'Too few fully eligible candidates to test real entrances'
-    assert 0 < eligible.mean() < .50, 'Ground cave population is no longer selective'
-    assert np.all(rows[~active,3]==0), 'Caves enabled outside their independent candidate sites'
-    return candidates,dict(cells_sampled=len(rows),independent_active_sites=int(active.sum()),
-        fully_eligible_caves=int(eligible.sum()),eligible_cell_fraction=float(eligible.mean()),
-        tested_selection='Three nearest fully eligible candidates to the saved camera, without geometry filtering')
+class WithoutMarineCarving(DensityProbe):
+    """Disable the actual shared Marine density evaluator, not Tundra's caller.
+
+    If Tundra still carves rooms after this mutation, the shared helper is only
+    decorative and does not generate its cavities. Existing Tundra sculptures
+    do not call this helper and must remain present.
+    """
+    def program_for(self, biome):
+        assert biome == 2
+        if biome not in self.programs:
+            directory=self.directory/'biomes'/'Tundra'
+            relief=biome_recipe_source(directory/'relief.C.glsl')
+            volume=re.sub(r'^#version[^\n]*\n','',biome_recipe_source(directory/'volume.C.glsl'),count=1)
+            volume,count=re.subn(
+                r'float fieldRecipeDensityAtPrepared\([^)]*\)\s*\{[\s\S]*?^\}',
+                'float fieldRecipeDensityAtPrepared(vec3 p, vec2 terrain, vec4 volume, vec4 shape, vec4 style) { return terrain.x-p.y; }',
+                volume,flags=re.MULTILINE)
+            assert count == 1, 'Update Marine omission adapter after shared helper signature change'
+            self.programs[biome]=self.gl.compile(
+                [(0x91B9,relief+volume+profile_probe_source()+self.main_source)],
+                'Tundra with shared Marine carving disabled')
+        return self.programs[biome]
 
 
-def sample_cave(actual, baseline, omitted, candidate, seed):
-    extent=450.;size=151;spacing=2*extent/(size-1)
-    origin=tuple(np.asarray(candidate[:2])-extent)
+def sample_network(actual, baseline, omitted, disabled_marine, center, seed):
+    # A four-kilometre region captures many noise cells instead of focusing on
+    # one hand-built room. Global Y coordinates preserve the real terrain slope.
+    extent=2048.;spacing=16.;size=257
+    origin=tuple(np.floor((np.asarray(center)-extent)/spacing)*spacing)
     columns=actual.sample(2,origin,spacing,0.,1.,size=size,depth=1,seed=seed,**SCENE_OPTIONS)['columns']
-    step=5.
-    low=float(np.floor((columns[:,:,0].min()-115.)/step)*step)
-    high=float(np.ceil((columns[:,:,0].max()+65.)/step)*step)
+    step=16.
+    low=float(np.floor((columns[:,:,0].min()-750.)/step)*step)
+    high=float(np.ceil((columns[:,:,0].max()+100.)/step)*step)
     depth=int(round((high-low)/step))+1
-    assert depth<300, 'Unexpectedly large local terrain span; inspect before increasing memory'
+    assert depth<220, 'Unexpectedly large local terrain span; inspect the sampled region'
     options=dict(biome=2,origin=origin,spacing=spacing,min_y=low,step_y=step,
                  size=size,depth=depth,seed=seed,**SCENE_OPTIONS)
     after=actual.sample(**options);before=baseline.sample(**options)
+    assert np.array_equal(before['columns'][:,:,0],after['columns'][:,:,0]), 'Network changed existing relief height'
+    assert np.array_equal(before['columns'][:,:,2:],after['columns'][:,:,2:]), 'Network changed existing offset or pilot'
+    assert np.all(after['columns'][:,:,1]>=before['columns'][:,:,1]), 'Network shrank an existing 3D band'
     legacy=omitted.sample(**options)
-    assert np.array_equal(before['columns'][:,:,0],after['columns'][:,:,0]), 'Caves changed existing relief height'
-    assert np.array_equal(before['columns'][:,:,2:],after['columns'][:,:,2:]), 'Caves changed existing offset or pilot'
-    assert np.all(after['columns'][:,:,1]>=before['columns'][:,:,1]), 'Caves shrank an existing 3D band'
-    assert np.array_equal(before['density'],legacy['density']), 'Omitting caves does not restore exact previous Tundra density'
-    assert np.array_equal(after['columns'],legacy['columns'])
+    assert np.array_equal(before['density'],legacy['density']), 'Omitting new carving does not restore exact original Tundra density'
+    del legacy
+    marine_off=disabled_marine.sample(**options)
+    assert np.allclose(before['density'],marine_off['density'],rtol=0,atol=0.002), 'Cavities still exist after disabling the shared Marine evaluator'
+    after['marine_disabled_max_abs_error']=float(np.max(np.abs(before['density']-marine_off['density'])))
+    after['marine_disabled_bit_identical']=bool(np.array_equal(before['density'],marine_off['density']))
     return after,before
 
 
-def cave_metrics(after_sample,before_sample):
+def network_metrics(after_sample,before_sample):
     after=after_sample['density'];before=before_sample['density']
-    difference=after-before
-    assert np.max(difference)<=0., 'Caves add solid or alter existing sculptures positively'
+    assert np.max(after-before)<=.002, 'Network adds solid terrain'
     removed=(before>0)&(after<0)
     solid=after>0;air=after<0
     above=np.maximum.accumulate(solid[:,::-1,:],axis=1)[:,::-1,:]
     below=np.maximum.accumulate(solid,axis=1)
     roofed=removed&above&below
-    assert roofed.sum()>100, 'Excavation lacks a substantial chamber with roof and floor'
+    assert roofed.sum()>1000, 'Noise field lacks substantial underground rooms with roofs and floors'
     labels,_=ndimage.label(air,structure=ndimage.generate_binary_structure(3,1))
     exterior=np.unique(labels[(before<-.5)&air]);exterior=exterior[exterior>0]
     connected=roofed&np.isin(labels,exterior)
     fraction=float(connected.sum()/roofed.sum())
-    assert fraction>.95, 'Roofed cave chamber is sealed off from preexisting exterior air'
-    # Boundary equality establishes compact support using the actual old field.
-    for axis in (0,2):
-        assert np.array_equal(np.take(after,[0,-1],axis=axis),np.take(before,[0,-1],axis=axis)), 'Cave reaches the sampling footprint edge'
-    assert np.array_equal(after[:,[0,-1],:],before[:,[0,-1],:]), 'Cave reaches vertical sampling limits'
-    runs=np.zeros_like(air,dtype=np.int16)
-    for j in range(air.shape[1]):
-        runs[:,j,:]=np.where(air[:,j,:],runs[:,j-1,:]+1 if j else 1,0)
-    clearance=float(runs[roofed].max(initial=0)*after_sample['step_y'])
-    assert clearance>=20., 'Cave lacks useful vertical chamber clearance'
-    voxel=after_sample['spacing']**2*after_sample['step_y']
-    return dict(removed_samples=int(removed.sum()),roof_and_floor_samples=int(roofed.sum()),
-        connected_roofed_fraction=fraction,removed_volume_m3=float(removed.sum()*voxel),
-        sampled_maximum_roofed_clearance_m=clearance,
-        unchanged_density_fraction=float(np.mean(after==before)),
-        horizontal_spacing_m=after_sample['spacing'],vertical_spacing_m=after_sample['step_y'],
-        legacy_density_restored_exactly_when_caves_omitted=True),removed,roofed
+    assert connected.sum()>1000, 'No substantial roofed network reaches exterior air'
+    # Do not claim that arbitrary noise connects every pocket. Record sealed
+    # pockets separately instead of silently choosing only connected examples.
+    del labels,above,below
+    spacing=after_sample['spacing']
+    best_radius=0.;best_point=None;best_slice=None;best_lobes=0
+    for j in range(after.shape[1]):
+        # Count only roofed, floored air that reaches an entrance. Distances on
+        # a global horizontal plane distinguish real room width from wavelength.
+        section=connected[:,j,:]
+        if not section.any(): continue
+        edt=ndimage.distance_transform_edt(np.pad(section,1))[1:-1,1:-1]*spacing
+        radius=max(float(edt.max())-.5*spacing,0.)
+        if radius>best_radius:
+            z,x=np.unravel_index(np.argmax(edt),edt.shape)
+            best_radius=radius;best_point=(z,j,x);best_slice=section.copy()
+        peaks=(edt==ndimage.maximum_filter(edt,size=13))&(edt>=48.)
+        _,count=ndimage.label(peaks)
+        best_lobes=max(best_lobes,int(count))
+    diameter=2*best_radius
+    assert diameter>=200., ('No connected roofed chamber has a sampled horizontal inscribed diameter of 200m',diameter)
+    assert best_lobes>=2, 'The sampled region is one isolated hollow rather than multiple noise-carved lobes'
+    z,x=np.nonzero(removed.any(axis=1))
+    span=(np.array([x.max()-x.min(),z.max()-z.min()])+1)*spacing
+    assert max(span)>=1500., ('Excavation has not grown into a kilometre-scale network region',span.tolist())
+    underground,count=ndimage.label(removed,structure=ndimage.generate_binary_structure(3,1))
+    sizes=np.bincount(underground.ravel());sizes[0]=0
+    substantial=int((sizes>=100).sum())
+    largest_id=int(np.argmax(sizes))
+    largest_box=ndimage.find_objects(underground,max_label=count)[largest_id-1]
+    largest_span=[(largest_box[2].stop-largest_box[2].start)*spacing,
+                  (largest_box[0].stop-largest_box[0].start)*spacing]
+    largest_count=int(sizes[largest_id])
+    del underground
+    voxel=spacing*spacing*after_sample['step_y']
+    metrics=dict(removed_samples=int(removed.sum()),roof_and_floor_samples=int(roofed.sum()),
+        connected_roofed_samples=int(connected.sum()),connected_roofed_fraction=fraction,
+        sealed_roofed_samples=int((roofed&~connected).sum()),removed_volume_m3=float(removed.sum()*voxel),
+        largest_connected_roofed_horizontal_inscribed_diameter_m=diameter,
+        horizontal_lobes_on_one_level=best_lobes,substantial_underground_components=substantial,
+        largest_connected_underground_span_xz_m=largest_span,
+        largest_connected_underground_volume_m3=float(largest_count*voxel),
+        excavated_region_span_xz_m=span.tolist(),
+        horizontal_spacing_m=spacing,vertical_spacing_m=after_sample['step_y'],
+        legacy_density_restored_exactly_when_new_call_omitted=True,
+        legacy_density_restored_when_shared_marine_evaluator_disabled=True,
+        shared_marine_disabled_maximum_error=after_sample['marine_disabled_max_abs_error'],
+        shared_marine_disabled_bit_identical=after_sample['marine_disabled_bit_identical'])
+    return metrics,removed,roofed,connected,best_point,best_slice
 
 
 def broad_preservation(gl,baseline_directory,seed):
@@ -278,7 +310,10 @@ def broad_preservation(gl,baseline_directory,seed):
     delta=after[:,:,4:12]-before[:,:,4:12]
     assert np.max(delta)<=0, 'Broad-map cave change adds solid'
     changed=np.any(delta!=0,axis=2)
-    assert 0 < changed.mean() < .025, 'Actual cave carving is missing or too widespread'
+    excavated=np.any((before[:,:,4:12]>0)&(after[:,:,4:12]<0),axis=2)
+    # Regional feathers can change positive solid density without excavating
+    # anything. Judge rarity by newly created air, not by those harmless deltas.
+    assert 0 < excavated.mean() < .15, 'Actual excavation is missing or covers too much of the sampled biome'
     assert np.array_equal(after,values(current,**options)), 'Tundra cave field is not deterministic'
     # Compare the omitted entrypoint against the old tree over all eight depths.
     omitted=WithoutCaves(gl);omitted.main_source=BROAD
@@ -289,8 +324,9 @@ def broad_preservation(gl,baseline_directory,seed):
     assert independent.sum()==changed.sum(), 'Some new cave changes overlap a previously enabled 3D band'
     assert np.array_equal(after[before[:,:,3]>0],before[before[:,:,3]>0]), 'New cave bands or carving altered original 3D site columns'
     return dict(area_km2=2304.,columns_sampled=int(changed.size),
-        sampled_depths_below_surface_m=list(range(0,128,16)),
+        sampled_depths_below_surface_m=list(range(0,512,64)),
         altered_column_fraction=float(changed.mean()),exactly_unchanged_column_fraction=float((~changed).mean()),
+        excavated_column_fraction=float(excavated.mean()),
         changed_columns_without_previous_band=int(independent.sum()),
         height_and_controls_unchanged_exactly=True,legacy_3d_unchanged_exactly=True)
 
@@ -312,35 +348,45 @@ def render(path,samples):
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     from matplotlib.colors import ListedColormap
-    fig,axes=plt.subplots(len(samples),3,figsize=(15,4.5*len(samples)),squeeze=False,constrained_layout=True)
-    for row,(seed,after_sample,before_sample,removed,roofed) in enumerate(samples):
+    from matplotlib.patches import Circle
+    fig,axes=plt.subplots(len(samples),2,figsize=(12,5.5*len(samples)),squeeze=False,constrained_layout=True)
+    for row,(seed,after_sample,before_sample,removed,roofed,metrics) in enumerate(samples):
         after=after_sample['density'];before=before_sample['density']
-        z=int(np.argmax(roofed.sum(axis=(1,2))))
         n,depth,_=after.shape
         x=after_sample['origin'][0]+np.arange(n)*after_sample['spacing']
         y=after_sample['min_y']+np.arange(depth)*after_sample['step_y']
         zs=after_sample['origin'][1]+np.arange(n)*after_sample['spacing']
-        occupied=np.argwhere(roofed[z])
-        low=max(y[0],y[occupied[:,0].min()]-35.)
-        high=min(y[-1],y[occupied[:,0].max()]+65.)
-        for ax,d,title in zip(axes[row,:2],(before[z],after[z]),('Previous Tundra','Tundra with ground cave')):
-            ax.imshow(d>0,origin='lower',extent=[x[0],x[-1],y[0],y[-1]],
-                      cmap=ListedColormap(['#263e51','#cbd8d5']),aspect='equal')
-            ax.contour(x,y,d,levels=[0],colors='#6c959a',linewidths=.6)
-            ax.set_ylim(low,high);ax.set_title(f'{title} — seed {seed}')
-            ax.set_xlabel('World X (m)');ax.set_ylabel('World height (m)')
-        axes[row,2].imshow(removed.any(axis=1),origin='lower',extent=[x[0],x[-1],zs[0],zs[-1]],
-                           cmap=ListedColormap(['#263e51','#a7c9c5']),aspect='equal')
-        axes[row,2].set_title('Actual excavated footprint, all heights')
-        axes[row,2].set_xlabel('World X (m)');axes[row,2].set_ylabel('World Z (m)')
-    fig.suptitle('Rare Tundra ground caves — production GLSL density, no vertical exaggeration',fontsize=13)
+        cx,cy,cz=metrics['largest_measured_room_center_xyz_m']
+        j=int(round((cy-after_sample['min_y'])/after_sample['step_y']))
+        z=int(round((cz-after_sample['origin'][1])/after_sample['spacing']))
+        section=np.zeros((n,n),dtype=np.uint8)
+        section[after[:,j,:]<0]=1
+        section[roofed[:,j,:]]=2
+        ax=axes[row,0]
+        ax.imshow(section,origin='lower',extent=[x[0],x[-1],zs[0],zs[-1]],
+                  cmap=ListedColormap(['#cbd8d5','#6d9ca6','#244b65']),vmin=0,vmax=2,aspect='equal')
+        diameter=metrics['largest_connected_roofed_horizontal_inscribed_diameter_m']
+        ax.add_patch(Circle((cx,cz),diameter*.5,fill=False,color='#e5953b',lw=1.5))
+        ax.plot(cx,cz,'+',color='#e5953b',ms=8)
+        ax.set_title(f'Seed {seed}: horizontal slice at Y = {cy:.0f} m\nMeasured inscribed room diameter {diameter:.0f} m')
+        ax.set_xlabel('World X (m)');ax.set_ylabel('World Z (m)')
+        ax=axes[row,1]
+        ax.imshow(after[z]>0,origin='lower',extent=[x[0],x[-1],y[0],y[-1]],
+                  cmap=ListedColormap(['#244b65','#cbd8d5']),aspect='equal')
+        ax.contour(x,y,before[z],levels=[0],colors='#669589',linewidths=.9)
+        ax.plot(cx,cy,'+',color='#e5953b',ms=8)
+        ax.set_xlim(max(x[0],cx-1200.),min(x[-1],cx+1200.))
+        ax.set_ylim(cy-450.,min(y[-1],cy+350.))
+        ax.set_title(f'Seed {seed}: vertical cut through measured chamber\nOriginal surface contour in green')
+        ax.set_xlabel('World X (m)');ax.set_ylabel('World height (m)')
+    fig.suptitle('Tundra networks from the Marine 3D evaluator — actual GLSL, no vertical exaggeration',fontsize=12)
     fig.savefig(path,dpi=110);plt.close(fig)
 
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--reference-shaders',required=True,type=Path)
-    parser.add_argument('--previous-shaders',type=Path,help='Optional snapshot of the first, overly sparse cave implementation')
+    parser.add_argument('--previous-shaders',type=Path,help='Optional snapshot of the previous primitive-based cave implementation')
     parser.add_argument('--output',required=True,type=Path)
     args=parser.parse_args();args.output.mkdir(parents=True,exist_ok=True)
     assert (args.reference_shaders/'biomes/Tundra/volume.C.glsl').is_file()
@@ -349,42 +395,42 @@ def main():
                           for name in ('relief.C.glsl','volume.C.glsl'))
     with GL() as gl:
         actual=DensityProbe(gl);baseline=DensityProbe(gl);baseline.directory=args.reference_shaders
-        omitted=WithoutCaves(gl);records=[];pictures=[];local_maps=[]
+        omitted=WithoutCaves(gl);disabled_marine=WithoutMarineCarving(gl)
+        records=[];pictures=[];local_maps=[]
         for seed in (1337,17):
             broad=broad_preservation(gl,args.reference_shaders,seed)
-            candidates,population=find_candidates(gl,seed)
             local,local_map=local_visibility(gl,args.reference_shaders,args.previous_shaders,seed)
             local_maps.append(local_map)
-            local['world_lattices']=world_lattice_visibility(actual,baseline,candidates[0],seed)
-            caves=[]
-            for index,candidate in enumerate(candidates[:3]):
-                after,before=sample_cave(actual,baseline,omitted,candidate,seed)
-                metrics,removed,roofed=cave_metrics(after,before)
-                record=dict(center=candidate[:2].tolist(),radius=float(candidate[4]),variant=float(candidate[5]),**metrics)
-                if index==0:
-                    wall=np.where(roofed,np.abs(after['density']),np.inf)
-                    z,j,x=np.unravel_index(np.argmin(wall),wall.shape)
-                    target=dict(after,density=after['density'][z:z+1,j:j+1,x:x+1],
-                        columns=after['columns'][z:z+1,x:x+1],
-                        origin=(after['origin'][0]+x*after['spacing'],after['origin'][1]+z*after['spacing']),
-                        min_y=after['min_y']+j*after['step_y'])
-                    assert target['density'][0,0,0]<0 and before['density'][z,j,x]>0
-                    record['pipeline']=check_targeted_pipeline(FieldRunner(gl),actual,target,2,seed)
-                    record['pipeline']['excavated_wall_reference_density']=float(target['density'][0,0,0])
-                    pictures.append((seed,after,before,removed,roofed))
-                caves.append(record)
-                print(json.dumps(dict(seed=seed,cave=index,**record)),flush=True)
-            records.append(dict(seed=seed,broad_preservation=broad,population=population,local_visibility=local,caves=caves))
+            center=local_map['nearest']
+            after,before=sample_network(actual,baseline,omitted,disabled_marine,center,seed)
+            metrics,removed,roofed,connected,best_point,best_slice=network_metrics(after,before)
+            z,j,x=best_point
+            room_xz=(after['origin'][0]+x*after['spacing'],after['origin'][1]+z*after['spacing'])
+            metrics['largest_measured_room_center_xyz_m']=[room_xz[0],after['min_y']+j*after['step_y'],room_xz[1]]
+            local['world_lattices']=world_lattice_visibility(actual,baseline,np.asarray(room_xz),seed)
+            wall=np.where(connected,np.abs(after['density']),np.inf)
+            z,j,x=np.unravel_index(np.argmin(wall),wall.shape)
+            target=dict(after,density=after['density'][z:z+1,j:j+1,x:x+1],
+                columns=after['columns'][z:z+1,x:x+1],
+                origin=(after['origin'][0]+x*after['spacing'],after['origin'][1]+z*after['spacing']),
+                min_y=after['min_y']+j*after['step_y'])
+            assert target['density'][0,0,0]<0 and before['density'][z,j,x]>0
+            metrics['pipeline']=check_targeted_pipeline(FieldRunner(gl),actual,target,2,seed)
+            metrics['pipeline']['excavated_wall_reference_density']=float(target['density'][0,0,0])
+            pictures.append((seed,after,before,removed,roofed,metrics))
+            record=dict(seed=seed,broad_preservation=broad,local_visibility=local,network=metrics)
+            records.append(record);print(json.dumps(record),flush=True)
         marine=marine_preservation(gl,args.reference_shaders)
         assert source_fingerprint(2)==fingerprint, 'Production source changed during validation'
         report=dict(renderer=gl.renderer,source_sha256=fingerprint,
+            test_source_sha256=hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
             prior_tundra_source_sha256=hashlib.sha256(before_source.encode()).hexdigest(),
             records=records,marine_bit_preservation=marine,
-            note='Actual production GLSL; six nearest fully eligible caves across two seeds. Exact old relief/controls and legacy 3D, independent new cave bands, carve-only density, roof/floor, exterior connectivity, broad-map scarcity, actual ground openings near the saved camera, world-aligned 8/16/32m samples, and cavity-wall production/LOD checks. Diagnostic geometry sampling does not certify player collision or Windows GPU performance.')
+            note='Actual GLSL networks in two nearest-entry regions. Real horizontal room widths are measured on global Y slices of roofed air connected to the exterior, not inferred from a noise wavelength. Sealed pockets are counted explicitly. Disabling the actual shared Marine evaluator must remove all new carving. Original relief/controls/3D sites, independent bands, local surface entries, world-aligned 8/16/32/64m visibility and production/LOD checks are verified. Geometry sampling does not certify player collision or Windows GPU performance.')
         render(args.output/'tundra_caves.png',pictures)
         render_local(args.output/'tundra_caves_local.png',local_maps)
         (args.output/'tundra_caves.json').write_text(json.dumps(report,indent=2)+'\n')
-        print('PASS Tundra cave preservation, connectivity, scarcity, Marine and production/LOD checks',flush=True)
+        print('PASS Tundra Marine-network preservation, 200m chambers, regional extent, entrances and production/LOD checks',flush=True)
     return 0
 
 

@@ -725,7 +725,7 @@ shared LOD checks run inside a newly carved pocket. The generated section uses
 real GLSL; it does not certify collision, accessibility or GPU performance.
 See [controls and implementation](../../docs/POLAR_ICE_MASSIF_CAVES.md).
 
-## Tundra: rare ground-accessible caves
+## Tundra: regional networks from the Marine 3D evaluator
 
 Extract the complete `Asset/Shader` tree before the cave change (local `573a307`,
 published tree `1b445f966cafeaf1ace30dd50d28c7932c9200f9`) into a reference folder:
@@ -736,15 +736,28 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_tundra_caves.py \
   --output /tmp/tundra-caves
 ```
 
-The fixture executes both shader trees. It checks exact relief/control
-preservation, unchanged legacy 3D and old bands when only the new cave call is omitted,
-scarcity across two seeds, connected roofed chambers with floors and ground
-entrances, and carve-only density. Production accumulation and shared LOD samples
-are compared near newly excavated walls. Marine density must stay bit-identical
-after the original common cavern field is extracted into reusable helpers.
-New caves must excavate ground whose previous band was zero. The test also
-requires real ground apertures within 4 km of the saved camera and surviving
-connected air on world-aligned 8/16/32-m grids. Pass `--previous-shaders` with
-the first cave implementation (local `428101d`, published `547d922a663fc650abf3a9c2613ff561d51953da`)
-to include its empty local region in the before/after figure.
+The fixture executes the real shaders over two 48-km regional maps and two
+4.096-km volumes around the nearest actual ground openings. It checks exact
+relief/control preservation, unchanged legacy 3D and original bands, and new
+excavation only where the former band was zero. Omitting the new call must
+restore the old field exactly. A second diagnostic compilation disables the
+shared `fieldRecipeDensityAtPrepared()` evaluator itself: all additional
+carving must disappear, proving that the Marine function generates the cavity
+rather than merely adding wall detail to fixed rooms.
+
+The test measures a horizontal inscribed diameter of at least 200 m in roofed,
+floored air connected to an entrance, multiple cavity lobes, and regional
+extent. This is a geometric measurement, not a noise wavelength or a promise
+that every passage is 200 m wide. Sealed pockets and the span/volume of the
+largest connected underground component are recorded separately. Actual air
+creation, rather than any change to positive solid density, measures regional
+scarcity.
+
+Ground entries must occur within 4 km of the saved camera. Cavities must survive
+world-aligned 8/16/32/64-m grids; production accumulation and exact shared LOD
+samples are compared near an excavated wall. Marine output remains bit-identical
+to the reference. Pass `--previous-shaders` with the primitive-based cave version
+(local `4544a61`, published `191e74db679d60e0268f3f285c548e6ca0437285`) to include it
+in the local before/after figure. The network figure shows actual horizontal
+and vertical cuts through a measured chamber without vertical exaggeration.
 See [controls and implementation](../../docs/TUNDRA_CAVES.md).

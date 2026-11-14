@@ -74,7 +74,7 @@ vec4 fieldRelief(vec2 p)
     // A separate cave population can open the ground where neither old 3D
     // sculpture exists. Its support is disjoint from both original bands.
     if (max(site.mask, rocks.mask) <= 0.0)
-        band = max(band, tundraCaveBand(tundraCaveSite(p)));
+        band = max(band, tundraCaveBand(tundraCaveMask(p)));
     return vec4(h, band,
         0.0, max(site.mask, rocks.mask));
 }
