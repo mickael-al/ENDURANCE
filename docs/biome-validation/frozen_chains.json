@@ -1,55 +1,54 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
-  "source_sha256": "a62ccc1a6b037afeb1ef738aa1d0a6f43fa542170cb192aedb9bd98465b871ca",
+  "source_sha256": "b0a5c4735c29e1d15d7688277a11dac3449d5ecd531c1b798982668216d05b96",
   "records": [
     {
       "seed": 1337,
-      "dimensions_tested": 4096,
-      "axes": [
-        {
-          "axis": "X",
-          "dimensions_tested": 2048,
-          "width_range_m": [
-            1001.48876953125,
-            5998.51123046875
-          ],
-          "gap_range_m": [
-            -499.87884521484375,
-            249.87884521484375
-          ],
-          "maximum_gap_error_m": 0.001617431640625
-        },
-        {
-          "axis": "Z",
-          "dimensions_tested": 2048,
-          "width_range_m": [
-            1000.8207397460938,
-            5999.17919921875
-          ],
-          "gap_range_m": [
-            -499.5079345703125,
-            249.5079345703125
-          ],
-          "maximum_gap_error_m": 0.001678466796875
-        }
-      ],
+      "gaps": {
+        "pair_samples": 4096,
+        "active_pair_samples": 3541,
+        "gap_range_m": [
+          -499.9947204589844,
+          246.3416748046875
+        ],
+        "maximum_gap_error_m": 0.0015869140625,
+        "overlap_fraction": 0.7811352725218865,
+        "substantial_overlap_samples": 2388,
+        "both_main_heights_positive_fraction": 1.0,
+        "median_lower_main_height_in_overlap_m": 123.56977844238281,
+        "median_lower_total_height_in_overlap_m": 407.6237335205078,
+        "strong_overlap_pass_samples": 1306,
+        "median_strong_overlap_pass_m": 1288.36865234375,
+        "maximum_pass_reciprocity_error_m": 0.0,
+        "maximum_pass_endpoint_residual_m": 0.05176493525505066
+      },
+      "footprints": {
+        "footprints_sampled": 64,
+        "rays_per_footprint": 64,
+        "diameter_through_site_range_m": [
+          2207.8093872070312,
+          3973.861572265625
+        ],
+        "minimum_500m_circle_margin_m": 340.00909423828125,
+        "maximum_3000m_circle_margin_m": -618.4819946289062
+      },
       "coverage": {
         "area_at_or_below_1m_fraction": 0.0,
         "area_below_100m_fraction": 0.0,
-        "median_height_m": 491.02069091796875,
-        "maximum_height_m": 2849.380859375,
+        "median_height_m": 816.1494140625,
+        "maximum_height_m": 2956.052001953125,
         "worst_row_low_fraction": 0.0,
         "worst_column_low_fraction": 0.0,
         "largest_low_component_km2": 0.0,
         "sample_step_m": 125.0,
         "sample_span_km": 48
       },
-      "peak_sample_m": 2646.12353515625,
+      "peak_sample_m": 2753.084228515625,
       "pipeline": {
         "anchor": [
-          24464,
-          2642,
-          -22786
+          13496,
+          2748,
+          -4224
         ],
         "shared_exact_lod_samples": 125,
         "production_density_samples": 1331
@@ -57,57 +56,139 @@
     },
     {
       "seed": 17,
-      "dimensions_tested": 4096,
-      "axes": [
-        {
-          "axis": "X",
-          "dimensions_tested": 2048,
-          "width_range_m": [
-            1002.9951171875,
-            5997.0048828125
-          ],
-          "gap_range_m": [
-            -499.5469970703125,
-            249.5469970703125
-          ],
-          "maximum_gap_error_m": 0.00146484375
-        },
-        {
-          "axis": "Z",
-          "dimensions_tested": 2048,
-          "width_range_m": [
-            1001.1875,
-            5998.8125
-          ],
-          "gap_range_m": [
-            -499.74267578125,
-            249.74267578125
-          ],
-          "maximum_gap_error_m": 0.001708984375
-        }
-      ],
+      "gaps": {
+        "pair_samples": 4096,
+        "active_pair_samples": 3583,
+        "gap_range_m": [
+          -499.998046875,
+          245.6947021484375
+        ],
+        "maximum_gap_error_m": 0.0015869140625,
+        "overlap_fraction": 0.8305888919899526,
+        "substantial_overlap_samples": 2637,
+        "both_main_heights_positive_fraction": 1.0,
+        "median_lower_main_height_in_overlap_m": 123.49370574951172,
+        "median_lower_total_height_in_overlap_m": 402.455810546875,
+        "strong_overlap_pass_samples": 1553,
+        "median_strong_overlap_pass_m": 1307.8865966796875,
+        "maximum_pass_reciprocity_error_m": 0.0,
+        "maximum_pass_endpoint_residual_m": 0.05393507331609726
+      },
+      "footprints": {
+        "footprints_sampled": 64,
+        "rays_per_footprint": 64,
+        "diameter_through_site_range_m": [
+          2235.73291015625,
+          4008.04150390625
+        ],
+        "minimum_500m_circle_margin_m": 403.95721435546875,
+        "maximum_3000m_circle_margin_m": -525.0941162109375
+      },
       "coverage": {
         "area_at_or_below_1m_fraction": 0.0,
         "area_below_100m_fraction": 0.0,
-        "median_height_m": 512.83740234375,
-        "maximum_height_m": 3050.212646484375,
+        "median_height_m": 796.6898193359375,
+        "maximum_height_m": 3016.529052734375,
         "worst_row_low_fraction": 0.0,
         "worst_column_low_fraction": 0.0,
         "largest_low_component_km2": 0.0,
         "sample_step_m": 125.0,
         "sample_span_km": 48
       },
-      "peak_sample_m": 2826.946533203125,
+      "peak_sample_m": 2756.946533203125,
       "pipeline": {
         "anchor": [
-          12652,
-          2822,
-          16870
+          -21098,
+          2752,
+          4214
         ],
         "shared_exact_lod_samples": 125,
         "production_density_samples": 1331
       }
     }
   ],
-  "note": "Widths/gaps are nominal axis footprints in the mountain placement domain; shared shears, rotated silhouettes, and connecting foothills change world-space contour separation. Presence 0/.5/1 and a spatial mask tested; bounded 3x3-block neighbourhood matches a 7x7-block reference. Coverage sampled over 48x48 km in world coordinates. Not a performance, in-game visual, or collision certification."
+  "shape_samples": [
+    {
+      "site": [
+        -1,
+        -1
+      ],
+      "main_peak_m": 2446.48779296875,
+      "height_mass_aspect_ratio": 1.1346284575395529,
+      "major_axis_degrees": 80.06299384555635
+    },
+    {
+      "site": [
+        0,
+        -1
+      ],
+      "main_peak_m": 2615.95458984375,
+      "height_mass_aspect_ratio": 2.0077238136668503,
+      "major_axis_degrees": 77.73952708108258
+    },
+    {
+      "site": [
+        1,
+        -1
+      ],
+      "main_peak_m": 1953.0086669921875,
+      "height_mass_aspect_ratio": 1.677438470005161,
+      "major_axis_degrees": 17.098782570128435
+    },
+    {
+      "site": [
+        -1,
+        0
+      ],
+      "main_peak_m": 2204.81298828125,
+      "height_mass_aspect_ratio": 1.6125355785691307,
+      "major_axis_degrees": 162.03467129351526
+    },
+    {
+      "site": [
+        0,
+        0
+      ],
+      "main_peak_m": 2411.458984375,
+      "height_mass_aspect_ratio": 1.0657470622850154,
+      "major_axis_degrees": 105.05542512903203
+    },
+    {
+      "site": [
+        1,
+        0
+      ],
+      "main_peak_m": 1958.772216796875,
+      "height_mass_aspect_ratio": 1.1266146500225258,
+      "major_axis_degrees": 1.440434524562903
+    },
+    {
+      "site": [
+        -1,
+        1
+      ],
+      "main_peak_m": 2038.569091796875,
+      "height_mass_aspect_ratio": 1.5212540911472943,
+      "major_axis_degrees": 21.49908313525478
+    },
+    {
+      "site": [
+        0,
+        1
+      ],
+      "main_peak_m": 2491.724853515625,
+      "height_mass_aspect_ratio": 1.5598709078005732,
+      "major_axis_degrees": 7.60399694183414
+    },
+    {
+      "site": [
+        1,
+        1
+      ],
+      "main_peak_m": 2508.96337890625,
+      "height_mass_aspect_ratio": 1.157338708123497,
+      "major_axis_degrees": 118.02030332671899
+    }
+  ],
+  "note": "Shared curved main-footprint boundaries have signed separation -500..250m along their pair normal at fixed tangent. Negative values genuinely overlap the two main profiles; connecting foothills and high curved overlap passes extend beyond main footprints. Pass reciprocity, endpoints, positive-gap absence and inclusion in production are tested. Every main footprint contains a 500m disk and stays within radius3000m. Presence 0/.5/1 and a spatial mask tested; production site/face rings2/3 match expanded rings4/5. Coverage sampled over48x48km. Not a performance, in-game visual, or collision certification."
 }

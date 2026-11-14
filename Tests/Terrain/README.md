@@ -8,12 +8,13 @@ existing tests. The raw relief limit is 10240, mirrored by CPU bounds.
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_chains.py --output /tmp/frozen-chains
 ```
 
-This runs two seeds, 8192 width/gap records on both placement axes including
-negative blocks, constant and spatial presence masks, a larger-neighbourhood
-reference, deterministic heights, production accumulation and exact shared LOD
-samples. A 48 km square per seed also checks bare-area fraction, largest connected
-low patch, row/column coverage and median elevation to catch the former flat corridors. The saved large-view scene
-uses a 3072-leaf selection limit; CPU checks cover six camera positions.
+This runs two seeds, geometric signed-gap and reciprocal-boundary checks, actual
+main-profile overlap checks, 500/3000 m footprint disk bounds and radial widths,
+constant and spatial presence masks, expanded site/face reference searches,
+deterministic heights, production accumulation and exact shared LOD samples.
+A 48 km square per seed checks bare-area fraction, connected low patches and
+row/column coverage. A nine-massif atlas records shape aspects and directions.
+The saved large-view scene uses a 3072-leaf selection limit.
 
 Run these commands from the repository root. They test the production C++ and
 GLSL files directly. There is no window or full game launch requirement.

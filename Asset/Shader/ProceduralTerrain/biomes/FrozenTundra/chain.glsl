@@ -1,9 +1,8 @@
 #ifndef ENDURANCE_FROZEN_CHAIN_GLSL
 #define ENDURANCE_FROZEN_CHAIN_GLSL
 
-// Nominal footprints/gaps on BOTH axes of the placement domain, in metres.
-// Lower buttresses join across these footprints to form passes. The continuous
-// domain deformation changes world-space contours, not the nominal intervals.
+// Requested width bounds; the spacing/jitter/bend below satisfy them jointly.
+// Changing these bounds alone does not resize the neighbor-built footprints.
 const float FROZEN_WIDTH_MIN = 1000.0;
 const float FROZEN_WIDTH_MAX = 6000.0;
 const float FROZEN_GAP_MIN = -500.0;
@@ -11,157 +10,259 @@ const float FROZEN_GAP_MAX = 250.0;
 const float FROZEN_HEIGHT_MIN = 1400.0;
 const float FROZEN_HEIGHT_MAX = 3200.0;
 
-float frozenRandom(int row, int block, uint salt)
+// Lookup anchors only: each site gets independent 2D disk jitter. No shared
+// X/Z intervals, repeated row dimensions, or anisotropic world-axis scaling.
+const float FROZEN_SITE_SPACING = 2750.0;
+const float FROZEN_SITE_JITTER = 620.0;
+const float FROZEN_FACE_BEND = 120.0;
+const float FROZEN_COL_REACH = 240.0;
+const int FROZEN_SITE_SEARCH_RADIUS = 2;
+const int FROZEN_FACE_SEARCH_RADIUS = 3;
+
+uint frozenSiteHash(ivec2 site, uint salt)
 {
-    return noiseInternalUintTo01(noiseInternalHash(uint(row) * 0x9e3779b9u
-        ^ uint(block) * 0x85ebca6bu ^ uSeed ^ salt));
+    return noiseInternalHash(uint(site.x) * 0x9e3779b9u
+        ^ uint(site.y) * 0x85ebca6bu ^ uSeed ^ salt);
 }
 
-float frozenBlockLength()
+float frozenRandom(int x, int z, uint salt)
 {
-    // Fixed sums allow direct block addressing without accumulated prefix walks.
-    return 2.0 * (FROZEN_WIDTH_MIN + FROZEN_WIDTH_MAX
-        + FROZEN_GAP_MIN + FROZEN_GAP_MAX);
+    return noiseInternalUintTo01(frozenSiteHash(ivec2(x, z), salt));
 }
 
-vec2 frozenDimensions(int row, int block, int index)
-{
-    int k = (index + int(frozenRandom(row, block, 221u) * 4.0)) % 4;
-    float width = mix(FROZEN_WIDTH_MIN, FROZEN_WIDTH_MAX,
-        frozenRandom(row, block, 222u + uint(k % 2)));
-    float gap = mix(FROZEN_GAP_MIN, FROZEN_GAP_MAX,
-        frozenRandom(row, block, 224u + uint(k % 2)));
-    if (k >= 2)
-    {
-        width = FROZEN_WIDTH_MIN + FROZEN_WIDTH_MAX - width;
-        gap = FROZEN_GAP_MIN + FROZEN_GAP_MAX - gap;
-    }
-    return vec2(width, gap);
-}
-
-float frozenRowPhase(int row)
-{
-    return frozenRandom(row, 0, 226u) * frozenBlockLength();
-}
-
-vec2 frozenChainDomain(vec2 p)
+vec2 frozenSiteCenter(ivec2 site)
 {
     vec2 axis = landSparseDirection(227u);
-    vec2 q = vec2(dot(p, axis), dot(p, vec2(-axis.y, axis.x)));
-    // Composed shears bend the placement in both directions without folding
-    // or changing its area. All sites share the same continuous deformation.
-    q.x += (landPlacementValue(vec2(q.y / 9000.0, 17.3), 229u) - 0.5) * 2400.0
-         + (landPlacementValue(vec2(q.y / 3200.0, 31.7), 230u) - 0.5) * 600.0;
-    q.y += (landPlacementValue(vec2(q.x / 11000.0, 47.1), 233u) - 0.5) * 2400.0
-         + (landPlacementValue(vec2(q.x / 3700.0, 61.9), 234u) - 0.5) * 600.0;
-    return q;
+    vec2 lattice = vec2(float(site.x) + 0.5 * float(site.y),
+        0.8660254038 * float(site.y)) * FROZEN_SITE_SPACING;
+    float angle = frozenRandom(site.x, site.y, 221u) * 6.2831853072;
+    float radius = sqrt(frozenRandom(site.x, site.y, 222u)) * FROZEN_SITE_JITTER;
+    return axis * lattice.x + vec2(-axis.y, axis.x) * lattice.y
+        + radius * vec2(cos(angle), sin(angle));
 }
 
-float frozenSummitHeight(float width, float variant)
+ivec2 frozenNearestSite(vec2 p)
 {
-    float size = (width - FROZEN_WIDTH_MIN) / (FROZEN_WIDTH_MAX - FROZEN_WIDTH_MIN);
-    return mix(FROZEN_HEIGHT_MIN, FROZEN_HEIGHT_MAX,
-        clamp(0.72 * size + 0.28 * variant, 0.0, 1.0));
+    vec2 axis = landSparseDirection(227u);
+    vec2 q = vec2(dot(p, axis), dot(p, vec2(-axis.y, axis.x))) / FROZEN_SITE_SPACING;
+    vec2 axial = vec2(q.x - q.y / 1.7320508076, q.y / 0.8660254038);
+    vec3 cube = vec3(axial, -axial.x - axial.y);
+    vec3 rounded = round(cube);
+    vec3 error = abs(rounded - cube);
+    if (error.x > error.y && error.x > error.z) rounded.x = -rounded.y - rounded.z;
+    else if (error.y > error.z) rounded.y = -rounded.x - rounded.z;
+    return ivec2(rounded.xy);
 }
 
-float frozenChainMassif(vec2 q, float width, float variant)
+bool frozenSiteBefore(ivec2 a, ivec2 b)
 {
-    float radius = width * 0.5;
-    float x = q.x / radius;
-    if (abs(x) >= 1.0 || abs(q.y) >= radius * 1.3) return 0.0;
-    float phase = variant * 6.2831853;
-    float crest = (sin(x * 2.8 + phase) - sin(phase)) * 0.10 + x * 0.07;
-    float y = q.y / radius - crest;
-    // Buttresses share a principal crest; no circular peak masks.
-    float shoulders = landPlacementValue(vec2(x * 3.2 + variant * 19.0, variant * 41.0), 231u);
-    float crossWidth = mix(0.58, 0.98, shoulders)
-        * sqrt(max(1.0 - x * x, 0.0001));
-    float across = abs(y) / crossWidth;
-    float longitudinal = pow(max(1.0 - x * x, 0.0), 0.85);
-    float ridge = pow(max(1.0 - across, 0.0), mix(1.05, 1.65, variant));
-    float ribs = landRidges(vec2(q.x / 550.0, y * radius / 1100.0)
-        + variant * vec2(31.7, 12.9), 232u);
-    float detail = mix(1.0, 0.76 + ribs * 0.24,
-        smoothstep(0.0, 0.28, length(vec2(x, y))));
-    vec2 cirque = (vec2(x, y) - vec2(mix(-0.3, 0.3, variant), 0.40)) / vec2(0.34, 0.24);
-    float hollow = exp(-dot(cirque, cirque) * 2.0) * smoothstep(0.12, 0.32, y);
-    float profile = longitudinal * ridge * (1.0 - hollow * 0.32);
-    // Two oblique subsidiary ridges descend from the main crest. They form
-    // buttresses and drainage valleys rather than isolated round satellite peaks.
-    for (int branch = 0; branch < 2; ++branch)
+    return a.x < b.x || (a.x == b.x && a.y < b.y);
+}
+
+uint frozenPairHash(ivec2 a, ivec2 b)
+{
+    bool ordered = frozenSiteBefore(a, b);
+    ivec2 first = ordered ? a : b;
+    ivec2 second = ordered ? b : a;
+    return noiseInternalHash(frozenSiteHash(first, 223u)
+        ^ (frozenSiteHash(second, 224u) * 0x27d4eb2du));
+}
+
+float frozenPairGap(ivec2 a, ivec2 b)
+{
+    float u = noiseInternalUintTo01(frozenPairHash(a, b));
+    // Same range, biased toward overlap: about 82% negative, mean -250 m.
+    return mix(FROZEN_GAP_MIN, FROZEN_GAP_MAX, u * u);
+}
+
+float frozenFaceWave(float tangent, uint pair)
+{
+    float phase = noiseInternalUintTo01(noiseInternalHash(pair ^ 225u)) * 6.2831853072;
+    float phase2 = noiseInternalUintTo01(noiseInternalHash(pair ^ 226u)) * 6.2831853072;
+    return FROZEN_FACE_BEND * (0.65 * sin(tangent / 950.0 + phase)
+        + 0.35 * sin(tangent / 430.0 + phase2));
+}
+
+// q is relative to owner; delta points from owner to neighbor. Positive outside.
+// Both owners use the SAME curved boundary and gap. At a fixed tangential
+// coordinate the two main-footprint boundaries are exactly gap metres apart.
+float frozenRelativePlane(vec2 q, vec2 delta, ivec2 owner, ivec2 neighbor)
+{
+    float distance = length(delta);
+    vec2 normal = delta / distance;
+    float sign = frozenSiteBefore(owner, neighbor) ? 1.0 : -1.0;
+    vec2 tangent = sign * vec2(-normal.y, normal.x);
+    uint pair = frozenPairHash(owner, neighbor);
+    float u = noiseInternalUintTo01(pair);
+    float gap = mix(FROZEN_GAP_MIN, FROZEN_GAP_MAX, u * u);
+    // dot(delta,tangent)=0. Relative coordinates avoid large midpoint loss.
+    float wave = frozenFaceWave(dot(q, tangent), pair);
+    return dot(q, normal) - distance * 0.5 + gap * 0.5 - sign * wave;
+}
+
+float frozenPairPlane(vec2 p, ivec2 owner, ivec2 neighbor)
+{
+    vec2 center = frozenSiteCenter(owner);
+    return frozenRelativePlane(p - center, frozenSiteCenter(neighbor) - center, owner, neighbor);
+}
+
+vec2 frozenFootprint(vec2 p, ivec2 site)
+{
+    vec2 center = frozenSiteCenter(site);
+    vec2 q = p - center;
+    float margin = 1e20;
+    float innerRadius = 1e20;
+    for (int z = -FROZEN_FACE_SEARCH_RADIUS; z <= FROZEN_FACE_SEARCH_RADIUS; ++z)
+    for (int x = -FROZEN_FACE_SEARCH_RADIUS; x <= FROZEN_FACE_SEARCH_RADIUS; ++x)
     {
-        float side = branch == 0 ? 1.0 : -1.0;
-        float rootX = branch == 0 ? mix(-0.42, -0.22, variant) : mix(0.22, 0.42, variant);
-        vec2 root = vec2(rootX, 0.0);
-        vec2 tip = vec2(rootX + side * mix(0.20, 0.38, variant), side * mix(0.60, 0.87, variant));
-        vec2 segment = tip - root;
-        float t = clamp(dot(vec2(x, y) - root, segment) / dot(segment, segment), 0.0, 1.0);
-        float distance = length(vec2(x, y) - mix(root, tip, t));
-        float lateral = max(1.0 - distance / mix(0.30, 0.11, t), 0.0);
-        float spur = 0.72 * pow(1.0 - t, 0.95) * lateral * lateral;
-        // Zero at the longitudinal footprint ends even for wide spur roots.
-        profile = max(profile, spur * longitudinal);
+        if (abs(x + z) > FROZEN_FACE_SEARCH_RADIUS || (x == 0 && z == 0)) continue;
+        ivec2 neighbor = site + ivec2(x, z);
+        vec2 delta = frozenSiteCenter(neighbor) - center;
+        float distance = length(delta);
+        float lowerAtCenter = distance * 0.5 - FROZEN_GAP_MAX * 0.5 - FROZEN_FACE_BEND;
+        float lowerAtPoint = lowerAtCenter - dot(q, delta) / distance;
+        // Conservative pruning: skip pair hashes/waves only if this face
+        // cannot change either minimum, even at maximum gap and bend.
+        if (lowerAtPoint >= margin && lowerAtCenter >= innerRadius) continue;
+        margin = min(margin, -frozenRelativePlane(q, delta, site, neighbor));
+        innerRadius = min(innerRadius, -frozenRelativePlane(vec2(0.0), delta, site, neighbor));
     }
-    return frozenSummitHeight(width, variant) * profile * detail;
+    return vec2(margin, innerRadius);
 }
 
-float frozenMountainSite(vec2 q, vec2 widths, ivec2 site)
+vec2 frozenRidgeSegment(vec2 p, vec2 a, vec2 b)
 {
-    vec2 v = q / (0.5 * widths);
-    float radius = length(v);
-    if (radius >= 2.0) return 0.0;
-    float variant = frozenRandom(site.x, site.y, 240u);
-    float angle = frozenRandom(site.x, site.y, 241u) * 6.2831853;
-    vec2 direction = vec2(cos(angle), sin(angle));
-    vec2 turned = vec2(dot(v, direction), dot(v, vec2(-direction.y, direction.x)));
-    float width = sqrt(widths.x * widths.y);
-    // Retain the accepted crest, cirque and subsidiary ridges. Each footprint
-    // has its own direction; X/Z sizes vary independently from 1 to 6 km.
-    float summit = frozenChainMassif(turned * (0.5 * width), width, variant);
+    vec2 ab = b - a;
+    float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 0.0001), 0.0, 1.0);
+    return vec2(length(p - mix(a, b, t)), t);
+}
 
-    // Broad descending buttresses overlap in BOTH directions and meet in low
-    // passes. No constant floor: their height follows distance to each summit
-    // and continuous ridges; the main summit is never raised by addition.
-    float ribs = landRidges(turned * 1.7 + variant * vec2(53.1, 17.9), 235u);
-    float foothill = frozenSummitHeight(width, variant) * 0.48
-        * pow(max(1.0 - radius * 0.5, 0.0), 1.35) * mix(0.68, 1.0, ribs);
-    return max(summit, foothill);
+float frozenCrestGraph(vec2 q, float scale, ivec2 site)
+{
+    float phase = frozenRandom(site.x, site.y, 240u) * 6.2831853072;
+    vec2 direction = vec2(cos(phase), sin(phase));
+    // Rotate in physical space, then apply ONE isotropic scale.
+    vec2 v = vec2(dot(q, direction), dot(q, vec2(-direction.y, direction.x))) / scale;
+    vec2 offset = vec2(frozenRandom(site.x, site.y, 241u),
+        frozenRandom(site.x, site.y, 242u)) * 37.0;
+    v += 0.12 * vec2(noiseSimplex2D(v * 1.3 + offset, uSeed ^ 243u),
+        noiseSimplex2D(v * 1.3 + offset, uSeed ^ 244u));
+    vec2 root = (vec2(frozenRandom(site.x, site.y, 245u),
+        frozenRandom(site.x, site.y, 246u)) - 0.5) * 0.35;
+    float crest = pow(max(1.0 - length(v - root) / 0.90, 0.0), 1.3);
+    int arms = 2 + min(3, int(frozenRandom(site.x, site.y, 247u) * 4.0));
+    for (int arm = 0; arm < arms; ++arm)
+    {
+        uint salt = 250u + uint(arm) * 7u;
+        float angle = (float(arm) + frozenRandom(site.x, site.y, salt) * 0.8)
+            * 6.2831853072 / float(arms);
+        float reach = mix(0.65, 1.75, frozenRandom(site.x, site.y, salt + 1u));
+        float bend = mix(-0.85, 0.85, frozenRandom(site.x, site.y, salt + 2u));
+        vec2 elbow = root + reach * 0.48 * vec2(cos(angle + bend), sin(angle + bend));
+        vec2 tip = root + reach * vec2(cos(angle), sin(angle));
+        vec2 first = frozenRidgeSegment(v, root, elbow);
+        vec2 second = frozenRidgeSegment(v, elbow, tip);
+        bool useFirst = first.x < second.x;
+        float t = useFirst ? first.y * 0.48 : 0.48 + second.y * 0.52;
+        float distance = min(first.x, second.x);
+        float width = mix(0.25, 0.62, frozenRandom(site.x, site.y, salt + 3u));
+        width *= mix(1.0, 0.42, t);
+        float rib = pow(max(1.0 - distance / width, 0.0), 1.15);
+        // Independent subsidiary summit and a shallow saddle on each branch.
+        float secondary = mix(0.0, 0.36, frozenRandom(site.x, site.y, salt + 4u));
+        float along = clamp(1.0 - t * 0.88 + secondary * sin(t * 6.2831853072), 0.0, 1.0);
+        crest = max(crest, rib * along);
+    }
+    return crest;
+}
+
+// Main footprint contains a disk >=510 m and fits within radius 2947.8 m:
+// minimum site distance =2750-2*620=1510; covering radius =2750/sqrt(3)+620.
+// This guarantees 1-6 km widths without a circular clipping silhouette.
+// Col support extends 240 m beyond each face, fits within radius3427.8 m.
+vec2 frozenMountainParts(vec2 p, ivec2 site)
+{
+    vec2 q = p - frozenSiteCenter(site);
+    if (dot(q, q) >= 3500.0 * 3500.0) return vec2(0.0);
+    vec2 footprint = frozenFootprint(p, site);
+    float margin = footprint.x;
+    if (margin <= -FROZEN_COL_REACH) return vec2(0.0);
+    float variant = frozenRandom(site.x, site.y, 236u);
+    float height = mix(FROZEN_HEIGHT_MIN, FROZEN_HEIGHT_MAX, sqrt(variant));
+    float ribs = landRidges(q / 620.0 + variant * vec2(41.7, 23.1), 237u);
+    // Descend across the ENTIRE footprint. A short edge-only ramp would leave
+    // flat-topped cell shoulders and expose polygon rims between neighbors.
+    float flank = clamp((margin + FROZEN_COL_REACH)
+        / (footprint.y + FROZEN_COL_REACH), 0.0, 1.0);
+    float foothill = height * 0.60 * pow(flank, 0.90) * mix(0.78, 1.0, ribs);
+    if (margin <= 0.0) return vec2(0.0, foothill);
+    float crestScale = footprint.y * mix(0.85, 1.30, frozenRandom(site.x, site.y, 238u));
+    float crest = frozenCrestGraph(q, crestScale, site);
+    float envelope = pow(clamp(margin / footprint.y, 0.0, 1.0), 0.65);
+    float main = height * envelope * mix(0.20, 1.0, crest) * mix(0.76, 1.0, ribs);
+    return vec2(main, foothill);
+}
+
+float frozenMountainSite(vec2 p, ivec2 site)
+{
+    vec2 parts = frozenMountainParts(p, site);
+    return max(parts.x, parts.y);
+}
+
+float frozenMountainPass(vec2 p, ivec2 a, ivec2 b)
+{
+    if (!frozenSiteBefore(a, b))
+    {
+        ivec2 swapSite = a;
+        a = b;
+        b = swapSite;
+    }
+    float gap = frozenPairGap(a, b);
+    float overlap = smoothstep(80.0, 450.0, -gap);
+    if (overlap <= 0.0) return 0.0;
+    vec2 ca = frozenSiteCenter(a), cb = frozenSiteCenter(b);
+    vec2 delta = cb - ca;
+    float distance = length(delta);
+    if (distance > 4000.0) return 0.0;
+    vec2 normal = delta / distance;
+    vec2 tangent = vec2(-normal.y, normal.x);
+    vec2 q = p - ca;
+    float t = dot(q, normal) / distance;
+    if (t <= 0.0 || t >= 1.0) return 0.0;
+    float arch = sin(t * 3.1415926536);
+    float phase = noiseInternalUintTo01(noiseInternalHash(frozenPairHash(a, b) ^ 239u));
+    float bend = (phase - 0.5) * 600.0 * arch;
+    float across = abs(dot(q, tangent) - bend);
+    float width = min(distance * 0.32, 900.0) * mix(0.5, 1.0, arch);
+    if (across >= width) return 0.0;
+    float ha = mix(FROZEN_HEIGHT_MIN, FROZEN_HEIGHT_MAX, sqrt(frozenRandom(a.x, a.y, 236u)));
+    float hb = mix(FROZEN_HEIGHT_MIN, FROZEN_HEIGHT_MAX, sqrt(frozenRandom(b.x, b.y, 236u)));
+    float saddle = min(ha, hb) * mix(0.30, 0.62, overlap) * overlap;
+    float ribs = landRidges(p / 650.0, 239u);
+    return saddle * pow(arch, 0.70) * pow(1.0 - across / width, 1.40)
+        * mix(0.85, 1.0, ribs);
 }
 
 float frozenChainHeight(vec2 p)
 {
-    vec2 domain = frozenChainDomain(p);
-    vec2 phase = vec2(frozenRowPhase(0), frozenRowPhase(1));
-    ivec2 middleBlock = ivec2(floor((domain - phase) / frozenBlockLength()));
-    float result = 0.0;
-    // Independent variable intervals fill the entire plane, not spaced rows
-    // of mountains. Support <=6000 m per axis: adjacent 13500 m blocks suffice.
-    for (int zBlockOffset = -1; zBlockOffset <= 1; ++zBlockOffset)
+    ivec2 middle = frozenNearestSite(p);
+    float height = 0.0;
+    // Hex ring2: 19 candidates. Face ring3: 36 neighbors. Passes stay within
+    // sqrt(4000^2+1200^2)<4177 m of either endpoint, also within query ring2.
+    // Expanded-ring tests verify both bounds and shared/negative coordinates.
+    for (int z = -FROZEN_SITE_SEARCH_RADIUS; z <= FROZEN_SITE_SEARCH_RADIUS; ++z)
+    for (int x = -FROZEN_SITE_SEARCH_RADIUS; x <= FROZEN_SITE_SEARCH_RADIUS; ++x)
     {
-        int zBlock = middleBlock.y + zBlockOffset;
-        float zStart = float(zBlock) * frozenBlockLength() + phase.y;
-        for (int j = 0; j < 4; ++j)
-        {
-            vec2 zd = frozenDimensions(1, zBlock, j);
-            float dz = domain.y - (zStart + zd.x * 0.5);
-            zStart += zd.x + zd.y;
-            if (abs(dz) >= zd.x) continue;
-            for (int xBlockOffset = -1; xBlockOffset <= 1; ++xBlockOffset)
-            {
-                int xBlock = middleBlock.x + xBlockOffset;
-                float xStart = float(xBlock) * frozenBlockLength() + phase.x;
-                for (int i = 0; i < 4; ++i)
-                {
-                    vec2 xd = frozenDimensions(0, xBlock, i);
-                    float dx = domain.x - (xStart + xd.x * 0.5);
-                    xStart += xd.x + xd.y;
-                    if (abs(dx) >= xd.x) continue;
-                    result = max(result, frozenMountainSite(vec2(dx, dz), vec2(xd.x, zd.x),
-                        ivec2(xBlock * 4 + i, zBlock * 4 + j)));
-                }
-            }
-        }
+        if (abs(x + z) > FROZEN_SITE_SEARCH_RADIUS) continue;
+        ivec2 site = middle + ivec2(x, z);
+        height = max(height, frozenMountainSite(p, site));
+        // Strong overlaps join upper flanks, not only their lowest skirts.
+        // Variable curved passes break the closed valley around every site.
+        // Three directions cover each nearest lattice pair exactly once.
+        height = max(height, frozenMountainPass(p, site, site + ivec2(1, 0)));
+        height = max(height, frozenMountainPass(p, site, site + ivec2(0, 1)));
+        height = max(height, frozenMountainPass(p, site, site + ivec2(-1, 1)));
     }
-    return result;
+    return height;
 }
 #endif
