@@ -834,6 +834,10 @@ namespace ProceduralTerrain
             job.stage=JobStage::Free;
             --s.statistics.pendingJobs;
         }
+        // Count completions can start emissions even when every job slot is
+        // occupied. Submit them now; no new chunk or later frame must be
+        // required to flush their commands. Idle polls issue no extra flush.
+        if (s.flushPending) { glFlush(); s.flushPending=false; }
     }
 
     void GpuMesher::cancel(std::uint64_t token) noexcept

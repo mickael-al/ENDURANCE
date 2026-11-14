@@ -165,22 +165,23 @@ bool selectLodChunks(const glm::vec3& camera, const LodConfig& p,
         for (std::size_t i = 0; i < leaves.size(); ++i)
             index.emplace(Key{leaves[i].origin, leaves[i].lod}, i);
         std::unordered_set<std::size_t> split;
-        for (const auto& c : leaves)
+        // The balance scan already resolves every face neighbour. Keep those
+        // transition bits instead of repeating the same hash lookups once the
+        // tree is balanced. Scratch masks never propagate to split children.
+        std::vector<std::uint32_t> masks(leaves.size(), 0);
+        for (std::size_t i = 0; i < leaves.size(); ++i)
             for (unsigned face = 0; face < 6; ++face)
             {
+                const auto& c = leaves[i];
                 const auto n = neighbor(c, face, p, index);
-                if (n != static_cast<std::size_t>(-1) && leaves[n].lod > c.lod + 1)
-                    split.insert(n);
+                if (n == static_cast<std::size_t>(-1)) continue;
+                if (leaves[n].lod > c.lod + 1) split.insert(n);
+                else if (leaves[n].lod == c.lod + 1) masks[i] |= 1u << face;
             }
         if (split.empty())
         {
-            for (auto& c : leaves)
-                for (unsigned face = 0; face < 6; ++face)
-                {
-                    const auto n = neighbor(c, face, p, index);
-                    if (n != static_cast<std::size_t>(-1) && leaves[n].lod == c.lod + 1)
-                        c.transitionMask |= 1u << face;
-                }
+            for (std::size_t i = 0; i < leaves.size(); ++i)
+                leaves[i].transitionMask = masks[i];
             break;
         }
         std::vector<LodChunk> balanced;

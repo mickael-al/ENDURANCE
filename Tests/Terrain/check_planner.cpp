@@ -72,7 +72,7 @@ int main()
         require(!planner.request({}, moved, revision), "accepted duplicate outstanding request");
     auto result = waitFor(planner);
     require(result.success && result.error.empty() && result.selected, "initial worker plan failed");
-    require(result.coverageRevision == 7 && result.selectionPosition == start &&
+    require(result.coverageRevision == 7 && result.requestPosition == start && result.selectionPosition == start &&
             result.desiredCount == desired.size(), "initial result metadata changed");
     require(result.milliseconds >= 0, "negative planning duration");
     sameTransaction(result.transaction, expected);
@@ -83,7 +83,7 @@ int main()
     require(planner.request(snapshot, nearby, 40), "cached-selection request rejected");
     snapshot.clear();
     result = waitFor(planner);
-    require(result.success && !result.selected && result.selectionPosition == start,
+    require(result.success && !result.selected && result.selectionPosition == start && result.requestPosition == nearby,
             "sub-threshold movement rebuilt the selection");
     require(result.transaction.kind == LodWorkKind::None && equal(result.transaction.next, desired),
             "request did not preserve its copied coverage");
@@ -92,7 +92,7 @@ int main()
     require(planLodTransaction({}, desired, moved, config, expected, error), "moved plan failed");
     require(planner.request({}, moved, 41), "latest position request rejected");
     result = waitFor(planner);
-    require(result.success && result.selected && result.selectionPosition == moved &&
+    require(result.success && result.selected && result.selectionPosition == moved && result.requestPosition == moved &&
             result.coverageRevision == 41, "worker did not use latest accepted position");
     sameTransaction(result.transaction, expected);
 

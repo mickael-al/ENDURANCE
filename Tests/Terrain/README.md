@@ -1,5 +1,34 @@
 # Terrain validation
 
+## CPU/GPU scheduling and LOD selection optimization
+
+```sh
+python3 Tests/Terrain/check_scheduler.py \
+  --reference-ref 30082ee50564d92a8ac1ddbf0563ee97ac608cd5 \
+  --output /tmp/terrain-scheduler.json
+python3 Tests/Terrain/benchmark_lod.py \
+  --reference-ref 30082ee50564d92a8ac1ddbf0563ee97ac608cd5 \
+  --output /tmp/terrain-lod-selection.json
+```
+
+The reference commit must be available in the local Git checkout; omit
+`--reference-ref` for a current-only scheduler check. The selector benchmark
+also accepts `--reference-source /path/to/old/ProceduralTerrainLod.cpp`.
+Both commands need only a C++17 compiler and bundled GLM.
+
+`check_scheduler.py` compiles the actual `ProceduralGeneration.cpp` update and
+real planning worker, LOD selector and streaming code. Test-only GL, engine,
+GPU and collision services provide controlled completion latency. It checks
+publication handoff, camera movement, failure invalidation/recovery, idle
+stability, frame/in-flight/resident budgets and independent published-seam
+geometry. Counts demonstrate scheduling under this fixture; they are not GPU
+timings or a substitute for the full engine integration test below.
+
+`benchmark_lod.py` alternates before/after runs and compares every ordered origin,
+LOD and transition mask byte for byte. Only selection is timed, with six camera
+positions at two view distances. Results and limits are documented in
+[`TERRAIN_STREAMING_OPTIMIZATION.md`](../../docs/TERRAIN_STREAMING_OPTIMIZATION.md).
+
 ## Taiga tilted porous cylinders
 
 ```sh
@@ -569,6 +598,11 @@ batch must issue no field work. Intercepted GL compilation/link entry points ver
 runtime shader compilation occurs during streaming, revisits or idle polling.
 Software-driver first-dispatch JIT is allowed a 60-second correctness timeout;
 these lifecycle tests are not performance measurements.
+The emission-submission regression completes count work in test setup, then
+checks that one `poll()` flushes both new emissions without any new chunk.
+Idle calls must add no flushes; retirement fences share one flush. Wrapped GL
+entry points and intercepted fence waits reject blocking synchronization in
+the observed production path. The regression fails on the pre-fix backend.
 The backend fixtures link `ShaderProgramBatch`, `ParallelShaderCompiler`, the
 shared source loader and `ShaderBinaryCache.cpp`. They use isolated temporary disk caches. Shared loader, persistent binary
 cache, program ownership and graphics-pipeline coverage is documented separately

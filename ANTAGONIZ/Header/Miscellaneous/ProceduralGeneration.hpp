@@ -61,6 +61,10 @@ public:
         std::uint64_t failedJobs = 0;
         std::uint64_t lodSelections = 0;
         std::uint64_t publishedLodGroups = 0;
+        std::uint64_t lookaheadPlansUsed = 0;
+        std::uint64_t sameFrameHandoffs = 0;
+        std::uint64_t stalePlansDiscarded = 0;
+        std::uint64_t planningWaitFrames = 0;
         std::uint64_t cameraCullUpdates = 0;
         std::uint64_t shadowCullUpdates = 0;
         std::uint64_t drawListUploads = 0;
@@ -73,6 +77,11 @@ public:
         double coverageMilliseconds = 0.0;
         bool rebuilding = false;
         bool resourceLimited = false;
+        // Outstanding CPU request/result, retained successor, and lack of an
+        // active GPU transaction specifically because CPU planning is pending.
+        bool cpuPlanning = false;
+        bool lookaheadReady = false;
+        bool plannerWaiting = false;
     };
 
     // The scene is borrowed and must outlive this generator.

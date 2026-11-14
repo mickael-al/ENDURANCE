@@ -53,6 +53,7 @@ struct LodPlanner::Impl
             }
             LodPlanResult plan;
             plan.coverageRevision = coverageRevision;
+            plan.requestPosition = position;
             const auto start = std::chrono::steady_clock::now();
             try
             {

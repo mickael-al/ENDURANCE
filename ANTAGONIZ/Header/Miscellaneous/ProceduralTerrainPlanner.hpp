@@ -12,6 +12,8 @@ namespace ProceduralTerrain
     struct LodPlanResult
     {
         LodTransaction transaction;
+        // The submitted camera, distinct from the cached selection's anchor.
+        glm::vec3 requestPosition{};
         glm::vec3 selectionPosition{};
         std::uint64_t coverageRevision = 0;
         std::size_t desiredCount = 0;
@@ -24,6 +26,8 @@ namespace ProceduralTerrain
     // One persistent CPU worker; never owns a GL context or touches live meshes.
     // At most one request/result is outstanding. The render thread freezes a
     // small returned transaction while its meshes are generated asynchronously.
+    // A caller may request against that transaction's immutable future coverage
+    // to prepare one successor; it must validate the revision before using it.
     class LodPlanner
     {
     public:

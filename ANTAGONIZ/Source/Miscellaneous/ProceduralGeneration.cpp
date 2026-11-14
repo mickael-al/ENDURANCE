@@ -123,6 +123,13 @@ struct ProceduralGeneration::Impl
     KeySet submitted, wanted, visibleKeys, collisionKeys;
     std::unique_ptr<LodPlanner> planner;
     LodTransaction transaction;
+    struct PreparedPlan
+    {
+        LodPlanResult result;
+        bool lookahead = false;
+    };
+    std::optional<PreparedPlan> preparedPlan;
+    bool plannerLookahead = false, discardPlannerResult = false;
     std::vector<LodChunk> visibleSelection;
     CameraVisibilityCache cameraVisibility;
     struct ShadowVisibility
@@ -197,6 +204,11 @@ struct ProceduralGeneration::Impl
         target.clear();
         transaction = {};
         active = false;
+        preparedPlan.reset();
+        // A failed transaction never publishes its predicted revision. An old
+        // successor must not become valid if a later transaction reaches the
+        // same revision number after recovery.
+        discardPlannerResult = planner && planner->busy();
         collisionDirty = true;
         discardUnused();
     }
@@ -380,10 +392,83 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         >= replanDistance * replanDistance;
     if (moved) s.blocked = false;
 
-    LodPlanResult plan;
-    if (s.planner->poll(plan) && plan.coverageRevision == s.visibleRevision)
+    bool publishedThisUpdate = false;
+    const auto failTarget = [&]
     {
+        // Keep published coverage intact and invalidate both a retained and an
+        // in-flight successor. Recovery must start from the real coverage.
+        if (s.preparedPlan) ++m_stats.stalePlansDiscarded;
+        s.abandonTarget();
+        s.blocked = true;
+        s.plannedPosition = cameraPosition;
+        m_stats.resourceLimited = true;
+    };
+    if (failed) failTarget();
+
+    const auto collectPlan = [&]
+    {
+        LodPlanResult plan;
+        if (!s.planner->poll(plan)) return;
         m_stats.lastPlanningMilliseconds = plan.milliseconds;
+        if (s.discardPlannerResult)
+        {
+            s.discardPlannerResult = false;
+            ++m_stats.stalePlansDiscarded;
+            return;
+        }
+        s.preparedPlan = Impl::PreparedPlan{std::move(plan), s.plannerLookahead};
+    };
+    const auto discardStalePlan = [&]
+    {
+        if (!s.preparedPlan) return;
+        const auto& prepared = *s.preparedPlan;
+        const auto revision = s.visibleRevision + (s.active ? 1u : 0u);
+        const bool obsoleteCamera = prepared.lookahead && distanceSquared(
+            cameraPosition, prepared.result.requestPosition) >= replanDistance * replanDistance;
+        if (prepared.result.coverageRevision != revision || obsoleteCamera || s.blocked)
+        {
+            s.preparedPlan.reset();
+            ++m_stats.stalePlansDiscarded;
+        }
+        // Only speculation is rejected for camera movement. A normal request
+        // always makes bounded progress, even if the camera moves faster than
+        // the worker can plan; otherwise continuous travel could starve forever.
+    };
+    const auto publishReady = [&]
+    {
+        if (!s.active || !std::all_of(s.target.begin(), s.target.end(),
+            [&s](const ChunkKey& key) { return s.ready.count(key) != 0; })) return false;
+        // Publish the whole local split/merge and transition neighbours. The
+        // prepared successor cannot submit GPU work before this revision exists.
+        s.visibleSelection = std::move(s.transaction.next);
+        s.visibleKeys.clear();
+        s.visible.clear();
+        s.visible.reserve(s.visibleSelection.size());
+        for (const auto& chunk : s.visibleSelection)
+        {
+            const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
+            s.visibleKeys.insert(key);
+            const auto& mesh = s.ready.at(key);
+            if (mesh.vertexCount) s.visible.push_back(mesh);
+        }
+        ++s.visibleRevision;
+        ++m_stats.publishedLodGroups;
+        publishedThisUpdate = true;
+        s.transaction = {};
+        s.active = false;
+        s.wanted.clear();
+        s.target.clear();
+        s.collisionDirty = true;
+        s.discardUnused();
+        return true;
+    };
+    const auto activatePrepared = [&]
+    {
+        if (s.active || !s.preparedPlan) return;
+        auto prepared = std::move(*s.preparedPlan);
+        s.preparedPlan.reset();
+        auto& plan = prepared.result;
+        if (prepared.lookahead) ++m_stats.lookaheadPlansUsed;
         s.plannedPosition = plan.selectionPosition;
         s.planned = true;
         s.desiredCount = plan.desiredCount;
@@ -394,35 +479,62 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
             s.blocked = true;
             s.plannedPosition = cameraPosition;
             m_stats.resourceLimited = true;
+            return;
         }
-        else
+        s.converged = plan.transaction.kind == LodWorkKind::None;
+        s.active = !s.converged;
+        s.transaction = std::move(plan.transaction);
+        s.target.clear();
+        s.wanted.clear();
+        for (auto index : s.transaction.nextIndices)
         {
-            s.converged = plan.transaction.kind == LodWorkKind::None;
-            s.active = !s.converged;
-            s.transaction = std::move(plan.transaction);
-            s.target.clear();
-            s.wanted.clear();
-            for (auto index : s.transaction.nextIndices)
-            {
-                const auto& chunk = s.transaction.next[index];
-                const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
-                s.target.push_back(key);
-                s.wanted.insert(key);
-            }
-            m_stats.largestLodTransaction = std::max(m_stats.largestLodTransaction,
-                static_cast<std::uint32_t>(s.target.size()));
-            m_stats.resourceLimited = false;
-            m_lastError.clear();
+            const auto& chunk = s.transaction.next[index];
+            const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
+            s.target.push_back(key);
+            s.wanted.insert(key);
         }
+        m_stats.largestLodTransaction = std::max(m_stats.largestLodTransaction,
+            static_cast<std::uint32_t>(s.target.size()));
+        m_stats.resourceLimited = false;
+        m_lastError.clear();
+    };
+    const auto requestPlan = [&]
+    {
+        const bool selectionMoved = !s.planned || distanceSquared(cameraPosition, s.plannedPosition)
+            >= replanDistance * replanDistance;
+        if (s.blocked || s.preparedPlan || s.planner->busy()
+            || (!s.active && s.converged && !selectionMoved)) return;
+        // The CPU only reads this copy; current GPU meshes and visible coverage
+        // remain unchanged. One request/result bounds memory and obsolete work.
+        const bool ahead = s.active;
+        if (s.planner->request(ahead ? s.transaction.next : s.visibleSelection,
+            cameraPosition, s.visibleRevision + (ahead ? 1u : 0u)))
+        {
+            s.plannerLookahead = ahead;
+            s.discardPlannerResult = false;
+        }
+    };
+
+    // Completion -> publication -> successor adoption -> submission all happen
+    // in this update. Bounded iteration also handles ready-only retirements,
+    // without spinning or blocking for the asynchronous planning worker.
+    for (unsigned step = 0; step < 4; ++step)
+    {
+        if (!failed) publishReady();
+        collectPlan();
+        discardStalePlan();
+        if (!failed && !s.blocked) activatePrepared();
+        requestPlan();
+        if (!s.active || !std::all_of(s.target.begin(), s.target.end(),
+            [&s](const ChunkKey& key) { return s.ready.count(key) != 0; })) break;
     }
 
-    std::uint32_t queued = 0, dispatched = 0;
+    std::uint32_t dispatched = 0;
     if (!failed) for (const auto& key : s.target)
     {
         if (s.ready.count(key) || s.submitted.count(key)) continue;
-        ++queued;
         if (dispatched >= m_config.maxChunksPerFrame
-            || s.gpu.stats().pendingJobs >= m_config.maxInFlight) continue;
+            || s.gpu.stats().pendingJobs >= m_config.maxInFlight) break;
         if (!computeState) computeState.emplace();
         ChunkRequest request;
         request.origin = key.origin;
@@ -443,53 +555,17 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         s.pending.emplace(token, key);
         s.submitted.insert(key);
         ++dispatched;
-        --queued;
     }
-    // One field batch for the whole frame's ready chunks. Start it now instead
-    // of leaving the GPU idle until the next frame's completion poll.
-    if (dispatched && !failed) s.gpu.dispatchQueued();
-    if (failed)
+    // One field batch for this update's chunks, including a prepared successor
+    // after publication, with the original per-frame and in-flight budgets.
+    if (dispatched && !failed)
     {
-        // Keep the published coverage intact, with no automatic failure loop.
-        s.abandonTarget();
-        s.blocked = true;
-        s.plannedPosition = cameraPosition;
-        m_stats.resourceLimited = true;
-        queued = 0;
+        s.gpu.dispatchQueued();
+        if (publishedThisUpdate) ++m_stats.sameFrameHandoffs;
     }
-    else if (s.active && std::all_of(s.target.begin(), s.target.end(),
-        [&s](const ChunkKey& key) { return s.ready.count(key) != 0; }))
-    {
-        // One local split/merge (and the affected transition faces) commits as
-        // a whole. A nearby refinement cannot wait for distant downgrades.
-        s.visibleSelection = std::move(s.transaction.next);
-        s.visibleKeys.clear();
-        s.visible.clear();
-        s.visible.reserve(s.visibleSelection.size());
-        for (const auto& chunk : s.visibleSelection)
-        {
-            const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
-            s.visibleKeys.insert(key);
-            const auto& mesh = s.ready.at(key);
-            if (mesh.vertexCount) s.visible.push_back(mesh);
-        }
-        ++s.visibleRevision;
-        ++m_stats.publishedLodGroups;
-        s.transaction = {};
-        s.active = false;
-        s.wanted.clear();
-        s.target.clear();
-        s.collisionDirty = true;
-        s.discardUnused();
-    }
-
-    // Only one bounded GPU transaction is frozen at a time. The next CPU job
-    // snapshots the last published octree and the latest camera position; no
-    // queue of obsolete destinations, no cancelling unfinished work each step.
-    const bool selectionMoved = !s.planned || distanceSquared(cameraPosition, s.plannedPosition)
-        >= replanDistance * replanDistance;
-    if (!s.active && !s.blocked && (!s.converged || selectionMoved) && !s.planner->busy())
-        s.planner->request(s.visibleSelection, cameraPosition, s.visibleRevision);
+    if (failed && s.active) failTarget();
+    const auto queued = static_cast<std::uint32_t>(std::count_if(s.target.begin(), s.target.end(),
+        [&s](const ChunkKey& key) { return !s.ready.count(key) && !s.submitted.count(key); }));
 
     if (m_config.collisionEnabled)
     {
@@ -549,7 +625,12 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     m_stats.generation = gpu;
     m_stats.drawListUploads = gpu.drawListUploads;
     m_stats.drawListUploadBytes = gpu.drawListUploadBytes;
-    m_stats.rebuilding = s.active || s.planner->busy() || (!s.converged && !s.blocked);
+    m_stats.cpuPlanning = s.planner->busy();
+    m_stats.lookaheadReady = s.preparedPlan && s.preparedPlan->lookahead;
+    m_stats.plannerWaiting = !s.active && !s.blocked && gpu.pendingJobs == 0 && m_stats.cpuPlanning;
+    if (m_stats.plannerWaiting) ++m_stats.planningWaitFrames;
+    m_stats.rebuilding = s.active || m_stats.cpuPlanning || s.preparedPlan
+        || (!s.converged && !s.blocked);
     const auto now = std::chrono::steady_clock::now();
     if (m_stats.rebuilding && !s.timingCoverage)
     { s.coverageStart = now; s.timingCoverage = true; }

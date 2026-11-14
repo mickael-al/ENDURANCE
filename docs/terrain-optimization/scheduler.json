@@ -1,0 +1,86 @@
+{
+  "scope": "Actual CPU scheduler/worker; controlled GPU completion, not hardware timing",
+  "current": {
+    "initial": {
+      "frames": 460,
+      "unfinished_zero_job_frames": 0,
+      "publication_zero_job_frames": 0,
+      "publication_refilled_frames": 14,
+      "publications": 15,
+      "submitted_chunks": 292
+    },
+    "moved": {
+      "frames": 1222,
+      "unfinished_zero_job_frames": 1,
+      "publication_zero_job_frames": 1,
+      "publication_refilled_frames": 56,
+      "publications": 59,
+      "submitted_chunks": 705
+    },
+    "recovered": {
+      "frames": 552,
+      "unfinished_zero_job_frames": 0,
+      "publication_zero_job_frames": 0,
+      "publication_refilled_frames": 29,
+      "publications": 30,
+      "submitted_chunks": 328
+    },
+    "lookahead_plans_used": 108,
+    "same_frame_handoffs": 99,
+    "stale_plans_discarded": 8,
+    "planning_wait_frames": 9,
+    "checks": [
+      "actual update/worker",
+      "submission budgets",
+      "published seams",
+      "moving camera",
+      "failure invalidation",
+      "idle stability"
+    ],
+    "production_source_sha256": "afbaeed05cc6134c748f7a422b9f3d9ec50f2232d5c59da80c29d77a1e378ff0",
+    "fixture_sha256": "0737704a78f100c821bd93db19fafce82f7f7fb36807eefd49b544f66414717f",
+    "controlled_gpu_latency_updates": 6,
+    "worker_frame_pause_ms": 1
+  },
+  "reference_ref": "30082ee50564d92a8ac1ddbf0563ee97ac608cd5",
+  "reference": {
+    "initial": {
+      "frames": 476,
+      "unfinished_zero_job_frames": 16,
+      "publication_zero_job_frames": 15,
+      "publication_refilled_frames": 0,
+      "publications": 15,
+      "submitted_chunks": 292
+    },
+    "moved": {
+      "frames": 1282,
+      "unfinished_zero_job_frames": 61,
+      "publication_zero_job_frames": 59,
+      "publication_refilled_frames": 0,
+      "publications": 59,
+      "submitted_chunks": 705
+    },
+    "recovered": {
+      "frames": 582,
+      "unfinished_zero_job_frames": 30,
+      "publication_zero_job_frames": 30,
+      "publication_refilled_frames": 0,
+      "publications": 30,
+      "submitted_chunks": 328
+    },
+    "checks": [
+      "actual update/worker",
+      "submission budgets",
+      "published seams",
+      "moving camera",
+      "failure invalidation",
+      "idle stability"
+    ],
+    "production_source_sha256": "9afce912bf888c8efe0991818627e18648360e80a9ac2e7f984b6bbad392f1a3",
+    "fixture_sha256": "0737704a78f100c821bd93db19fafce82f7f7fb36807eefd49b544f66414717f",
+    "controlled_gpu_latency_updates": 6,
+    "worker_frame_pause_ms": 1
+  },
+  "tested_local_reference_ref": "4408088",
+  "reference_note": "The tested local reference has identical production scheduler/LOD sources to the published reference; only the user scene changed between them."
+}
