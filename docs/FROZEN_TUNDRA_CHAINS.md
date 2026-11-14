@@ -1,53 +1,53 @@
-# FrozenTundra : chaînes montagneuses
+# FrozenTundra : terrain montagneux dense
 
-La recette repart du nettoyage utilisateur `a60b334`. Les anciennes plaines, pingos et cavités ne sont pas réintroduits. Le biome est un relief de chaînes courbes ; sa contribution volumique est nulle.
+La recette remplit désormais tout le biome de massifs et de cols. L'ancien espacement de 12 km entre chaînes a été supprimé : les montagnes occupent les deux directions, et leurs contreforts se rejoignent. Les grandes plaines seront choisies ensuite par le masque utilisateur. La contribution volumique reste nulle ; les anciens pingos et cavités ne sont pas réintroduits.
 
-## Réglages
+## Masque de présence
 
-Dans [relief.C.glsl](../Asset/Shader/ProceduralTerrain/biomes/FrozenTundra/relief.C.glsl), la variable demandée reste à un :
+Dans [relief.C.glsl](../Asset/Shader/ProceduralTerrain/biomes/FrozenTundra/relief.C.glsl), la variable demandée reste :
 
 ```glsl
 float mountainPresence = 1.0;
 ```
 
-Elle multiplie l'ensemble du relief des chaînes. `0` le supprime, `0.5` réduit son amplitude de moitié et `1` conserve la hauteur complète. Elle peut être remplacée par un masque de la position monde `p` pour choisir les zones montagneuses sans déplacer les massifs. Le macrorelief commun au monde continue à s'appliquer.
+Elle multiplie **tout** le relief montagneux, y compris les contreforts et les cols. `0` supprime cette contribution, `0.5` réduit son amplitude de moitié, `1` remplit la zone. Remplacer `1.0` par un masque de la position monde `p` permet de découper les grandes régions montagneuses et les futures plaines, sans déplacer les massifs. Le macrorelief commun au monde continue à s'appliquer. Le résultat du masque est borné entre zéro et un.
 
-Les autres paramètres se trouvent dans [chain.glsl](../Asset/Shader/ProceduralTerrain/biomes/FrozenTundra/chain.glsl) :
+## Dimensions
+
+Les paramètres sont dans [chain.glsl](../Asset/Shader/ProceduralTerrain/biomes/FrozenTundra/chain.glsl), dont le nom est conservé pour ne pas changer les chemins existants.
 
 | Constante | Valeur | Signification |
 | --- | --- | --- |
-| `FROZEN_WIDTH_MIN/MAX` | 1000 / 6000 m | Largeur longitudinale nominale d'un massif. |
-| `FROZEN_GAP_MIN/MAX` | −500 / +250 m | Écart signé entre empreintes principales successives : négatif = chevauchement. |
-| `FROZEN_HEIGHT_MIN/MAX` | 1400 / 3200 m | Hauteur nominale des sommets, relative au macrorelief, à `detailScale=0.35`. Les grands massifs tendent à être plus hauts. |
-| `FROZEN_CHAIN_SEPARATION` | 12000 m | Distance nominale entre les axes des chaînes voisines. |
+| `FROZEN_WIDTH_MIN/MAX` | 1000 / 6000 m | Dimensions nominales indépendantes des empreintes sur les deux axes du placement. |
+| `FROZEN_GAP_MIN/MAX` | −500 / +250 m | Écart signé entre intervalles voisins sur chacun des deux axes ; négatif = chevauchement. |
+| `FROZEN_HEIGHT_MIN/MAX` | 1400 / 3200 m | Hauteur nominale des sommets, relative au macrorelief, à `detailScale=0.35`. |
 
-Les largeurs et écarts sont mesurés sur l'axe longitudinal tourné. Les axes courbes, les contreforts et les cols font varier les contours visibles : un écart positif entre deux empreintes principales n'impose pas une bande de plaine nue entre elles. Les cols maintiennent la continuité de la chaîne. Les bornes de recherche des voisins sont validées pour ces paramètres ; les revoir si la largeur maximale augmente fortement ou si les axes sont beaucoup rapprochés.
+Ces écarts décrivent les **empreintes nominales de placement**, pas une distance exacte entre les silhouettes sculptées au sol. La déformation du domaine, l'orientation propre à chaque sommet et les contreforts modifient les contours visibles. Les contreforts dépassent les empreintes principales pour produire les cols et supprimer les bandes nues.
 
 ## Construction
 
-Chaque chaîne suit un axe déformé à deux grandes échelles. Quatre massifs de tailles variables occupent un bloc directement adressable ; des paires complémentaires garantissent une somme constante des largeurs et écarts. Les paramètres restent déterministes avec la seed, sans liste de sites sur CPU ni parcours depuis l'origine. Les blocs voisins sont évalués pour conserver les chevauchements et les cols aux frontières, y compris en coordonnées négatives.
+Deux partitions indépendantes d'intervalles variables remplissent le plan. Des blocs de quatre intervalles à sommes constantes permettent un accès direct aux sites, y compris aux coordonnées négatives, sans liste CPU ni parcours depuis l'origine. Les blocs voisins sont évalués pour conserver les chevauchements aux frontières.
 
-Le relief combine une crête principale courbe, deux crêtes secondaires descendantes, des contreforts irréguliers, un cirque latéral et un bruit ridged à plusieurs octaves. Les extrémités se rétrécissent. Les massifs et les cols sont assemblés par maximum, sans addition qui gonflerait les zones de chevauchement.
+Une rotation globale puis deux cisaillements continus courbent le placement dans les deux directions. Leur composition ne replie pas le domaine et conserve les surfaces. Chaque massif possède aussi sa propre orientation. Le profil de sommet accepté est conservé : crête principale, deux crêtes secondaires descendantes, contreforts, cirque latéral et bruit ridged.
+
+Des contreforts inférieurs plus larges descendent autour de chaque massif et se rejoignent dans les deux directions. Leur hauteur varie avec la distance au sommet et le bruit de crêtes ; aucun plan horizontal constant n'est ajouté. L'assemblage par maximum conserve les hauteurs des sommets sans gonfler les chevauchements par addition.
+
+La recherche porte sur 3 × 3 blocs, avec rejet géométrique avant les calculs de relief coûteux. La portée de chaque site est au plus 6000 m par axe pour des blocs de 13500 m. Revoir cette borne si les dimensions ou la portée des contreforts changent fortement.
 
 Ce modèle est une construction procédurale dirigée artistiquement, pas une simulation d'érosion ou de tectonique.
 
-## Limites et validation
+## Validation de cette révision
 
-Le plafond global CPU/GLSL passe de ±4096 à ±10240 unités brutes, soit ±3584 m à l'échelle 0,35, afin de ne pas écrêter les sommets. Les bornes CPU reflètent ce plafond. Cela libère aussi les reliefs d'autres biomes auparavant écrêtés, notamment les réglages polaires 900–3160 m déjà enregistrés par l'utilisateur. Leurs fichiers sont conservés à l'identique.
+- 8192 intervalles sur deux axes et deux seeds : largeurs dans 1000–6000 m, écarts dans −500 à +250 m, chevauchements et écarts positifs présents. Erreur maximale de raccord : 1,71 mm dans les coordonnées locales des blocs.
+- Sur deux zones de 48 × 48 km échantillonnées tous les 125 m : aucun point de relief inférieur ou égal à 1 m, aucune ligne vide et aucune grande plaine nue. Hauteurs médianes 491 et 513 m ; maxima échantillonnés 2849 et 3050 m.
+- La recherche 3 × 3 blocs est identique bit à bit à une référence 7 × 7 sur les points contrôlés. Déterminisme, finitude, masques constants 0/0,5/1 et masque spatial progressif vérifiés.
+- Pour chaque seed : 1331 densités concordent avec l'accumulation de production et 125 points partagés entre LOD sont identiques.
+- Les 26 recettes passent les contrôles de transitions, rivages, poids locaux, bornes, accumulation et LOD.
 
-La scène sauvegardée de 40,096 km demande maintenant une limite de sélection de 3072 au lieu de 2048. Le contrôle CPU mesure au maximum 2668 feuilles sur six positions, dont deux caméras en altitude. Le budget de sommets GPU et le maximum de chunks résidents ne changent pas. Les réglages par défaut à courte distance passent encore avec 2048 feuilles.
-
-- 8192 empreintes sur deux seeds : largeurs 1000,37–5999,63 m, écarts −499,93 à +249,93 m ; erreur maximale de raccord des écarts inférieure à 1,5 cm sur la zone testée.
-- Recherche de voisins identique à une référence plus large ; présence 0/0,5/1, déterminisme et valeurs finies vérifiés.
-- Sommets échantillonnés à 2804 et 2884 m sur les grilles de contrôle, sans plateau de clamp.
-- Pour chaque seed, 1331 densités concordent avec le pipeline de production et 125 points partagés entre LOD sont identiques.
-- Les 26 recettes, les transitions, les poids locaux et les tests CPU passent. Le contrat de stockage des bandes reste inchangé ; 18 cas de hauteur vérifient le nouveau plafond.
-- Les onze formations froides isolées restantes passent leurs contrôles. Les anciens tests de sites `FrozenTundra` sont remplacés par le test de chaînes.
-
-[Aperçu du relief réel GLSL](biome-validation/frozen_chains.png) · [Mesures](biome-validation/frozen_chains.json)
+[Aperçu du relief réel GLSL sur 24 × 24 km](biome-validation/frozen_chains.png) · [Mesures](biome-validation/frozen_chains.json)
 
 ```sh
-EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_chains.py --output /tmp/frozen-chains
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_chains.py --output /tmp/frozen-mountains
 ```
 
-Les tests utilisent Mesa llvmpipe ; le rendu en jeu, les collisions et les performances sur le GPU Windows restent à apprécier. Recompiler le moteur puis régénérer le terrain, car les bornes de hauteur CPU ont changé.
+Les limites CPU/GLSL de la révision précédente restent inchangées : relief brut ±10240, scène sauvegardée à 3072 feuilles. Cette correction modifie uniquement les shaders du biome : **régénérer le terrain** après mise à jour. Les tests utilisent Mesa llvmpipe ; l'aperçu ne constitue pas une mesure des performances du GPU Windows ni une validation du rendu en jeu.

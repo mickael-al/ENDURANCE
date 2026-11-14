@@ -1,25 +1,55 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
-  "source_sha256": "6ac729ab4a29b5e1ae58846a40a392c016f8c8ed4cce95ec09973bcb15cbd351",
+  "source_sha256": "a62ccc1a6b037afeb1ef738aa1d0a6f43fa542170cb192aedb9bd98465b871ca",
   "records": [
     {
       "seed": 1337,
       "dimensions_tested": 4096,
-      "width_range_m": [
-        1001.6159057617188,
-        5998.38427734375
+      "axes": [
+        {
+          "axis": "X",
+          "dimensions_tested": 2048,
+          "width_range_m": [
+            1001.48876953125,
+            5998.51123046875
+          ],
+          "gap_range_m": [
+            -499.87884521484375,
+            249.87884521484375
+          ],
+          "maximum_gap_error_m": 0.001617431640625
+        },
+        {
+          "axis": "Z",
+          "dimensions_tested": 2048,
+          "width_range_m": [
+            1000.8207397460938,
+            5999.17919921875
+          ],
+          "gap_range_m": [
+            -499.5079345703125,
+            249.5079345703125
+          ],
+          "maximum_gap_error_m": 0.001678466796875
+        }
       ],
-      "gap_range_m": [
-        -499.583984375,
-        249.583984375
-      ],
-      "maximum_gap_error_m": 0.014862060546875,
-      "peak_sample_m": 2804.168701171875,
+      "coverage": {
+        "area_at_or_below_1m_fraction": 0.0,
+        "area_below_100m_fraction": 0.0,
+        "median_height_m": 491.02069091796875,
+        "maximum_height_m": 2849.380859375,
+        "worst_row_low_fraction": 0.0,
+        "worst_column_low_fraction": 0.0,
+        "largest_low_component_km2": 0.0,
+        "sample_step_m": 125.0,
+        "sample_span_km": 48
+      },
+      "peak_sample_m": 2646.12353515625,
       "pipeline": {
         "anchor": [
-          -15310,
-          2800,
-          13302
+          24464,
+          2642,
+          -22786
         ],
         "shared_exact_lod_samples": 125,
         "production_density_samples": 1331
@@ -28,26 +58,56 @@
     {
       "seed": 17,
       "dimensions_tested": 4096,
-      "width_range_m": [
-        1000.36962890625,
-        5999.63037109375
+      "axes": [
+        {
+          "axis": "X",
+          "dimensions_tested": 2048,
+          "width_range_m": [
+            1002.9951171875,
+            5997.0048828125
+          ],
+          "gap_range_m": [
+            -499.5469970703125,
+            249.5469970703125
+          ],
+          "maximum_gap_error_m": 0.00146484375
+        },
+        {
+          "axis": "Z",
+          "dimensions_tested": 2048,
+          "width_range_m": [
+            1001.1875,
+            5998.8125
+          ],
+          "gap_range_m": [
+            -499.74267578125,
+            249.74267578125
+          ],
+          "maximum_gap_error_m": 0.001708984375
+        }
       ],
-      "gap_range_m": [
-        -499.9324951171875,
-        249.9324951171875
-      ],
-      "maximum_gap_error_m": 0.01324462890625,
-      "peak_sample_m": 2883.630859375,
+      "coverage": {
+        "area_at_or_below_1m_fraction": 0.0,
+        "area_below_100m_fraction": 0.0,
+        "median_height_m": 512.83740234375,
+        "maximum_height_m": 3050.212646484375,
+        "worst_row_low_fraction": 0.0,
+        "worst_column_low_fraction": 0.0,
+        "largest_low_component_km2": 0.0,
+        "sample_step_m": 125.0,
+        "sample_span_km": 48
+      },
+      "peak_sample_m": 2826.946533203125,
       "pipeline": {
         "anchor": [
-          910,
-          2878,
-          -2210
+          12652,
+          2822,
+          16870
         ],
         "shared_exact_lod_samples": 125,
         "production_density_samples": 1331
       }
     }
   ],
-  "note": "Widths and gaps measured along rotated chain axis; curved contours and connecting passes change visible ground separation. Presence 0/.5/1 tested; bounded neighbourhood matches 7x7-block reference; not a performance or collision certification."
+  "note": "Widths/gaps are nominal axis footprints in the mountain placement domain; shared shears, rotated silhouettes, and connecting foothills change world-space contour separation. Presence 0/.5/1 and a spatial mask tested; bounded 3x3-block neighbourhood matches a 7x7-block reference. Coverage sampled over 48x48 km in world coordinates. Not a performance, in-game visual, or collision certification."
 }

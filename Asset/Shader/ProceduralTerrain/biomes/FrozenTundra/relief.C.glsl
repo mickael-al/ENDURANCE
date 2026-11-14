@@ -8,7 +8,7 @@
 vec4 fieldRelief(vec2 p)
 {
     // Future spatial mask: replace 1.0 with a function of world XZ p.
-    // 0 = no mountains, 1 = full chains; placement remains identical.
+    // 0 = no mountains, 1 = mountains everywhere; placement remains identical.
     float mountainPresence = 1.0;
     mountainPresence = clamp(mountainPresence, 0.0, 1.0);
     if (mountainPresence <= 0.0) return vec4(0.0);

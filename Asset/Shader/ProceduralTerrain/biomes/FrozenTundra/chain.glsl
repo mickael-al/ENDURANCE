@@ -1,14 +1,15 @@
 #ifndef ENDURANCE_FROZEN_CHAIN_GLSL
 #define ENDURANCE_FROZEN_CHAIN_GLSL
 
-// Longitudinal footprints/gaps in the rotated chain domain, in metres.
+// Nominal footprints/gaps on BOTH axes of the placement domain, in metres.
+// Lower buttresses join across these footprints to form passes. The continuous
+// domain deformation changes world-space contours, not the nominal intervals.
 const float FROZEN_WIDTH_MIN = 1000.0;
 const float FROZEN_WIDTH_MAX = 6000.0;
 const float FROZEN_GAP_MIN = -500.0;
 const float FROZEN_GAP_MAX = 250.0;
 const float FROZEN_HEIGHT_MIN = 1400.0;
 const float FROZEN_HEIGHT_MAX = 3200.0;
-const float FROZEN_CHAIN_SEPARATION = 12000.0;
 
 float frozenRandom(int row, int block, uint salt)
 {
@@ -46,16 +47,14 @@ float frozenRowPhase(int row)
 vec2 frozenChainDomain(vec2 p)
 {
     vec2 axis = landSparseDirection(227u);
-    return vec2(dot(p, axis), dot(p, vec2(-axis.y, axis.x)));
-}
-
-float frozenChainCenter(float along, int row)
-{
-    float phase = frozenRandom(row, 0, 228u) * 97.0;
-    float broad = landPlacementValue(vec2(along / 18000.0, phase), 229u);
-    float detail = landPlacementValue(vec2(along / 6500.0, phase), 230u);
-    return float(row) * FROZEN_CHAIN_SEPARATION
-        + (broad - 0.5) * 3600.0 + (detail - 0.5) * 650.0;
+    vec2 q = vec2(dot(p, axis), dot(p, vec2(-axis.y, axis.x)));
+    // Composed shears bend the placement in both directions without folding
+    // or changing its area. All sites share the same continuous deformation.
+    q.x += (landPlacementValue(vec2(q.y / 9000.0, 17.3), 229u) - 0.5) * 2400.0
+         + (landPlacementValue(vec2(q.y / 3200.0, 31.7), 230u) - 0.5) * 600.0;
+    q.y += (landPlacementValue(vec2(q.x / 11000.0, 47.1), 233u) - 0.5) * 2400.0
+         + (landPlacementValue(vec2(q.x / 3700.0, 61.9), 234u) - 0.5) * 600.0;
+    return q;
 }
 
 float frozenSummitHeight(float width, float variant)
@@ -106,46 +105,60 @@ float frozenChainMassif(vec2 q, float width, float variant)
     return frozenSummitHeight(width, variant) * profile * detail;
 }
 
+float frozenMountainSite(vec2 q, vec2 widths, ivec2 site)
+{
+    vec2 v = q / (0.5 * widths);
+    float radius = length(v);
+    if (radius >= 2.0) return 0.0;
+    float variant = frozenRandom(site.x, site.y, 240u);
+    float angle = frozenRandom(site.x, site.y, 241u) * 6.2831853;
+    vec2 direction = vec2(cos(angle), sin(angle));
+    vec2 turned = vec2(dot(v, direction), dot(v, vec2(-direction.y, direction.x)));
+    float width = sqrt(widths.x * widths.y);
+    // Retain the accepted crest, cirque and subsidiary ridges. Each footprint
+    // has its own direction; X/Z sizes vary independently from 1 to 6 km.
+    float summit = frozenChainMassif(turned * (0.5 * width), width, variant);
+
+    // Broad descending buttresses overlap in BOTH directions and meet in low
+    // passes. No constant floor: their height follows distance to each summit
+    // and continuous ridges; the main summit is never raised by addition.
+    float ribs = landRidges(turned * 1.7 + variant * vec2(53.1, 17.9), 235u);
+    float foothill = frozenSummitHeight(width, variant) * 0.48
+        * pow(max(1.0 - radius * 0.5, 0.0), 1.35) * mix(0.68, 1.0, ribs);
+    return max(summit, foothill);
+}
+
 float frozenChainHeight(vec2 p)
 {
     vec2 domain = frozenChainDomain(p);
-    int middleRow = int(floor(domain.y / FROZEN_CHAIN_SEPARATION + 0.5));
+    vec2 phase = vec2(frozenRowPhase(0), frozenRowPhase(1));
+    ivec2 middleBlock = ivec2(floor((domain - phase) / frozenBlockLength()));
     float result = 0.0;
-    // Support <=3900m plus <=2125m bend: adjacent rows suffice.
-    for (int rowOffset = -1; rowOffset <= 1; ++rowOffset)
+    // Independent variable intervals fill the entire plane, not spaced rows
+    // of mountains. Support <=6000 m per axis: adjacent 13500 m blocks suffice.
+    for (int zBlockOffset = -1; zBlockOffset <= 1; ++zBlockOffset)
     {
-        int row = middleRow + rowOffset;
-        float across = domain.y - frozenChainCenter(domain.x, row);
-        if (abs(across) >= FROZEN_WIDTH_MAX * 0.65) continue;
-        float phase = frozenRowPhase(row);
-        int middleBlock = int(floor((domain.x - phase) / frozenBlockLength()));
-        // Neighbour blocks keep overlaps/saddles continuous across boundaries.
-        for (int blockOffset = -1; blockOffset <= 1; ++blockOffset)
+        int zBlock = middleBlock.y + zBlockOffset;
+        float zStart = float(zBlock) * frozenBlockLength() + phase.y;
+        for (int j = 0; j < 4; ++j)
         {
-            int block = middleBlock + blockOffset;
-            float start = float(block) * frozenBlockLength() + phase;
-            for (int i = 0; i < 4; ++i)
+            vec2 zd = frozenDimensions(1, zBlock, j);
+            float dz = domain.y - (zStart + zd.x * 0.5);
+            zStart += zd.x + zd.y;
+            if (abs(dz) >= zd.x) continue;
+            for (int xBlockOffset = -1; xBlockOffset <= 1; ++xBlockOffset)
             {
-                vec2 dimensions = frozenDimensions(row, block, i);
-                float width = dimensions.x;
-                float center = start + width * 0.5;
-                float variant = frozenRandom(row, block, 240u + uint(i));
-                result = max(result, frozenChainMassif(vec2(domain.x - center, across), width, variant));
-                int nextBlock = i == 3 ? block + 1 : block;
-                int nextIndex = (i + 1) % 4;
-                float nextWidth = frozenDimensions(row, nextBlock, nextIndex).x;
-                float nextCenter = start + width + dimensions.y + nextWidth * 0.5;
-                float t = (domain.x - center) / (nextCenter - center);
-                if (t > 0.0 && t < 1.0)
+                int xBlock = middleBlock.x + xBlockOffset;
+                float xStart = float(xBlock) * frozenBlockLength() + phase.x;
+                for (int i = 0; i < 4; ++i)
                 {
-                    float nextVariant = frozenRandom(row, nextBlock, 240u + uint(nextIndex));
-                    float passWidth = min(width, nextWidth) * 0.32;
-                    float passAcross = max(1.0 - abs(across) / passWidth, 0.0);
-                    float saddle = min(frozenSummitHeight(width, variant), frozenSummitHeight(nextWidth, nextVariant));
-                    saddle *= mix(0.34, 0.14, (dimensions.y - FROZEN_GAP_MIN) / (FROZEN_GAP_MAX - FROZEN_GAP_MIN));
-                    result = max(result, saddle * pow(sin(t * 3.14159265), 0.70) * passAcross * passAcross);
+                    vec2 xd = frozenDimensions(0, xBlock, i);
+                    float dx = domain.x - (xStart + xd.x * 0.5);
+                    xStart += xd.x + xd.y;
+                    if (abs(dx) >= xd.x) continue;
+                    result = max(result, frozenMountainSite(vec2(dx, dz), vec2(xd.x, zd.x),
+                        ivec2(xBlock * 4 + i, zBlock * 4 + j)));
                 }
-                start += width + dimensions.y;
             }
         }
     }
