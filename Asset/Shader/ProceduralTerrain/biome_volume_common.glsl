@@ -5,6 +5,30 @@
 
 #include "../Noise/noise_3d.glsl"
 
+// Shared original 3D recipe, separated so a localized cave can reuse the
+// cavern pattern without inheriting the recipe's surface displacement.
+vec3 fieldRecipeNoise(vec3 p)
+{
+    return vec3(noisePerlin3D(p*0.0125, uSeed ^ (0x299f31d0u)),
+        noisePerlin3D(p*vec3(0.00625,0.020,0.00625), uSeed ^ (0x082efa98u)),
+        noisePerlin3D(p*vec3(0.018,0.005,0.018), uSeed ^ (0xec4e6c89u)));
+}
+
+// Negative inside the noise cavity. Shape/style retain their original meaning.
+float fieldRecipeCavity(vec3 n, float y, vec4 shape, vec4 style)
+{
+    float a=dot(shape.xyz,n);
+    float b=0.75*n.y-0.65*n.z;
+    vec2 d=abs(vec2(a,b));
+    float tube=mix(length(d),(d.x+d.y)*0.75,clamp(style.y*2.0,0.0,1.0));
+    tube=mix(tube,max(d.x,d.y),clamp(style.y*2.0-1.0,0.0,1.0));
+    float cavity=mix(abs(a),tube,style.x);
+    float layer=abs(2.0*fract(y*0.025+0.08*n.x)-1.0);
+    float layerWidth=mix(0.55,1.35,smoothstep(0.2,0.8,layer));
+    float radius=shape.w*mix(1.0,layerWidth,style.w);
+    return cavity-radius;
+}
+
 // The original single-recipe evaluator, with already scaled column controls.
 // Positive density is solid. This internal helper returns a complete density;
 // public fieldVolume functions return only a DELTA to height - p.y.
@@ -17,22 +41,12 @@ float fieldRecipeDensityAtPrepared(vec3 p,vec2 terrain,vec4 volume,vec4 shape,ve
     float edgeDistance=terrain.y-abs(p.y-volume.x);
     if(edgeDistance<=0.0) return base;
     float influence=smoothstep(0.0,volume.w,edgeDistance);
-    vec3 n=vec3(noisePerlin3D(p*0.0125, uSeed ^ (0x299f31d0u)),
-        noisePerlin3D(p*vec3(0.00625,0.020,0.00625), uSeed ^ (0x082efa98u)),
-        noisePerlin3D(p*vec3(0.018,0.005,0.018), uSeed ^ (0xec4e6c89u)));
+    vec3 n=fieldRecipeNoise(p);
     float a=dot(shape.xyz,n);
     float displacement=mix(a,0.6*a+0.4*n.x,style.z)*volume.y;
     float density=base+influence*displacement;
     if(volume.z<=0.0) return density;
-    float b=0.75*n.y-0.65*n.z;
-    vec2 d=abs(vec2(a,b));
-    float tube=mix(length(d),(d.x+d.y)*0.75,clamp(style.y*2.0,0.0,1.0));
-    tube=mix(tube,max(d.x,d.y),clamp(style.y*2.0-1.0,0.0,1.0));
-    float cavity=mix(abs(a),tube,style.x);
-    float layer=abs(2.0*fract(p.y*0.025+0.08*n.x)-1.0);
-    float layerWidth=mix(0.55,1.35,smoothstep(0.2,0.8,layer));
-    float radius=shape.w*mix(1.0,layerWidth,style.w);
-    float cavityDensity=(cavity-radius)*volume.z;
+    float cavityDensity=fieldRecipeCavity(n,p.y,shape,style)*volume.z;
     return mix(density,min(density,cavityDensity),influence);
 }
 

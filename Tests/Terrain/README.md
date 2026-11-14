@@ -724,3 +724,22 @@ outside-band samples must stay unchanged. Targeted production accumulation and
 shared LOD checks run inside a newly carved pocket. The generated section uses
 real GLSL; it does not certify collision, accessibility or GPU performance.
 See [controls and implementation](../../docs/POLAR_ICE_MASSIF_CAVES.md).
+
+## Tundra: rare ground-accessible caves
+
+Extract the complete `Asset/Shader` tree before the cave change (local `573a307`,
+published tree `1b445f966cafeaf1ace30dd50d28c7932c9200f9`) into a reference folder:
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_tundra_caves.py \
+  --reference-shaders ../tundra_before/Asset/Shader/ProceduralTerrain \
+  --output /tmp/tundra-caves
+```
+
+The fixture executes both shader trees. It checks exact relief/band/control
+preservation, unchanged legacy 3D when only the new cave call is omitted,
+scarcity across two seeds, connected roofed chambers with floors and ground
+entrances, and carve-only density. Production accumulation and shared LOD samples
+are compared near newly excavated walls. Marine density must stay bit-identical
+after the original common cavern field is extracted into reusable helpers.
+See [controls and implementation](../../docs/TUNDRA_CAVES.md).

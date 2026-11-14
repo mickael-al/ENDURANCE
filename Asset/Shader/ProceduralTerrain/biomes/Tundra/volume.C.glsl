@@ -5,6 +5,7 @@
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
 #include "../../biome_landforms_3d.glsl"
+#include "caves.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
@@ -45,6 +46,7 @@ float fieldVolume(vec3 p, FieldColumn column)
         float withStone = landUnion(target, stone * uDetailScale, 1.2 * uDetailScale);
         target = mix(target, withStone, rocks.mask);
     }
+    target = tundraCarveCaves(p, column, site, target);
     // Individual site masks have already been applied exactly once above.
     return landDelta(p, column, target, 1.0);
 }
