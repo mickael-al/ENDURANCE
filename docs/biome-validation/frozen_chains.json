@@ -1,6 +1,6 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
-  "source_sha256": "b0a5c4735c29e1d15d7688277a11dac3449d5ecd531c1b798982668216d05b96",
+  "source_sha256": "acd48a84b63702c227c364f6598d40419e1ce436ed42b484c481fae5def7dd0a",
   "records": [
     {
       "seed": 1337,
@@ -47,7 +47,7 @@
       "pipeline": {
         "anchor": [
           13496,
-          2748,
+          1744,
           -4224
         ],
         "shared_exact_lod_samples": 125,
@@ -99,7 +99,7 @@
       "pipeline": {
         "anchor": [
           -21098,
-          2752,
+          2588,
           4214
         ],
         "shared_exact_lod_samples": 125,
@@ -190,5 +190,5 @@
       "major_axis_degrees": 118.02030332671899
     }
   ],
-  "note": "Shared curved main-footprint boundaries have signed separation -500..250m along their pair normal at fixed tangent. Negative values genuinely overlap the two main profiles; connecting foothills and high curved overlap passes extend beyond main footprints. Pass reciprocity, endpoints, positive-gap absence and inclusion in production are tested. Every main footprint contains a 500m disk and stays within radius3000m. Presence 0/.5/1 and a spatial mask tested; production site/face rings2/3 match expanded rings4/5. Coverage sampled over48x48km. Not a performance, in-game visual, or collision certification."
+  "note": "Regional/plain composition is omitted only in the isolated shape fixture; production accumulation and LOD use the actual regional surface. Shared curved main-footprint boundaries have signed separation -500..250m along their pair normal at fixed tangent. Negative values genuinely overlap the two main profiles; connecting foothills and high curved overlap passes extend beyond main footprints. Pass reciprocity, endpoints, positive-gap absence and inclusion in production are tested. Every main footprint contains a 500m disk and stays within radius3000m. Presence 0/.5/1 and a spatial mask tested; production site/face rings2/3 match expanded rings4/5. Coverage sampled over48x48km. Not a performance, in-game visual, or collision certification."
 }

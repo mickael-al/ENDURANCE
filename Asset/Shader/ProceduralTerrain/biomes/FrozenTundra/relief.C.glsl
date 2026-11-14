@@ -2,22 +2,22 @@
 #define FIELD_BIOME_ID 1u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_landforms_2d.glsl"
+#include "regions.glsl"
 #include "chain.glsl"
+#include "caves.glsl"
 
 vec4 fieldRelief(vec2 p)
 {
-    // Future spatial mask: replace 1.0 with a function of world XZ p.
-    // 0 = no mountains, 1 = mountains everywhere; placement remains identical.
-
-    
-    float mountainPresence = noiseSimplexFbm2D(p/1650,305u,1,2.0,0.5);
-    float h = 0.0;
-  //  if (mountainPresence > 0.5)
-    {
-        h += frozenChainHeight(p) * 2.0;
-    }
-    return vec4(h, 0.0, 0.0, 0.0);
+    // Edit frozenMountainPresence in regions.glsl to control BOTH terrain and caves.
+    float mountainPresence = frozenMountainPresence(p);
+    float plain = frozenPlainHeight(p);
+    float mountains = mountainPresence > 0.0 ? frozenChainHeight(p) : 0.0;
+    float h = plain / 0.35 + mountains * FROZEN_MOUNTAIN_HEIGHT_GAIN * mountainPresence;
+    LandSite cave = frozenCaveSite(p);
+    float caveSupport = frozenCaveSupport(p, cave, mountainPresence);
+    float mountainMetres = mountains * FROZEN_MOUNTAIN_HEIGHT_GAIN * 0.35 * mountainPresence;
+    float band = frozenCaveBand(cave, caveSupport, mountainMetres);
+    return vec4(h, band, 0.0, mountainPresence);
 }
 
 #include "../../field_surface_accumulate.glsl"

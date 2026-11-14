@@ -1,20 +1,23 @@
 # Terrain validation
 
-FrozenTundra now uses dense mountain terrain over the whole biome. Its dedicated fixture replaces
-the old isolated pingo/cave checks; the other isolated sculptures retain their
-existing tests. The raw relief limit is 10240, mirrored by CPU bounds.
+FrozenTundra combines large mountain regions, detailed plains and rare connected
+3D caves. The raw relief limit remains 10240, mirrored by CPU bounds.
 
 ```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_regions.py --output /tmp/frozen-regions
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_chains.py --output /tmp/frozen-chains
 ```
 
-This runs two seeds, geometric signed-gap and reciprocal-boundary checks, actual
-main-profile overlap checks, 500/3000 m footprint disk bounds and radial widths,
-constant and spatial presence masks, expanded site/face reference searches,
-deterministic heights, production accumulation and exact shared LOD samples.
-A 48 km square per seed checks bare-area fraction, connected low patches and
-row/column coverage. A nine-massif atlas records shape aspects and directions.
-The saved large-view scene uses a 3072-leaf selection limit.
+The region fixture checks kilometre-scale regions, smooth boundary convergence,
+plain detail, cave rarity and zero cave support in mountain-free regions. Actual
+3D density with/without caves checks roof, floor, clearance and air connectivity
+to the surface, plus production accumulation and shared LOD samples.
+
+The massif fixture isolates the existing mountain generator at its historical
+reference gain: shared signed gaps, overlapping profiles, footprint bounds,
+expanded neighbor searches, deterministic geometry and nine isolated shapes.
+Its dense 48 km preview deliberately omits the regional mask and is not the
+complete biome. Actual pipeline checks use the current production heights.
 
 Run these commands from the repository root. They test the production C++ and
 GLSL files directly. There is no window or full game launch requirement.

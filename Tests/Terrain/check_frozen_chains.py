@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Actual GLSL irregular mountain footprints, shared gaps, masks and LOD."""
+"""Isolated production mountain geometry, shared gaps, masks and actual LOD.
+
+The fixture bypasses the regional/plain composition only, so placement/shape
+regressions remain comparable. Actual region/cave behavior has its own probe.
+"""
 from pathlib import Path
 import argparse,json,re
 import numpy as np
@@ -97,12 +101,23 @@ void main(){
 }
 '''
 
+def isolated_massif_recipe(path):
+ source=biome_recipe_source(path)
+ fixture='''vec4 fieldRelief(vec2 p)
+{
+    float mountainPresence = 1.0;
+    return vec4(frozenChainHeight(p) * mountainPresence / 0.35, 0.0, 0.0, 0.0);
+}'''
+ source,count=re.subn(r'vec4 fieldRelief\(vec2 p\)\s*\{[\s\S]*?^\}',fixture,source,flags=re.MULTILINE)
+ assert count==1,'Update isolated massif adapter after production entrypoint change'
+ return source
+
 class Variant(BiomeProbe):
- def __init__(self,gl,mode):super().__init__(gl,source=SOURCE);self.edit=mode
+ def __init__(self,gl,mode='1.0',source=SOURCE):super().__init__(gl,source=source);self.edit=mode
  def program_for(self,biome):
   if biome not in self.programs:
    d=self.directory/'biomes'/'FrozenTundra'
-   relief=biome_recipe_source(d/'relief.C.glsl')
+   relief=isolated_massif_recipe(d/'relief.C.glsl')
    if self.edit=='wide':
     for symbol,old,new in (('FROZEN_SITE_SEARCH_RADIUS',2,4),('FROZEN_FACE_SEARCH_RADIUS',3,5)):
      relief,count=re.subn(r'\b'+symbol+r'\s*=\s*'+str(old)+r'\b',symbol+' = '+str(new),relief)
@@ -112,7 +127,7 @@ class Variant(BiomeProbe):
     replacement='smoothstep(-4000.0, 4000.0, p.x)' if self.edit=='spatial' else self.edit
     relief=relief.replace('float mountainPresence = 1.0;',f'float mountainPresence = {replacement};')
    volume=re.sub(r'^#version[^\n]*\n','',biome_recipe_source(d/'volume.C.glsl'),count=1)
-   self.programs[biome]=self.gl.compile([(0x91B9,relief+volume+profile_probe_source()+SOURCE)],'Frozen irregular mountains '+self.edit)
+   self.programs[biome]=self.gl.compile([(0x91B9,relief+volume+profile_probe_source()+self.main_source)],'Frozen isolated mountains '+self.edit)
   return self.programs[biome]
 
 def values(probe,**opts):return np.asarray(probe.run(biome=1,**opts)['values']).reshape(opts['size'],opts['size'],16)
@@ -148,7 +163,7 @@ def render(path,data,origin,steps,before=None):
  cmap=LinearSegmentedColormap.from_list('ice_relief',['#2b3942','#627581','#a6b1b5','#f4f6f7'])
  flat_axes=[ax for ax in fig.axes if ax.name!='3d']
  fig.colorbar(ScalarMappable(norm=Normalize(0,3.2),cmap=cmap),ax=flat_axes,label='Relief (km)',fraction=.035,pad=.03)
- fig.suptitle('FrozenTundra: production GLSL diagnostic, not in-game — no vertical exaggeration',fontsize=12)
+ fig.suptitle('FrozenTundra: isolated mountain geometry, regional mask omitted — no vertical exaggeration',fontsize=12)
  fig.savefig(path,dpi=100);plt.close(fig)
 
 def largest_component_area(mask,step_m):
@@ -215,7 +230,7 @@ def shape_atlas(gl,path):
  import matplotlib
  matplotlib.use('Agg')
  import matplotlib.pyplot as plt
- probe=BiomeProbe(gl,source=ISOLATED_SOURCE);fig,axes=plt.subplots(3,3,figsize=(10,10),constrained_layout=True)
+ probe=Variant(gl,source=ISOLATED_SOURCE);fig,axes=plt.subplots(3,3,figsize=(10,10),constrained_layout=True)
  records=[];size=97;spacing=6000/(size-1);x=np.linspace(-3000,3000,size);xx,zz=np.meshgrid(x,x)
  for index,ax in enumerate(axes.flat):
   site=(index%3-1,index//3-1)
@@ -235,7 +250,7 @@ def main():
  p=argparse.ArgumentParser(description=__doc__);p.add_argument('--output',type=Path,required=True);p.add_argument('--before-shaders',type=Path);args=p.parse_args();args.output.mkdir(parents=True,exist_ok=True)
  fingerprint=source_fingerprint(1)
  with GL() as gl:
-  probe=BiomeProbe(gl,source=SOURCE);wide=Variant(gl,'wide');zero=Variant(gl,'0.0');half=Variant(gl,'0.5');spatial=Variant(gl,'spatial')
+  probe=Variant(gl);wide=Variant(gl,'wide');zero=Variant(gl,'0.0');half=Variant(gl,'0.5');spatial=Variant(gl,'spatial')
   records=[]
   for seed in (1337,17):
    pairs=values(probe,size=64,mode=1,min_y=0.,uSeed=seed);gaps=gap_record(pairs)
@@ -251,11 +266,13 @@ def main():
    t=np.clip((a[:,:,1]+4000.)/8000.,0.,1.);presence=t*t*(3.-2.*t)
    assert np.allclose(masked[:,:,0],a[:,:,0]*presence,atol=.002,rtol=0),'Spatial presence must mask every mountain contribution'
    assert np.all(masked[:,:,0][presence==0]==0) and np.any((presence>0)&(presence<1))
-   assert np.all(a[:,:,3]==0),'Removed volume features re-enabled'
+   assert np.all(a[:,:,3]==0),'Isolated shape fixture unexpectedly enables volume bands'
    assert a[:,:,0].max()>2500 and a[:,:,0].max()<3200.01
    coverage=coverage_record(values(probe,size=385,origin=(-24000.,-24000.),spacing=125.,step_y=125.,uSeed=seed)[:,:,0],125.)
    z,x=np.unravel_index(a[:,:,0].argmax(),a[:,:,0].shape);world=a[z,x,1:3];height=a[z,x,0]
-   density=DensityProbe(gl);sample=density.sample(1,tuple(world-4),1.,float(height-4),1.,size=9,depth=9,seed=seed,**SCENE_OPTIONS)
+   actual=BiomeProbe(gl).run(biome=1,size=1,origin=tuple(world),spacing=0.,uSeed=seed,**SCENE_OPTIONS)
+   actual_height=float(actual['values'][0])
+   density=DensityProbe(gl);sample=density.sample(1,tuple(world-4),1.,actual_height-4.,1.,size=9,depth=9,seed=seed,**SCENE_OPTIONS)
    pipeline=check_targeted_pipeline(FieldRunner(gl),density,sample,1,seed)
    records.append(dict(seed=seed,gaps=gaps,footprints=footprints,coverage=coverage,peak_sample_m=float(height),pipeline=pipeline))
    print(json.dumps(records[-1]),flush=True)
@@ -269,7 +286,7 @@ def main():
   shapes=shape_atlas(gl,args.output/'frozen_massifs.png')
   assert source_fingerprint(1)==fingerprint
   report=dict(renderer=gl.renderer,source_sha256=fingerprint,records=records,shape_samples=shapes,
-   note='Shared curved main-footprint boundaries have signed separation -500..250m along their pair normal at fixed tangent. Negative values genuinely overlap the two main profiles; connecting foothills and high curved overlap passes extend beyond main footprints. Pass reciprocity, endpoints, positive-gap absence and inclusion in production are tested. Every main footprint contains a 500m disk and stays within radius3000m. Presence 0/.5/1 and a spatial mask tested; production site/face rings2/3 match expanded rings4/5. Coverage sampled over48x48km. Not a performance, in-game visual, or collision certification.')
+   note='Regional/plain composition is omitted only in the isolated shape fixture; production accumulation and LOD use the actual regional surface. Shared curved main-footprint boundaries have signed separation -500..250m along their pair normal at fixed tangent. Negative values genuinely overlap the two main profiles; connecting foothills and high curved overlap passes extend beyond main footprints. Pass reciprocity, endpoints, positive-gap absence and inclusion in production are tested. Every main footprint contains a 500m disk and stays within radius3000m. Presence 0/.5/1 and a spatial mask tested; production site/face rings2/3 match expanded rings4/5. Coverage sampled over48x48km. Not a performance, in-game visual, or collision certification.')
   (args.output/'frozen_chains.json').write_text(json.dumps(report,indent=2)+'\n')
  return 0
 if __name__=='__main__':raise SystemExit(main())
