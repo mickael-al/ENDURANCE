@@ -28,13 +28,13 @@ static void fields()
     FieldParameters p;
     require(validFieldParameters(p), "Default field parameters rejected");
     auto b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+700.8f)<0.001f && std::abs(b.maximumY-700.8f)<0.001f, "Default conservative field bounds changed");
+    require(std::abs(b.minimumY+6827.2f)<0.001f && std::abs(b.maximumY-6827.2f)<0.001f, "Default conservative field bounds changed");
     p.bandOffset=-200;
     b=fieldHeightBounds(p);
-    require(std::abs(b.minimumY+900.8f)<0.001f && b.maximumY==544.0f, "Negative offset bounds");
+    require(std::abs(b.minimumY+7027.2f)<0.001f && std::abs(b.maximumY-6627.2f)<0.001f, "Negative offset bounds");
     p.bandOffset=200;
     b=fieldHeightBounds(p);
-    require(b.minimumY==-544.0f && std::abs(b.maximumY-900.8f)<0.001f, "Positive offset bounds");
+    require(std::abs(b.minimumY+6627.2f)<0.001f && std::abs(b.maximumY-7027.2f)<0.001f, "Positive offset bounds");
     p=FieldParameters{};
     for (int biome=-1;biome<=25;++biome)
     {
@@ -68,8 +68,11 @@ static void fields()
     require(!validFieldDomain(p,std::numeric_limits<double>::quiet_NaN()),"NaN domain accepted under release flags");
     require(!validFieldDomain(p,std::numeric_limits<double>::infinity()),"Infinite domain accepted under release flags");
     require(!validFieldDomain(p,1e11),"Integer noise-lattice overflow accepted");
-    p.climateFrequency=1e10f;
-    require(!validFieldDomain(p,1),"Excessive climate frequency accepted");
+    p.heightFrequency=1e10f;
+    require(!validFieldDomain(p,1),"Excessive height frequency accepted");
+    p.heightFrequency=1.0f;
+    require(validFieldDomain(p,0x1p24),"Safe five-octave height domain rejected");
+    require(!validFieldDomain(p,0x1p25),"Height noise can overflow the Simplex cell domain");
     p=FieldParameters{};p.mode=FieldMode::Sphere;
     require(validFieldDomain(p,1e10),"Analytic sphere unnecessarily restricted to noise domain");
     require(!validFieldDomain(p,0x1p61),"Sphere distance overflow accepted");
@@ -194,6 +197,26 @@ static void lod()
     const bool selected=selectLodChunks(glm::vec3(80,180,120),p,output,error);
     require(selected,error.c_str());
     std::cout << "PASS demo defaults: " << output.size() << "/" << p.maxLeaves << " selected leaves\n";
+
+    // Saved terrain scene: larger macro relief and 40.096 km selection radius,
+    // collision disabled, selection limit 3072. Preserve coverage near peaks
+    // and deep cuts without raising resident/vertex budgets.
+    FieldParameters sceneField;
+    sceneField.heightAmplitude=1000.0f;
+    const auto sceneBounds=fieldHeightBounds(sceneField);
+    p.viewDistance=40096.0f;p.fullResolutionRadius=0.0f;p.maxLeaves=3072;
+    p.minimumY=sceneBounds.minimumY-coarseSpacing;
+    p.maximumY=sceneBounds.maximumY+coarseSpacing;
+    std::size_t largest=0;
+    for (const glm::vec3 camera : {glm::vec3(80,180,120),glm::vec3(2048,1000,2048),
+                                  glm::vec3(4095,-1000,4095),glm::vec3(20000,1200,-20000),
+                                  glm::vec3(8000,3000,8000),glm::vec3(-8000,5000,-8000)})
+    {
+        require(selectLodChunks(camera,p,output,error),error.c_str());
+        largest=std::max(largest,output.size());
+    }
+    std::cout << "PASS tall-terrain scene: six camera positions, at most " << largest
+              << "/" << p.maxLeaves << " selected leaves\n";
 }
 
 int main(int argc,char** argv)

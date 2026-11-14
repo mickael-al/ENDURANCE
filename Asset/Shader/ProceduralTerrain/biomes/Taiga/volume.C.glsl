@@ -1,26 +1,39 @@
 #version 450 core
-// Biome 3: Taiga. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 3: Taiga. Existing raw relief is scaled by uDetailScale.
+// Added pillar dimensions and placement are expressed directly in world metres.
 #define FIELD_BIOME_ID 3u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-30,6,90,.40);
-const vec4 FIELD_SHAPE = vec4(.35,.25,.40,.13);
-const vec4 FIELD_STYLE = vec4(.80,.20,.30,.10);
+#include "../../biome_landforms_3d.glsl"
+#include "pillars.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if (!landVolumeEnabled(column)) return 0.0;
+    float base = column.terrain.x - p.y;
+    float target = base;
+    ivec2 cell = taigaPillarGrid(p.xz);
+    for (int z = -1; z <= 1; ++z)
+    for (int x = -1; x <= 1; ++x)
+    {
+        ivec2 bin = cell + ivec2(x, z);
+        int count = taigaPillarBinCount(bin);
+        for (int i = 0; i < count; ++i)
+        {
+            TaigaPillarSite site = taigaPillarInBin(bin, i);
+            if (taigaPillarFootprint(p.xz, site) >= 32.0) continue;
+            float anchor = taigaPillarAnchorHeight(site);
+            vec3 local = taigaPillarLocal(p, site, anchor);
+            float envelope = taigaPillarEnvelope(local, site);
+            if (envelope >= 32.0) continue;
+            float stone = taigaPillarGeometry(p, site, anchor);
+            float influence = 1.0 - smoothstep(0.0, 32.0, envelope);
+            target = max(target, mix(base, max(base, stone), influence));
+        }
+    }
+    // The geometric envelope supplies the fade; using landDelta's generic
+    // fade would shorten a tall cylinder leaning across a downhill slope.
+    return target - base;
 }
 
 #include "../../field_volume_accumulate.glsl"

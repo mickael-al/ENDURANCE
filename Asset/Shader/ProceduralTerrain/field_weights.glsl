@@ -7,7 +7,7 @@
 vec2 fieldLocalClimateRatio(FieldColumn column)
 {
     vec2 grid=clamp(column.terrain.yz,0.0,1.0)*4.0;
-    return fieldFade(grid-min(floor(grid),vec2(3.0)));
+    return clamp(noiseFadeQuintic(grid-min(floor(grid),vec2(3.0))),0.0,1.0);
 }
 
 bool fieldForcedBiome()

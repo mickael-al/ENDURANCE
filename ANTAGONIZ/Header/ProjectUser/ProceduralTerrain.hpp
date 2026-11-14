@@ -36,11 +36,10 @@ public:
     bool measureGenerationTimings = true;
     std::uint32_t vertexBudgetMiB = 256;
     std::uint32_t maxResidentChunks = 2048;
-    std::uint32_t maxSelectedChunks = 1024;
+    std::uint32_t maxSelectedChunks = 2048;
     float baseHeight = 0.0f;
     float heightAmplitude = 320.0f;
     float heightFrequency = 0.00015f;
-    float climateFrequency = 0.0005f;
     float bandOffset = 0.0f;
     float bandOffsetVariation = 0.0f;
     float detailScale = 0.35f;

@@ -1,0 +1,229 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "d7dd9f7d167fc4b3ec9976b10a944775edae114a769a9ccc3defc408cb9fe0e0",
+  "test_source_sha256": "0a2aae0b51a7eed0ca8b7845a824ecc86d71712a467de34b8f3e8fec6aff82ff",
+  "prior_tundra_source_sha256": "db34bbc6010ab4baba5d3520de34226b629102afec4d2252f612428d7c220148",
+  "records": [
+    {
+      "seed": 1337,
+      "broad_preservation": {
+        "area_km2": 2304.0,
+        "columns_sampled": 148225,
+        "sampled_depths_below_surface_m": [
+          0,
+          64,
+          128,
+          192,
+          256,
+          320,
+          384,
+          448
+        ],
+        "altered_column_fraction": 0.18115027829313543,
+        "exactly_unchanged_column_fraction": 0.8188497217068645,
+        "excavated_column_fraction": 0.0792511384719177,
+        "changed_columns_without_previous_band": 26851,
+        "height_and_controls_unchanged_exactly": true,
+        "legacy_3d_unchanged_exactly": true
+      },
+      "local_visibility": {
+        "camera_xz_m": [
+          80.0,
+          120.0
+        ],
+        "map_origin_m": [
+          -4016.0,
+          -3984.0
+        ],
+        "map_width_m": 8192.0,
+        "map_spacing_m": 16.0,
+        "ground_aperture_samples": 2087,
+        "separate_sampled_apertures": 9,
+        "nearest_ground_aperture_m": 2111.3483843269446,
+        "largest_sampled_aperture_area_m2": 308992.0,
+        "previous_ground_aperture_samples": 157,
+        "world_lattices": [
+          {
+            "world_lattice_spacing_m": 8.0,
+            "new_air_nodes": 320707,
+            "new_air_nodes_connected_to_exterior": 320707
+          },
+          {
+            "world_lattice_spacing_m": 16.0,
+            "new_air_nodes": 40564,
+            "new_air_nodes_connected_to_exterior": 40564
+          },
+          {
+            "world_lattice_spacing_m": 32.0,
+            "new_air_nodes": 5074,
+            "new_air_nodes_connected_to_exterior": 5074
+          },
+          {
+            "world_lattice_spacing_m": 64.0,
+            "new_air_nodes": 684,
+            "new_air_nodes_connected_to_exterior": 676
+          }
+        ]
+      },
+      "network": {
+        "removed_samples": 108889,
+        "roof_and_floor_samples": 102566,
+        "connected_roofed_samples": 101458,
+        "connected_roofed_fraction": 0.9891971998518028,
+        "sealed_roofed_samples": 1108,
+        "removed_volume_m3": 446009344.0,
+        "largest_connected_roofed_horizontal_inscribed_diameter_m": 556.4334022399462,
+        "horizontal_lobes_on_one_level": 23,
+        "substantial_underground_components": 3,
+        "largest_connected_underground_span_xz_m": [
+          2368.0,
+          2096.0
+        ],
+        "largest_connected_underground_volume_m3": 439857152.0,
+        "excavated_region_span_xz_m": [
+          2368.0,
+          2096.0
+        ],
+        "horizontal_spacing_m": 16.0,
+        "vertical_spacing_m": 16.0,
+        "legacy_density_restored_exactly_when_new_call_omitted": true,
+        "legacy_density_restored_when_shared_marine_evaluator_disabled": true,
+        "shared_marine_disabled_maximum_error": 0.0,
+        "shared_marine_disabled_bit_identical": true,
+        "largest_measured_room_center_xyz_m": [
+          256.0,
+          -128.0,
+          2576.0
+        ],
+        "pipeline": {
+          "anchor": [
+            -48,
+            96,
+            2784
+          ],
+          "shared_exact_lod_samples": 125,
+          "production_density_samples": 1331,
+          "excavated_wall_reference_density": -0.0001983642578125
+        }
+      }
+    },
+    {
+      "seed": 17,
+      "broad_preservation": {
+        "area_km2": 2304.0,
+        "columns_sampled": 148225,
+        "sampled_depths_below_surface_m": [
+          0,
+          64,
+          128,
+          192,
+          256,
+          320,
+          384,
+          448
+        ],
+        "altered_column_fraction": 0.21518637206948896,
+        "exactly_unchanged_column_fraction": 0.784813627930511,
+        "excavated_column_fraction": 0.08764378478664193,
+        "changed_columns_without_previous_band": 31896,
+        "height_and_controls_unchanged_exactly": true,
+        "legacy_3d_unchanged_exactly": true
+      },
+      "local_visibility": {
+        "camera_xz_m": [
+          80.0,
+          120.0
+        ],
+        "map_origin_m": [
+          -4016.0,
+          -3984.0
+        ],
+        "map_width_m": 8192.0,
+        "map_spacing_m": 16.0,
+        "ground_aperture_samples": 10533,
+        "separate_sampled_apertures": 41,
+        "nearest_ground_aperture_m": 64.4980619863884,
+        "largest_sampled_aperture_area_m2": 850944.0,
+        "previous_ground_aperture_samples": 272,
+        "world_lattices": [
+          {
+            "world_lattice_spacing_m": 8.0,
+            "new_air_nodes": 384537,
+            "new_air_nodes_connected_to_exterior": 384061
+          },
+          {
+            "world_lattice_spacing_m": 16.0,
+            "new_air_nodes": 48729,
+            "new_air_nodes_connected_to_exterior": 48663
+          },
+          {
+            "world_lattice_spacing_m": 32.0,
+            "new_air_nodes": 6250,
+            "new_air_nodes_connected_to_exterior": 6243
+          },
+          {
+            "world_lattice_spacing_m": 64.0,
+            "new_air_nodes": 827,
+            "new_air_nodes_connected_to_exterior": 825
+          }
+        ]
+      },
+      "network": {
+        "removed_samples": 218917,
+        "roof_and_floor_samples": 195330,
+        "connected_roofed_samples": 193887,
+        "connected_roofed_fraction": 0.992612501919828,
+        "sealed_roofed_samples": 1443,
+        "removed_volume_m3": 896684032.0,
+        "largest_connected_roofed_horizontal_inscribed_diameter_m": 791.6434857039336,
+        "horizontal_lobes_on_one_level": 36,
+        "substantial_underground_components": 6,
+        "largest_connected_underground_span_xz_m": [
+          3504.0,
+          3936.0
+        ],
+        "largest_connected_underground_volume_m3": 886497280.0,
+        "excavated_region_span_xz_m": [
+          3792.0,
+          4016.0
+        ],
+        "horizontal_spacing_m": 16.0,
+        "vertical_spacing_m": 16.0,
+        "legacy_density_restored_exactly_when_new_call_omitted": true,
+        "legacy_density_restored_when_shared_marine_evaluator_disabled": true,
+        "shared_marine_disabled_maximum_error": 0.0,
+        "shared_marine_disabled_bit_identical": true,
+        "largest_measured_room_center_xyz_m": [
+          1408.0,
+          -160.0,
+          336.0
+        ],
+        "pipeline": {
+          "anchor": [
+            688,
+            -176,
+            -144
+          ],
+          "shared_exact_lod_samples": 125,
+          "production_density_samples": 1331,
+          "excavated_wall_reference_density": -0.0001220703125
+        }
+      }
+    }
+  ],
+  "marine_bit_preservation": [
+    {
+      "seed": 1337,
+      "columns_tested": 16641,
+      "density_samples_tested": 133128,
+      "bit_identical": true
+    },
+    {
+      "seed": 17,
+      "columns_tested": 16641,
+      "density_samples_tested": 133128,
+      "bit_identical": true
+    }
+  ],
+  "note": "Actual GLSL networks in two nearest-entry regions. Real horizontal room widths are measured on global Y slices of roofed air connected to the exterior, not inferred from a noise wavelength. Sealed pockets are counted explicitly. Disabling the actual shared Marine evaluator must remove all new carving. Original relief/controls/3D sites, independent bands, local surface entries, world-aligned 8/16/32/64m visibility and production/LOD checks are verified. Geometry sampling does not certify player collision or Windows GPU performance."
+}

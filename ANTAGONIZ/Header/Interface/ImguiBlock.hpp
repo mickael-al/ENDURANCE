@@ -12,6 +12,7 @@ namespace Ge
 	class ImguiBlock
 	{
 	public:
+		virtual ~ImguiBlock() = default;
 		virtual void init(GraphicsDataMisc * gdm) = 0;
 		virtual void render(GraphicsDataMisc * gdm) = 0;
 	};

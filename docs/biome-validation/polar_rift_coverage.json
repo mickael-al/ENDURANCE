@@ -1,0 +1,300 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "291e0e7af56fafa83359a3b04c64641bac9c9f0533da22a6353b8c81be940dbd",
+  "sites_measured": 24,
+  "grid_size": 193,
+  "points_measured": 893976,
+  "offsets_per_point": 13,
+  "uncovered_points": 0,
+  "sites": [
+    {
+      "seed": 1337,
+      "center": [
+        -5143.78564453125,
+        -5280.36474609375
+      ],
+      "variant": 0.17064757645130157,
+      "branches": 0,
+      "changed_points": 1968,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        10856.21484375,
+        10719.6357421875
+      ],
+      "variant": 0.17064757645130157,
+      "branches": 1,
+      "changed_points": 2150,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        -12219.005859375,
+        -10741.6904296875
+      ],
+      "variant": 0.23430868983268738,
+      "branches": 1,
+      "changed_points": 2095,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        3770.970703125,
+        -4503.97216796875
+      ],
+      "variant": 0.24179837107658386,
+      "branches": 2,
+      "changed_points": 2320,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        2514.150146484375,
+        4039.481689453125
+      ],
+      "variant": 0.2614274322986603,
+      "branches": 0,
+      "changed_points": 1990,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        -12211.4296875,
+        -4883.49853515625
+      ],
+      "variant": 0.3149997889995575,
+      "branches": 0,
+      "changed_points": 1977,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        -10778.6318359375,
+        3368.767578125
+      ],
+      "variant": 0.45743274688720703,
+      "branches": 1,
+      "changed_points": 2167,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        -3510.055419921875,
+        5346.81005859375
+      ],
+      "variant": 0.7297102808952332,
+      "branches": 1,
+      "changed_points": 2587,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        13369.3212890625,
+        3742.742431640625
+      ],
+      "variant": 0.8004395961761475,
+      "branches": 1,
+      "changed_points": 2654,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        -2771.168212890625,
+        10852.6552734375
+      ],
+      "variant": 0.9256929159164429,
+      "branches": 0,
+      "changed_points": 2027,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        13228.83203125,
+        -5147.34521484375
+      ],
+      "variant": 0.9256929159164429,
+      "branches": 0,
+      "changed_points": 2397,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 1337,
+      "center": [
+        -10537.9462890625,
+        12615.3349609375
+      ],
+      "variant": 0.997215211391449,
+      "branches": 1,
+      "changed_points": 2423,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        -19738.541015625,
+        3242.25048828125
+      ],
+      "variant": 0.10416759550571442,
+      "branches": 2,
+      "changed_points": 2049,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        -20878.025390625,
+        -5346.60546875
+      ],
+      "variant": 0.10645551979541779,
+      "branches": 2,
+      "changed_points": 2101,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        -12210.30859375,
+        -3681.671630859375
+      ],
+      "variant": 0.11231143772602081,
+      "branches": 1,
+      "changed_points": 1950,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        4649.49169921875,
+        -4983.9716796875
+      ],
+      "variant": 0.4336802363395691,
+      "branches": 0,
+      "changed_points": 2051,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        4228.22802734375,
+        5020.20361328125
+      ],
+      "variant": 0.48356109857559204,
+      "branches": 0,
+      "changed_points": 2013,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        12805.2373046875,
+        -12530.6533203125
+      ],
+      "variant": 0.5016781091690063,
+      "branches": 0,
+      "changed_points": 2116,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        -3038.08984375,
+        -11455.9345703125
+      ],
+      "variant": 0.5756382942199707,
+      "branches": 0,
+      "changed_points": 2107,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        -3918.01220703125,
+        -5351.3212890625
+      ],
+      "variant": 0.8069503307342529,
+      "branches": 1,
+      "changed_points": 2450,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        12081.9873046875,
+        10648.6787109375
+      ],
+      "variant": 0.8069503307342529,
+      "branches": 0,
+      "changed_points": 2331,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        -12379.3818359375,
+        2765.476806640625
+      ],
+      "variant": 0.9253320097923279,
+      "branches": 1,
+      "changed_points": 2206,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        5096.126953125,
+        -12676.3974609375
+      ],
+      "variant": 0.9343847632408142,
+      "branches": 3,
+      "changed_points": 2804,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    },
+    {
+      "seed": 17,
+      "center": [
+        2591.67236328125,
+        -18520.96484375
+      ],
+      "variant": 0.9596976637840271,
+      "branches": 1,
+      "changed_points": 2388,
+      "uncovered_points": 0,
+      "minimum_coverage": 1.0
+    }
+  ],
+  "note": "Actual GLSL, with compact site mask fixed at one. Tests the bounded warp rectangle and irregular interior offsets. This finite sampling complements the analytical coverage bound; it is not an in-game performance benchmark."
+}

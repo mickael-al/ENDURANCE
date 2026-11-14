@@ -1,20 +1,28 @@
 #version 450 core
-// Biome 9: ColdMarsh. The caller clamps and accumulates this 2D result.
-// x: relative height; y: total 3D band thickness; z: band offset; w: rock mask.
-// XYZ are in metres before detailScale; w is in [0,1].
+// Biome 9: ColdMarsh. Multiscale terrain with sparse, bounded sculptural sites.
+// Relative height / total 3D band / offset / local site support, before detailScale.
 #define FIELD_BIOME_ID 9u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_relief_common.glsl"
+#include "../../biome_landforms_2d.glsl"
 
 vec4 fieldRelief(vec2 p)
 {
-    float lake = fieldCellular2(p / 256.0, 190u, 0.0);
-    float basin = 1.0 - smoothstep(0.12, 0.31, lake);
-    float pingo = fieldSurfaceLandmark(p, 512.0, 191u, 0.0, 0.18, 0.0, 0.55);
-    float h = fieldSurfaceFbm(p * 0.0014, 192u) * 18.0 - basin * 42.0;
-    h += pingo * 110.0;
-    return vec4(h, 278.0, -40.0, pingo);
+    vec2 q=landWarp(p,3200.0,180.0,901u);
+    float broad=.5+.5*landFbm(q*.00062,902u);
+    // Redistribution flattens the basin floors; only broad shore levels rise.
+    float banks=smoothstep(.42,.78,broad);
+    float h=-28.0+landTerrace(banks*68.0,17.0,.5);
+    h+=landFbm(q*.00020,903u)*17.0;
+    h+=noiseSimplex2D(q*.006,uSeed^904u)*.65*(.2+.8*banks);
+    LandSite s=landSite(p,2300.0,905u,.58);
+    vec2 t=s.q/s.radius;
+    float radius=length(t);
+    float shore=exp(-35.0*(radius-.52)*(radius-.52));
+    // Break the ring in two broad directions rather than trapping the player.
+    float openings=smoothstep(.10,.34,abs(t.y));
+    h+=s.mask*shore*openings*(54.0+45.0*s.variant);
+    return vec4(h,landBand(s,256.0),0.0,s.mask);
 }
 
 #include "../../field_surface_accumulate.glsl"

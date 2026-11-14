@@ -4,11 +4,10 @@ import argparse
 import ctypes
 import os
 from pathlib import Path
-import shutil
 import subprocess
 import tempfile
 
-from gl_headless import GL
+from gl_headless import GL, copy_terrain_shaders
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -22,7 +21,7 @@ def main():
         directory = Path(temporary)
         os.environ["ENDURANCE_SHADER_CACHE_DIR"] = str(directory / "program-cache")
         shaders = directory / "shaders"
-        shutil.copytree(ROOT / "Asset/Shader/ProceduralTerrain", shaders)
+        copy_terrain_shaders(ROOT / "Asset/Shader/ProceduralTerrain", shaders)
         library = directory / "check_reload.so"
         command = [os.environ.get("CXX", "c++"), "-std=c++17", "-O3", "-ffast-math",
                    "-fPIC", "-shared", "-DGLEW_NO_GLU",

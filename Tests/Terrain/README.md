@@ -1,5 +1,48 @@
 # Terrain validation
 
+## Taiga tilted porous cylinders
+
+```sh
+python3 Tests/Terrain/generate_taiga_pillar_sites.py
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_taiga_pillars.py \
+  --reference-shaders /path/to/pre-pillar/ProceduralTerrain \
+  --output /tmp/taiga-pillars
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/calibrate_taiga_pillar_porosity.py
+```
+
+The reference is the actual user-edited Taiga before these additions (remote
+commit `6960a33ecd8ca16a4478e2c818e3ea7ce76fd6c8`, directory
+`Asset/Shader/ProceduralTerrain`). Its height and controls must remain bitwise
+identical, and the new density may only add stone. Validation covers packed
+blue-noise placement including toroidal seams, diameter, actual vertical height,
+rigid tilt/azimuth, cylinder-contained carving, measured 30% void, band coverage
+on slopes, production accumulation and shared LOD samples. The 48-km placement
+period and the distinction between isolated porosity and terrain union are
+documented in `docs/TAIGA_PILLARS.md`. Tests require NumPy/SciPy; rendered
+diagnostics additionally require Matplotlib. Calibration executes the production
+Perlin shader, not a CPU approximation.
+
+## FrozenTundra regions and massifs
+
+FrozenTundra combines large mountain regions, detailed plains and rare connected
+3D caves. The raw relief limit remains 10240, mirrored by CPU bounds.
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_regions.py --output /tmp/frozen-regions
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_frozen_chains.py --output /tmp/frozen-chains
+```
+
+The region fixture checks kilometre-scale regions, smooth boundary convergence,
+plain detail, cave rarity and zero cave support in mountain-free regions. Actual
+3D density with/without caves checks roof, floor, clearance and air connectivity
+to the surface, plus production accumulation and shared LOD samples.
+
+The massif fixture isolates the existing mountain generator at its historical
+reference gain: shared signed gaps, overlapping profiles, footprint bounds,
+expanded neighbor searches, deterministic geometry and nine isolated shapes.
+Its dense 48 km preview deliberately omits the regional mask and is not the
+complete biome. Actual pipeline checks use the current production heights.
+
 Run these commands from the repository root. They test the production C++ and
 GLSL files directly. There is no window or full game launch requirement.
 
@@ -169,7 +212,9 @@ The polar fixture measures the current polar relief and volume, checks the
 Voronoi primitive against an independent oracle, continuity, finite values,
 conservative bounds, seed repeatability and matching chunk/LOD samples. It does
 not impose the former sparse-volume mask or an older artistic shape. `--reference-shaders /path/to/baseline/ProceduralTerrain`
-additionally compares the other 25 forced biome recipes against a saved baseline.
+additionally compares the unchanged Marine recipe against a saved baseline.
+The 25 land recipes were intentionally rebuilt; an old land-recipe snapshot is
+not expected to produce the same geometry.
 The optional image requires NumPy and Matplotlib; it visualizes measured geometry,
 not final materials or a rendered game screenshot.
 
@@ -273,10 +318,11 @@ pre-accumulation shader snapshot for historical comparisons; the production
 shader directory contains no legacy field entrypoints or all-biome aggregates.
 
 Each biome has exactly two shader files: `relief.C.glsl` defines `fieldRelief`,
-and `volume.C.glsl` defines `fieldVolume`. The latter's default recipe controls
-are named `FIELD_VOLUME`, `FIELD_SHAPE` and `FIELD_STYLE`. The functions and
-entrypoints live together, with no function alias macro or separately included
-per-biome implementation.
+and `volume.C.glsl` defines `fieldVolume`. The 25 terrestrial recipes use
+independent multiscale relief and implicit sculptural volumes. Shared placement
+(`biome_landforms_common.glsl`) depends only on noise hashing; the 2D and 3D
+helpers keep their noise libraries separate. Marine retains its older optional
+recipe helper. The functions and entrypoints live together.
 
 The pipeline fixture compiles all 52 biome specializations and checks
 all 26 forced IDs. Repeated fields are bitwise identical, including neighboring
@@ -344,8 +390,8 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biomes.py
 ```
 
 This test invokes the production GLSL for all 25 land recipes and the marine
-recipe. It checks finite/distinct height and volume signatures, real cavities
-inside the original solid, conservative vertical bounds, independent band
+recipe. It checks finite/distinct height and volume signatures, conservative
+vertical bounds, independent band
 offsets, all 25 paired matrix cells, smooth climate and shoreline transitions,
 and the exclusively marine lowest altitude slice. The accumulated density field
 is checked across matrix boundaries using the production batch passes.
@@ -367,6 +413,87 @@ contains sampled height ranges, interior cavity counts and a slope statistic.
 These are visual/debugging aids, not game screenshots. Finite sample coverage
 and low-slope fractions cannot prove a minimum traversable corridor width or a
 grapple route; those require route constraints and playtesting.
+
+## Rebuilt landforms, real density and player scale
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py
+# Optional actual GLSL measurements, gray atlas, sections and 1.80-m markers:
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild
+```
+
+Requires NumPy and SciPy; diagnostic rendering also requires Matplotlib.
+These tests target seeded sculpture sites instead of expecting a cave in an
+arbitrary chunk. They measure sign changes, open air under roofs (which may lie
+entirely above the original heightfield), band support, site/cell continuity,
+seed sensitivity, and height-grid slope/connectivity. Point probes are compared
+against the actual production accumulation near each sculpture, with bit-identical
+shared LOD samples. Each biome covers a high, low and intermediate shape variant;
+low variants may legitimately omit the sculpture or its cave. Source hashes
+protect retained measurements when `--merge --biomes ...` refreshes a subset.
+Use `--no-render` to save measurements separately, then run
+`python3 Tests/Terrain/render_biome_landforms.py /tmp/endurance-biome-rebuild`.
+The scene fixture uses macro height amplitude 1000, frequency
+0.000015, five octaves, and detailScale 0.35. Results and sampling limits are in
+`docs/BIOME_REBUILD_VALIDATION.md`.
+
+For short, restartable runs, use five batches with the **same** output directory:
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 0 1 2 3 4
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 5 6 7 8 9
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 10 11 12 13 14
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 15 16 17 18 19
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_landforms.py --output /tmp/endurance-biome-rebuild --resume --no-render --biomes 20 21 22 23 24
+python3 Tests/Terrain/render_biome_landforms.py /tmp/endurance-biome-rebuild
+```
+
+Each completed biome saves its sample arrays and then atomically publishes the
+JSON checkpoint. If interrupted, repeat the same command: `REUSE` identifies
+completed biomes and only missing ones run again. Rendering is a separate final
+step so an interruption during an atlas does not discard the measurements.
+Resume verifies archive integrity and rejects changed shader sources, scene
+uniforms or seeds. Adding results from another renderer is also rejected. To intentionally
+refresh changed biome IDs, use `--merge --biomes ...` instead; a new seed or global
+shader change should use a new output directory. Do not run simultaneous writers
+against the same output directory, and do not edit terrain sources during a run.
+The checkpoint regression checks run without OpenGL:
+`python3 Tests/Terrain/check_biome_checkpoints.py`.
+
+The images reconstruct the zero set of measured density samples, at equal physical
+XYZ scale. They are neither game screenshots nor a proof of collision-level
+traversability. The player reference is exactly 1.80 m. Macro and biome height,
+localized solids and cavities are included. Large-scale 32-m height sampling cannot
+resolve narrow obstacles; a controller test at actual travel speed remains needed.
+
+## Seven cold biomes: RKM, tall peaks and deep cuts
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_cold_biome_revision.py --reference-shaders /path/to/pre-cold-revision/Asset/Shader/ProceduralTerrain --output /tmp/endurance-cold
+```
+
+The optional reference adds a historical height comparison. Current feature
+heights are always checked by compiling the same production recipe with only
+that feature disabled, so changing ground noise does not contaminate the result.
+Placements are read from the recipes, including inverse-warped world anchors.
+RKM and sparse placement spacing are nominal, not encounters along every route.
+Feature sites are deliberately targeted; cave connectivity is sampled, not a
+controller test. See [the initial report](../../docs/COLD_BIOME_REVISION.md) and
+[the historical spacing revision](../../docs/COLD_BIOME_SPACING_REVISION.md).
+
+## Actual biome areas and site occurrence
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_biome_world_scale.py
+```
+
+The unforced production classifier and biome weights are sampled using the saved
+terrain scene's camera, seed and selection radius. The report estimates projected
+areas, connected regions and seeded anchors whose own biome has sufficient weight.
+It uses the production placement hash, not a CPU noise approximation. Results and
+the map are described in `docs/BIOME_WORLD_SCALE.md`. A 100 m grid cannot resolve
+all small corridors; an anchor count does not prove a finished 3D passage survives
+the biome blend. This diagnostic does not change the scene or climate.
 
 ## G-buffer, shadows and world-coordinate decoding
 
@@ -514,3 +641,149 @@ For repeatable before/after generation measurements, cold field runs, warmed
 shader caches and interpretation of the stage counters, follow
 [the comparison guide](../../docs/TERRAIN_OPTIMIZATION_COMPARISON.md). The benchmark
 is separate from these correctness fixtures.
+
+
+## Bibliothèque de bruits 2D/3D
+
+La bibliothèque autonome se trouve dans `Asset/Shader/Noise`. Les tests GPU utilisent
+les fonctions de production, sans uniform implicite du terrain :
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise2.py
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise_library.py
+```
+
+Le premier test conserve un oracle scalaire historique indépendant pour les
+40 960 valeurs du Perlin2D vectorisé. Le second vérifie les bases signées et 01,
+les seeds, les raccords périodiques aux coordonnées négatives, les distances
+cellulaires contre une recherche indépendante 7×7/7×7×7, les singularités des
+courbes, les octaves des compositions, la déformation et le stencil du curl.
+Les deux dimensions peuvent aussi être incluses ensemble.
+
+Pour vérifier la conservation de la génération lors de cette migration, extraire
+la référence `847282fbb6bd9ff3a26674b1c37f4311d7033ca9` dans un autre checkout puis :
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_noise_library.py \
+  --reference-shaders ../ENDURANCE-before-noise/Asset/Shader/ProceduralTerrain
+```
+
+Cette option compare bit à bit 3 096 reliefs bruts de PolarIce/FrozenTundra, puis
+27 champs complets et leurs colonnes compactées/décodées, sur plusieurs seeds,
+origines et LOD, y compris le mélange automatique des biomes. Elle complète
+les tests de pipeline et de rechargement ; une modification de `noise_2d.glsl`
+invalide la classification et les 26 reliefs, celle de `noise_3d.glsl` les
+26 volumes. Les copies temporaires des shaders emportent aussi le dossier `Noise`.
+
+Le [catalogue](../../docs/NOISE_LIBRARY.md) contient les atlas issus de vrais
+échantillons GPU et la commande pour les régénérer.
+
+## Espacement et largeur des quatre biomes froids
+
+Le diagnostic de la seconde révision compare les shaders actuels à ceux du
+commit précédant cette révision (`578e793` local, arbre identique à `e1c6f52`
+publié). Extraire tout `Asset/Shader` pour conserver les dépendances de bruit :
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_cold_biome_spacing.py \
+  --reference-shaders ../ENDURANCE-before-spacing/Asset/Shader/ProceduralTerrain \
+  --output /tmp/endurance-cold-spacing
+```
+
+Il mesure 100 cellules par population, les distances réelles entre voisins,
+les empreintes et hauteurs isolées des montagnes, la profondeur des failles,
+la détermination par seed et la continuité sur les vraies frontières du domaine
+déformé. Une compilation diagnostique désactive seulement le masque du site
+mesuré pour retirer exactement le terrain environnant de sa contribution.
+L'inversion du domaine est uniquement dans les sondes de test. Elle n'ajoute
+aucun coût aux shaders de production.
+
+Les vues de dessus utilisent la même étendue mondiale et la même échelle de
+couleur avant/après, par biome. Les profils sont à la même échelle horizontale.
+Ce sont des mesures de relief GLSL, pas des captures du jeu, des essais de
+collisions ou des mesures de performances sur la carte graphique cible.
+
+## Polar rift: horizontal 3D wall deformation
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_volume.py --output /tmp/polar-rift-volume
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_volume.py --seed 17 --output /tmp/polar-rift-volume-seed17
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_variation.py --output /tmp/polar-rift-variation
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_rift_coverage.py --output /tmp/polar-rift-coverage
+```
+
+The test disables only the wall delta in a second diagnostic compilation,
+retaining identical columns, bands, shelves and caves. It measures lateral
+wall movement across the entire depth, multiple solid/air transitions proving
+sampled overhangs, unchanged mouth/floor, and effects beyond the old 201.6-m
+band. Targeted samples are compared against production accumulation and exact
+shared LOD points. Images are GLSL sections, not in-game screenshots.
+
+The wall section selects an unbranched site to avoid mistaking a junction's
+change of nearest wall for displacement. The variation fixture checks 98 sites
+across two seeds, optional 0–3 branches, independent branch layouts, determinism,
+and twelve distinct silhouettes in the same local orientation. Its second
+compilation changes only the wall noise scale to compare wavelength and RMS
+amplitude. The coverage fixture checks the swept contour of 24 sites at 193²
+points each, with 13 horizontal shifts including every corner of the displacement
+envelope. Changed mask samples must remain within full wall coverage.
+
+Wide bands use a separate packing-range flag in the existing 32-byte column.
+Widths up to576 preserve the legacy quantization; the extended raw maximum is
+16384 so tilted Taiga pillars also fit above lower adjacent terrain. Wide bands
+use a raw quantization step of 16384/65535 (about0.25); FP32 relief heights are
+unchanged. CPU bounds and conservative dispatch use the extended envelope. See
+[the implementation and controls](../../docs/POLAR_ICE_RIFT_3D.md).
+
+## Polar mountains: sparse broad Perlin cavities
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_massif_caves.py --output /tmp/polar-massif-caves
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_polar_massif_caves.py --seed 17 --output /tmp/polar-massif-caves-seed17
+```
+
+The fixture omits only mountain cavity CSG in a second compilation, retaining
+identical columns and other sculptures. Six active massifs are sampled for
+finite deterministic densities, sparse excavation, no solid additions, roofed
+pockets and surface openings. Protected crests, skirts, rift regions, roots and
+outside-band samples must stay unchanged. Targeted production accumulation and
+shared LOD checks run inside a newly carved pocket. The generated section uses
+real GLSL; it does not certify collision, accessibility or GPU performance.
+See [controls and implementation](../../docs/POLAR_ICE_MASSIF_CAVES.md).
+
+## Tundra: regional networks from the Marine 3D evaluator
+
+Extract the complete `Asset/Shader` tree before the cave change (local `573a307`,
+published tree `1b445f966cafeaf1ace30dd50d28c7932c9200f9`) into a reference folder:
+
+```sh
+EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_tundra_caves.py \
+  --reference-shaders ../tundra_before/Asset/Shader/ProceduralTerrain \
+  --output /tmp/tundra-caves
+```
+
+The fixture executes the real shaders over two 48-km regional maps and two
+4.096-km volumes around the nearest actual ground openings. It checks exact
+relief/control preservation, unchanged legacy 3D and original bands, and new
+excavation only where the former band was zero. Omitting the new call must
+restore the old field exactly. A second diagnostic compilation disables the
+shared `fieldRecipeDensityAtPrepared()` evaluator itself: all additional
+carving must disappear, proving that the Marine function generates the cavity
+rather than merely adding wall detail to fixed rooms.
+
+The test measures a horizontal inscribed diameter of at least 200 m in roofed,
+floored air connected to an entrance, multiple cavity lobes, and regional
+extent. This is a geometric measurement, not a noise wavelength or a promise
+that every passage is 200 m wide. Sealed pockets and the span/volume of the
+largest connected underground component are recorded separately. Actual air
+creation, rather than any change to positive solid density, measures regional
+scarcity.
+
+Ground entries must occur within 4 km of the saved camera. Cavities must survive
+world-aligned 8/16/32/64-m grids; production accumulation and exact shared LOD
+samples are compared near an excavated wall. Marine output remains bit-identical
+to the reference. Pass `--previous-shaders` with the primitive-based cave version
+(local `4544a61`, published `191e74db679d60e0268f3f285c548e6ca0437285`) to include it
+in the local before/after figure. The network figure shows actual horizontal
+and vertical cuts through a measured chamber without vertical exaggeration.
+See [controls and implementation](../../docs/TUNDRA_CAVES.md).

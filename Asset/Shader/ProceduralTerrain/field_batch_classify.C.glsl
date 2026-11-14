@@ -1,7 +1,7 @@
 #version 450 core
 #include "field_batch_common.glsl"
 #include "field_weights.glsl"
-#include "field_noise_2d.glsl"
+#include "../Noise/climate_2d.glsl"
 layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
 layout(std430,binding=1) writeonly buffer FieldColumns { FieldColumn columns[]; };
 shared uint localMasks[64];
@@ -26,17 +26,15 @@ void main()
         {
             float macroHeight=uBaseHeight;
             if(uHeightAmplitude>0.0)
-                macroHeight+=fieldNoise2(world*uHeightFrequency,0x13198a2eu)*uHeightAmplitude;
-            vec2 climate=smoothstep(vec2(-0.32),vec2(0.32),
-                vec2(fieldNoise2(world*uClimateFrequency,0x243f6a88u),
-                     fieldNoise2(world*uClimateFrequency,0x85a308d3u)));
+                macroHeight+=noiseSimplexFbm2D(world*uHeightFrequency, uSeed ^ (0x13198a2eu), 5, 2.0, 0.5)*uHeightAmplitude;
+            vec2 climate=noiseClimate2D(world,uSeed);
             float coast=(macroHeight-uSeaLevel)/max(uSeaBlendWidth,0.001)+0.5;
             vec3 grid=vec3(clamp(climate,0.0,1.0)*4.0,clamp(coast,0.0,4.0));
             uvec3 cell=min(uvec3(floor(grid)),uvec3(3u));
             uint index=cell.x+4u*cell.y+16u*cell.z;
             uvec4 mapping=fieldBiomeCells[index];
             column.terrain.yz=climate;
-            column.blend.x=fieldFade(grid.z-float(cell.z));
+            column.blend.x=noiseFadeQuintic(grid.z-float(cell.z));
             column.detail=uvec4(mapping.x|(index<<20u),mapping.yz,floatBitsToUint(macroHeight));
             if(fieldForcedBiome())
             {
@@ -46,7 +44,7 @@ void main()
                     column.terrain.yz=vec2(biome%5u,biome/5u)*0.25;
             }
             if(uBandOffsetVariation>0.0)
-                column.blend.y+=uBandOffsetVariation*fieldNoise2(world*0.0004,0xa4093822u);
+                column.blend.y+=uBandOffsetVariation*noisePerlin2D(world*0.0004, uSeed ^ (0xa4093822u));
             if(uDetailScale>0.0)
                 mask=fieldSurfaceMask(column);
         }

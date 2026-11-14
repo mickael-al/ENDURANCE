@@ -1,26 +1,27 @@
 #version 450 core
-// Biome 24: TropicalMangrove. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 24: TropicalMangrove. Terrain-only multiscale recipe, November 2026.
 #define FIELD_BIOME_ID 24u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-18,3,52,.70);
-const vec4 FIELD_SHAPE = vec4(.15,.75,.10,.10);
-const vec4 FIELD_STYLE = vec4(.90,.10,.15,.35);
+#include "../../biome_landforms_3d.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if(!landVolumeEnabled(column)) return 0.0;
+    LandSite s=landSite(p.xz,2600.0,2410u,.48);
+    if(s.mask<=0.0) return 0.0;
+    vec3 q=landVolumeLocal(p,column,s);
+    float base=column.terrain.x-p.y;
+    // Rare coastal shelf: low mineral overhang, only ~13 m high at scale .35.
+    // The broad ordinary banks receive no caves or protrusions.
+    float lengthwise=s.radius*.44;
+    float rock=-landEllipsoid(q-vec3(-lengthwise*.15,5.0,0.0),
+                              vec3(lengthwise,38.0,s.radius*.24));
+    float target=max(base,rock*uDetailScale);
+    vec3 cut=q-vec3(lengthwise*.22,8.0,s.radius*.14);
+    float alcove=landEllipsoid(cut,vec3(lengthwise*.55,14.0,s.radius*.22));
+    target=min(target,alcove*uDetailScale);
+    return landDelta(p,column,target,s.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

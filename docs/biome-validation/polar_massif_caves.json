@@ -1,0 +1,138 @@
+{
+  "seed": 1337,
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "163757ce7b6c6abddc19f81859d945c4bbb02bfa185967700f1b3d716c2cac48",
+  "sites_measured": 6,
+  "solid_samples": 3609635,
+  "eligible_flank_solid_samples": 298498,
+  "removed_samples": 3051,
+  "removed_fraction": 0.0008452378149037229,
+  "eligible_flank_removed_fraction": 0.010221174011216156,
+  "roofed_removed_samples": 1155,
+  "surface_open_columns": 138,
+  "sites": [
+    {
+      "anchor": [
+        -11254.337890625,
+        -4052.742919921875
+      ],
+      "variant": 0.8614656925201416,
+      "solid_samples": 602143,
+      "eligible_flank_solid_samples": 57470,
+      "removed_samples": 87,
+      "removed_fraction": 0.000144483951486607,
+      "eligible_flank_removed_fraction": 0.0015138333043326953,
+      "horizontal_sampling_m": 73.95224838256837,
+      "roofed_removed_samples": 72,
+      "surface_open_columns": 0,
+      "maximum_excavation_below_surface_m": 240.0,
+      "protected_columns": 14305,
+      "maximum_band_m": 2125.80126953125
+    },
+    {
+      "anchor": [
+        11740.8037109375,
+        8931.404296875
+      ],
+      "variant": 0.3740873634815216,
+      "solid_samples": 598595,
+      "eligible_flank_solid_samples": 45310,
+      "removed_samples": 108,
+      "removed_fraction": 0.00018042248932917916,
+      "eligible_flank_removed_fraction": 0.0023835797837122048,
+      "horizontal_sampling_m": 63.22992134094239,
+      "roofed_removed_samples": 32,
+      "surface_open_columns": 5,
+      "maximum_excavation_below_surface_m": 144.0,
+      "protected_columns": 13791,
+      "maximum_band_m": 2049.80615234375
+    },
+    {
+      "anchor": [
+        5827.5244140625,
+        -17374.5078125
+      ],
+      "variant": 0.9151950478553772,
+      "solid_samples": 603042,
+      "eligible_flank_solid_samples": 64435,
+      "removed_samples": 1190,
+      "removed_fraction": 0.001973328557546572,
+      "eligible_flank_removed_fraction": 0.018468223791417708,
+      "horizontal_sampling_m": 75.13429183959961,
+      "roofed_removed_samples": 412,
+      "surface_open_columns": 55,
+      "maximum_excavation_below_surface_m": 264.0,
+      "protected_columns": 14008,
+      "maximum_band_m": 2267.728271484375
+    },
+    {
+      "anchor": [
+        -9730.65625,
+        -26581.908203125
+      ],
+      "variant": 0.735356867313385,
+      "solid_samples": 602612,
+      "eligible_flank_solid_samples": 43743,
+      "removed_samples": 664,
+      "removed_fraction": 0.0011018698598766702,
+      "eligible_flank_removed_fraction": 0.015179571588597033,
+      "horizontal_sampling_m": 71.17785186767578,
+      "roofed_removed_samples": 188,
+      "surface_open_columns": 48,
+      "maximum_excavation_below_surface_m": 264.0,
+      "protected_columns": 14526,
+      "maximum_band_m": 2006.624267578125
+    },
+    {
+      "anchor": [
+        -25919.27734375,
+        -13969.1298828125
+      ],
+      "variant": 0.01483154483139515,
+      "solid_samples": 603045,
+      "eligible_flank_solid_samples": 27291,
+      "removed_samples": 0,
+      "removed_fraction": 0.0,
+      "eligible_flank_removed_fraction": 0.0,
+      "horizontal_sampling_m": 55.32629394531251,
+      "roofed_removed_samples": 0,
+      "surface_open_columns": 0,
+      "maximum_excavation_below_surface_m": 0.0,
+      "protected_columns": 13294,
+      "maximum_band_m": 2100.294677734375
+    },
+    {
+      "anchor": [
+        28933.5703125,
+        8369.4873046875
+      ],
+      "variant": 0.7955367565155029,
+      "solid_samples": 600198,
+      "eligible_flank_solid_samples": 60249,
+      "removed_samples": 1002,
+      "removed_fraction": 0.001669449081803005,
+      "eligible_flank_removed_fraction": 0.016630981427077626,
+      "horizontal_sampling_m": 72.50180969238282,
+      "roofed_removed_samples": 451,
+      "surface_open_columns": 30,
+      "maximum_excavation_below_surface_m": 276.0,
+      "protected_columns": 14009,
+      "maximum_band_m": 976.8211059570312
+    }
+  ],
+  "pipeline": {
+    "anchor": [
+      30234,
+      658,
+      8002
+    ],
+    "shared_exact_lod_samples": 125,
+    "production_density_samples": 1331
+  },
+  "figure_center": [
+    30238.60288696289,
+    663.8347778320312,
+    8006.978256225586
+  ],
+  "note": "Six nearest active massif sites, surface-relative sample layers every 12m; horizontal sampling depends on the site radius. The diagnostic baseline omits only the final mountain cavity CSG. Removed fraction is of this sampled near-surface solid, not total mountain volume. The eligible-flank fraction excludes protected columns and samples outside the allowed excavation depth. Surface openings are negative density at the original surface with air above. Roofed samples do not certify player access. OpenGL software renderer, not a performance or collision test."
+}

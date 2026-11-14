@@ -28,7 +28,7 @@ public:
         bool measureGenerationTimings = true;
         std::uint32_t vertexBudgetMiB = 256;
         std::uint32_t maxResidentChunks = 2048;
-        std::uint32_t maxSelectedChunks = 1024;
+        std::uint32_t maxSelectedChunks = 2048;
         ProceduralTerrain::FieldParameters field;
         float microDetailStrength = 0.15f;
         float microDetailScale = 2.0f;

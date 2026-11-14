@@ -260,7 +260,7 @@ void checkBatching(GpuMesher& mesher,GpuConfig config)
     config.cells=8;config.maxInFlight=4;config.maxResidentChunks=4;config.vertexBudgetMiB=1;
     config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
     config.field.heightAmplitude=2.0f;config.field.heightFrequency=.1f;
-    config.field.climateFrequency=.04f;config.field.detailScale=.01f;
+    config.field.detailScale=.01f;
     config.field.biomeOverride=11;
     std::string error;
     require(mesher.initialize(config,error),error);
@@ -374,7 +374,7 @@ void checkFieldReuse(GpuMesher& mesher,GpuConfig config)
     config.columnCacheEntries=0;config.densityCacheEntries=0;
     config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
     config.field.heightAmplitude=.5f;config.field.heightFrequency=.05f;
-    config.field.climateFrequency=.04f;config.field.detailScale=.03f;
+    config.field.detailScale=.03f;
     config.field.biomeOverride=11;
     const std::array<ChunkRequest,9> requests{{
         {{{0,0,0}},0,0,1337}, {{{0,0,0}},0,21,1337},
