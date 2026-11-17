@@ -1,0 +1,15 @@
+#ifndef ENDURANCE_COLD_MARSH_SPHERE_SETTINGS_GLSL
+#define ENDURANCE_COLD_MARSH_SPHERE_SETTINGS_GLSL
+
+// Physical world metres. Burial is a fraction of the full sphere diameter.
+const float COLD_MARSH_SPHERE_SPACING = 10000.0;
+const float COLD_MARSH_SPHERE_RADIUS = 1000.0;
+const float COLD_MARSH_SPHERE_BURIED_FRACTION = 0.25;
+const float COLD_MARSH_VORONOI_SCALE = 900.0;
+const float COLD_MARSH_WARP_SCALE = 700.0;
+const float COLD_MARSH_WARP_STRENGTH = 0.65;
+const float COLD_MARSH_PORE_THRESHOLD = 0.43;
+const float COLD_MARSH_DETAIL_SCALE = 100.0;
+const float COLD_MARSH_DETAIL_AMPLITUDE = 22.0;
+
+#endif

@@ -364,7 +364,7 @@ def write_checkpoint(output, records, renderer):
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,help='Write measured diagnostic figures and JSON here')
-    parser.add_argument('--biomes',type=int,nargs='+',default=[b for b in range(25) if b not in (1,6,7,8)])
+    parser.add_argument('--biomes',type=int,nargs='+',default=[b for b in range(25) if b not in (1,6,7,8,9)])
     parser.add_argument('--seed',type=int,default=1337)
     parser.add_argument('--no-render',action='store_true',help='Save measurements without rendering figures')
     continuation=parser.add_mutually_exclusive_group()
@@ -381,6 +381,8 @@ def main():
         parser.error('BorealForest now uses discrete layers and Voronoi caves: use check_boreal_forest.py for biome 7')
     if 8 in args.biomes:
         parser.error('ColdForest now uses regional rivers and porous pits: use check_cold_forest.py for biome 8')
+    if 9 in args.biomes:
+        parser.error('ColdMarsh now adds porous spheres: use check_cold_marsh.py for biome 9')
     args.biomes=list(dict.fromkeys(args.biomes))
     records=[]
     if args.merge or args.resume:

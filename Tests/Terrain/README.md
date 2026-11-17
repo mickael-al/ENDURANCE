@@ -562,6 +562,19 @@ alcove fixture for biome 8. These checks do not measure target-hardware frame
 times or guarantee connected caves through every random porous wall.
 See [settings and measured limits](../../docs/COLD_FOREST_GOUFFRES.md).
 
+## ColdMarsh porous sphere additions
+
+```sh
+python3 Tests/Terrain/check_cold_marsh.py --output /tmp/cold_marsh.json
+```
+
+The dedicated GLSL check compares the complete original height against the
+current recipe, then measures rigid 2-km sphere envelopes, quarter-height burial,
+hashed 10-km placement, large warped Voronoi cavities and fine surface detail.
+It verifies ground preservation, band coverage, mixed controls, production
+dispatch and shared LOD samples. It replaces the old bank-lip sculpture fixture
+for biome 9. See [settings and actual density previews](../../docs/COLD_MARSH_SPHERES.md).
+
 ## Actual biome areas and site occurrence
 
 ```sh
