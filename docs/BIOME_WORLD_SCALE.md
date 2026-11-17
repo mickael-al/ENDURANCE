@@ -2,7 +2,7 @@
 
 Mesure du 13 novembre 2026, après reconstruction des 25 recettes terrestres. Le relevé exécute le **classificateur GLSL de production et ses poids locaux**, sans forcer les biomes. Les ancres sont calculées par le même `landSite` que les recettes, puis évaluées avec le climat réel.
 
-Ce relevé d'ancres est historique : les remplacements ultérieurs des recettes ne sont pas recomptés ici. En particulier, les anciens sites `ColdForest` de 2,4 km sont remplacés par les [gouffres de 20 km à cellules de 50 km](COLD_FOREST_GOUFFRES.md).
+Ce relevé d'ancres est historique : les remplacements ultérieurs des recettes ne sont pas recomptés ici. En particulier, les anciens sites `ColdForest` de 2,4 km sont remplacés par les [gouffres de 20 km à cellules de 10 km](COLD_FOREST_GOUFFRES.md).
 
 ## Périmètre mesuré
 

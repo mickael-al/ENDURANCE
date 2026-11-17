@@ -3,7 +3,10 @@
 
 The quantiles encode ensemble probabilities, not exact quotas per finite pit.
 This uses the production GLSL helper, held-out seeds, sub-knot probabilities and
-finite conical shells. It prints replacement values but never edits shaders.
+generic isolated conical shells before regional masks and overlapping-site
+union. Production uses world XZ, surface-relative Y and a global seed; these
+helper statistics are not a substitute for its separate volume integration
+test. It prints replacement values but never edits shaders.
 """
 from __future__ import annotations
 
@@ -23,6 +26,7 @@ HELPER = ROOT / 'Asset/Shader/ProceduralTerrain/biomes/ColdForest/pit_porosity.g
 SETTINGS = HELPER.with_name('pit_settings.glsl')
 PITS = HELPER.with_name('pits.glsl')
 COMMON = HELPER.parents[2] / 'field_common.glsl'
+LIMITS = COMMON.with_name('field_limits.glsl')
 SOURCE = r'''
 layout(local_size_x=256) in;
 layout(std430,binding=0) readonly buffer Input { vec4 points[]; };
@@ -66,6 +70,8 @@ def main():
     parser.add_argument('--pits',type=int,default=128)
     parser.add_argument('--shell-power',type=int,default=12)
     parser.add_argument('--output',type=Path)
+    parser.add_argument('--reference-scale',type=float,default=.35)
+    parser.add_argument('--reference-offset',type=float,default=0.)
     parser.add_argument('--reuse-calibration',type=Path,
                         help='Reuse unchanged Perlin CDF results; still rerun every finite radial shell.')
     args=parser.parse_args()
@@ -79,7 +85,11 @@ def main():
         return float(match.group(1))
     scale=setting('COLD_FOREST_PORE_SCALE')
     radius=setting('COLD_FOREST_PIT_RADIUS')
-    depth=setting('COLD_FOREST_PIT_DEPTH')
+    depth_scale=setting('COLD_FOREST_PIT_DEPTH_SCALE')
+    band_margin=setting('COLD_FOREST_PIT_BAND_MARGIN')
+    max_band=float(re.search(r'FIELD_MAX_VOLUME_THICKNESS\s*=\s*([0-9.]+)',LIMITS.read_text()).group(1))
+    assert args.reference_scale>0.
+    depth=max(0.,.5*max_band*args.reference_scale-band_margin-abs(args.reference_offset))*np.clip(depth_scale,0.,1.)
     empty_radius=setting('COLD_FOREST_PIT_EMPTY_RADIUS')
     assert radius>0. and depth>0. and 0.<=empty_radius<1.
     previous=json.loads(args.reuse_calibration.read_text()) if args.reuse_calibration else None
@@ -90,12 +100,17 @@ def main():
     report={'helper_sha256':helper_sha,
             'pit_helper_sha256':hashlib.sha256(PITS.read_bytes()).hexdigest(),
             'settings_sha256':hashlib.sha256(SETTINGS.read_bytes()).hexdigest(),
-            'noise_scale_m':scale,'pit_radius_m':radius,'pit_depth_m':depth,
+            'field_limits_sha256':hashlib.sha256(LIMITS.read_bytes()).hexdigest(),
+            'noise_scale_m':scale,'pit_radius_m':radius,
+            'depth_scale':depth_scale,'reference_depth_m':float(depth),
+            'reference_detail_scale':args.reference_scale,'reference_band_offset_m':args.reference_offset,
+            'reference_band_margin_m':band_margin,'max_raw_band_thickness':max_band,
             'empty_core_radius01':empty_radius,'empty_core_radius_m':radius*empty_radius,
             'calibration_samples':2**args.power,
             'pit_count':args.pits,'samples_per_shell':2**args.shell_power,
             'probabilities':probabilities.tolist(),
-            'interpretation':'Void probability of the 3D pore field within its cone envelope; individual pits fluctuate.'}
+            'interpretation':'Generic isolated Perlin helper shells before regional masks and overlapping-site union; independent noise keys here are sampling replicates, not the production per-site seed policy.',
+            'production_noise_coordinates':'world XZ and surface-relative Y, with global key uSeed ^ 0xc084b9d3u; validated separately by the terrain volume integration test.'}
     with GL() as gl:
         report['renderer']=gl.renderer
         program=gl.compile([(0x91B9,'#version 450 core\n'+shader_source(COMMON)+shader_source(PITS)+shader_source(HELPER)+SOURCE)],'ColdForest radial Perlin porosity')
@@ -133,8 +148,9 @@ def main():
         shell_unit=qmc.Sobol(2,scramble=True,seed=3518).random_base2(args.shell_power)
         angle=shell_unit[:,0]*2.*np.pi
         slices=[]
-        # This validates the pore helper in its finite pit frame. The separate
-        # ColdForest geometry test checks envelope depth and spiral admission.
+        # Generic helper shells deliberately isolate CDF behaviour from site
+        # placement, depth union, eligibility, spirals and production world
+        # anchoring. Independent keys are statistical replicates, not sites.
         radial_levels=np.unique(np.r_[np.linspace(0.,empty_radius,8),
                                      empty_radius+(1.-empty_radius)*np.array([.01,.05,.1,.2,.3,.4,.5,.6,.7,.8,.9,.95,.99,1.])])
         for radius01 in radial_levels:

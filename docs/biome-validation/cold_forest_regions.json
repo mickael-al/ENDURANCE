@@ -1,13 +1,13 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
   "source_sha256": {
-    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/ground_settings.glsl": "a59d1e3b62081b9923c375a562d386c318a1d5d2f1265b1aef0c15cac26726ae",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/ground_settings.glsl": "178f4a48afe7ba0e59040ce6e8c6cbc85f9731d8b8fdb4219b43e00487bd594e",
     "Asset/Shader/ProceduralTerrain/biomes/ColdForest/ground.glsl": "a78f69e9f19f06307fac599151803fb962f307173f3fb783e7c67a1c1f3db713",
-    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/pit_settings.glsl": "b3a8048086c8794c111408a373df63a4cf73c7bfff7af98e7eda6d32cdd98d5b",
-    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/pits.glsl": "556893411353373e01ed97143848580a2ccb6396bd74344d2e493e33d4dffff1"
+    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/pit_settings.glsl": "f70328c6438dbf978e12e076e4dcca97f604cf85add3abcda9877d4c19652222",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/pits.glsl": "75f7ce0d4517574fd0264811510aa6ce7a520d7b0584d51f1fbc9478e37eaa23"
   },
-  "region_scale_m": 120000.0,
-  "river_spacing_m": 50000.0,
+  "region_scale_m": 24000.0,
+  "river_spacing_m": 9000.0,
   "region_low": 0.042469,
   "region_high": 0.442469,
   "central_threshold": 0.242469,
@@ -81,110 +81,54 @@
   ],
   "aggregate_dominant_fraction": 0.3000001899919823,
   "aggregate_mean_mask": 0.3001568950712681,
-  "maximum_mask_step_at_250m": 0.0651756227016449,
-  "whole_pit_admission": [
+  "maximum_mask_step_at_50m": 0.0651756227016449,
+  "candidate_spacing_m": 10000.0,
+  "restored_anchor_admission": [
     {
-      "region_scale_m": 24000.0,
-      "seeds": [
-        {
-          "seed": 1337,
-          "candidates": 66049,
-          "accepted": 0,
-          "admitted_fraction": 0.0,
-          "river_clear_fraction": 0.4844887852668762
-        },
-        {
-          "seed": 17,
-          "candidates": 66049,
-          "accepted": 0,
-          "admitted_fraction": 0.0,
-          "river_clear_fraction": 0.485684871673584
-        },
-        {
-          "seed": 41,
-          "candidates": 66049,
-          "accepted": 0,
-          "admitted_fraction": 0.0,
-          "river_clear_fraction": 0.4850035607814789
-        },
-        {
-          "seed": 99991,
-          "candidates": 66049,
-          "accepted": 0,
-          "admitted_fraction": 0.0,
-          "river_clear_fraction": 0.48276278376579285
-        }
-      ],
-      "mean_admitted_fraction": 0.0
+      "seed": 1337,
+      "candidates": 66049,
+      "accepted_anchors": 22760,
+      "admitted_fraction": 0.3445926509106875,
+      "anchors_outside_dominant_regions": 15645
     },
     {
-      "region_scale_m": 60000.0,
-      "seeds": [
-        {
-          "seed": 1337,
-          "candidates": 66049,
-          "accepted": 392,
-          "admitted_fraction": 0.005934987682849169,
-          "river_clear_fraction": 0.4844887852668762
-        },
-        {
-          "seed": 17,
-          "candidates": 66049,
-          "accepted": 351,
-          "admitted_fraction": 0.005314236506819725,
-          "river_clear_fraction": 0.485684871673584
-        },
-        {
-          "seed": 41,
-          "candidates": 66049,
-          "accepted": 365,
-          "admitted_fraction": 0.0055262004025280476,
-          "river_clear_fraction": 0.4850035607814789
-        },
-        {
-          "seed": 99991,
-          "candidates": 66049,
-          "accepted": 357,
-          "admitted_fraction": 0.005405078176409006,
-          "river_clear_fraction": 0.48276278376579285
-        }
-      ],
-      "mean_admitted_fraction": 0.005545125692151487
+      "seed": 17,
+      "candidates": 66049,
+      "accepted_anchors": 22654,
+      "admitted_fraction": 0.3429877817983618,
+      "anchors_outside_dominant_regions": 15629
     },
     {
-      "region_scale_m": 120000.0,
-      "seeds": [
-        {
-          "seed": 1337,
-          "candidates": 66049,
-          "accepted": 2462,
-          "admitted_fraction": 0.03727535530924797,
-          "river_clear_fraction": 0.4844887852668762
-        },
-        {
-          "seed": 17,
-          "candidates": 66049,
-          "accepted": 2475,
-          "admitted_fraction": 0.037472181022167206,
-          "river_clear_fraction": 0.485684871673584
-        },
-        {
-          "seed": 41,
-          "candidates": 66049,
-          "accepted": 2480,
-          "admitted_fraction": 0.03754788264632225,
-          "river_clear_fraction": 0.4850035607814789
-        },
-        {
-          "seed": 99991,
-          "candidates": 66049,
-          "accepted": 2528,
-          "admitted_fraction": 0.0382746160030365,
-          "river_clear_fraction": 0.48276278376579285
-        }
-      ],
-      "mean_admitted_fraction": 0.03764250874519348
+      "seed": 41,
+      "candidates": 66049,
+      "accepted_anchors": 22727,
+      "admitted_fraction": 0.3440930218474163,
+      "anchors_outside_dominant_regions": 15650
+    },
+    {
+      "seed": 99991,
+      "candidates": 66049,
+      "accepted_anchors": 22779,
+      "admitted_fraction": 0.3448803161289346,
+      "anchors_outside_dominant_regions": 15691
     }
   ],
-  "note": "30% means ensemble area with regional mask >= 0.5; the smoothly weighted mean is reported separately. The river channel width is independent of this broad regional coverage. The wavelength comparison uses the same final 20-km pits and 50-km candidate cells; only regional wavelength changes. Whole-disk river/region safety is covered by check_cold_forest.py."
+  "original_anchor_fixtures": 4,
+  "local_excavation": {
+    "seed": 1337,
+    "samples": 103041,
+    "world_extent_km": 80.0,
+    "region_zero_columns": 49853,
+    "protected_bank_columns": 14911,
+    "positive_pit_columns": 35513,
+    "substantial_pit_columns_within_40km": 20540,
+    "nearest_substantial_patch_xz_m": [
+      -4750.0,
+      -2500.0
+    ],
+    "nearest_substantial_patch_distance_m": 5367.7276383959725,
+    "nearest_substantial_patch_depth_m": 102.58647155761719
+  },
+  "historical_regression": "The superseded whole-disk admission rejected all 264196 sampled 20-km pits at a 24-km regional wavelength. That former algorithm is not rerun here; this test instead verifies actual restored anchors and visible locally protected excavation.",
+  "note": "30% means ensemble area with regional mask >= 0.5; the smoothly weighted mean is reported separately. Candidate cells are 10 km wide and the original hash is retained. Acceptance protects a small river-free anchor, not an entire 20-km disk. The regional mask and river-bank fade then restrict excavation per column. Full density, neighbouring-site unions and band bounds are covered by check_cold_forest.py."
 }

@@ -1,15 +1,21 @@
 {
   "helper_sha256": "510a5e96bd4865d94ab4f1a7eea65ad89e1f2d2ed0a076640b7a472df909d17b",
-  "pit_helper_sha256": "556893411353373e01ed97143848580a2ccb6396bd74344d2e493e33d4dffff1",
-  "settings_sha256": "b3a8048086c8794c111408a373df63a4cf73c7bfff7af98e7eda6d32cdd98d5b",
+  "pit_helper_sha256": "75f7ce0d4517574fd0264811510aa6ce7a520d7b0584d51f1fbc9478e37eaa23",
+  "settings_sha256": "f70328c6438dbf978e12e076e4dcca97f604cf85add3abcda9877d4c19652222",
+  "field_limits_sha256": "6d4cbf3b4a8e6ca59d9e92e4bb078cd531ddb018e429c0f732c3a0d8a395b4eb",
   "noise_scale_m": 240.0,
   "pit_radius_m": 10000.0,
-  "pit_depth_m": 800.0,
+  "depth_scale": 1.0,
+  "reference_depth_m": 2771.2,
+  "reference_detail_scale": 0.35,
+  "reference_band_offset_m": 0.0,
+  "reference_band_margin_m": 96.0,
+  "max_raw_band_thickness": 16384.0,
   "empty_core_radius01": 0.7,
   "empty_core_radius_m": 7000.0,
   "calibration_samples": 2097152,
-  "pit_count": 128,
-  "samples_per_shell": 4096,
+  "pit_count": 32,
+  "samples_per_shell": 1024,
   "probabilities": [
     0.0,
     0.00048828125,
@@ -77,7 +83,8 @@
     0.99951171875,
     1.0
   ],
-  "interpretation": "Void probability of the 3D pore field within its cone envelope; individual pits fluctuate.",
+  "interpretation": "Generic isolated Perlin helper shells before regional masks and overlapping-site union; independent noise keys here are sampling replicates, not the production per-site seed policy.",
+  "production_noise_coordinates": "world XZ and surface-relative Y, with global key uSeed ^ 0xc084b9d3u; validated separately by the terrain volume integration test.",
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
   "measured_quantiles": [
     -1.0001,
@@ -218,105 +225,105 @@
       "radius01": 0.703,
       "radius_m": 7030.0,
       "target_void": 0.99,
-      "observed_void": 0.9903602600097656,
-      "per_pit_min": 0.979736328125,
-      "per_pit_max": 0.9970703125
+      "observed_void": 0.990936279296875,
+      "per_pit_min": 0.9853515625,
+      "per_pit_max": 0.99609375
     },
     {
       "radius01": 0.715,
       "radius_m": 7150.0,
       "target_void": 0.95,
-      "observed_void": 0.9490776062011719,
-      "per_pit_min": 0.930419921875,
-      "per_pit_max": 0.973388671875
+      "observed_void": 0.94940185546875,
+      "per_pit_min": 0.93359375,
+      "per_pit_max": 0.966796875
     },
     {
       "radius01": 0.73,
       "radius_m": 7300.0,
       "target_void": 0.8999999999999999,
-      "observed_void": 0.901275634765625,
-      "per_pit_min": 0.871337890625,
-      "per_pit_max": 0.928466796875
+      "observed_void": 0.899688720703125,
+      "per_pit_min": 0.8837890625,
+      "per_pit_max": 0.9140625
     },
     {
       "radius01": 0.76,
       "radius_m": 7600.0,
       "target_void": 0.7999999999999998,
-      "observed_void": 0.7993602752685547,
-      "per_pit_min": 0.7529296875,
-      "per_pit_max": 0.836669921875
+      "observed_void": 0.799713134765625,
+      "per_pit_min": 0.763671875,
+      "per_pit_max": 0.8291015625
     },
     {
       "radius01": 0.7899999999999999,
       "radius_m": 7899.999999999999,
       "target_void": 0.7000000000000002,
-      "observed_void": 0.7005062103271484,
-      "per_pit_min": 0.6513671875,
-      "per_pit_max": 0.75830078125
+      "observed_void": 0.699951171875,
+      "per_pit_min": 0.666015625,
+      "per_pit_max": 0.7265625
     },
     {
       "radius01": 0.82,
       "radius_m": 8200.0,
       "target_void": 0.6000000000000001,
-      "observed_void": 0.5982913970947266,
-      "per_pit_min": 0.5322265625,
-      "per_pit_max": 0.65625
+      "observed_void": 0.6024169921875,
+      "per_pit_min": 0.5693359375,
+      "per_pit_max": 0.6513671875
     },
     {
       "radius01": 0.85,
       "radius_m": 8500.0,
       "target_void": 0.5,
-      "observed_void": 0.5028743743896484,
-      "per_pit_min": 0.433837890625,
-      "per_pit_max": 0.55810546875
+      "observed_void": 0.500335693359375,
+      "per_pit_min": 0.466796875,
+      "per_pit_max": 0.5341796875
     },
     {
       "radius01": 0.88,
       "radius_m": 8800.0,
       "target_void": 0.3999999999999999,
-      "observed_void": 0.3974800109863281,
-      "per_pit_min": 0.333251953125,
-      "per_pit_max": 0.46435546875
+      "observed_void": 0.40362548828125,
+      "per_pit_min": 0.3828125,
+      "per_pit_max": 0.44140625
     },
     {
       "radius01": 0.9099999999999999,
       "radius_m": 9100.0,
       "target_void": 0.3000000000000002,
-      "observed_void": 0.29636383056640625,
-      "per_pit_min": 0.251708984375,
-      "per_pit_max": 0.366943359375
+      "observed_void": 0.297454833984375,
+      "per_pit_min": 0.263671875,
+      "per_pit_max": 0.3349609375
     },
     {
       "radius01": 0.94,
       "radius_m": 9400.0,
       "target_void": 0.20000000000000015,
-      "observed_void": 0.2011260986328125,
-      "per_pit_min": 0.12646484375,
-      "per_pit_max": 0.26025390625
+      "observed_void": 0.204498291015625,
+      "per_pit_min": 0.16796875,
+      "per_pit_max": 0.2451171875
     },
     {
       "radius01": 0.97,
       "radius_m": 9700.0,
       "target_void": 0.10000000000000007,
-      "observed_void": 0.09859466552734375,
-      "per_pit_min": 0.049560546875,
-      "per_pit_max": 0.154541015625
+      "observed_void": 0.10302734375,
+      "per_pit_min": 0.0673828125,
+      "per_pit_max": 0.142578125
     },
     {
       "radius01": 0.985,
       "radius_m": 9850.0,
       "target_void": 0.05000000000000004,
-      "observed_void": 0.047634124755859375,
-      "per_pit_min": 0.01708984375,
-      "per_pit_max": 0.095458984375
+      "observed_void": 0.048492431640625,
+      "per_pit_min": 0.0224609375,
+      "per_pit_max": 0.08203125
     },
     {
       "radius01": 0.997,
       "radius_m": 9970.0,
       "target_void": 0.010000000000000007,
-      "observed_void": 0.009191513061523438,
-      "per_pit_min": 0.00048828125,
-      "per_pit_max": 0.026123046875
+      "observed_void": 0.010101318359375,
+      "per_pit_min": 0.0009765625,
+      "per_pit_max": 0.025390625
     },
     {
       "radius01": 1.0,
@@ -327,5 +334,5 @@
       "per_pit_max": 0.0
     }
   ],
-  "max_shell_probability_error": 0.003636169433593961
+  "max_shell_probability_error": 0.00449829101562485
 }

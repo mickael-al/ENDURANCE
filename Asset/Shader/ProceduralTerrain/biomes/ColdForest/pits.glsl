@@ -17,49 +17,64 @@ ColdForestPitSite coldForestPitInCell(ivec2 cell)
 
 ColdForestPitSite coldForestPitSite(vec2 p)
 {
-    // 10-km footprint inside the cell's 12.5-km safe margin: no neighbour loop.
     return coldForestPitInCell(ivec2(floor(p / COLD_FOREST_PIT_SPACING)));
 }
 
 float coldForestPitEligibility(ColdForestPitSite site)
 {
-    if (!coldForestRiverDiskClear(site.center, COLD_FOREST_PIT_RADIUS * 1.1))
-        return 0.0;
-    if (coldForestRegionMask(site.center) < COLD_FOREST_PIT_REGION_MIN)
-        return 0.0;
-    // Accept a whole pit; never clip individual pieces with the regional mask.
-    // Dense disk validation also checks between these padded perimeter samples.
-    for (int i = 0; i < 8; ++i)
-    {
-        float angle = float(i) * (6.28318530718 / 8.0);
-        vec2 p = site.center + COLD_FOREST_PIT_RADIUS * 1.2
-            * vec2(cos(angle), sin(angle));
-        if (coldForestRegionMask(p) < COLD_FOREST_PIT_REGION_MIN) return 0.0;
-    }
-    return 1.0;
+    // Keep the original small anchor clearance, not a 20-km disk veto.
+    // Regional presence and river protection are applied locally below.
+    return coldForestRiverDiskClear(site.center, COLD_FOREST_PIT_ANCHOR_RADIUS)
+        ? 1.0 : 0.0;
 }
 
-float coldForestPitDepth(vec2 p, ColdForestPitSite site)
+float coldForestPitLocalMask(vec2 p)
+{
+    float riverProtection = smoothstep(COLD_FOREST_RIVER_BANK_HALF_WIDTH,
+        COLD_FOREST_RIVER_BANK_HALF_WIDTH + COLD_FOREST_PIT_RIVER_FADE,
+        coldForestRiverDistance(p));
+    return coldForestRegionMask(p) * riverProtection;
+}
+
+float coldForestPitOffset(vec2 p)
+{
+    float offset = uBandOffset;
+    if (uBandOffsetVariation > 0.0)
+        offset += uBandOffsetVariation * noisePerlin2D(p * 0.0004, uSeed ^ 0xa4093822u);
+    return offset;
+}
+
+float coldForestPitMaximumDepth(vec2 p)
+{
+    return max(0.0, 0.5 * FIELD_MAX_VOLUME_THICKNESS * uDetailScale
+        - COLD_FOREST_PIT_BAND_MARGIN - abs(coldForestPitOffset(p)))
+        * clamp(COLD_FOREST_PIT_DEPTH_SCALE, 0.0, 1.0);
+}
+
+float coldForestPitDepth(vec2 p, ColdForestPitSite site, float maximumDepth)
 {
     vec2 q = p - site.center;
     float radial = length(q) / COLD_FOREST_PIT_RADIUS;
     if (radial >= 1.0) return 0.0;
     float inward = 1.0 - radial;
-    float depth = COLD_FOREST_PIT_DEPTH * inward;
+    float depth = maximumDepth * inward;
     if (COLD_FOREST_PIT_SPIRAL_DEPTH > 0.0 && radial > 0.00001)
     {
         float phase = noiseInternalUintTo01(noiseInternalHash(site.key ^ 0x52682e93u))
             * 6.28318530718;
         float handedness = (site.key & 1u) == 0u ? -1.0 : 1.0;
-        // Broad inward/downward spiral, cached per XZ column in a pure biome.
-        // No repeated 3D search for the nearest point on a descending torus.
         float spiral = sin(handedness * atan(q.y, q.x) + phase
             + radial * (6.28318530718 * COLD_FOREST_PIT_SPIRAL_TURNS));
         depth += COLD_FOREST_PIT_SPIRAL_DEPTH * 4.0 * radial * inward * spiral;
     }
     float rim = smoothstep(0.0, COLD_FOREST_PIT_RIM_WIDTH / COLD_FOREST_PIT_RADIUS,
         inward);
-    return clamp(depth * rim, 0.0, COLD_FOREST_PIT_DEPTH);
+    return clamp(depth * rim, 0.0, maximumDepth);
+}
+
+float coldForestPitDepth(vec2 p, ColdForestPitSite site)
+{
+    return coldForestPitDepth(p, site, coldForestPitMaximumDepth(p));
 }
 
 float coldForestPitVoidFraction(float radial01)
@@ -68,23 +83,36 @@ float coldForestPitVoidFraction(float radial01)
         0.0, 1.0);
 }
 
-float coldForestPitControl(vec2 p)
+// World depth and void fraction. Both maxima are continuous across overlaps;
+// no single winning site/key is carried into the 3D noise.
+vec2 coldForestPitFields(vec2 p)
 {
-    if (uFieldMode != 0u || uDetailScale <= 0.0) return 0.0;
-    ColdForestPitSite site = coldForestPitSite(p);
-    if (length(p - site.center) >= COLD_FOREST_PIT_RADIUS) return 0.0;
-    if (coldForestPitEligibility(site) <= 0.0) return 0.0;
-    return coldForestPitDepth(p, site) / COLD_FOREST_PIT_DEPTH;
+    if (uFieldMode != 0u || uDetailScale <= 0.0) return vec2(0.0);
+    float mask = coldForestPitLocalMask(p);
+    float maximumDepth = coldForestPitMaximumDepth(p);
+    if (mask <= 0.0 || maximumDepth <= 0.0) return vec2(0.0);
+    ivec2 cell = ivec2(floor(p / COLD_FOREST_PIT_SPACING));
+    vec2 fields = vec2(0.0);
+    // A 10-km radius on 10-km cells reaches only these nine candidates.
+    // The first omitted cell's closest possible centre is 12.5 km away.
+    for (int z = -1; z <= 1; ++z)
+    for (int x = -1; x <= 1; ++x)
+    {
+        ColdForestPitSite site = coldForestPitInCell(cell + ivec2(x, z));
+        float radial = length(p - site.center) / COLD_FOREST_PIT_RADIUS;
+        if (radial >= 1.0 || coldForestPitEligibility(site) <= 0.0) continue;
+        fields = max(fields, vec2(coldForestPitDepth(p, site, maximumDepth),
+            coldForestPitVoidFraction(radial)));
+    }
+    return fields * mask;
 }
 
-float coldForestPitBand(vec2 p, float control)
+float coldForestPitBand(vec2 p, float depth)
 {
-    if (control <= 0.0 || uDetailScale <= 0.0) return 0.0;
-    float offset = uBandOffset;
-    if (uBandOffsetVariation > 0.0)
-        offset += uBandOffsetVariation * noisePerlin2D(p * 0.0004, uSeed ^ 0xa4093822u);
-    // Full floor plus fade/storage margin at this XZ column.
-    float halfBand = abs(offset) + control * COLD_FOREST_PIT_DEPTH + 96.0;
+    if (depth <= 0.0 || uDetailScale <= 0.0) return 0.0;
+    // Band stores depth at better than 5-cm resolution at detailScale=.35.
+    // The separate pilot remains available for the independently unioned pores.
+    float halfBand = abs(coldForestPitOffset(p)) + depth + COLD_FOREST_PIT_BAND_MARGIN;
     return min(2.0 * halfBand / uDetailScale, FIELD_MAX_VOLUME_THICKNESS);
 }
 

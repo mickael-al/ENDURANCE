@@ -1,156 +1,136 @@
-# Forêt froide : rivières régionales et gouffres poreux
+# Forêt froide : placement rapproché et gouffres profonds
 
-ColdForest conserve les bruits de détail du sol, leurs seeds et leurs amplitudes.
-L'ancien monticule en croissant, son balcon et sa petite alcôve 3D sont retirés.
-Les vallées sont désormais excavées dans un substrat continu, sous le contrôle
-d'un grand masque 2D. Des gouffres coniques d'environ 20 km de diamètre apparaissent
-dans les régions actives, en dehors des rivières.
+ColdForest conserve les bruits du sol et les vallées creusées par un masque
+régional. Les gouffres gardent 20 km de diamètre et un cœur entièrement vide
+jusqu'à 70 % de leur rayon lorsque le masque local est plein. Leur placement revient aux cellules de 10 km, avec
+les régions de 24 km et les axes de vallées espacés de 9 km. La profondeur utilise
+maintenant la capacité maximale de la bande 3D, au lieu de rester limitée à 800 m.
 
-## Sol et rivières
+## Réglages
 
-Les réglages sont dans
-`Asset/Shader/ProceduralTerrain/biomes/ColdForest/ground_settings.glsl`.
+Les paramètres sont dans les fichiers du dossier
+`Asset/Shader/ProceduralTerrain/biomes/ColdForest`.
 
-| Réglage | Valeur initiale | Effet |
+| Fichier / constante | Valeur | Effet |
 |---|---:|---|
-| `COLD_FOREST_REGION_SCALE` | 120 000 m | Échelle du masque régional |
-| `COLD_FOREST_REGION_LOW` / `HIGH` | 0,042469 / 0,442469 | Début et fin du fondu régional |
-| `COLD_FOREST_RIVER_SPACING` | 50 000 m | Espacement nominal des axes de vallées |
+| `ground_settings.glsl` — `COLD_FOREST_REGION_SCALE` | 24 000 m | Taille du masque régional restaurée |
+| `COLD_FOREST_REGION_LOW` / `HIGH` | 0,042469 / 0,442469 | Environ 30 % de couverture dominante |
+| `COLD_FOREST_RIVER_SPACING` | 9 000 m | Espacement nominal des vallées restauré |
 | `COLD_FOREST_RIVER_FLOOR_HALF_WIDTH` | 100 m | Demi-largeur du fond plat |
 | `COLD_FOREST_RIVER_BANK_HALF_WIDTH` | 650 m | Demi-largeur totale des berges |
 | `COLD_FOREST_RIVER_MEANDER` | 600 m | Amplitude maximale des méandres |
 | `COLD_FOREST_RIVER_MEANDER_SCALE` | 12 000 m | Échelle des méandres |
-
-`ground.glsl` construit un masque régional déformé, avec un fondu quintique,
-puis le multiplie par le masque des vallées. Le résultat ne peut que diminuer
-la hauteur du substrat. Lorsque le masque vaut zéro, le substrat est intact.
-La profondeur conserve les anciens bruits et amplitudes des parois ; elle dépend
-donc encore de `uDetailScale`. Les échantillons mesurés atteignent environ
-160 m de profondeur à l'échelle 0,35.
-
-Les seuils sont calibrés pour qu'environ 30 % de la surface ait un masque
-supérieur ou égal à 0,5, sur un grand domaine et plusieurs seeds. Ce n'est ni
-30 % de surface de rivière, ni une réduction de 30 % de l'ancienne couverture.
-L'échelle régionale de 120 km et l'espacement de 50 km entre vallées permettent
-d'accueillir les gouffres élargis en conservant leur exclusion des rivières.
-Avec l'ancienne échelle régionale de 24 km, aucun des 264 196 sites sondés ne
-pouvait accueillir un disque de 20 km avec les marges de sécurité.
-
-Il s'agit de reliefs en forme de vallées : cette modification ne crée ni eau,
-ni simulation d'écoulement ou d'érosion. Les axes restent globalement orientés,
-avec des méandres, mais le grand masque interrompt leur présence sur plusieurs
-kilomètres.
-
-## Gouffres et spirale
-
-Les réglages sont dans
-`Asset/Shader/ProceduralTerrain/biomes/ColdForest/pit_settings.glsl`.
-
-| Réglage | Valeur initiale | Effet |
-|---|---:|---|
-| `COLD_FOREST_PIT_SPACING` | 50 000 m | Taille des cellules de placement |
-| `COLD_FOREST_PIT_RADIUS` | 10 000 m | Rayon du gouffre, soit 20 km de diamètre |
-| `COLD_FOREST_PIT_DEPTH` | 800 m | Profondeur centrale en biome pur |
-| `COLD_FOREST_PIT_RIM_WIDTH` | 2 000 m | Largeur de raccord progressif au sol |
+| `pit_settings.glsl` — `COLD_FOREST_PIT_SPACING` | 10 000 m | Taille des cellules de placement |
+| `COLD_FOREST_PIT_RADIUS` | 10 000 m | Rayon du cône avant découpe locale |
+| `COLD_FOREST_PIT_DEPTH_SCALE` | 1 | Fraction de la profondeur maximale disponible |
+| `COLD_FOREST_PIT_RIM_WIDTH` | 2 000 m | Raccord progressif du cône au sol |
 | `COLD_FOREST_PIT_SPIRAL_DEPTH` | 110 m | Amplitude du relief en spirale |
 | `COLD_FOREST_PIT_SPIRAL_TURNS` | 2 | Nombre de tours vers le centre |
-| `COLD_FOREST_PORE_SCALE` | 240 m | Échelle du Perlin 3D des parois |
-| `COLD_FOREST_PIT_EMPTY_RADIUS` | 0,70 | Rayon entièrement vide, en fraction du rayon total |
-| `COLD_FOREST_PIT_REGION_MIN` | 0,80 | Présence régionale minimale pour accepter un site |
+| `COLD_FOREST_PORE_SCALE` | 240 m | Échelle du Perlin 3D |
+| `COLD_FOREST_PIT_EMPTY_RADIUS` | 0,70 | Partie entièrement vide du rayon |
+| `COLD_FOREST_PIT_ANCHOR_RADIUS` | 1 100 m | Rayon de protection des ancrages vis-à-vis des rivières |
+| `COLD_FOREST_PIT_RIVER_FADE` | 500 m | Raccord entre berges protégées et gouffres |
+| `COLD_FOREST_PIT_BAND_MARGIN` | 96 m | Marge conservée autour du fond |
 
-Le fond suit un cône inversé. Une modulation angulaire forme une spirale
-descendante dont la phase et le sens varient selon le site. Son amplitude
-s'annule au centre et à la périphérie. Le raccord de 2 000 m a une pente nulle
-au bord : il rejoint progressivement le relief local, sans imposer un plateau
-parfaitement horizontal à tout le terrain. La profondeur est relative au sol
-de chaque colonne. `COLD_FOREST_PIT_SPIRAL_DEPTH = 0.0` conserve uniquement le cône.
+La couverture de 30 % désigne la surface où le masque régional est au moins
+égal à 0,5, sur un grand domaine. Elle ne représente pas directement la surface
+des rivières ou des gouffres. Le fondu quintique et les bruits du sol restent
+inchangés. Les rivières abaissent le substrat ; elles ne le surélèvent pas.
+Aucune eau ni simulation d'écoulement n'est ajoutée.
 
-La spirale utilise une formule directe, sans recherche itérative de distance
-à un tore hélicoïdal. Dans les colonnes de biome pur, la profondeur est calculée
-en 2D, puis transmise à la 3D dans `relief.w`, normalisée par la profondeur
-maximale. La 3D n'a alors pas à recalculer le masque ni la spirale.
+## Ancrages restaurés et chevauchements
 
-Le placement utilise le hash du seed et de la cellule de 50 × 50 km. Le centre
-est décalé dans la moitié centrale de cette cellule. Un gouffre tient donc
-entièrement dans sa cellule et aucune recherche des huit cellules voisines
-n'est nécessaire. Le calcul emploie `floor`, également aux coordonnées négatives.
-La distance minimale entre centres candidats est de 25 km. L'ancienne cellule
-de 10 km ne pouvait pas contenir un gouffre de 20 km de diamètre. Le déplacement
-de la grille préserve la méthode de hash et évite les coupures aux frontières.
+Le hash de la cellule et du seed place un centre dans la moitié centrale de
+chaque cellule de 10 × 10 km. La distance minimale entre centres candidats est
+de 5 km. L'admission utilise à nouveau le voisinage initial d'environ 1 km autour
+de cet ancrage pour exclure les rivières, au lieu d'exiger qu'un disque de
+20 km soit entièrement contenu dans une région sans rivière. La région n'est
+plus un motif de rejet global : son masque est appliqué localement.
 
-Chaque site est accepté ou rejeté en entier. L'exclusion des rivières utilise
-une borne conservative sur le déplacement des méandres, qui protège tout le
-disque du gouffre. Le masque régional est contrôlé au centre et sur huit points
-d'un cercle élargi à 12 000 m. Les tests vérifient aussi l'intérieur des disques.
+Un cône de 20 km traverse forcément plusieurs cellules de placement. La passe
+2D examine donc les neuf cellules du voisinage 3 × 3 et combine les profondeurs
+et les fractions de vide de leurs candidats admissibles. Les enveloppes
+s'annulent avant que leurs cellules sortent de ce voisinage ; le changement de
+cellule d'évaluation ne coupe pas un gouffre. Les formations peuvent se
+chevaucher et se rejoindre.
 
-Une cellule ne signifie pas un gouffre garanti : le filtrage des rivières et des
-régions élimine les sites incompatibles. La densité nominale est d'une candidate
-par 2 500 km², avant ce filtrage. Le réglage de 50 km n'est donc pas une distance
-garantie entre deux gouffres rencontrés.
+Un masque local diminue ensuite la profondeur et la fraction de vide aux
+limites des régions et au voisinage des rivières. Les vallées restent protégées,
+mais elles peuvent désormais découper le contour d'un grand gouffre. Les 20 km
+décrivent l'enveloppe nominale avant cette découpe, et non un cercle complet
+obligatoirement visible dans chaque site. Cette découpe évite de supprimer
+presque tous les candidats lorsque le rayon dépasse la taille des zones libres.
 
-## Parois 3D
+## Profondeur maximale et densité 3D
 
-`pit_porosity.glsl` produit un Perlin 3D de grande échelle, avec un seuil ajusté
-à sa distribution réelle. La fraction de vide vaut 100 % du centre jusqu'à
-7 000 m de rayon, soit les premiers 70 %. Elle décroît ensuite linéairement
-sur les 3 000 m périphériques : 100 % à 7 km, 50 % à 8,5 km, 0 % à 10 km. Ces proportions
-concernent le champ poreux avant sa découpe par le cône. Elles sont statistiques
-sur plusieurs sites ; un gouffre individuel conserve des amas, arches et parois
-irrégulières uniquement dans cette périphérie. L'intérieur du cône jusqu'à 7 km
-est intégralement évidé, sans bloc de Perlin. La connectivité de tous les morceaux
-de roche périphériques n'est pas imposée.
+`coldForestPitMaximumDepth` utilise la bande maximale existante de 16 384 unités
+brutes. Avec `COLD_FOREST_PIT_DEPTH_SCALE = 1`, la profondeur disponible vaut :
 
-`volume.C.glsl` applique ce champ uniquement comme excavation sous le sol et
-au-dessus du fond conique. Il ne relève pas le terrain. L'axe est ouvert depuis
-la surface jusqu'au fond ; le sol sous le fond reste solide. Les cavités sont
-volumétriques, avec des surplombs possibles, et non un simple bruit de hauteur.
+```text
+max(0, 8192 × uDetailScale − 96 − abs(décalage global local))
+```
 
-Aux frontières de biomes, le contrôle mélangé ne peut pas être décodé comme
-celui de ColdForest seul : le shader recalcule l'admission et la profondeur
-près d'un candidat. La profondeur est pondérée par la présence locale de la
-forêt froide, puis la contribution 3D suit l'accumulation habituelle. Ce fondu
-est donc non linéaire. Les dimensions de 20 km × 800 m décrivent le biome pur.
+| `uDetailScale` | Profondeur maximale, décalage global nul |
+|---:|---:|
+| 0,20 | 1 542,4 m |
+| 0,35 | 2 771,2 m |
+| 1,00 | 8 096 m |
 
-La bande de travail couvre le fond et les marges de transition. Un fondu près
-de la limite réelle de bande évite une coupure de densité. Le contrat existant
-conserve toutefois son plafond de 16 384 unités brutes : une échelle très
-faible ou des réglages extrêmes de décalage peuvent réduire la géométrie visible.
-Les vérifications ci-dessous couvrent les échelles 0,2 / 0,35 / 1, avec décalage
-global nul. Le shader tourne sur le pipeline existant ; aucun débit sur le GPU
-Windows du jeu n'est déduit des mesures de validation logicielle.
+Ces valeurs concernent le centre d'un ancrage pleinement actif en biome pur.
+Le profil conique, le masque local et les mélanges de biomes peuvent réduire la
+profondeur ailleurs. La marge de 96 m conserve le raccord et le travail de densité
+à l'intérieur de la bande autorisée. Le plafond global du moteur n'est pas relevé.
+
+La spirale reste une formule directe, sans recherche itérative sur un tore
+hélicoïdal. `COLD_FOREST_PIT_SPIRAL_DEPTH = 0.0` garde le cône sans modulation.
+Le raccord extérieur a une pente nulle et rejoint progressivement le terrain.
+
+La fraction de vide vaut 100 % jusqu'à 7 km de rayon autour d'un candidat ; elle
+redescend ensuite de 100 % à 0 % sur les 3 km périphériques. Le Perlin 3D ne laisse
+aucun bloc dans un cœur pleinement actif. Le fondu local des régions et des
+rivières peut remettre de la matière près de leurs limites. Les quantiles du
+bruit réel règlent la porosité périphérique ; ses proportions restent
+statistiques sur plusieurs formations. La connectivité de tous les fragments
+périphériques n'est pas imposée.
+
+En biome pur, la passe 2D transmet la fraction de vide dans `relief.w` et encode
+la profondeur dans la largeur de bande. La passe 3D les récupère, utilise un
+bruit ancré dans le monde et excave seulement entre le sol et le fond. Elle ne
+refait pas la recherche des neuf candidats à chaque voxel. Aux frontières de
+biomes, les champs sont recalculés car les contrôles partagés sont mélangés ;
+la profondeur est pondérée puis bornée par l'enveloppe réellement disponible.
+Un fondu près des limites de bande évite les coupures.
 
 ## Vérification
 
 ```bash
-python Tests/Terrain/calibrate_cold_forest_porosity.py
-python Tests/Terrain/check_cold_forest_regions.py
 python Tests/Terrain/check_cold_forest.py
+python Tests/Terrain/check_cold_forest_regions.py
+python Tests/Terrain/calibrate_cold_forest_porosity.py
 ```
 
-Les sondes exécutent le GLSL de production avec OpenGL sur llvmpipe. Le rapport
-est `docs/biome-validation/cold_forest.json`, et l'image du même nom reconstruit
-la véritable densité ; ce n'est pas une capture du jeu. L'aperçu couvre 26 km
-avec un pas horizontal de 100 m, donc les plus petits détails ne sont pas résolus.
+Les sondes exécutent le GLSL de production sur OpenGL/llvmpipe. Les rapports
+sont dans `docs/biome-validation`. `cold_forest.png` reconstruit la véritable
+densité sur 26 km, avec un pas horizontal d'environ 135 m ; ce n'est pas une capture du
+jeu et les plus petits détails ne sont pas résolus.
 
-- `cold_forest_regions.json` mesure une couverture dominante de 30,000019 % sur
-  2 105 352 points et huit seeds ; la moyenne du masque vaut environ 30,016 %.
-- 196 608 colonnes sur trois seeds vérifient le sol et les rivières : les
-  formules de l'ancien détail sont conservées. Les calculs indépendants diffèrent
-  au maximum de 0,0024 unité brute, soit moins de 1 mm à l'échelle 0,35, à cause
-  des chemins d'arrondi du compilateur.
-- 243 294 points répartis dans 46 disques acceptés ont un masque de rivière nul.
-  Leur masque régional minimal mesuré est 0,8585. Les sites retenus représentent
-  3,68 % des 1 250 cellules sondées.
-- Les 43 068 sondes de géométrie respectent 20 000 m de diamètre et 800 m de
-  profondeur. À 100 m du bord, la descente mesurée reste inférieure à 9 cm.
-  La jointure angulaire de la spirale diffère de moins de 4 mm entre les deux
-  côtés sondés.
-- Dix rayons sur 19 sites donnent un gradient de vide à moins de 0,23 point
-  de pourcentage des cibles. Le cœur jusqu'à 70 % est entièrement vide, et le
-  bord entièrement solide, avant découpe par l'enveloppe.
-- 49 152 sondes de densité sur trois échelles vérifient l'excavation, la bande,
-  l'ouverture centrale et la protection du sol sous le fond. Les 24 336 points
-  sondés à l'intérieur du cœur de 7 km sont tous évidés. Neuf cas de mélange
-  vérifient l'indépendance vis-à-vis du contrôle du biome voisin.
-- 84 sondes de frontières de placement, 1 331 densités du pipeline réel et
-  125 points LOD partagés passent.
+Le contrôle dédié vérifie les ancrages, le cône isolé, la protection locale des
+rivières, les chevauchements aux frontières de cellules, la profondeur maximale
+à trois échelles, les mélanges et les densités du pipeline réel. Il vérifie aussi
+explicitement la présence de cavités dans une zone de 40 km autour de l'origine
+avec le seed 1337, afin d'éviter une nouvelle régression de visibilité.
+
+Résultats de cette validation :
+
+- Dans les 40 × 40 km autour de l'origine, 3 743 des 25 921 sondes sont réellement
+  dans l'air à 100 m sous le sol initial. Le point visible sondé le plus proche
+  est à X = −5 250 m, Z = −1 500 m ; sa densité à Y ≈ −183,5 m est négative.
+  La profondeur maximale mesurée dans cette fenêtre est de 2 161,5 m.
+- Les centres pleinement actifs atteignent la profondeur maximale calculée
+  aux trois échelles 0,2 / 0,35 / 1. Les 24 576 sondes de volume ne montrent
+  aucune excavation ignorée par la bande du pipeline.
+- Les 18 paires de sondes placées directement sur les fonds coniques aux
+  frontières de cellules ont un écart maximal de densité de 4,4 cm, compatible
+  avec la quantification de la bande. Les champs non quantifiés restent continus.
+- Les mélanges de biomes, les 1 331 densités du pipeline réel et les 125 points
+  LOD partagés passent également.

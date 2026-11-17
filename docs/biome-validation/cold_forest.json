@@ -1,180 +1,209 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
-  "source_sha256": "b78f55820c539f838300b064e87f1befe05212986b322f68742e7ab32aee6431",
+  "source_sha256": "698b961a1723f68ce9621638b0416c14672b6939f8d19e4af641155a77118241",
   "ground": [
     {
       "seed": 1337,
       "samples": 65536,
       "soil_substrate_max_error_raw": 0.00238037109375,
-      "unchanged_soil_samples": 64767,
-      "excavated_samples": 749,
-      "maximum_river_depth_at_scale_035_m": 156.22970581054688,
-      "active_region_fraction": 0.3165283203125,
-      "full_region_fraction": 0.166778564453125
+      "unchanged_soil_samples": 61101,
+      "excavated_samples": 4348,
+      "maximum_river_depth_at_scale_035_m": 160.1077880859375,
+      "active_region_fraction": 0.308380126953125,
+      "full_region_fraction": 0.1533966064453125
     },
     {
       "seed": 97,
       "samples": 65536,
       "soil_substrate_max_error_raw": 0.0022735595703125,
-      "unchanged_soil_samples": 64793,
-      "excavated_samples": 719,
-      "maximum_river_depth_at_scale_035_m": 153.50692749023438,
-      "active_region_fraction": 0.2979583740234375,
-      "full_region_fraction": 0.145172119140625
+      "unchanged_soil_samples": 61112,
+      "excavated_samples": 4313,
+      "maximum_river_depth_at_scale_035_m": 153.9016571044922,
+      "active_region_fraction": 0.3092041015625,
+      "full_region_fraction": 0.153411865234375
     },
     {
       "seed": 98765,
       "samples": 65536,
       "soil_substrate_max_error_raw": 0.002349853515625,
-      "unchanged_soil_samples": 64762,
-      "excavated_samples": 749,
-      "maximum_river_depth_at_scale_035_m": 148.2014617919922,
-      "active_region_fraction": 0.2801971435546875,
-      "full_region_fraction": 0.1210784912109375
+      "unchanged_soil_samples": 61016,
+      "excavated_samples": 4414,
+      "maximum_river_depth_at_scale_035_m": 158.434326171875,
+      "active_region_fraction": 0.307586669921875,
+      "full_region_fraction": 0.1494293212890625
     }
   ],
   "placement": [
     {
       "seed": 1337,
       "cells": 625,
-      "accepted_pits": 19,
-      "nominal_area_per_candidate_km2": 2500.0,
-      "candidate_min_spacing_m": 26003.23197575283,
-      "full_disk_samples": 100491,
-      "minimum_region_mask": 0.8653663992881775,
+      "river_clear_candidates": 223,
+      "fully_active_anchors": 29,
+      "nominal_area_per_candidate_km2": 100.0,
+      "candidate_min_spacing_m": 5200.643988070662,
+      "admission_disk_samples": 604107,
+      "admission_disk_radius_m": 1000.0,
+      "minimum_region_mask": 0.0,
       "maximum_channel_mask": 0.0
     },
     {
       "seed": 97,
       "cells": 625,
-      "accepted_pits": 27,
-      "nominal_area_per_candidate_km2": 2500.0,
-      "candidate_min_spacing_m": 25898.471159598226,
-      "full_disk_samples": 142803,
-      "minimum_region_mask": 0.8585218191146851,
+      "river_clear_candidates": 226,
+      "fully_active_anchors": 41,
+      "nominal_area_per_candidate_km2": 100.0,
+      "candidate_min_spacing_m": 5179.691220239284,
+      "admission_disk_samples": 612234,
+      "admission_disk_radius_m": 1000.0,
+      "minimum_region_mask": 0.0,
       "maximum_channel_mask": 0.0
     }
   ],
   "geometry": {
     "diameter_m": 20000.0,
-    "central_depth_m": 800.0,
+    "central_depth_m": 2771.2,
     "empty_core_radius_m": 7000.0,
     "geometry_samples": 43068,
-    "maximum_depth_m": 800.0,
-    "near_rim_maximum_depth_m": 0.08954409509897232,
-    "angular_seam_depth_difference_max_m": 0.0035400390625,
+    "maximum_depth_m": 2771.199951171875,
+    "near_rim_maximum_depth_m": 0.23248440027236938,
+    "angular_seam_depth_difference_max_m": 0.0020751953125,
     "pore_scale_m": 240.0
   },
   "porosity": {
-    "sites": 19,
+    "sites": 29,
     "radial_bins": [
       {
         "radius_fraction": 0.0,
         "target_void_fraction": 1.0,
         "measured_void_fraction": 1.0,
-        "samples": 38912
+        "samples": 59392
       },
       {
         "radius_fraction": 0.35,
         "target_void_fraction": 1.0,
         "measured_void_fraction": 1.0,
-        "samples": 38912
+        "samples": 59392
       },
       {
         "radius_fraction": 0.69,
         "target_void_fraction": 1.0,
         "measured_void_fraction": 1.0,
-        "samples": 38912
+        "samples": 59392
       },
       {
         "radius_fraction": 0.7,
         "target_void_fraction": 1.0,
         "measured_void_fraction": 1.0,
-        "samples": 38912
+        "samples": 59392
       },
       {
         "radius_fraction": 0.75,
         "target_void_fraction": 0.8333333333333333,
-        "measured_void_fraction": 0.8356034128289473,
-        "samples": 38912
+        "measured_void_fraction": 0.8354997306034483,
+        "samples": 59392
       },
       {
         "radius_fraction": 0.8,
         "target_void_fraction": 0.6666666666666664,
-        "measured_void_fraction": 0.667711759868421,
-        "samples": 38912
+        "measured_void_fraction": 0.6679855872844828,
+        "samples": 59392
       },
       {
         "radius_fraction": 0.85,
         "target_void_fraction": 0.5,
-        "measured_void_fraction": 0.4979183799342105,
-        "samples": 38912
+        "measured_void_fraction": 0.49816473599137934,
+        "samples": 59392
       },
       {
         "radius_fraction": 0.9,
         "target_void_fraction": 0.3333333333333332,
-        "measured_void_fraction": 0.3314401726973684,
-        "samples": 38912
+        "measured_void_fraction": 0.3330919989224138,
+        "samples": 59392
       },
       {
         "radius_fraction": 0.95,
         "target_void_fraction": 0.1666666666666668,
-        "measured_void_fraction": 0.16827713815789475,
-        "samples": 38912
+        "measured_void_fraction": 0.16737944504310345,
+        "samples": 59392
       },
       {
         "radius_fraction": 1.0,
         "target_void_fraction": 0.0,
         "measured_void_fraction": 0.0,
-        "samples": 38912
+        "samples": 59392
       }
     ],
     "note": "Isolated pore field before conical clipping; finite individual pits vary."
   },
   "placement_seams": {
-    "samples": 84,
-    "zero_density_delta": true
+    "samples": 252,
+    "active_crossing_pairs": 26,
+    "maximum_density_difference_m": 2.99835205078125,
+    "side_distance_m": 0.02,
+    "maximum_unquantized_depth_difference_m": 0.08502197265625,
+    "floor_crossing_pairs": 18,
+    "maximum_floor_density_difference_m": 0.0438232421875
+  },
+  "nearby_visibility": {
+    "seed": 1337,
+    "domain_width_m": 40000.0,
+    "samples": 25921,
+    "open_air_at_100m_below_ground_samples": 3743,
+    "columns_deeper_than_1000m": 2074,
+    "maximum_depth_m": 2161.48876953125,
+    "nearest_visible_sample_world_m": [
+      -5250.0,
+      -183.49241638183594,
+      -1500.0
+    ],
+    "nearest_visible_sample_ground_height_m": -83.49241638183594
   },
   "world": [
     {
       "detail_scale": 0.2,
-      "samples": 16384,
-      "carved_air_samples": 11848,
+      "samples": 8192,
+      "carved_air_samples": 3065,
+      "maximum_supported_depth_m": 1542.4,
       "maximum_band_density_error": 0.0,
-      "maximum_world_band_m": 1773.2772216796875,
-      "guaranteed_empty_core_samples": 8112,
-      "open_axis_samples": 48,
+      "maximum_world_band_m": 3225.29931640625,
+      "guaranteed_empty_core_samples": 1581,
+      "locally_protected_samples": 3214,
+      "open_axis_samples": 40,
       "protected_floor_samples": 8,
-      "exterior_unchanged_samples": 4096
+      "exterior_unchanged_samples": 16384
     },
     {
       "detail_scale": 0.35,
-      "samples": 16384,
-      "carved_air_samples": 11848,
+      "samples": 8192,
+      "carved_air_samples": 3094,
+      "maximum_supported_depth_m": 2771.2,
       "maximum_band_density_error": 0.0,
-      "maximum_world_band_m": 1773.302001953125,
-      "guaranteed_empty_core_samples": 8112,
-      "open_axis_samples": 48,
+      "maximum_world_band_m": 5629.1357421875,
+      "guaranteed_empty_core_samples": 1581,
+      "locally_protected_samples": 3214,
+      "open_axis_samples": 40,
       "protected_floor_samples": 8,
-      "exterior_unchanged_samples": 4096
+      "exterior_unchanged_samples": 16384
     },
     {
       "detail_scale": 1.0,
-      "samples": 16384,
-      "carved_air_samples": 11848,
+      "samples": 8192,
+      "carved_air_samples": 3137,
+      "maximum_supported_depth_m": 8096.0,
       "maximum_band_density_error": 0.0,
-      "maximum_world_band_m": 1773.277099609375,
-      "guaranteed_empty_core_samples": 8112,
-      "open_axis_samples": 48,
+      "maximum_world_band_m": 16045.7451171875,
+      "guaranteed_empty_core_samples": 1581,
+      "locally_protected_samples": 3214,
+      "open_axis_samples": 40,
       "protected_floor_samples": 8,
-      "exterior_unchanged_samples": 4096
+      "exterior_unchanged_samples": 16384
     }
   ],
   "targeted_pipeline": {
     "anchor": [
-      -332300,
-      -184,
-      -278094
+      44360,
+      -1642,
+      -6234
     ],
     "shared_exact_lod_samples": 125,
     "production_density_samples": 1331
@@ -187,7 +216,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 405
+        "changed_samples": 108
       },
       {
         "detail_scale": 0.2,
@@ -195,7 +224,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 775
+        "changed_samples": 223
       },
       {
         "detail_scale": 0.2,
@@ -203,7 +232,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 1059
+        "changed_samples": 341
       },
       {
         "detail_scale": 0.35,
@@ -211,7 +240,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 467
+        "changed_samples": 200
       },
       {
         "detail_scale": 0.35,
@@ -219,7 +248,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 776
+        "changed_samples": 382
       },
       {
         "detail_scale": 0.35,
@@ -227,7 +256,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 1059
+        "changed_samples": 567
       },
       {
         "detail_scale": 1.0,
@@ -235,7 +264,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 470
+        "changed_samples": 503
       },
       {
         "detail_scale": 1.0,
@@ -243,7 +272,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 776
+        "changed_samples": 1001
       },
       {
         "detail_scale": 1.0,
@@ -251,7 +280,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 1059
+        "changed_samples": 1259
       }
     ],
     "global_offset_m": 0.0,
@@ -260,12 +289,12 @@
   "figure": {
     "seed": 1337,
     "center_xz_m": [
-      22821.068359375,
-      84508.0390625
+      5518.52587890625,
+      23952.875
     ],
     "horizontal_extent_m": 26000.0,
-    "horizontal_samples": 261,
+    "horizontal_samples": 193,
     "vertical_samples": 97,
-    "spacing_m": 100.0
+    "spacing_m": 135.41666666666666
   }
 }
