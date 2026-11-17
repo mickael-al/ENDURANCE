@@ -25,11 +25,11 @@ Dans `ground.glsl` :
 
 | Constante | Valeur initiale | Effet |
 |---|---:|---|
-| `VOLCANIC_GROUND_PLATE_SCALE` | 700 m | Échelle des plaques Voronoï |
+| `VOLCANIC_GROUND_PLATE_SCALE` | 70 m | Échelle des plaques Voronoï |
 | `VOLCANIC_GROUND_WARP_SCALE` | 1 100 m | Échelle de la déformation principale |
 | `VOLCANIC_GROUND_WARP_STRENGTH` | 180 m | Amplitude de cette déformation |
-| `VOLCANIC_GROUND_CRACK_WIDTH` | 40 m | Largeur approximative des fissures |
-| `VOLCANIC_GROUND_CRACK_DEPTH` | 65 m | Profondeur nominale, variable avec un bruit large |
+| `VOLCANIC_GROUND_CRACK_WIDTH` | 4 m | Largeur approximative des fissures |
+| `VOLCANIC_GROUND_CRACK_DEPTH` | 6,5 m | Profondeur nominale, variable avec un bruit large |
 
 ## Placement et forme
 
@@ -50,7 +50,7 @@ des hauteurs pour éviter de doubler artificiellement les sommets.
 Le sol utilise la différence entre les deux premières distances Voronoï, qui
 s'annule sur les limites des plaques. Une rotation et deux déformations de
 coordonnées rendent ces limites moins régulières. Cette différence est une
-approximation de distance : les 40 m indiquent une largeur de départ, pas une
+approximation de distance : les 4 m indiquent une largeur de départ, pas une
 largeur géométrique exacte partout. Les fissures sont creusées dans la hauteur,
 avec de petites lèvres et une rugosité fine entre les plaques. Leur contribution
 diminue sur les volcans pour laisser les ravines des flancs dominer la silhouette.
@@ -77,5 +77,5 @@ Les résultats mesurés et l'aperçu sont dans
 `docs/biome-validation/volcanic_desert.json` et `volcanic_desert.png`.
 L'image reconstruit la hauteur réellement calculée par les shaders : ce n'est
 pas une capture du jeu. Le détail des fissures est montré à part avec un pas
-de 3,5 m, car la vue générale à 75 m ne les résout pas correctement.
+de 0,35 m, car la vue générale à 75 m ne les résout pas correctement.
 Les vérifications ne mesurent pas le temps GPU sous Windows ni les collisions.

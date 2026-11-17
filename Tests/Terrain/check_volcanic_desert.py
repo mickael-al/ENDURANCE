@@ -142,10 +142,11 @@ def morphology_checks(gl,cells):
 def ground_checks(gl):
  u=qmc.Sobol(2,scramble=True,seed=3829).random_base2(16)
  xz=(u-.5)*64000.;q=xz_queries(xz);r=PointProbe(gl,GROUND).chunks(q)
- deep=r[:,1]<3.;plate=r[:,1]>45.
+ width=float(r[0,9]);depth=float(r[0,10])
+ deep=r[:,1]<.075*width;plate=r[:,1]>1.125*width
  assert deep.sum()>200 and plate.sum()>200,'Cracks or plates are absent'
  contrast=float(np.median(r[plate,0])-np.median(r[deep,0]))
- assert contrast>45.,('Fissures too shallow to read as broken basalt',contrast)
+ assert contrast>depth*.69,('Fissures too shallow to read as broken basalt',contrast)
  rotated=np.column_stack((.8*xz[:,0]-.6*xz[:,1],.6*xz[:,0]+.8*xz[:,1]))
  warp=np.linalg.norm(r[:,4:6]-rotated,axis=1)
  assert np.median(warp)>20.,'Cell coordinates have no broad distortion'
@@ -201,7 +202,10 @@ def render(gl,path,sites):
  center=sites[np.argmin(np.sum(sites[:,:2]**2,axis=1)),:2]
  axis,h,_=height_grid(gl,center,24000.,321)
  close_axis,close,_=height_grid(gl,center,7000.,241)
- plain=np.array([0.,0.]);ground_axis,ground,_=height_grid(gl,plain,1400.,401,ground=True)
+ plain=np.array([0.,0.])
+ ground_extent=2.*PointProbe(gl,GROUND).run(xz_queries(plain[None,:]))[0,8]
+ ground_axis,ground,_=height_grid(gl,plain,ground_extent,401,ground=True)
+ ground_step=ground_extent/400.
  fig=plt.figure(figsize=(14,10),constrained_layout=True);grid=fig.add_gridspec(2,2)
  ax=fig.add_subplot(grid[0,0]);shade=LightSource(315,40).hillshade(h,dx=75.,dy=75.,vert_exag=1.)
  ax.imshow(shade,extent=[-12,12,-12,12],origin='lower',cmap='gray',vmin=0,vmax=1)
@@ -213,15 +217,15 @@ def render(gl,path,sites):
  columns=np.zeros((*close.shape,4));columns[:,:,0]=close
  sample=dict(origin=(center-3500.).tolist(),spacing=7000./240.,min_y=0.,step_y=1.,density=np.zeros((241,1,241)),columns=columns)
  draw_projected_mesh(ax,sample,tris);ax.set_title('Volcan + cratère : XYZ à la même échelle')
- ax=fig.add_subplot(grid[1,0]);shade=LightSource(315,40).hillshade(ground,dx=3.5,dy=3.5,vert_exag=1.)
- ax.imshow(shade,extent=[-700,700,-700,700],origin='lower',cmap='gray',vmin=0,vmax=1)
+ ax=fig.add_subplot(grid[1,0]);shade=LightSource(315,40).hillshade(ground,dx=ground_step,dy=ground_step,vert_exag=1.)
+ ax.imshow(shade,extent=[-ground_extent/2,ground_extent/2,-ground_extent/2,ground_extent/2],origin='lower',cmap='gray',vmin=0,vmax=1)
  ax.set_xlabel('X (m)');ax.set_ylabel('Z (m)');ax.set_title('Sol isolé : grandes plaques et fissures franches')
  ax=fig.add_subplot(grid[1,1]);ax.plot(close_axis/1000.,close[len(close)//2],label='Hauteur GLSL à Z = centre')
  ax.set_xlabel('Distance au centre (km)');ax.set_ylabel('Altitude monde (m)');ax.set_title('Coupe du cratère et raccord des flancs');ax.grid(alpha=.25)
  fig.suptitle('Désert volcanique — volcans hachés et plaques fracturées\nReconstruction du GLSL réel ; pas une capture du jeu.',fontsize=14)
  fig.savefig(path,dpi=120);plt.close(fig)
  return dict(seed=1337,center_xz_m=center.tolist(),landscape_extent_m=24000.,landscape_step_m=75.,
-  volcano_extent_m=7000.,volcano_step_m=7000./240.,ground_extent_m=1400.,ground_step_m=3.5)
+  volcano_extent_m=7000.,volcano_step_m=7000./240.,ground_extent_m=float(ground_extent),ground_step_m=float(ground_step))
 
 
 def main():
