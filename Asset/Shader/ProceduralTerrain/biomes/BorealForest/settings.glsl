@@ -10,7 +10,7 @@ const float BOREAL_LAYER_HEIGHT = 600.0 / 0.35;
 const float BOREAL_MAX_MOUNTAIN_HEIGHT = 4.0 * BOREAL_LAYER_HEIGHT;
 
 // World metres. Three Perlin 2D projections bend the 3D Voronoi domain.
-const float BOREAL_CAVITY_SCALE = 400.0;
+const float BOREAL_CAVITY_SCALE = 1600.0;
 const float BOREAL_CAVITY_WARP_SCALE = 600.0;
 const float BOREAL_CAVITY_WARP_STRENGTH = 0.65;
 

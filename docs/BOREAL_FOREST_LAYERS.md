@@ -45,8 +45,9 @@ de son poids de biome.
 Trois Perlin 2D indépendants sont évalués sur les plans `YZ`, `ZX` et `XY` des
 positions 3D. Ils déforment les trois coordonnées injectées dans un Voronoï 3D.
 La coordonnée Y reste donc active : les cavités ne sont pas des trous 2D extrudés.
-Les échelles initiales sont larges, environ 400 m pour le Voronoï et 600 m pour
-la déformation Perlin.
+L'échelle du Voronoï est de 1 600 m, agrandie quatre fois depuis les 400 m
+initiaux. La déformation Perlin reste à 600 m ; seule l'échelle du Voronoï a
+changé, pas le seuil d'excavation ni les couches montagneuses.
 
 Le seuil du Voronoï est calibré sur son véritable champ composé pour obtenir
 **environ 60 % d'air dans les nouvelles montagnes**. Ce pourcentage est une
@@ -66,6 +67,8 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_boreal_forest.py
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_boreal_forest.py --render-only
 ```
 
+Les mesures de massif et l'aperçu ci-dessous correspondent à la version initiale
+du Voronoï à 400 m ; leurs empreintes de sources identifient cette version.
 Le test compare le sol avec la recette antérieure privée de son seul monticule,
 exécute les quatre bruits de production, mesure le vide dans des volumes de
 montagnes réels et contrôle le décodage du canal de contrôle, la protection du
