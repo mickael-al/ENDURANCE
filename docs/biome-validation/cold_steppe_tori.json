@@ -1,0 +1,232 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "06753ed3a56ae704595faf6655d122ef1ae4c8135f14ad90a4d6ffb85dded916",
+  "placement": [
+    {
+      "seed": 1337,
+      "placement_cells": 625,
+      "accepted_plain_sites": 200,
+      "nominal_area_per_candidate_km2": 100.0,
+      "candidate_center_min_spacing_m": 5332.1153261686395,
+      "accepted_disk_presence_samples": 617600,
+      "maximum_mountain_presence": 0.0
+    },
+    {
+      "seed": 97,
+      "placement_cells": 625,
+      "accepted_plain_sites": 170,
+      "nominal_area_per_candidate_km2": 100.0,
+      "candidate_center_min_spacing_m": 5095.60610667422,
+      "accepted_disk_presence_samples": 524960,
+      "maximum_mountain_presence": 0.0
+    }
+  ],
+  "envelope": {
+    "major_radius_m": 1000.0,
+    "tube_diameter_m": 100.0,
+    "inner_radius_m": 950.0,
+    "outer_radius_m": 1050.0,
+    "envelope_bottom_relative_ground_m": -25.0,
+    "envelope_top_relative_ground_m": 75.0,
+    "measured_surface_error_max_m": 0.004764556884765625,
+    "tested_sites": 4
+  },
+  "porosity": {
+    "sites": 32,
+    "slices": [
+      {
+        "relative_tube_height": 0.02,
+        "target_solid_fraction": 0.31,
+        "measured_solid_fraction": 0.312957763671875,
+        "samples": 131072
+      },
+      {
+        "relative_tube_height": 0.1,
+        "target_solid_fraction": 0.35,
+        "measured_solid_fraction": 0.352020263671875,
+        "samples": 131072
+      },
+      {
+        "relative_tube_height": 0.25,
+        "target_solid_fraction": 0.425,
+        "measured_solid_fraction": 0.419647216796875,
+        "samples": 131072
+      },
+      {
+        "relative_tube_height": 0.5,
+        "target_solid_fraction": 0.55,
+        "measured_solid_fraction": 0.5391159057617188,
+        "samples": 131072
+      },
+      {
+        "relative_tube_height": 0.75,
+        "target_solid_fraction": 0.675,
+        "measured_solid_fraction": 0.6713333129882812,
+        "samples": 131072
+      },
+      {
+        "relative_tube_height": 0.9,
+        "target_solid_fraction": 0.75,
+        "measured_solid_fraction": 0.7501296997070312,
+        "samples": 131072
+      },
+      {
+        "relative_tube_height": 0.98,
+        "target_solid_fraction": 0.79,
+        "measured_solid_fraction": 0.7907638549804688,
+        "samples": 131072
+      }
+    ],
+    "note": "Measured on the isolated torus before union: existing ground fills its buried pores."
+  },
+  "placement_seams": {
+    "samples": 84,
+    "minimum_clearance_to_torus_surface_m": 1709.4638671875
+  },
+  "world": [
+    {
+      "detail_scale": 0.2,
+      "samples": 16384,
+      "above_ground_stone_samples": 7167,
+      "clipped_stone_samples": 0,
+      "maximum_world_band_m": 310.0047302246094,
+      "exterior_air_samples": 6144,
+      "actual_ground_height_range_m": [
+        -618.2577514648438,
+        475.52447509765625
+      ]
+    },
+    {
+      "detail_scale": 0.35,
+      "samples": 16384,
+      "above_ground_stone_samples": 7167,
+      "clipped_stone_samples": 0,
+      "maximum_world_band_m": 310.0172119140625,
+      "exterior_air_samples": 6144,
+      "actual_ground_height_range_m": [
+        -614.4469604492188,
+        483.2668151855469
+      ]
+    },
+    {
+      "detail_scale": 1.0,
+      "samples": 16384,
+      "above_ground_stone_samples": 7167,
+      "clipped_stone_samples": 0,
+      "maximum_world_band_m": 310.0037536621094,
+      "exterior_air_samples": 6144,
+      "actual_ground_height_range_m": [
+        -606.9401245117188,
+        517.9663696289062
+      ]
+    }
+  ],
+  "targeted_pipeline": {
+    "anchor": [
+      63828,
+      128,
+      16922
+    ],
+    "shared_exact_lod_samples": 125,
+    "production_density_samples": 1331
+  },
+  "mixed_columns": {
+    "seed": 1337,
+    "accepted_sites": 6,
+    "rejected_sites": 6,
+    "global_offset_m": 0.0,
+    "note": "Constructed mixed columns use actual matrix/weight/storage helpers; the neighbour contributes zero band and an unrelated pilot. Full automatic multi-biome generation is covered by the general pipeline suite.",
+    "cases": [
+      {
+        "detail_scale": 0.2,
+        "surface_and_volume_weight": 0.7648305892944336,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 1544,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 237.10362243652344
+      },
+      {
+        "detail_scale": 0.2,
+        "surface_and_volume_weight": 0.5,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 508,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 155.0023651123047
+      },
+      {
+        "detail_scale": 0.2,
+        "surface_and_volume_weight": 0.23516947031021118,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 106,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 72.90287017822266
+      },
+      {
+        "detail_scale": 0.35,
+        "surface_and_volume_weight": 0.7648305892944336,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 1544,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 237.12860107421875
+      },
+      {
+        "detail_scale": 0.35,
+        "surface_and_volume_weight": 0.5,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 508,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 155.00758361816406
+      },
+      {
+        "detail_scale": 0.35,
+        "surface_and_volume_weight": 0.23516947031021118,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 106,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 72.90637969970703
+      },
+      {
+        "detail_scale": 1.0,
+        "surface_and_volume_weight": 0.7648305892944336,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 1544,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 237.0973663330078
+      },
+      {
+        "detail_scale": 1.0,
+        "surface_and_volume_weight": 0.5,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 508,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 155.0062713623047
+      },
+      {
+        "detail_scale": 1.0,
+        "surface_and_volume_weight": 0.23516947031021118,
+        "samples": 12288,
+        "expected_above_ground_stone_samples": 106,
+        "clipped_stone_samples": 0,
+        "dirty_pilot_maximum_delta_error": 0.0,
+        "minimum_band_m": 0.0,
+        "maximum_band_m": 72.90638732910156
+      }
+    ]
+  }
+}

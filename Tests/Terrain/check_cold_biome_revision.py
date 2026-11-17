@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Probe the remaining isolated cold features at their GPU-generated sites.
-FrozenTundra chains and Taiga pillars have their own dedicated fixtures.
+FrozenTundra chains, ColdSteppe tori and Taiga pillars have dedicated fixtures.
 
 RKM checks cover nominal placement cells, not encounters along an arbitrary path.
 Feature omission isolates the current contribution; optional reference shaders
@@ -37,8 +37,9 @@ FEATURES=(
     (4,'lake_basin',510,(-18.,-5.)),
     (4,'bog_hole',511,None),
     (5,'rocky_hole',5112,None),
-    (6,'terraced_mountain',611,(615.,625.)),
-    (6,'deep_chasm',613,(-805.,-795.)),
+    # ColdSteppe now copies FrozenTundra and adds plain-only tori. Its former
+    # isolated terraces/chasm were intentionally replaced, not regressed.
+    # check_cold_steppe_regions.py / check_cold_steppe_tori.py cover that recipe.
 )
 
 
@@ -145,10 +146,10 @@ def render(output,profiles,sections):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
-    fig,axes=plt.subplots(6,2,figsize=(13,18),constrained_layout=True)
+    fig,axes=plt.subplots(5,2,figsize=(13,15),constrained_layout=True)
     primaries=('ice_massif','frozen_mountain','tundra_peak','taiga_peak','lake_basin','rocky_hole','deep_chasm')
     secondaries=('ice_rift','underground_cave','twenty_metre_rock',None,'bog_hole','rocky_hole','terraced_mountain')
-    for row,biome in enumerate((0,2,3,4,5,6)):
+    for row,biome in enumerate((0,2,3,4,5)):
         for column,label in enumerate((primaries[biome],secondaries[biome])):
             ax=axes[row,column]
             if label is None:
@@ -174,7 +175,7 @@ def render(output,profiles,sections):
             ax.set_aspect('equal',adjustable='datalim');ax.grid(alpha=.2)
             handles,_=ax.get_legend_handles_labels()
             if handles:ax.legend(fontsize=8)
-    fig.suptitle('ENDURANCE — 6 cold biomes / actual GLSL probes; FrozenTundra tested separately\nEqual physical X/Y scale; forced biomes; not gameplay or performance certification',fontsize=14)
+    fig.suptitle('ENDURANCE — 5 cold biomes / actual GLSL probes; FrozenTundra and ColdSteppe tested separately\nEqual physical X/Y scale; forced biomes; not gameplay or performance certification',fontsize=14)
     fig.savefig(output/'cold_biome_profiles.png',dpi=135)
     plt.close(fig)
 

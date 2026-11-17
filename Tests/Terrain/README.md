@@ -510,6 +510,22 @@ Feature sites are deliberately targeted; cave connectivity is sampled, not a
 controller test. See [the initial report](../../docs/COLD_BIOME_REVISION.md) and
 [the historical spacing revision](../../docs/COLD_BIOME_SPACING_REVISION.md).
 
+## ColdSteppe regions and porous tori
+
+ColdSteppe has dedicated region and torus checks; the historical cold-feature
+test no longer expects its removed terraced peaks or 800-m chasms.
+
+```sh
+python3 Tests/Terrain/check_cold_steppe_regions.py --output /tmp/cold_steppe_regions.json
+python3 Tests/Terrain/calibrate_cold_steppe_porosity.py --output /tmp/cold_steppe_porosity.json
+python3 Tests/Terrain/check_cold_steppe_tori.py --output /tmp/cold_steppe_tori.json
+```
+
+These execute the actual GLSL to measure the approximately 20% reduction in
+dominant mountain area, cell-jittered ring placement, hollow torus dimensions,
+height-dependent porosity, ground preservation and density dispatch bounds.
+See [ColdSteppe settings and validation](../../docs/COLD_STEPPE_TORI.md).
+
 ## Actual biome areas and site occurrence
 
 ```sh
