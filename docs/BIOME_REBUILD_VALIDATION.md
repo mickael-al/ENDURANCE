@@ -4,6 +4,8 @@
 
 Les recettes 7, 8 et 9 ont également été remplacées depuis ce bilan : voir [BorealForest](BOREAL_FOREST_LAYERS.md), [ColdForest](COLD_FOREST_GOUFFRES.md) et [ColdMarsh](COLD_MARSH_SPHERES.md), avec leurs mesures dédiées.
 
+La recette 20 a depuis été reconstruite avec des volcans à cratère ouvert et des fissures de sol : voir [VolcanicDesert](VOLCANIC_DESERT.md). Les anciennes mesures de caldeiras et de tubes 3D ci-dessous ne décrivent plus ce biome.
+
 Révision du 13 novembre 2026. Les 50 recettes terrestres précédentes sont remplacées ; le climat, Marine et les réglages de la scène sont conservés. La description des formes, des unités et les sources de conception figurent dans [BIOMES.md](BIOMES.md). Les [fiches initiales](BIOME_TOPOGRAPHY_PROPOSAL.md) décrivent l'intention ; leur catalogue n'est pas une liste de fonctionnalités toutes réalisées.
 
 ## Ce qui a été exécuté

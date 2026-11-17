@@ -1,0 +1,98 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "817a69a6f0b6610ecf9c46e9f17b8beb6c009e46b550ebe4a3a06a5eac0f9941",
+  "placement": [
+    {
+      "seed": 1337,
+      "candidates": 289,
+      "cell_size_m": 10000.0,
+      "minimum_center_spacing_m": 5511.531225493594,
+      "radius_min_m": 1800.7713623046875,
+      "radius_max_m": 2798.139892578125,
+      "height_min_m": 900.7047119140625,
+      "height_max_m": 1696.09521484375
+    },
+    {
+      "seed": 97,
+      "candidates": 289,
+      "cell_size_m": 10000.0,
+      "minimum_center_spacing_m": 5325.375082504837,
+      "radius_min_m": 1801.7178955078125,
+      "radius_max_m": 2783.559814453125,
+      "height_min_m": 903.3775634765625,
+      "height_max_m": 1684.744873046875
+    }
+  ],
+  "morphology": {
+    "sites": 16,
+    "azimuths": 64,
+    "radial_samples": 161,
+    "minimum_crater_depth_m": 541.688720703125,
+    "maximum_crater_depth_m": 1128.523193359375,
+    "rim_radius_fraction_min": 0.18,
+    "rim_radius_fraction_max": 0.35000000000000003,
+    "relative_rim_height_std_median": 0.02568894624710083
+  },
+  "ground": {
+    "samples": 65536,
+    "height_min_m": -71.71089935302734,
+    "height_max_m": 46.015220642089844,
+    "deep_crack_samples": 1198,
+    "plate_samples": 48360,
+    "median_plate_to_crack_difference_m": 64.81698608398438,
+    "median_warp_m": 109.63861139353422,
+    "nominal_plate_scale_m": 700.0,
+    "approximate_crack_width_m": 40.0,
+    "crack_depth_setting_m": 65.0
+  },
+  "cell_seams": {
+    "pairs": 574,
+    "separation_m": 0.03125,
+    "maximum_height_change_m": 0.3004341125488281
+  },
+  "integration": [
+    {
+      "detail_scale": 0.2,
+      "samples": 16384,
+      "world_height_min_m": -640.2597045898438,
+      "world_height_max_m": 1472.8902587890625,
+      "height_only_density": true
+    },
+    {
+      "detail_scale": 0.35,
+      "samples": 16384,
+      "world_height_min_m": -666.3690795898438,
+      "world_height_max_m": 2090.935302734375,
+      "height_only_density": true
+    },
+    {
+      "detail_scale": 1.0,
+      "samples": 16384,
+      "world_height_min_m": -779.5096435546875,
+      "world_height_max_m": 5007.78271484375,
+      "height_only_density": true
+    }
+  ],
+  "targeted_pipeline": {
+    "anchor": [
+      -2368,
+      902,
+      -3140
+    ],
+    "shared_exact_lod_samples": 125,
+    "production_density_samples": 1331
+  },
+  "figure": {
+    "seed": 1337,
+    "center_xz_m": [
+      -3028.763427734375,
+      -3131.9814453125
+    ],
+    "landscape_extent_m": 24000.0,
+    "landscape_step_m": 75.0,
+    "volcano_extent_m": 7000.0,
+    "volcano_step_m": 29.166666666666668,
+    "ground_extent_m": 1400.0,
+    "ground_step_m": 3.5
+  }
+}

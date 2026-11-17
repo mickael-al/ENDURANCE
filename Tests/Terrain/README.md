@@ -575,6 +575,21 @@ It verifies ground preservation, band coverage, mixed controls, production
 dispatch and shared LOD samples. It replaces the old bank-lip sculpture fixture
 for biome 9. See [settings and actual density previews](../../docs/COLD_MARSH_SPHERES.md).
 
+## VolcanicDesert volcanoes and fractured ground
+
+```sh
+python3 Tests/Terrain/check_volcanic_desert.py --output /tmp/volcanic_desert.json
+```
+
+The dedicated production GLSL check samples hashed placement on two seeds,
+crater profiles in 64 directions, radial footprint taper, cell-boundary
+continuity and pronounced warped Voronoi fissures. It checks height limits,
+solid/air signs and removal of the old 3D sculpture at three detail scales,
+then compares production dispatch and shared LOD samples. The preview includes
+an actual-height landscape, a volcano at equal XYZ scale, a high-resolution
+fractured-ground view and a crater cross-section. It replaces the obsolete
+localized lava-tube fixture for biome 20. See [settings and measured limits](../../docs/VOLCANIC_DESERT.md).
+
 ## Actual biome areas and site occurrence
 
 ```sh
