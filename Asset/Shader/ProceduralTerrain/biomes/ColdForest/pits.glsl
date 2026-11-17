@@ -33,6 +33,7 @@ float coldForestPitLocalMask(vec2 p)
     float riverProtection = smoothstep(COLD_FOREST_RIVER_BANK_HALF_WIDTH,
         COLD_FOREST_RIVER_BANK_HALF_WIDTH + COLD_FOREST_PIT_RIVER_FADE,
         coldForestRiverDistance(p));
+    if (riverProtection <= 0.0) return 0.0;
     return coldForestRegionMask(p) * riverProtection;
 }
 
@@ -89,8 +90,9 @@ vec2 coldForestPitFields(vec2 p)
 {
     if (uFieldMode != 0u || uDetailScale <= 0.0) return vec2(0.0);
     float mask = coldForestPitLocalMask(p);
+    if (mask <= 0.0) return vec2(0.0);
     float maximumDepth = coldForestPitMaximumDepth(p);
-    if (mask <= 0.0 || maximumDepth <= 0.0) return vec2(0.0);
+    if (maximumDepth <= 0.0) return vec2(0.0);
     ivec2 cell = ivec2(floor(p / COLD_FOREST_PIT_SPACING));
     vec2 fields = vec2(0.0);
     // A 10-km radius on 10-km cells reaches only these nine candidates.

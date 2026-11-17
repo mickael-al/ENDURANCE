@@ -10,6 +10,9 @@
 float fieldVolume(vec3 p, FieldColumn column)
 {
     if (!landVolumeEnabled(column)) return 0.0;
+    float localY = p.y - column.terrain.x;
+    // No excavation reaches above this fade, even in a mixed biome column.
+    if (localY >= 64.0) return 0.0;
     float weight = fieldSurfaceWeight(column, FIELD_BIOME_ID);
     if (weight <= 0.0) return 0.0;
     vec2 pits;
@@ -28,7 +31,6 @@ float fieldVolume(vec3 p, FieldColumn column)
     pits.x = min(pits.x, max(0.0, column.terrain.x - envelope.x
         - COLD_FOREST_PIT_BAND_MARGIN));
     if (pits.x <= 0.0 || pits.y <= 0.0) return 0.0;
-    float localY = p.y - column.terrain.x;
     float outside = max(localY, -pits.x - localY);
     if (outside >= 64.0) return 0.0;
     float base = -localY;

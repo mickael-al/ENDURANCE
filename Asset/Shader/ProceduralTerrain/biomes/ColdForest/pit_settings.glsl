@@ -10,7 +10,7 @@ const float COLD_FOREST_PIT_BAND_MARGIN = 96.0;
 const float COLD_FOREST_PIT_RIM_WIDTH = 2000.0;
 const float COLD_FOREST_PIT_SPIRAL_DEPTH = 110.0;
 const float COLD_FOREST_PIT_SPIRAL_TURNS = 2.0;
-const float COLD_FOREST_PORE_SCALE = 240.0;
+const float COLD_FOREST_PORE_SCALE = 720.0;
 // No stone inside the first 70% of the radius; fill the outer 30% gradually.
 const float COLD_FOREST_PIT_EMPTY_RADIUS = 0.70;
 const float COLD_FOREST_PIT_ANCHOR_RADIUS = 1100.0;

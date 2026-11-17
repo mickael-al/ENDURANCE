@@ -38,15 +38,15 @@ float coldForestPoreThreshold(float voidFraction)
         COLD_FOREST_PORE_QUANTILES[63-k], t);
 }
 
-float coldForestPoreNoise(vec3 localPosition, uint key)
+float coldForestPoreNoise(vec3 position, uint key)
 {
-    // Independent phases keep the center/depth profile from locking onto the
-    // integer lattice when every pit uses the same local coordinate frame.
+    // Production uses a shared world-XZ frame and seed across overlapping pits.
+    // The seeded phase avoids locking the surface-relative Y to lattice nodes.
     vec3 phase = vec3(
         noiseInternalUintTo01(noiseInternalHash(key ^ 0x93ad2167u)),
         noiseInternalUintTo01(noiseInternalHash(key ^ 0x51f2e183u)),
         noiseInternalUintTo01(noiseInternalHash(key ^ 0x68bc21ebu))) * 256.0;
-    return noisePerlin3D(localPosition / COLD_FOREST_PORE_SCALE + phase,
+    return noisePerlin3D(position / COLD_FOREST_PORE_SCALE + phase,
         noiseInternalHash(key ^ 0x641ac379u));
 }
 
