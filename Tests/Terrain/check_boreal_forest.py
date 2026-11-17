@@ -67,10 +67,10 @@ void main() {
  // test the pre-existing substrate; values greater than1 test exterior air.
  vec3 p=vec3(xz.x,ground+queries[i].y*max(mountain,1.),xz.y);
  float base=c.terrain.x-p.y;
- result[4u*i]=vec4(fieldProbeDensity(p,c),base,borealCavityField(p,uSeed),mountain);
+ result[4u*i]=vec4(fieldProbeDensity(p,c),base,borealCavityField(p,uSeed,queries[i].y),mountain);
  result[4u*i+1u]=vec4(ground,c.terrain.x,p.y,fieldVolume(p,c));
  result[4u*i+2u]=vec4(fieldVolumeEnvelope(c),c.terrain.w,c.blend.w);
- result[4u*i+3u]=vec4(borealCavityNoise(p,uSeed),0.,0.,0.);
+ result[4u*i+3u]=vec4(borealCavityNoise(p,uSeed),borealCavitySolidFraction(queries[i].y),0.,0.);
 }
 '''
 
@@ -174,7 +174,28 @@ def world_checks(gl,active,scale):
         assert inside.all(),'A mountain slab escapes the production volume envelope'
         assert np.all(r[:,0]<=r[:,1]+.002),'Excavation adds rock above the requested layer heights'
         carved=r[:,0]<0.
-        assert .55<float(carved.mean())<.65,('Mountain cavity fraction differs from60%',seed,scale,float(carved.mean()))
+        expected_void=.20+.30*q[:,1]
+        assert abs(float(carved.mean()-expected_void.mean()))<.03,('Mountain cavity mean differs from gradient target',seed,scale,float(carved.mean()))
+        assert np.allclose(r[:,13],.80-.30*q[:,1],atol=1.e-6),'Solid gradient does not use full-stack height'
+        # An independent full-height helper sample must agree with actual field
+        # excavation. This catches a production reset at each 600-m layer.
+        away=np.abs(r[:,2])>.002
+        assert np.array_equal(carved[away],r[away,2]<0.),'Production cavity gradient resets or uses a different height'
+        bins=[]
+        for lo in np.arange(0.,1.,.1):
+            use=(q[:,1]>=lo)&(q[:,1]<lo+.1)
+            expected_bin_void=float(expected_void[use].mean());measured=float(carved[use].mean())
+            assert abs(measured-expected_bin_void)<.035,('Height-bin cavity fraction misses target',seed,scale,lo,measured,expected_bin_void)
+            bins.append(dict(low=float(lo),high=float(lo+.1),samples=int(use.sum()),
+                mean_height=float(q[use,1].mean()),target_void_fraction=expected_bin_void,void_fraction=measured))
+        layer_count=np.rint(r[:,3]/(600./.35*scale)).astype(int)
+        endpoints=[]
+        for height in (.01,.99):
+            endpoint=q[:8192].copy();endpoint[:,1]=height
+            er=probe.run(endpoint,seed=seed,uDetailScale=scale)
+            actual=float((er[:,0]<0.).mean());wanted=.20+.30*height
+            assert abs(actual-wanted)<.035,('Base/top cavity proportion differs',seed,scale,height,actual,wanted)
+            endpoints.append(dict(height=height,samples=len(endpoint),target_void_fraction=wanted,void_fraction=actual))
         changed=np.flatnonzero(carved&(r[:,1]>2.))
         assert len(changed)>0,'No actual excavated air below the mountain surface'
         if target is None:
@@ -201,7 +222,11 @@ def world_checks(gl,active,scale):
         vertical=np.ptp(np.asarray(variations),axis=0)
         assert (vertical>.005).mean()>.95,'Cavity field is extruded rather than volumetric'
         records.append(dict(seed=seed,detail_scale=scale,sampled_volume_points=len(q),
-            void_fraction=float(carved.mean()),inside_band_samples=int(inside.sum()),
+            void_fraction=float(carved.mean()),target_void_fraction=float(expected_void.mean()),
+            height_bins=bins,endpoints=endpoints,
+            full_stack_gradient_checks=int(away.sum()),
+            sampled_layer_count_histogram=np.bincount(layer_count,minlength=5).tolist(),
+            inside_band_samples=int(inside.sum()),
             unchanged_ground_min_density=min(ground_min),
             vertically_varying_columns_fraction=float((vertical>.005).mean())))
     return records,target
@@ -265,12 +290,20 @@ def render_figure(gl,path,report):
     ax.set_title('Coupe du volume : noir = solide, blanc = air');ax.legend(fontsize=8)
     ax=fig.add_subplot(gs[1,1]);cases=report['world']
     colors={.2:'#819ca1',.35:'#557b63',1.:'#a48665'}
-    ax.bar(np.arange(len(cases)),[100*x['void_fraction'] for x in cases],
-        color=[colors[x['detail_scale']] for x in cases])
-    ax.axhline(60.,color='#b34a3c',linestyle='--',label='Cible : 60 %')
-    ax.set_xticks(np.arange(len(cases)),[str(x['seed'])+'\n'+str(x['detail_scale']) for x in cases],fontsize=8)
-    ax.set_ylim(0,100);ax.set_ylabel('Vide dans les montagnes (%)');ax.set_xlabel('Seed / detailScale')
-    ax.set_title('Mesures dans les véritables couches');ax.legend(fontsize=8)
+    for scale in (.2,.35,1.):
+        selected=[case for case in cases if case['detail_scale']==scale]
+        ys=[];solids=[]
+        for index in range(10):
+            bins=[case['height_bins'][index] for case in selected]
+            weights=np.array([b['samples'] for b in bins])
+            ys.append(100*np.average([b['mean_height'] for b in bins],weights=weights))
+            solids.append(100*(1-np.average([b['void_fraction'] for b in bins],weights=weights)))
+        ax.plot(solids,ys,'o-',color=colors[scale],label=f'GLSL : échelle {scale}')
+    ax.plot([80,50],[0,100],'--',color='#b34a3c',label='Cible : 80 → 50 % solide')
+    ax.set_xlim(40,90);ax.set_ylim(0,100)
+    ax.set_ylabel('Hauteur dans le massif complet (%)');ax.set_xlabel('Roche solide (%)')
+    ax.set_title('Gradient mesuré dans les véritables montagnes')
+    ax.grid(alpha=.2);ax.legend(fontsize=8)
     fig.suptitle('Forêt boréale — quatre couches simplex et cavités Voronoï\n'
         'Reconstruction de diagnostic, pas une capture du jeu.',fontsize=15)
     path.parent.mkdir(parents=True,exist_ok=True);fig.savefig(path,dpi=115);plt.close(fig)
@@ -303,6 +336,19 @@ def main():
                 sample=density.sample(7,(float(position[0]-8),float(position[2]-8)),2.,
                     float(position[1]-8),2.,size=9,depth=9,seed=seed,**SCENE_OPTIONS)
                 report['targeted_pipeline']=check_targeted_pipeline(FieldRunner(gl),density,sample,7,seed)
+        profile=[]
+        for index in range(10):
+            bins=[case['height_bins'][index] for case in report['world']]
+            weights=np.asarray([b['samples'] for b in bins])
+            measured=float(np.average([b['void_fraction'] for b in bins],weights=weights))
+            expected=float(np.average([b['target_void_fraction'] for b in bins],weights=weights))
+            assert abs(measured-expected)<.015,('Pooled height gradient misses target',index,measured,expected)
+            profile.append(dict(mean_height=float(np.average([b['mean_height'] for b in bins],weights=weights)),
+                samples=int(weights.sum()),solid_fraction=1.-measured,target_solid_fraction=1.-expected))
+        report['profile_summary']=dict(height_bins=profile,
+            mean_void_fraction=float(np.mean([c['void_fraction'] for c in report['world']])),
+            near_base_solid_fraction=1.-float(np.mean([c['endpoints'][0]['void_fraction'] for c in report['world']])),
+            near_top_solid_fraction=1.-float(np.mean([c['endpoints'][1]['void_fraction'] for c in report['world']])))
         print('Checking mixed mountain controls...',flush=True)
         report['mixed']=mixed_checks(gl,active)
         assert source_fingerprint(7)==fingerprint,'Sources changed during test; rerun'

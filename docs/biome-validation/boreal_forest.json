@@ -1,6 +1,6 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
-  "source_sha256": "73d247e3b87a9bb6482483af59a6c5bd93708a455ed10dc6edd3b53a36c59ea1",
+  "source_sha256": "2f23d3d8e24e4f3046eb073081670f30966a87b289b5499bb6752db888483afc",
   "layers": [
     {
       "seed": 1337,
@@ -53,16 +53,226 @@
       "seed": 1337,
       "detail_scale": 0.2,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.598541259765625,
+      "void_fraction": 0.355560302734375,
+      "target_void_fraction": 0.3500777466380218,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3282,
+          "mean_height": 0.05118228831629398,
+          "target_void_fraction": 0.21535468649488823,
+          "void_fraction": 0.21968312004875076
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3203,
+          "mean_height": 0.1500408311928782,
+          "target_void_fraction": 0.24501224935786345,
+          "void_fraction": 0.25569778332812987
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3268,
+          "mean_height": 0.25023619776236683,
+          "target_void_fraction": 0.27507085932871006,
+          "void_fraction": 0.29528763769889843
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3270,
+          "mean_height": 0.35021455923437006,
+          "target_void_fraction": 0.30506436777031104,
+          "void_fraction": 0.3174311926605505
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3328,
+          "mean_height": 0.4505395244115619,
+          "target_void_fraction": 0.3351618573234686,
+          "void_fraction": 0.33263221153846156
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3318,
+          "mean_height": 0.5494491421730124,
+          "target_void_fraction": 0.36483474265190363,
+          "void_fraction": 0.36075949367088606
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3251,
+          "mean_height": 0.6492758632338664,
+          "target_void_fraction": 0.3947827589701599,
+          "void_fraction": 0.4137188557366964
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3375,
+          "mean_height": 0.7501905935489297,
+          "target_void_fraction": 0.42505717806467885,
+          "void_fraction": 0.41659259259259257
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3305,
+          "mean_height": 0.8506458615735545,
+          "target_void_fraction": 0.45519375847206633,
+          "void_fraction": 0.4611195158850227
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3168,
+          "mean_height": 0.9483636371507957,
+          "target_void_fraction": 0.48450909114523877,
+          "void_fraction": 0.4826388888888889
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.20751953125
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.49462890625
+        }
+      ],
+      "full_stack_gradient_checks": 32767,
+      "sampled_layer_count_histogram": [
+        0,
+        24544,
+        7498,
+        713,
+        13
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 0.34283447265625,
-      "vertically_varying_columns_fraction": 1.0
+      "vertically_varying_columns_fraction": 0.9921875
     },
     {
       "seed": 97,
       "detail_scale": 0.2,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.602630615234375,
+      "void_fraction": 0.3538818359375,
+      "target_void_fraction": 0.3498332059902595,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3308,
+          "mean_height": 0.050532026811924376,
+          "target_void_fraction": 0.21515960804357734,
+          "void_fraction": 0.21281741233373638
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3390,
+          "mean_height": 0.15035085425435687,
+          "target_void_fraction": 0.24510525627630708,
+          "void_fraction": 0.25545722713864305
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3159,
+          "mean_height": 0.25020641044133146,
+          "target_void_fraction": 0.27506192313239947,
+          "void_fraction": 0.2817347261791706
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3216,
+          "mean_height": 0.3507212577898736,
+          "target_void_fraction": 0.3052163773369621,
+          "void_fraction": 0.3072139303482587
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3303,
+          "mean_height": 0.450958681278903,
+          "target_void_fraction": 0.33528760438367083,
+          "void_fraction": 0.33605812897366033
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3320,
+          "mean_height": 0.5496515418850519,
+          "target_void_fraction": 0.3648954625655156,
+          "void_fraction": 0.3789156626506024
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3295,
+          "mean_height": 0.6502939344125458,
+          "target_void_fraction": 0.39508818032376375,
+          "void_fraction": 0.3878603945371775
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3242,
+          "mean_height": 0.7506970224234719,
+          "target_void_fraction": 0.4252091067270416,
+          "void_fraction": 0.41826033312769895
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3270,
+          "mean_height": 0.8497535018858893,
+          "target_void_fraction": 0.45492605056576674,
+          "void_fraction": 0.4596330275229358
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3265,
+          "mean_height": 0.9497944364373291,
+          "target_void_fraction": 0.48493833093119865,
+          "void_fraction": 0.5032159264931088
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.206787109375
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.5069580078125
+        }
+      ],
+      "full_stack_gradient_checks": 32768,
+      "sampled_layer_count_histogram": [
+        0,
+        24632,
+        7297,
+        829,
+        10
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 0.34283447265625,
       "vertically_varying_columns_fraction": 1.0
@@ -71,7 +281,112 @@
       "seed": 98765,
       "detail_scale": 0.2,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.599517822265625,
+      "void_fraction": 0.351287841796875,
+      "target_void_fraction": 0.349309328535653,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3302,
+          "mean_height": 0.050789777297260204,
+          "target_void_fraction": 0.21523693318917808,
+          "void_fraction": 0.21168988491823137
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3297,
+          "mean_height": 0.14965913447247986,
+          "target_void_fraction": 0.24489774034174394,
+          "void_fraction": 0.2484076433121019
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3310,
+          "mean_height": 0.2496309764823701,
+          "target_void_fraction": 0.27488929294471104,
+          "void_fraction": 0.2948640483383686
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3346,
+          "mean_height": 0.35010668967866687,
+          "target_void_fraction": 0.30503200690360005,
+          "void_fraction": 0.3006575014943216
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3169,
+          "mean_height": 0.45063425821820474,
+          "target_void_fraction": 0.33519027746546143,
+          "void_fraction": 0.34742821079204794
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3303,
+          "mean_height": 0.5501092743615438,
+          "target_void_fraction": 0.3650327823084632,
+          "void_fraction": 0.3651226158038147
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3333,
+          "mean_height": 0.6495653603278095,
+          "target_void_fraction": 0.3948696080983428,
+          "void_fraction": 0.38133813381338133
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3330,
+          "mean_height": 0.7501911675760423,
+          "target_void_fraction": 0.42505735027281283,
+          "void_fraction": 0.42702702702702705
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3182,
+          "mean_height": 0.8501618359501281,
+          "target_void_fraction": 0.45504855078503836,
+          "void_fraction": 0.4572595851665619
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3196,
+          "mean_height": 0.9500209442650251,
+          "target_void_fraction": 0.4850062832795075,
+          "void_fraction": 0.48685857321652065
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.19970703125
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.49267578125
+        }
+      ],
+      "full_stack_gradient_checks": 32768,
+      "sampled_layer_count_histogram": [
+        0,
+        24550,
+        7453,
+        745,
+        20
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 0.34283447265625,
       "vertically_varying_columns_fraction": 1.0
@@ -80,7 +395,112 @@
       "seed": 1337,
       "detail_scale": 0.35,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.598968505859375,
+      "void_fraction": 0.353240966796875,
+      "target_void_fraction": 0.3500777466380218,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3282,
+          "mean_height": 0.05118228831629398,
+          "target_void_fraction": 0.21535468649488823,
+          "void_fraction": 0.2181596587446679
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3203,
+          "mean_height": 0.1500408311928782,
+          "target_void_fraction": 0.24501224935786345,
+          "void_fraction": 0.2503902591320637
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3268,
+          "mean_height": 0.25023619776236683,
+          "target_void_fraction": 0.27507085932871006,
+          "void_fraction": 0.29314565483476135
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3270,
+          "mean_height": 0.35021455923437006,
+          "target_void_fraction": 0.30506436777031104,
+          "void_fraction": 0.3174311926605505
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3328,
+          "mean_height": 0.4505395244115619,
+          "target_void_fraction": 0.3351618573234686,
+          "void_fraction": 0.3323317307692308
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3318,
+          "mean_height": 0.5494491421730124,
+          "target_void_fraction": 0.36483474265190363,
+          "void_fraction": 0.36859553948161544
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3251,
+          "mean_height": 0.6492758632338664,
+          "target_void_fraction": 0.3947827589701599,
+          "void_fraction": 0.3894186404183328
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3375,
+          "mean_height": 0.7501905935489297,
+          "target_void_fraction": 0.42505717806467885,
+          "void_fraction": 0.41303703703703704
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3305,
+          "mean_height": 0.8506458615735545,
+          "target_void_fraction": 0.45519375847206633,
+          "void_fraction": 0.46505295007564296
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3168,
+          "mean_height": 0.9483636371507957,
+          "target_void_fraction": 0.48450909114523877,
+          "void_fraction": 0.4845328282828283
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.2076416015625
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.4931640625
+        }
+      ],
+      "full_stack_gradient_checks": 32768,
+      "sampled_layer_count_histogram": [
+        0,
+        24544,
+        7498,
+        713,
+        13
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 0.5999755859375,
       "vertically_varying_columns_fraction": 1.0
@@ -89,7 +509,112 @@
       "seed": 97,
       "detail_scale": 0.35,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.602203369140625,
+      "void_fraction": 0.356109619140625,
+      "target_void_fraction": 0.3498332059902595,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3308,
+          "mean_height": 0.050532026811924376,
+          "target_void_fraction": 0.21515960804357734,
+          "void_fraction": 0.21160822249093109
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3390,
+          "mean_height": 0.15035085425435687,
+          "target_void_fraction": 0.24510525627630708,
+          "void_fraction": 0.256047197640118
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3159,
+          "mean_height": 0.25020641044133146,
+          "target_void_fraction": 0.27506192313239947,
+          "void_fraction": 0.2905982905982906
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3216,
+          "mean_height": 0.3507212577898736,
+          "target_void_fraction": 0.3052163773369621,
+          "void_fraction": 0.30286069651741293
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3303,
+          "mean_height": 0.450958681278903,
+          "target_void_fraction": 0.33528760438367083,
+          "void_fraction": 0.3518013926733273
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3320,
+          "mean_height": 0.5496515418850519,
+          "target_void_fraction": 0.3648954625655156,
+          "void_fraction": 0.3924698795180723
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3295,
+          "mean_height": 0.6502939344125458,
+          "target_void_fraction": 0.39508818032376375,
+          "void_fraction": 0.39393019726858874
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3242,
+          "mean_height": 0.7506970224234719,
+          "target_void_fraction": 0.4252091067270416,
+          "void_fraction": 0.4123997532387415
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3270,
+          "mean_height": 0.8497535018858893,
+          "target_void_fraction": 0.45492605056576674,
+          "void_fraction": 0.4507645259938838
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3265,
+          "mean_height": 0.9497944364373291,
+          "target_void_fraction": 0.48493833093119865,
+          "void_fraction": 0.5007656967840735
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.2078857421875
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.4998779296875
+        }
+      ],
+      "full_stack_gradient_checks": 32767,
+      "sampled_layer_count_histogram": [
+        0,
+        24632,
+        7297,
+        829,
+        10
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 0.5999755859375,
       "vertically_varying_columns_fraction": 1.0
@@ -98,7 +623,112 @@
       "seed": 98765,
       "detail_scale": 0.35,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.597564697265625,
+      "void_fraction": 0.348480224609375,
+      "target_void_fraction": 0.349309328535653,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3302,
+          "mean_height": 0.050789777297260204,
+          "target_void_fraction": 0.21523693318917808,
+          "void_fraction": 0.21411265899454876
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3297,
+          "mean_height": 0.14965913447247986,
+          "target_void_fraction": 0.24489774034174394,
+          "void_fraction": 0.25659690627843496
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3310,
+          "mean_height": 0.2496309764823701,
+          "target_void_fraction": 0.27488929294471104,
+          "void_fraction": 0.29003021148036257
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3346,
+          "mean_height": 0.35010668967866687,
+          "target_void_fraction": 0.30503200690360005,
+          "void_fraction": 0.3078302450687388
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3169,
+          "mean_height": 0.45063425821820474,
+          "target_void_fraction": 0.33519027746546143,
+          "void_fraction": 0.34458819816976965
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3303,
+          "mean_height": 0.5501092743615438,
+          "target_void_fraction": 0.3650327823084632,
+          "void_fraction": 0.35906751438086587
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3333,
+          "mean_height": 0.6495653603278095,
+          "target_void_fraction": 0.3948696080983428,
+          "void_fraction": 0.38733873387338735
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3330,
+          "mean_height": 0.7501911675760423,
+          "target_void_fraction": 0.42505735027281283,
+          "void_fraction": 0.4168168168168168
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3182,
+          "mean_height": 0.8501618359501281,
+          "target_void_fraction": 0.45504855078503836,
+          "void_fraction": 0.4484600879949717
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3196,
+          "mean_height": 0.9500209442650251,
+          "target_void_fraction": 0.4850062832795075,
+          "void_fraction": 0.4668335419274093
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.199951171875
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.48291015625
+        }
+      ],
+      "full_stack_gradient_checks": 32768,
+      "sampled_layer_count_histogram": [
+        0,
+        24550,
+        7453,
+        745,
+        20
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 0.5999755859375,
       "vertically_varying_columns_fraction": 1.0
@@ -107,7 +737,112 @@
       "seed": 1337,
       "detail_scale": 1.0,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.59808349609375,
+      "void_fraction": 0.349884033203125,
+      "target_void_fraction": 0.3500777466380218,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3282,
+          "mean_height": 0.05118228831629398,
+          "target_void_fraction": 0.21535468649488823,
+          "void_fraction": 0.21937842778793418
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3203,
+          "mean_height": 0.1500408311928782,
+          "target_void_fraction": 0.24501224935786345,
+          "void_fraction": 0.23946300343428037
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3268,
+          "mean_height": 0.25023619776236683,
+          "target_void_fraction": 0.27507085932871006,
+          "void_fraction": 0.27876376988984086
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3270,
+          "mean_height": 0.35021455923437006,
+          "target_void_fraction": 0.30506436777031104,
+          "void_fraction": 0.30795107033639146
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3328,
+          "mean_height": 0.4505395244115619,
+          "target_void_fraction": 0.3351618573234686,
+          "void_fraction": 0.3401442307692308
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3318,
+          "mean_height": 0.5494491421730124,
+          "target_void_fraction": 0.36483474265190363,
+          "void_fraction": 0.350210970464135
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3251,
+          "mean_height": 0.6492758632338664,
+          "target_void_fraction": 0.3947827589701599,
+          "void_fraction": 0.3986465702860658
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3375,
+          "mean_height": 0.7501905935489297,
+          "target_void_fraction": 0.42505717806467885,
+          "void_fraction": 0.410962962962963
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3305,
+          "mean_height": 0.8506458615735545,
+          "target_void_fraction": 0.45519375847206633,
+          "void_fraction": 0.464750378214826
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3168,
+          "mean_height": 0.9483636371507957,
+          "target_void_fraction": 0.48450909114523877,
+          "void_fraction": 0.48832070707070707
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.2060546875
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.4976806640625
+        }
+      ],
+      "full_stack_gradient_checks": 32768,
+      "sampled_layer_count_histogram": [
+        0,
+        24544,
+        7498,
+        713,
+        13
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 1.7142333984375,
       "vertically_varying_columns_fraction": 1.0
@@ -116,7 +851,112 @@
       "seed": 97,
       "detail_scale": 1.0,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.6041259765625,
+      "void_fraction": 0.353240966796875,
+      "target_void_fraction": 0.3498332059902595,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3308,
+          "mean_height": 0.050532026811924376,
+          "target_void_fraction": 0.21515960804357734,
+          "void_fraction": 0.21704957678355502
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3390,
+          "mean_height": 0.15035085425435687,
+          "target_void_fraction": 0.24510525627630708,
+          "void_fraction": 0.243952802359882
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3159,
+          "mean_height": 0.25020641044133146,
+          "target_void_fraction": 0.27506192313239947,
+          "void_fraction": 0.29123140234251343
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3216,
+          "mean_height": 0.3507212577898736,
+          "target_void_fraction": 0.3052163773369621,
+          "void_fraction": 0.3062810945273632
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3303,
+          "mean_height": 0.450958681278903,
+          "target_void_fraction": 0.33528760438367083,
+          "void_fraction": 0.3418104753254617
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3320,
+          "mean_height": 0.5496515418850519,
+          "target_void_fraction": 0.3648954625655156,
+          "void_fraction": 0.363855421686747
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3295,
+          "mean_height": 0.6502939344125458,
+          "target_void_fraction": 0.39508818032376375,
+          "void_fraction": 0.39271623672230654
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3242,
+          "mean_height": 0.7506970224234719,
+          "target_void_fraction": 0.4252091067270416,
+          "void_fraction": 0.4204194941394201
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3270,
+          "mean_height": 0.8497535018858893,
+          "target_void_fraction": 0.45492605056576674,
+          "void_fraction": 0.4492354740061162
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3265,
+          "mean_height": 0.9497944364373291,
+          "target_void_fraction": 0.48493833093119865,
+          "void_fraction": 0.5090352220520674
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.206298828125
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.5035400390625
+        }
+      ],
+      "full_stack_gradient_checks": 32768,
+      "sampled_layer_count_histogram": [
+        0,
+        24632,
+        7297,
+        829,
+        10
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 1.7142333984375,
       "vertically_varying_columns_fraction": 1.0
@@ -125,7 +965,112 @@
       "seed": 98765,
       "detail_scale": 1.0,
       "sampled_volume_points": 32768,
-      "void_fraction": 0.600006103515625,
+      "void_fraction": 0.3492431640625,
+      "target_void_fraction": 0.349309328535653,
+      "height_bins": [
+        {
+          "low": 0.0,
+          "high": 0.1,
+          "samples": 3302,
+          "mean_height": 0.050789777297260204,
+          "target_void_fraction": 0.21523693318917808,
+          "void_fraction": 0.2238037552998183
+        },
+        {
+          "low": 0.1,
+          "high": 0.2,
+          "samples": 3297,
+          "mean_height": 0.14965913447247986,
+          "target_void_fraction": 0.24489774034174394,
+          "void_fraction": 0.24021838034576887
+        },
+        {
+          "low": 0.2,
+          "high": 0.30000000000000004,
+          "samples": 3310,
+          "mean_height": 0.2496309764823701,
+          "target_void_fraction": 0.27488929294471104,
+          "void_fraction": 0.2894259818731118
+        },
+        {
+          "low": 0.30000000000000004,
+          "high": 0.4,
+          "samples": 3346,
+          "mean_height": 0.35010668967866687,
+          "target_void_fraction": 0.30503200690360005,
+          "void_fraction": 0.2893006575014943
+        },
+        {
+          "low": 0.4,
+          "high": 0.5,
+          "samples": 3169,
+          "mean_height": 0.45063425821820474,
+          "target_void_fraction": 0.33519027746546143,
+          "void_fraction": 0.33669927421899654
+        },
+        {
+          "low": 0.5,
+          "high": 0.6,
+          "samples": 3303,
+          "mean_height": 0.5501092743615438,
+          "target_void_fraction": 0.3650327823084632,
+          "void_fraction": 0.35937026945201334
+        },
+        {
+          "low": 0.6000000000000001,
+          "high": 0.7000000000000001,
+          "samples": 3333,
+          "mean_height": 0.6495653603278095,
+          "target_void_fraction": 0.3948696080983428,
+          "void_fraction": 0.39423942394239425
+        },
+        {
+          "low": 0.7000000000000001,
+          "high": 0.8,
+          "samples": 3330,
+          "mean_height": 0.7501911675760423,
+          "target_void_fraction": 0.42505735027281283,
+          "void_fraction": 0.43243243243243246
+        },
+        {
+          "low": 0.8,
+          "high": 0.9,
+          "samples": 3182,
+          "mean_height": 0.8501618359501281,
+          "target_void_fraction": 0.45504855078503836,
+          "void_fraction": 0.46103079824010057
+        },
+        {
+          "low": 0.9,
+          "high": 1.0,
+          "samples": 3196,
+          "mean_height": 0.9500209442650251,
+          "target_void_fraction": 0.4850062832795075,
+          "void_fraction": 0.47309136420525655
+        }
+      ],
+      "endpoints": [
+        {
+          "height": 0.01,
+          "samples": 8192,
+          "target_void_fraction": 0.203,
+          "void_fraction": 0.2039794921875
+        },
+        {
+          "height": 0.99,
+          "samples": 8192,
+          "target_void_fraction": 0.497,
+          "void_fraction": 0.4942626953125
+        }
+      ],
+      "full_stack_gradient_checks": 32768,
+      "sampled_layer_count_histogram": [
+        0,
+        24550,
+        7453,
+        745,
+        20
+      ],
       "inside_band_samples": 32768,
       "unchanged_ground_min_density": 1.7142333984375,
       "vertically_varying_columns_fraction": 1.0
@@ -133,12 +1078,79 @@
   ],
   "targeted_pipeline": {
     "anchor": [
-      -350118,
-      284,
-      -115026
+      119328,
+      622,
+      -60494
     ],
     "shared_exact_lod_samples": 125,
     "production_density_samples": 1331
+  },
+  "profile_summary": {
+    "height_bins": [
+      {
+        "mean_height": 0.05083381111842659,
+        "samples": 29676,
+        "solid_fraction": 0.78352877746327,
+        "target_solid_fraction": 0.784749856664472
+      },
+      {
+        "mean_height": 0.15001985284012384,
+        "samples": 29670,
+        "solid_fraction": 0.7503875968992249,
+        "target_solid_fraction": 0.7549940441479629
+      },
+      {
+        "mean_height": 0.2500207946008243,
+        "samples": 29211,
+        "solid_fraction": 0.7105200095854302,
+        "target_solid_fraction": 0.7249937616197527
+      },
+      {
+        "mean_height": 0.35034358802008164,
+        "samples": 29496,
+        "solid_fraction": 0.6937211825332248,
+        "target_solid_fraction": 0.6948969235939755
+      },
+      {
+        "mean_height": 0.4507114312040189,
+        "samples": 29400,
+        "solid_fraction": 0.6596598639455782,
+        "target_solid_fraction": 0.6647865706387943
+      },
+      {
+        "mean_height": 0.5497360734337197,
+        "samples": 29823,
+        "solid_fraction": 0.633504342286155,
+        "target_solid_fraction": 0.6350791779698841
+      },
+      {
+        "mean_height": 0.6497130976045377,
+        "samples": 29637,
+        "solid_fraction": 0.6068090562472586,
+        "target_solid_fraction": 0.6050860707186387
+      },
+      {
+        "mean_height": 0.7503558447725702,
+        "samples": 29841,
+        "solid_fraction": 0.5813478100599846,
+        "target_solid_fraction": 0.5748932465682289
+      },
+      {
+        "mean_height": 0.8501889398032965,
+        "samples": 29271,
+        "solid_fraction": 0.5424823203853644,
+        "target_solid_fraction": 0.5449433180590111
+      },
+      {
+        "mean_height": 0.9493988758264224,
+        "samples": 28887,
+        "solid_fraction": 0.511510367985599,
+        "target_solid_fraction": 0.5151803372520734
+      }
+    ],
+    "mean_void_fraction": 0.352325439453125,
+    "near_base_solid_fraction": 0.7949083116319444,
+    "near_top_solid_fraction": 0.5038113064236112
   },
   "mixed": [
     {

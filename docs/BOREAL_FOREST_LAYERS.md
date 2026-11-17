@@ -29,9 +29,11 @@ Les constantes se trouvent dans
 | `BOREAL_MOUNTAIN_OCTAVES` | Nombre d'octaves, initialement cinq |
 | `BOREAL_MOUNTAIN_THRESHOLD` | Seuil strict d'activation, initialement 0,7 |
 | `BOREAL_LAYER_HEIGHT` | Hauteur brute d'une couche avant `detailScale` |
-| `BOREAL_CAVITY_SCALE` | Taille des cellules Voronoï, initialement 400 m |
+| `BOREAL_CAVITY_SCALE` | Taille des cellules Voronoï, 1 600 m |
 | `BOREAL_CAVITY_WARP_SCALE` | Échelle des Perlin de déformation, 600 m |
 | `BOREAL_CAVITY_WARP_STRENGTH` | Amplitude de cette déformation, 0,65 cellule |
+| `BOREAL_SOLID_BASE` | Fraction solide cible au pied du massif, 0,80 |
+| `BOREAL_SOLID_TOP` | Fraction solide cible au sommet du massif, 0,50 |
 
 ## Excavation 3D limitée aux nouvelles couches
 
@@ -45,16 +47,24 @@ de son poids de biome.
 Trois Perlin 2D indépendants sont évalués sur les plans `YZ`, `ZX` et `XY` des
 positions 3D. Ils déforment les trois coordonnées injectées dans un Voronoï 3D.
 La coordonnée Y reste donc active : les cavités ne sont pas des trous 2D extrudés.
-L'échelle du Voronoï est de 1 600 m, agrandie quatre fois depuis les 400 m
-initiaux. La déformation Perlin reste à 600 m ; seule l'échelle du Voronoï a
-changé, pas le seuil d'excavation ni les couches montagneuses.
+L'échelle du Voronoï reste de **1 600 m**, celle du Perlin de déformation de
+600 m et son amplitude de 0,65 cellule. Les couches montagneuses sont conservées.
 
-Le seuil du Voronoï est calibré sur son véritable champ composé pour obtenir
-**environ 60 % d'air dans les nouvelles montagnes**. Ce pourcentage est une
-proportion statistique de volume, pas une valeur de bruit égale à 0,6. Les
-cavités sont bornées par le sommet des couches et le sol d'origine. Elles ne
-creusent pas le substrat sous les nouvelles montagnes et ne s'activent pas dans
-les colonnes sans surélévation.
+La fraction de roche cible diminue linéairement de **80 % au pied à 50 % au
+sommet**, donc le vide passe de 20 % à 50 %. La hauteur utilisée est celle du
+massif complet : `(Y - sol_initial) / hauteur_montagne`. Le gradient ne redémarre
+pas après chaque couche de 600 m. Une table de quantiles du véritable champ
+composé transforme la fraction de vide en seuil Voronoï ; sa valeur brute n'est
+pas directement une probabilité. Elle tient aussi compte de la phase verticale
+dans les cellules Voronoï, afin qu'un niveau proche d'un plan de la grille ne
+devienne pas artificiellement plus dense. Les coordonnées et l'échelle du bruit
+restent les mêmes.
+
+La proportion moyenne visée sur l'épaisseur totale est donc d'environ **35 % de
+vide**. Les proportions sont statistiques : chaque poche et chaque massif
+peuvent différer. Les cavités sont bornées par le sommet des couches et le sol
+d'origine. Elles ne creusent pas le substrat sous les nouvelles montagnes et ne
+s'activent pas dans les colonnes sans surélévation.
 
 Cette construction n'impose pas que chaque poche rejoigne l'extérieur ni que
 tous les fragments de pierre soient reliés au sol. Elle ne simule pas une érosion.
@@ -67,19 +77,27 @@ EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_boreal_forest.py
 EGL_PLATFORM=surfaceless python3 Tests/Terrain/check_boreal_forest.py --render-only
 ```
 
-Les mesures de massif et l'aperçu ci-dessous correspondent à la version initiale
-du Voronoï à 400 m ; leurs empreintes de sources identifient cette version.
 Le test compare le sol avec la recette antérieure privée de son seul monticule,
-exécute les quatre bruits de production, mesure le vide dans des volumes de
-montagnes réels et contrôle le décodage du canal de contrôle, la protection du
-sol, les mélanges de biomes et les échantillons communs entre LOD. Sur 786 432 colonnes et trois seeds, le sol est bit-identique à la recette
-antérieure sans le monticule. La couverture montagneuse mesurée atteint
-27,54–27,69 %, avec tous les niveaux de zéro à quatre observés. Les 294 912
-points de volume donnent 59,76–60,41 % de vide suivant le seed et l'échelle.
-Les 36 864 points mélangés ne dépendent pas du contrôle des biomes voisins.
-Les 1 331 densités de production et 125 points LOD ciblés concordent. Les mesures
-figurent dans `docs/biome-validation/boreal_forest.json`. L'aperçu éventuel est
-une reconstruction des densités GLSL, pas une capture du jeu.
+exécute les quatre bruits de production et contrôle le canal de contrôle, la
+protection du sol, les mélanges de biomes et les échantillons communs entre LOD.
+Il mesure le vide dans des volumes de montagnes réels, dans dix tranches de
+hauteur normalisée, ainsi qu'à 1 % et 99 % de la hauteur du massif. La
+concordance entre le volume de production et le champ calculé avec la hauteur
+totale détecte un éventuel redémarrage du gradient entre deux couches.
+
+Sur trois seeds et les trois échelles testées, les 294 912 points pris dans les
+montagnes donnent **35,23 % de vide en moyenne** (34,85–35,61 % par cas).
+Les sondes à 1 % et 99 % de hauteur donnent respectivement **79,49 % et
+50,38 % de roche** ; les cibles à ces positions sont 79,7 % et 50,3 %. Les dix
+tranches regroupées restent à moins de 1,45 point de pourcentage du profil
+linéaire. Le sol et les quatre bruits de couches restent identiques ; les
+36 864 contrôles de mélange et les échantillons de production/LOD passent.
+
+Les mesures courantes et leur empreinte de sources figurent dans
+`docs/biome-validation/boreal_forest.json`. L'aperçu
+`docs/biome-validation/boreal_forest.png` est une reconstruction de ces densités
+GLSL, pas une capture du jeu. Il correspond au Voronoï de 1 600 m et au gradient
+80 → 50 % de roche.
 
 Le plafond global de bande reste fixé à 16384 unités brutes. Les tests de cette
 recette couvrent `detailScale` à 0,2, 0,35 et 1 avec décalage global nul ; ils ne

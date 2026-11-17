@@ -23,7 +23,9 @@ float fieldVolume(vec3 p, FieldColumn column)
     float ground = top - thickness;
     if (p.y <= ground - 64.0 || p.y >= top + 64.0) return 0.0;
     float base = top - p.y;
-    float stone = borealCavityField(p, uSeed);
+    // One gradient across the entire stack, not a restart at each 600-m layer.
+    float height01 = clamp((p.y - ground) / thickness, 0.0, 1.0);
+    float stone = borealCavityField(p, uSeed, height01);
     // Intersect the added stack with porous rock, then union the original
     // ground back in. Only mountains become air; the soil stays solid.
     float target = max(ground - p.y, min(base, stone));

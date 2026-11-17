@@ -13,5 +13,8 @@ const float BOREAL_MAX_MOUNTAIN_HEIGHT = 4.0 * BOREAL_LAYER_HEIGHT;
 const float BOREAL_CAVITY_SCALE = 1600.0;
 const float BOREAL_CAVITY_WARP_SCALE = 600.0;
 const float BOREAL_CAVITY_WARP_STRENGTH = 0.65;
+// Surviving stone from the original ground to the top of the full layer stack.
+const float BOREAL_SOLID_BASE = 0.80;
+const float BOREAL_SOLID_TOP = 0.50;
 
 #endif

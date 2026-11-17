@@ -536,8 +536,9 @@ python3 Tests/Terrain/check_boreal_forest.py --output /tmp/boreal_forest.json
 The old soil, with only its localized dome removed, is a fixed preservation
 oracle. GPU probes check four independent five-octave simplex fields, strict
 activation above .7, layer counts and packed mountain controls. The composed
-three-Perlin/Voronoi field is calibrated for 60% void and sampled inside actual
-mountains at three detail scales, including original-ground protection, mixed
+three-Perlin/Voronoi field uses calibrated quantiles for a gradient from 80% stone
+at the mountain base to 50% at its top. Actual mountain volume is sampled by
+relative height at three detail scales, including original-ground protection, mixed
 biome controls, production dispatch and shared LOD points. This replaces the
 old localized-sculpture fixture for biome 7.
 See [settings and measured limits](../../docs/BOREAL_FOREST_LAYERS.md).
