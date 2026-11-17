@@ -48,17 +48,15 @@ float volcanicGroundHeight(vec2 p)
     vec2 warped = cracks.warped;
     float halfWidth = .5 * VOLCANIC_GROUND_CRACK_WIDTH;
     float crack = 1.0 - smoothstep(.15 * halfWidth, halfWidth, cracks.edge);
-    float shoulder = (1.0 - smoothstep(halfWidth, 2.4 * halfWidth, cracks.edge))
-        * (1.0 - crack);
 
     float broad = noiseSimplexFbm2D(rotated / 3100.0,
         uSeed ^ 0x20a011d6u, 3, 2.03, .48);
     float rubble = noiseSimplexFbm2D(warped / 105.0,
         uSeed ^ 0x20a011d7u, 2, 2.1, .45);
     float fine = noisePerlin2D(warped / 24.0, uSeed ^ 0x20a011d8u);
-    // Low ash-covered plates, broken lips and a distinctly lower crack floor.
+    // Low ash-covered plates and a lower crack floor, without raised rims.
     // Fade fine rubble in the trench so it cannot close or erase the fissure.
-    return 18.0 + 28.0 * broad + 4.0 * shoulder - cracks.depth * crack
+    return 18.0 + 28.0 * broad - cracks.depth * crack
         + (3.0 * rubble + 1.2 * fine) * (1.0 - .65 * crack);
 }
 #endif

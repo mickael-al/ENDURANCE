@@ -52,7 +52,7 @@ s'annule sur les limites des plaques. Une rotation et deux déformations de
 coordonnées rendent ces limites moins régulières. Cette différence est une
 approximation de distance : les 4 m indiquent une largeur de départ, pas une
 largeur géométrique exacte partout. Les fissures sont creusées dans la hauteur,
-avec de petites lèvres et une rugosité fine entre les plaques. Leur contribution
+sans bourrelet ajouté sur leurs bords, avec une rugosité fine entre les plaques. Leur contribution
 diminue sur les volcans pour laisser les ravines des flancs dominer la silhouette.
 
 La recette est entièrement décrite par sa hauteur : le champ 3D renvoie zéro
