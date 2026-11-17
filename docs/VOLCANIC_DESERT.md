@@ -28,7 +28,7 @@ Dans `ground.glsl` :
 | `VOLCANIC_GROUND_PLATE_SCALE` | 70 m | Échelle des plaques Voronoï |
 | `VOLCANIC_GROUND_WARP_SCALE` | 1 100 m | Échelle de la déformation principale |
 | `VOLCANIC_GROUND_WARP_STRENGTH` | 180 m | Amplitude de cette déformation |
-| `VOLCANIC_GROUND_CRACK_WIDTH` | 4 m | Largeur approximative des fissures |
+| `VOLCANIC_GROUND_CRACK_WIDTH` | ≈ 2,67 m (`4.0 / 1.5`) | Largeur approximative des fissures |
 | `VOLCANIC_GROUND_CRACK_DEPTH` | 6,5 m | Profondeur nominale, variable avec un bruit large |
 
 ## Placement et forme
@@ -50,7 +50,7 @@ des hauteurs pour éviter de doubler artificiellement les sommets.
 Le sol utilise la différence entre les deux premières distances Voronoï, qui
 s'annule sur les limites des plaques. Une rotation et deux déformations de
 coordonnées rendent ces limites moins régulières. Cette différence est une
-approximation de distance : les 4 m indiquent une largeur de départ, pas une
+approximation de distance : les 2,67 m indiquent une largeur de départ, pas une
 largeur géométrique exacte partout. Les fissures sont creusées dans la hauteur,
 sans bourrelet ajouté sur leurs bords, avec une rugosité fine entre les plaques. Leur contribution
 diminue sur les volcans pour laisser les ravines des flancs dominer la silhouette.

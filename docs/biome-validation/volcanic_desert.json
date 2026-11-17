@@ -1,6 +1,6 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
-  "source_sha256": "5691a5758d0b4fa76f577842bc3a428a6a1f0c08d4c12f7600e89f88ec6bc0a2",
+  "source_sha256": "87f73e19213895669651f7e9221ae6d947a30c7821379f02396e5adfa6d353e3",
   "placement": [
     {
       "seed": 1337,
@@ -35,27 +35,27 @@
   },
   "ground": {
     "samples": 65536,
-    "height_min_m": -12.179587364196777,
+    "height_min_m": -11.72969913482666,
     "height_max_m": 43.66117477416992,
-    "deep_crack_samples": 1343,
-    "plate_samples": 48584,
-    "median_plate_to_crack_difference_m": 6.205330848693848,
+    "deep_crack_samples": 889,
+    "plate_samples": 53965,
+    "median_plate_to_crack_difference_m": 5.989353179931641,
     "median_warp_m": 109.63861139353422,
     "nominal_plate_scale_m": 70.0,
-    "approximate_crack_width_m": 4.0,
+    "approximate_crack_width_m": 2.6666667461395264,
     "crack_depth_setting_m": 6.5
   },
   "cell_seams": {
     "pairs": 574,
     "separation_m": 0.03125,
-    "maximum_height_change_m": 0.25741100311279297
+    "maximum_height_change_m": 0.3248462677001953
   },
   "integration": [
     {
       "detail_scale": 0.2,
       "samples": 16384,
       "world_height_min_m": -618.8208618164062,
-      "world_height_max_m": 1472.880615234375,
+      "world_height_max_m": 1472.8902587890625,
       "height_only_density": true
     },
     {

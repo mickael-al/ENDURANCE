@@ -7,7 +7,7 @@ const float VOLCANIC_GROUND_PLATE_SCALE = 70.0;
 const float VOLCANIC_GROUND_WARP_SCALE = 1100.0;
 const float VOLCANIC_GROUND_WARP_STRENGTH = 180.0;
 // Approximate full width: coordinate distortion and F2-F1 vary it naturally.
-const float VOLCANIC_GROUND_CRACK_WIDTH = 4.0;
+const float VOLCANIC_GROUND_CRACK_WIDTH = 4.0 / 1.5;
 const float VOLCANIC_GROUND_CRACK_DEPTH = 6.5;
 
 struct VolcanicGroundCrack
