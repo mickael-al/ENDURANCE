@@ -2,6 +2,8 @@
 
 Mesure du 13 novembre 2026, après reconstruction des 25 recettes terrestres. Le relevé exécute le **classificateur GLSL de production et ses poids locaux**, sans forcer les biomes. Les ancres sont calculées par le même `landSite` que les recettes, puis évaluées avec le climat réel.
 
+Ce relevé d'ancres est historique : les remplacements ultérieurs des recettes ne sont pas recomptés ici. En particulier, les anciens sites `ColdForest` de 2,4 km sont remplacés par les [gouffres à cellules de 10 km](COLD_FOREST_GOUFFRES.md).
+
 ## Périmètre mesuré
 
 La scène enregistrée utilise la seed **1337**, une caméra XZ **(80, 120) m** et `viewDistance = 40096`. Ce paramètre est transmis directement au sélecteur LOD et représente un **rayon de 40,096 km**, soit un diamètre de 80,192 km. Le relevé couvre ce disque en plan ; il ne signifie pas que tous ses chunks ont été chargés ou parcourus.

@@ -1,0 +1,14 @@
+#ifndef ENDURANCE_COLD_FOREST_PIT_SETTINGS_GLSL
+#define ENDURANCE_COLD_FOREST_PIT_SETTINGS_GLSL
+
+// Physical world metres, independent of uDetailScale.
+const float COLD_FOREST_PIT_SPACING = 10000.0;
+const float COLD_FOREST_PIT_RADIUS = 1000.0;
+const float COLD_FOREST_PIT_DEPTH = 800.0;
+const float COLD_FOREST_PIT_RIM_WIDTH = 200.0;
+const float COLD_FOREST_PIT_SPIRAL_DEPTH = 110.0;
+const float COLD_FOREST_PIT_SPIRAL_TURNS = 2.0;
+const float COLD_FOREST_PORE_SCALE = 240.0;
+const float COLD_FOREST_PIT_REGION_MIN = 0.80;
+
+#endif

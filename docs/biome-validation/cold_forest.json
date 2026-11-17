@@ -1,0 +1,249 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "d031b85742051284dd38c9c1ef22c41f4696d6a605640de6df7d6ba1682a1eeb",
+  "ground": [
+    {
+      "seed": 1337,
+      "samples": 65536,
+      "soil_substrate_max_error_raw": 0.00238037109375,
+      "unchanged_soil_samples": 59449,
+      "excavated_samples": 5974,
+      "maximum_river_depth_at_scale_035_m": 160.1077880859375,
+      "active_region_fraction": 0.4831085205078125,
+      "full_region_fraction": 0.328033447265625
+    },
+    {
+      "seed": 97,
+      "samples": 65536,
+      "soil_substrate_max_error_raw": 0.0022735595703125,
+      "unchanged_soil_samples": 59483,
+      "excavated_samples": 5941,
+      "maximum_river_depth_at_scale_035_m": 155.3299102783203,
+      "active_region_fraction": 0.4830169677734375,
+      "full_region_fraction": 0.3275146484375
+    },
+    {
+      "seed": 98765,
+      "samples": 65536,
+      "soil_substrate_max_error_raw": 0.002349853515625,
+      "unchanged_soil_samples": 59271,
+      "excavated_samples": 6145,
+      "maximum_river_depth_at_scale_035_m": 158.434326171875,
+      "active_region_fraction": 0.48895263671875,
+      "full_region_fraction": 0.326751708984375
+    }
+  ],
+  "placement": [
+    {
+      "seed": 1337,
+      "cells": 625,
+      "accepted_pits": 63,
+      "nominal_area_per_candidate_km2": 100.0,
+      "candidate_min_spacing_m": 5200.643988070662,
+      "full_disk_samples": 170667,
+      "minimum_region_mask": 0.8865273594856262,
+      "maximum_channel_mask": 0.0
+    },
+    {
+      "seed": 97,
+      "cells": 625,
+      "accepted_pits": 64,
+      "nominal_area_per_candidate_km2": 100.0,
+      "candidate_min_spacing_m": 5179.691220239284,
+      "full_disk_samples": 173376,
+      "minimum_region_mask": 0.8933461308479309,
+      "maximum_channel_mask": 0.0
+    }
+  ],
+  "geometry": {
+    "diameter_m": 2000.0,
+    "central_depth_m": 800.0,
+    "geometry_samples": 43068,
+    "maximum_depth_m": 800.0,
+    "near_rim_maximum_depth_m": 0.08955921232700348,
+    "angular_seam_depth_difference_max_m": 0.003997802734375,
+    "pore_scale_m": 240.0
+  },
+  "porosity": {
+    "sites": 32,
+    "radial_bins": [
+      {
+        "radius_fraction": 0.0,
+        "target_void_fraction": 1.0,
+        "measured_void_fraction": 1.0,
+        "samples": 65536
+      },
+      {
+        "radius_fraction": 0.1,
+        "target_void_fraction": 0.9,
+        "measured_void_fraction": 0.891510009765625,
+        "samples": 65536
+      },
+      {
+        "radius_fraction": 0.25,
+        "target_void_fraction": 0.75,
+        "measured_void_fraction": 0.7559967041015625,
+        "samples": 65536
+      },
+      {
+        "radius_fraction": 0.5,
+        "target_void_fraction": 0.5,
+        "measured_void_fraction": 0.5058135986328125,
+        "samples": 65536
+      },
+      {
+        "radius_fraction": 0.75,
+        "target_void_fraction": 0.25,
+        "measured_void_fraction": 0.2490692138671875,
+        "samples": 65536
+      },
+      {
+        "radius_fraction": 0.9,
+        "target_void_fraction": 0.09999999999999998,
+        "measured_void_fraction": 0.0995941162109375,
+        "samples": 65536
+      },
+      {
+        "radius_fraction": 1.0,
+        "target_void_fraction": 0.0,
+        "measured_void_fraction": 0.0,
+        "samples": 65536
+      }
+    ],
+    "note": "Isolated pore field before conical clipping; finite individual pits vary."
+  },
+  "placement_seams": {
+    "samples": 84,
+    "zero_density_delta": true
+  },
+  "world": [
+    {
+      "detail_scale": 0.2,
+      "samples": 16384,
+      "carved_air_samples": 5494,
+      "maximum_band_density_error": 0.0,
+      "maximum_world_band_m": 1775.7772216796875,
+      "open_axis_samples": 48,
+      "protected_floor_samples": 8,
+      "exterior_unchanged_samples": 4096
+    },
+    {
+      "detail_scale": 0.35,
+      "samples": 16384,
+      "carved_air_samples": 5494,
+      "maximum_band_density_error": 0.0,
+      "maximum_world_band_m": 1775.752197265625,
+      "open_axis_samples": 48,
+      "protected_floor_samples": 8,
+      "exterior_unchanged_samples": 4096
+    },
+    {
+      "detail_scale": 1.0,
+      "samples": 16384,
+      "carved_air_samples": 5494,
+      "maximum_band_density_error": 0.0,
+      "maximum_world_band_m": 1775.777099609375,
+      "open_axis_samples": 48,
+      "protected_floor_samples": 8,
+      "exterior_unchanged_samples": 4096
+    }
+  ],
+  "targeted_pipeline": {
+    "anchor": [
+      -83706,
+      68,
+      35572
+    ],
+    "shared_exact_lod_samples": 125,
+    "production_density_samples": 1331
+  },
+  "mixed": {
+    "cases": [
+      {
+        "detail_scale": 0.2,
+        "biome_weight": 0.23516923189163208,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 326
+      },
+      {
+        "detail_scale": 0.2,
+        "biome_weight": 0.5,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 689
+      },
+      {
+        "detail_scale": 0.2,
+        "biome_weight": 0.7648307681083679,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 972
+      },
+      {
+        "detail_scale": 0.35,
+        "biome_weight": 0.23516923189163208,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 395
+      },
+      {
+        "detail_scale": 0.35,
+        "biome_weight": 0.5,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 691
+      },
+      {
+        "detail_scale": 0.35,
+        "biome_weight": 0.7648307681083679,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 972
+      },
+      {
+        "detail_scale": 1.0,
+        "biome_weight": 0.23516923189163208,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 399
+      },
+      {
+        "detail_scale": 1.0,
+        "biome_weight": 0.5,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 691
+      },
+      {
+        "detail_scale": 1.0,
+        "biome_weight": 0.7648307681083679,
+        "samples": 6144,
+        "pilot_independent": true,
+        "maximum_band_density_error": 0.0,
+        "changed_samples": 972
+      }
+    ],
+    "global_offset_m": 0.0,
+    "note": "Constructed mixed columns use actual matrix weights/storage; the neighbour has zero band and an unrelated pilot."
+  },
+  "figure": {
+    "seed": 1337,
+    "center_xz_m": [
+      -13287.423828125,
+      -5639.1728515625
+    ],
+    "horizontal_extent_m": 2600.0,
+    "horizontal_samples": 105,
+    "vertical_samples": 97,
+    "spacing_m": 25.0
+  }
+}

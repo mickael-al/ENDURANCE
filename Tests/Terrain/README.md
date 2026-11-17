@@ -543,6 +543,21 @@ biome controls, production dispatch and shared LOD points. This replaces the
 old localized-sculpture fixture for biome 7.
 See [settings and measured limits](../../docs/BOREAL_FOREST_LAYERS.md).
 
+## ColdForest regional rivers and porous spiral pits
+
+```sh
+python3 Tests/Terrain/calibrate_cold_forest_porosity.py --output /tmp/cold_forest_porosity.json
+python3 Tests/Terrain/check_cold_forest.py --output /tmp/cold_forest.json
+```
+
+Actual GLSL probes check downward-only regional rivers, the preserved soil
+substrate, whole-site river exclusion, hashed placement, the 2-km cone and its
+flat rim, radial Perlin void fractions, density bounds, mixed controls and
+production/LOD agreement. The dedicated check replaces the old localized
+alcove fixture for biome 8. These checks do not measure target-hardware frame
+times or guarantee connected caves through every random porous wall.
+See [settings and measured limits](../../docs/COLD_FOREST_GOUFFRES.md).
+
 ## Actual biome areas and site occurrence
 
 ```sh
