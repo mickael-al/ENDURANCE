@@ -1,7 +1,12 @@
 {
   "helper_sha256": "510a5e96bd4865d94ab4f1a7eea65ad89e1f2d2ed0a076640b7a472df909d17b",
-  "settings_sha256": "86cfb4e7c15a85094bf83bf82df944d90505bf21203ea747e5e11096ad055ee9",
+  "pit_helper_sha256": "556893411353373e01ed97143848580a2ccb6396bd74344d2e493e33d4dffff1",
+  "settings_sha256": "b3a8048086c8794c111408a373df63a4cf73c7bfff7af98e7eda6d32cdd98d5b",
   "noise_scale_m": 240.0,
+  "pit_radius_m": 10000.0,
+  "pit_depth_m": 800.0,
+  "empty_core_radius01": 0.7,
+  "empty_core_radius_m": 7000.0,
   "calibration_samples": 2097152,
   "pit_count": 128,
   "samples_per_shell": 4096,
@@ -142,112 +147,185 @@
     1.0001
   ],
   "max_independent_probability_error": 0.0006265640258789062,
+  "calibration_reused": true,
+  "calibration_reuse_basis": "Unchanged pit_porosity.glsl bytes and physical Perlin scale.",
   "radial_shells": [
     {
       "radius01": 0.0,
+      "radius_m": 0.0,
       "target_void": 1.0,
       "observed_void": 1.0,
       "per_pit_min": 1.0,
       "per_pit_max": 1.0
     },
     {
-      "radius01": 0.01,
-      "target_void": 0.99,
-      "observed_void": 0.9944381713867188,
-      "per_pit_min": 0.830810546875,
+      "radius01": 0.09999999999999999,
+      "radius_m": 999.9999999999999,
+      "target_void": 1.0,
+      "observed_void": 1.0,
+      "per_pit_min": 1.0,
       "per_pit_max": 1.0
     },
     {
-      "radius01": 0.05,
-      "target_void": 0.95,
-      "observed_void": 0.9495830535888672,
-      "per_pit_min": 0.739990234375,
+      "radius01": 0.19999999999999998,
+      "radius_m": 1999.9999999999998,
+      "target_void": 1.0,
+      "observed_void": 1.0,
+      "per_pit_min": 1.0,
       "per_pit_max": 1.0
-    },
-    {
-      "radius01": 0.1,
-      "target_void": 0.9,
-      "observed_void": 0.8956527709960938,
-      "per_pit_min": 0.691162109375,
-      "per_pit_max": 1.0
-    },
-    {
-      "radius01": 0.2,
-      "target_void": 0.8,
-      "observed_void": 0.8046779632568359,
-      "per_pit_min": 0.6416015625,
-      "per_pit_max": 0.923583984375
     },
     {
       "radius01": 0.3,
-      "target_void": 0.7,
-      "observed_void": 0.6960582733154297,
-      "per_pit_min": 0.5341796875,
-      "per_pit_max": 0.8134765625
+      "radius_m": 3000.0,
+      "target_void": 1.0,
+      "observed_void": 1.0,
+      "per_pit_min": 1.0,
+      "per_pit_max": 1.0
     },
     {
-      "radius01": 0.4,
-      "target_void": 0.6,
-      "observed_void": 0.5961360931396484,
-      "per_pit_min": 0.404296875,
-      "per_pit_max": 0.737060546875
+      "radius01": 0.39999999999999997,
+      "radius_m": 3999.9999999999995,
+      "target_void": 1.0,
+      "observed_void": 1.0,
+      "per_pit_min": 1.0,
+      "per_pit_max": 1.0
     },
     {
-      "radius01": 0.5,
-      "target_void": 0.5,
-      "observed_void": 0.4996471405029297,
-      "per_pit_min": 0.2734375,
-      "per_pit_max": 0.629150390625
+      "radius01": 0.49999999999999994,
+      "radius_m": 4999.999999999999,
+      "target_void": 1.0,
+      "observed_void": 1.0,
+      "per_pit_min": 1.0,
+      "per_pit_max": 1.0
     },
     {
       "radius01": 0.6,
-      "target_void": 0.4,
-      "observed_void": 0.4048957824707031,
-      "per_pit_min": 0.22607421875,
-      "per_pit_max": 0.591552734375
+      "radius_m": 6000.0,
+      "target_void": 1.0,
+      "observed_void": 1.0,
+      "per_pit_min": 1.0,
+      "per_pit_max": 1.0
     },
     {
       "radius01": 0.7,
-      "target_void": 0.30000000000000004,
-      "observed_void": 0.3008708953857422,
-      "per_pit_min": 0.166748046875,
-      "per_pit_max": 0.45361328125
+      "radius_m": 7000.0,
+      "target_void": 1.0,
+      "observed_void": 1.0,
+      "per_pit_min": 1.0,
+      "per_pit_max": 1.0
     },
     {
-      "radius01": 0.8,
-      "target_void": 0.19999999999999996,
-      "observed_void": 0.19464492797851562,
-      "per_pit_min": 0.076416015625,
-      "per_pit_max": 0.416015625
+      "radius01": 0.703,
+      "radius_m": 7030.0,
+      "target_void": 0.99,
+      "observed_void": 0.9903602600097656,
+      "per_pit_min": 0.979736328125,
+      "per_pit_max": 0.9970703125
     },
     {
-      "radius01": 0.9,
-      "target_void": 0.09999999999999998,
-      "observed_void": 0.09939384460449219,
-      "per_pit_min": 0.019775390625,
-      "per_pit_max": 0.2568359375
+      "radius01": 0.715,
+      "radius_m": 7150.0,
+      "target_void": 0.95,
+      "observed_void": 0.9490776062011719,
+      "per_pit_min": 0.930419921875,
+      "per_pit_max": 0.973388671875
     },
     {
-      "radius01": 0.95,
-      "target_void": 0.050000000000000044,
-      "observed_void": 0.0499114990234375,
-      "per_pit_min": 0.0,
-      "per_pit_max": 0.1650390625
+      "radius01": 0.73,
+      "radius_m": 7300.0,
+      "target_void": 0.8999999999999999,
+      "observed_void": 0.901275634765625,
+      "per_pit_min": 0.871337890625,
+      "per_pit_max": 0.928466796875
     },
     {
-      "radius01": 0.99,
-      "target_void": 0.010000000000000009,
-      "observed_void": 0.00988006591796875,
-      "per_pit_min": 0.0,
-      "per_pit_max": 0.064208984375
+      "radius01": 0.76,
+      "radius_m": 7600.0,
+      "target_void": 0.7999999999999998,
+      "observed_void": 0.7993602752685547,
+      "per_pit_min": 0.7529296875,
+      "per_pit_max": 0.836669921875
+    },
+    {
+      "radius01": 0.7899999999999999,
+      "radius_m": 7899.999999999999,
+      "target_void": 0.7000000000000002,
+      "observed_void": 0.7005062103271484,
+      "per_pit_min": 0.6513671875,
+      "per_pit_max": 0.75830078125
+    },
+    {
+      "radius01": 0.82,
+      "radius_m": 8200.0,
+      "target_void": 0.6000000000000001,
+      "observed_void": 0.5982913970947266,
+      "per_pit_min": 0.5322265625,
+      "per_pit_max": 0.65625
+    },
+    {
+      "radius01": 0.85,
+      "radius_m": 8500.0,
+      "target_void": 0.5,
+      "observed_void": 0.5028743743896484,
+      "per_pit_min": 0.433837890625,
+      "per_pit_max": 0.55810546875
+    },
+    {
+      "radius01": 0.88,
+      "radius_m": 8800.0,
+      "target_void": 0.3999999999999999,
+      "observed_void": 0.3974800109863281,
+      "per_pit_min": 0.333251953125,
+      "per_pit_max": 0.46435546875
+    },
+    {
+      "radius01": 0.9099999999999999,
+      "radius_m": 9100.0,
+      "target_void": 0.3000000000000002,
+      "observed_void": 0.29636383056640625,
+      "per_pit_min": 0.251708984375,
+      "per_pit_max": 0.366943359375
+    },
+    {
+      "radius01": 0.94,
+      "radius_m": 9400.0,
+      "target_void": 0.20000000000000015,
+      "observed_void": 0.2011260986328125,
+      "per_pit_min": 0.12646484375,
+      "per_pit_max": 0.26025390625
+    },
+    {
+      "radius01": 0.97,
+      "radius_m": 9700.0,
+      "target_void": 0.10000000000000007,
+      "observed_void": 0.09859466552734375,
+      "per_pit_min": 0.049560546875,
+      "per_pit_max": 0.154541015625
+    },
+    {
+      "radius01": 0.985,
+      "radius_m": 9850.0,
+      "target_void": 0.05000000000000004,
+      "observed_void": 0.047634124755859375,
+      "per_pit_min": 0.01708984375,
+      "per_pit_max": 0.095458984375
+    },
+    {
+      "radius01": 0.997,
+      "radius_m": 9970.0,
+      "target_void": 0.010000000000000007,
+      "observed_void": 0.009191513061523438,
+      "per_pit_min": 0.00048828125,
+      "per_pit_max": 0.026123046875
     },
     {
       "radius01": 1.0,
+      "radius_m": 10000.0,
       "target_void": 0.0,
       "observed_void": 0.0,
       "per_pit_min": 0.0,
       "per_pit_max": 0.0
     }
   ],
-  "max_shell_probability_error": 0.005355072021484331
+  "max_shell_probability_error": 0.003636169433593961
 }

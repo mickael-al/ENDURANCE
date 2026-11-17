@@ -1,113 +1,132 @@
 {
   "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
-  "source_sha256": "d031b85742051284dd38c9c1ef22c41f4696d6a605640de6df7d6ba1682a1eeb",
+  "source_sha256": "b78f55820c539f838300b064e87f1befe05212986b322f68742e7ab32aee6431",
   "ground": [
     {
       "seed": 1337,
       "samples": 65536,
       "soil_substrate_max_error_raw": 0.00238037109375,
-      "unchanged_soil_samples": 59449,
-      "excavated_samples": 5974,
-      "maximum_river_depth_at_scale_035_m": 160.1077880859375,
-      "active_region_fraction": 0.4831085205078125,
-      "full_region_fraction": 0.328033447265625
+      "unchanged_soil_samples": 64767,
+      "excavated_samples": 749,
+      "maximum_river_depth_at_scale_035_m": 156.22970581054688,
+      "active_region_fraction": 0.3165283203125,
+      "full_region_fraction": 0.166778564453125
     },
     {
       "seed": 97,
       "samples": 65536,
       "soil_substrate_max_error_raw": 0.0022735595703125,
-      "unchanged_soil_samples": 59483,
-      "excavated_samples": 5941,
-      "maximum_river_depth_at_scale_035_m": 155.3299102783203,
-      "active_region_fraction": 0.4830169677734375,
-      "full_region_fraction": 0.3275146484375
+      "unchanged_soil_samples": 64793,
+      "excavated_samples": 719,
+      "maximum_river_depth_at_scale_035_m": 153.50692749023438,
+      "active_region_fraction": 0.2979583740234375,
+      "full_region_fraction": 0.145172119140625
     },
     {
       "seed": 98765,
       "samples": 65536,
       "soil_substrate_max_error_raw": 0.002349853515625,
-      "unchanged_soil_samples": 59271,
-      "excavated_samples": 6145,
-      "maximum_river_depth_at_scale_035_m": 158.434326171875,
-      "active_region_fraction": 0.48895263671875,
-      "full_region_fraction": 0.326751708984375
+      "unchanged_soil_samples": 64762,
+      "excavated_samples": 749,
+      "maximum_river_depth_at_scale_035_m": 148.2014617919922,
+      "active_region_fraction": 0.2801971435546875,
+      "full_region_fraction": 0.1210784912109375
     }
   ],
   "placement": [
     {
       "seed": 1337,
       "cells": 625,
-      "accepted_pits": 63,
-      "nominal_area_per_candidate_km2": 100.0,
-      "candidate_min_spacing_m": 5200.643988070662,
-      "full_disk_samples": 170667,
-      "minimum_region_mask": 0.8865273594856262,
+      "accepted_pits": 19,
+      "nominal_area_per_candidate_km2": 2500.0,
+      "candidate_min_spacing_m": 26003.23197575283,
+      "full_disk_samples": 100491,
+      "minimum_region_mask": 0.8653663992881775,
       "maximum_channel_mask": 0.0
     },
     {
       "seed": 97,
       "cells": 625,
-      "accepted_pits": 64,
-      "nominal_area_per_candidate_km2": 100.0,
-      "candidate_min_spacing_m": 5179.691220239284,
-      "full_disk_samples": 173376,
-      "minimum_region_mask": 0.8933461308479309,
+      "accepted_pits": 27,
+      "nominal_area_per_candidate_km2": 2500.0,
+      "candidate_min_spacing_m": 25898.471159598226,
+      "full_disk_samples": 142803,
+      "minimum_region_mask": 0.8585218191146851,
       "maximum_channel_mask": 0.0
     }
   ],
   "geometry": {
-    "diameter_m": 2000.0,
+    "diameter_m": 20000.0,
     "central_depth_m": 800.0,
+    "empty_core_radius_m": 7000.0,
     "geometry_samples": 43068,
     "maximum_depth_m": 800.0,
-    "near_rim_maximum_depth_m": 0.08955921232700348,
-    "angular_seam_depth_difference_max_m": 0.003997802734375,
+    "near_rim_maximum_depth_m": 0.08954409509897232,
+    "angular_seam_depth_difference_max_m": 0.0035400390625,
     "pore_scale_m": 240.0
   },
   "porosity": {
-    "sites": 32,
+    "sites": 19,
     "radial_bins": [
       {
         "radius_fraction": 0.0,
         "target_void_fraction": 1.0,
         "measured_void_fraction": 1.0,
-        "samples": 65536
+        "samples": 38912
       },
       {
-        "radius_fraction": 0.1,
-        "target_void_fraction": 0.9,
-        "measured_void_fraction": 0.891510009765625,
-        "samples": 65536
+        "radius_fraction": 0.35,
+        "target_void_fraction": 1.0,
+        "measured_void_fraction": 1.0,
+        "samples": 38912
       },
       {
-        "radius_fraction": 0.25,
-        "target_void_fraction": 0.75,
-        "measured_void_fraction": 0.7559967041015625,
-        "samples": 65536
+        "radius_fraction": 0.69,
+        "target_void_fraction": 1.0,
+        "measured_void_fraction": 1.0,
+        "samples": 38912
       },
       {
-        "radius_fraction": 0.5,
-        "target_void_fraction": 0.5,
-        "measured_void_fraction": 0.5058135986328125,
-        "samples": 65536
+        "radius_fraction": 0.7,
+        "target_void_fraction": 1.0,
+        "measured_void_fraction": 1.0,
+        "samples": 38912
       },
       {
         "radius_fraction": 0.75,
-        "target_void_fraction": 0.25,
-        "measured_void_fraction": 0.2490692138671875,
-        "samples": 65536
+        "target_void_fraction": 0.8333333333333333,
+        "measured_void_fraction": 0.8356034128289473,
+        "samples": 38912
+      },
+      {
+        "radius_fraction": 0.8,
+        "target_void_fraction": 0.6666666666666664,
+        "measured_void_fraction": 0.667711759868421,
+        "samples": 38912
+      },
+      {
+        "radius_fraction": 0.85,
+        "target_void_fraction": 0.5,
+        "measured_void_fraction": 0.4979183799342105,
+        "samples": 38912
       },
       {
         "radius_fraction": 0.9,
-        "target_void_fraction": 0.09999999999999998,
-        "measured_void_fraction": 0.0995941162109375,
-        "samples": 65536
+        "target_void_fraction": 0.3333333333333332,
+        "measured_void_fraction": 0.3314401726973684,
+        "samples": 38912
+      },
+      {
+        "radius_fraction": 0.95,
+        "target_void_fraction": 0.1666666666666668,
+        "measured_void_fraction": 0.16827713815789475,
+        "samples": 38912
       },
       {
         "radius_fraction": 1.0,
         "target_void_fraction": 0.0,
         "measured_void_fraction": 0.0,
-        "samples": 65536
+        "samples": 38912
       }
     ],
     "note": "Isolated pore field before conical clipping; finite individual pits vary."
@@ -120,9 +139,10 @@
     {
       "detail_scale": 0.2,
       "samples": 16384,
-      "carved_air_samples": 5494,
+      "carved_air_samples": 11848,
       "maximum_band_density_error": 0.0,
-      "maximum_world_band_m": 1775.7772216796875,
+      "maximum_world_band_m": 1773.2772216796875,
+      "guaranteed_empty_core_samples": 8112,
       "open_axis_samples": 48,
       "protected_floor_samples": 8,
       "exterior_unchanged_samples": 4096
@@ -130,9 +150,10 @@
     {
       "detail_scale": 0.35,
       "samples": 16384,
-      "carved_air_samples": 5494,
+      "carved_air_samples": 11848,
       "maximum_band_density_error": 0.0,
-      "maximum_world_band_m": 1775.752197265625,
+      "maximum_world_band_m": 1773.302001953125,
+      "guaranteed_empty_core_samples": 8112,
       "open_axis_samples": 48,
       "protected_floor_samples": 8,
       "exterior_unchanged_samples": 4096
@@ -140,9 +161,10 @@
     {
       "detail_scale": 1.0,
       "samples": 16384,
-      "carved_air_samples": 5494,
+      "carved_air_samples": 11848,
       "maximum_band_density_error": 0.0,
-      "maximum_world_band_m": 1775.777099609375,
+      "maximum_world_band_m": 1773.277099609375,
+      "guaranteed_empty_core_samples": 8112,
       "open_axis_samples": 48,
       "protected_floor_samples": 8,
       "exterior_unchanged_samples": 4096
@@ -150,9 +172,9 @@
   ],
   "targeted_pipeline": {
     "anchor": [
-      -83706,
-      68,
-      35572
+      -332300,
+      -184,
+      -278094
     ],
     "shared_exact_lod_samples": 125,
     "production_density_samples": 1331
@@ -165,7 +187,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 326
+        "changed_samples": 405
       },
       {
         "detail_scale": 0.2,
@@ -173,7 +195,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 689
+        "changed_samples": 775
       },
       {
         "detail_scale": 0.2,
@@ -181,7 +203,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 972
+        "changed_samples": 1059
       },
       {
         "detail_scale": 0.35,
@@ -189,7 +211,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 395
+        "changed_samples": 467
       },
       {
         "detail_scale": 0.35,
@@ -197,7 +219,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 691
+        "changed_samples": 776
       },
       {
         "detail_scale": 0.35,
@@ -205,7 +227,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 972
+        "changed_samples": 1059
       },
       {
         "detail_scale": 1.0,
@@ -213,7 +235,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 399
+        "changed_samples": 470
       },
       {
         "detail_scale": 1.0,
@@ -221,7 +243,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 691
+        "changed_samples": 776
       },
       {
         "detail_scale": 1.0,
@@ -229,7 +251,7 @@
         "samples": 6144,
         "pilot_independent": true,
         "maximum_band_density_error": 0.0,
-        "changed_samples": 972
+        "changed_samples": 1059
       }
     ],
     "global_offset_m": 0.0,
@@ -238,12 +260,12 @@
   "figure": {
     "seed": 1337,
     "center_xz_m": [
-      -13287.423828125,
-      -5639.1728515625
+      22821.068359375,
+      84508.0390625
     ],
-    "horizontal_extent_m": 2600.0,
-    "horizontal_samples": 105,
+    "horizontal_extent_m": 26000.0,
+    "horizontal_samples": 261,
     "vertical_samples": 97,
-    "spacing_m": 25.0
+    "spacing_m": 100.0
   }
 }

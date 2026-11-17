@@ -21,6 +21,8 @@ from gl_headless import GL, shader_source
 ROOT = Path(__file__).resolve().parents[2]
 HELPER = ROOT / 'Asset/Shader/ProceduralTerrain/biomes/ColdForest/pit_porosity.glsl'
 SETTINGS = HELPER.with_name('pit_settings.glsl')
+PITS = HELPER.with_name('pits.glsl')
+COMMON = HELPER.parents[2] / 'field_common.glsl'
 SOURCE = r'''
 layout(local_size_x=256) in;
 layout(std430,binding=0) readonly buffer Input { vec4 points[]; };
@@ -35,7 +37,7 @@ void main() {
     uint key=uMode==0u ? noiseInternalHash(i^uKey)
         : noiseInternalHash((i/uSamplesPerPit)^uKey);
     vec3 q=points[i].xyz;
-    float fraction=points[i].w;
+    float fraction=uMode==2u ? coldForestPitVoidFraction(points[i].w) : points[i].w;
     results[i]=vec4(coldForestPoreNoise(q,key),
         coldForestPoreThreshold(fraction),
         coldForestPoreField(q,key,fraction),fraction);
@@ -64,62 +66,92 @@ def main():
     parser.add_argument('--pits',type=int,default=128)
     parser.add_argument('--shell-power',type=int,default=12)
     parser.add_argument('--output',type=Path)
+    parser.add_argument('--reuse-calibration',type=Path,
+                        help='Reuse unchanged Perlin CDF results; still rerun every finite radial shell.')
     args=parser.parse_args()
     assert 12<=args.power<=23 and 6<=args.shell_power<=16 and 1<=args.pits<=1024
     probabilities=np.r_[.5*(np.arange(33)/32)**2,
                          1.-.5*(np.arange(31,-1,-1)/32)**2]
     settings=SETTINGS.read_text()
-    scale=float(re.search(r'COLD_FOREST_PORE_SCALE\s*=\s*([0-9.]+)',settings).group(1))
-    points=np.zeros((2**args.power,4),dtype='<f4')
-    points[:,:3]=(qmc.Sobol(3,scramble=True,seed=6871).random_base2(args.power)-.5)*81920.
-    points[:,3]=.5
-    report={'helper_sha256':hashlib.sha256(HELPER.read_bytes()).hexdigest(),
+    def setting(name):
+        match=re.search(r'const float '+name+r'\s*=\s*([0-9.]+)\s*;',settings)
+        if not match:raise ValueError(f'Cannot read {name} from pit_settings.glsl')
+        return float(match.group(1))
+    scale=setting('COLD_FOREST_PORE_SCALE')
+    radius=setting('COLD_FOREST_PIT_RADIUS')
+    depth=setting('COLD_FOREST_PIT_DEPTH')
+    empty_radius=setting('COLD_FOREST_PIT_EMPTY_RADIUS')
+    assert radius>0. and depth>0. and 0.<=empty_radius<1.
+    previous=json.loads(args.reuse_calibration.read_text()) if args.reuse_calibration else None
+    helper_sha=hashlib.sha256(HELPER.read_bytes()).hexdigest()
+    if previous:
+        assert previous['helper_sha256']==helper_sha, 'Pore helper changed: recalibrate without --reuse-calibration'
+        assert previous['noise_scale_m']==scale, 'Pore scale changed: recalibrate without --reuse-calibration'
+    report={'helper_sha256':helper_sha,
+            'pit_helper_sha256':hashlib.sha256(PITS.read_bytes()).hexdigest(),
             'settings_sha256':hashlib.sha256(SETTINGS.read_bytes()).hexdigest(),
-            'noise_scale_m':scale,'calibration_samples':len(points),
+            'noise_scale_m':scale,'pit_radius_m':radius,'pit_depth_m':depth,
+            'empty_core_radius01':empty_radius,'empty_core_radius_m':radius*empty_radius,
+            'calibration_samples':2**args.power,
             'pit_count':args.pits,'samples_per_shell':2**args.shell_power,
             'probabilities':probabilities.tolist(),
             'interpretation':'Void probability of the 3D pore field within its cone envelope; individual pits fluctuate.'}
     with GL() as gl:
         report['renderer']=gl.renderer
-        program=gl.compile([(0x91B9,'#version 450 core\n'+shader_source(HELPER)+SOURCE)],'ColdForest radial Perlin porosity')
+        program=gl.compile([(0x91B9,'#version 450 core\n'+shader_source(COMMON)+shader_source(PITS)+shader_source(HELPER)+SOURCE)],'ColdForest radial Perlin porosity')
         inputs=gl.buffer(0);output=gl.buffer(0)
-        result=run(gl,program,inputs,output,points,key=91271)
-        thresholds=np.quantile(result[:,0],probabilities)
-        thresholds[0]=-1.0001;thresholds[-1]=1.0001
-        report['measured_quantiles']=thresholds.tolist()
-        print('const float COLD_FOREST_PORE_QUANTILES[65] = float[65](')
-        print('    '+', '.join(f'{v:.9f}' for v in thresholds)+');',flush=True)
-        points[:,:3]=(qmc.Sobol(3,scramble=True,seed=7459).random_base2(args.power)-.5)*81920.
-        independent=np.sort(run(gl,program,inputs,output,points,key=84627)[:,0])
-        # Probe interpolation between knots as well as the exact endpoints.
-        test_probabilities=np.linspace(0.,1.,1025)
-        queries=np.zeros((len(test_probabilities),4),dtype='<f4')
-        queries[:,3]=test_probabilities
-        actual_thresholds=run(gl,program,inputs,output,queries)[:,1]
-        observed=np.searchsorted(independent,actual_thresholds,side='left')/len(independent)
-        report['max_independent_probability_error']=float(np.max(np.abs(observed-test_probabilities)))
-        assert np.all(np.diff(actual_thresholds)>=0.)
-        assert observed[0]==0. and observed[-1]==1.
-        assert report['max_independent_probability_error']<.004
-        print('Held-out maximum probability error:',report['max_independent_probability_error'],flush=True)
+        if previous:
+            report['calibration_samples']=previous['calibration_samples']
+            report['measured_quantiles']=previous['measured_quantiles']
+            report['max_independent_probability_error']=previous['max_independent_probability_error']
+            report['calibration_reused']=True
+            report['calibration_reuse_basis']='Unchanged pit_porosity.glsl bytes and physical Perlin scale.'
+            print('Reusing unchanged Perlin CDF calibration; validating the new actual GLSL radial gradient.',flush=True)
+        else:
+            points=np.zeros((2**args.power,4),dtype='<f4')
+            points[:,:3]=(qmc.Sobol(3,scramble=True,seed=6871).random_base2(args.power)-.5)*81920.
+            points[:,3]=.5
+            result=run(gl,program,inputs,output,points,key=91271)
+            thresholds=np.quantile(result[:,0],probabilities)
+            thresholds[0]=-1.0001;thresholds[-1]=1.0001
+            report['measured_quantiles']=thresholds.tolist()
+            print('const float COLD_FOREST_PORE_QUANTILES[65] = float[65](')
+            print('    '+', '.join(f'{v:.9f}' for v in thresholds)+');',flush=True)
+            points[:,:3]=(qmc.Sobol(3,scramble=True,seed=7459).random_base2(args.power)-.5)*81920.
+            independent=np.sort(run(gl,program,inputs,output,points,key=84627)[:,0])
+            # Probe interpolation between knots as well as the exact endpoints.
+            test_probabilities=np.linspace(0.,1.,1025)
+            queries=np.zeros((len(test_probabilities),4),dtype='<f4')
+            queries[:,3]=test_probabilities
+            actual_thresholds=run(gl,program,inputs,output,queries)[:,1]
+            observed=np.searchsorted(independent,actual_thresholds,side='left')/len(independent)
+            report['max_independent_probability_error']=float(np.max(np.abs(observed-test_probabilities)))
+            assert np.all(np.diff(actual_thresholds)>=0.)
+            assert observed[0]==0. and observed[-1]==1.
+            assert report['max_independent_probability_error']<.004
+            print('Held-out maximum probability error:',report['max_independent_probability_error'],flush=True)
         shell_unit=qmc.Sobol(2,scramble=True,seed=3518).random_base2(args.shell_power)
         angle=shell_unit[:,0]*2.*np.pi
         slices=[]
         # This validates the pore helper in its finite pit frame. The separate
         # ColdForest geometry test checks envelope depth and spiral admission.
-        for radius01 in (0.,.01,.05,.1,.2,.3,.4,.5,.6,.7,.8,.9,.95,.99,1.):
+        radial_levels=np.unique(np.r_[np.linspace(0.,empty_radius,8),
+                                     empty_radius+(1.-empty_radius)*np.array([.01,.05,.1,.2,.3,.4,.5,.6,.7,.8,.9,.95,.99,1.])])
+        for radius01 in radial_levels:
             shell=np.zeros((args.pits,len(shell_unit),4),dtype='<f4')
-            shell[:,:,0]=1000.*radius01*np.cos(angle)
-            shell[:,:,2]=1000.*radius01*np.sin(angle)
-            shell[:,:,1]=-800.*(1.-radius01)*shell_unit[:,1]
-            shell[:,:,3]=1.-radius01
-            r=run(gl,program,inputs,output,shell.reshape(-1,4),1,42791,len(shell_unit))
+            shell[:,:,0]=radius*radius01*np.cos(angle)
+            shell[:,:,2]=radius*radius01*np.sin(angle)
+            shell[:,:,1]=-depth*(1.-radius01)*shell_unit[:,1]
+            shell[:,:,3]=radius01
+            r=run(gl,program,inputs,output,shell.reshape(-1,4),2,42791,len(shell_unit))
             per_pit=(r[:,2]<0.).reshape(args.pits,-1).mean(axis=1)
-            target=1.-radius01
-            slices.append({'radius01':radius01,'target_void':target,
+            target=float(np.clip((1.-radius01)/(1.-empty_radius),0.,1.))
+            assert np.max(np.abs(r[:,3]-target))<2.e-6
+            if radius01<=empty_radius:assert np.all(r[:,2]<0.), 'Empty core must contain no stone'
+            slices.append({'radius01':float(radius01),'radius_m':float(radius*radius01),'target_void':target,
                            'observed_void':float(per_pit.mean()),
                            'per_pit_min':float(per_pit.min()),'per_pit_max':float(per_pit.max())})
-            print(f'r={radius01:.2f}: target {target:.1%}, pooled {per_pit.mean():.3%}, '
+            print(f'r={radius01:.3f}: target {target:.1%}, pooled {per_pit.mean():.3%}, '
                   f'individual range {per_pit.min():.2%}..{per_pit.max():.2%}',flush=True)
         report['radial_shells']=slices
         report['max_shell_probability_error']=max(abs(row['observed_void']-row['target_void']) for row in slices)

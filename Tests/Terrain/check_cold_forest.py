@@ -22,6 +22,10 @@ from check_gpu import SHADERS, FieldRunner
 from field_batch_runner import default_uniforms
 from gl_headless import GL
 
+PIT_RADIUS = 10000.
+PIT_SPACING = 50000.
+PIT_EMPTY_RADIUS = .70
+
 
 HEADER = r'''
 layout(local_size_x=8,local_size_y=8) in;
@@ -229,20 +233,20 @@ def get_sites(gl,seed):
     probe=PointProbe(gl,SITES)
     data=probe.run(cells,seed=seed)
     assert np.array_equal(data,probe.run(cells,seed=seed)), 'Placement is nondeterministic'
-    assert np.allclose(data[:,8:12],[1000.,800.,10000.,240.]), \
+    assert np.allclose(data[:,8:12],[PIT_RADIUS,800.,PIT_SPACING,240.]), \
         'Requested initial physical pit settings changed'
-    offset=data[:,:2]-cells[:,:2]*10000.
-    assert np.all((offset>=2500.)&(offset<=7500.)), \
+    offset=data[:,:2]-cells[:,:2]*PIT_SPACING
+    assert np.all((offset>=.25*PIT_SPACING)&(offset<=.75*PIT_SPACING)), \
         'Pit centers escaped the central half of their cells'
     nearest=cKDTree(data[:,:2]).query(data[:,:2],k=2)[0][:,1]
-    assert nearest.min()>=5000.-.03,'Adjacent candidate centers can coincide'
+    assert nearest.min()>=.5*PIT_SPACING-.1,'Adjacent candidate centers can coincide'
     assert np.all(np.isin(data[:,2],(0.,1.))),'Site eligibility is not whole-site binary'
     accepted=data[data[:,2]==1.]
-    assert len(accepted)>=8,('Too few accepted pits in 250km region',seed,len(accepted))
+    assert len(accepted)>=8,('Too few accepted pits in 1250km region',seed,len(accepted))
     # Dense coverage of entire disks catches misses between the inexpensive
     # admission samples and verifies the analytical river exclusion bound.
     angles=np.linspace(0.,2*np.pi,129,endpoint=False)
-    radii=np.arange(0.,1000.1,50.)
+    radii=np.linspace(0.,PIT_RADIUS,41)
     radial,angle=np.meshgrid(radii,angles)
     queries=np.concatenate([query_points(s[:2],radial,angle,0.) for s in accepted])
     masks=PointProbe(gl,MASKS).chunks(queries,seed=seed)
@@ -250,7 +254,7 @@ def get_sites(gl,seed):
     minimum=float(masks[:,0].min())
     assert minimum>=.8-.005,('Accepted pit leaves its broad region',minimum)
     return accepted,dict(seed=seed,cells=len(cells),accepted_pits=len(accepted),
-        nominal_area_per_candidate_km2=100.,candidate_min_spacing_m=float(nearest.min()),
+        nominal_area_per_candidate_km2=(PIT_SPACING/1000.)**2,candidate_min_spacing_m=float(nearest.min()),
         full_disk_samples=len(queries),minimum_region_mask=minimum,
         maximum_channel_mask=float(masks[:,2].max()))
 
@@ -258,27 +262,28 @@ def get_sites(gl,seed):
 def geometry_checks(gl,sites,seed):
     probe=PointProbe(gl,GEOMETRY)
     angles=np.linspace(0.,2*np.pi,97,endpoint=False)
-    radii=np.linspace(0.,1100.,111)
+    radii=np.linspace(0.,1.1*PIT_RADIUS,111)
     radial,angle=np.meshgrid(radii,angles)
     data=probe.chunks(np.concatenate([query_points(s[:2],radial,angle,0.)
         for s in sites[:4]]),seed=seed)
     depth=data[:,0];r=data[:,3]
     assert np.all((depth>=0.)&(depth<=800.01)), 'Depth exceeds conical pit bounds'
-    assert np.all(depth[r>=1.]<.001),'Pit extends beyond 2000m diameter'
+    assert np.all(depth[r>=1.]<.001),'Pit extends beyond 20000m diameter'
     assert np.allclose(depth[r<.00001],800.,atol=.01),'Central pit depth is not 800m'
     near_rim=(r>=.99)&(r<1.)
     assert np.max(depth[near_rim])<1.,'Rim has an abrupt vertical entry'
-    assert np.allclose(data[:,1],np.clip(1.-r,0.,1.),atol=1e-6), \
-        'Void fraction does not decline from center to edge'
+    assert np.allclose(data[:,1],np.clip((1.-r)/(1.-PIT_EMPTY_RADIUS),0.,1.),atol=1e-6), \
+        'Void fraction no longer has a 70-percent empty core and peripheral gradient'
+    assert np.all(data[r<=PIT_EMPTY_RADIUS,1]==1.),'The inner 70 percent retains pore stone'
     # atan-based spirals must join across the negative-X angular seam.
     seam=[]
     for site in sites[:4]:
-        pairs=np.concatenate([query_points(site[:2],np.arange(50.,1000.,50.),a,0.)
+        pairs=np.concatenate([query_points(site[:2],np.linspace(.05,.95,19)*PIT_RADIUS,a,0.)
             for a in (np.pi-.00001,-np.pi+.00001)])
         values=probe.run(pairs,seed=seed)[:,0].reshape(2,-1)
         seam.append(float(np.max(abs(values[0]-values[1]))))
     assert max(seam)<.1,('Spiral angular seam has a height jump',seam)
-    return dict(diameter_m=2000.,central_depth_m=800.,geometry_samples=len(data),
+    return dict(diameter_m=2.*PIT_RADIUS,central_depth_m=800.,empty_core_radius_m=PIT_EMPTY_RADIUS*PIT_RADIUS,geometry_samples=len(data),
         maximum_depth_m=float(depth.max()),near_rim_maximum_depth_m=float(depth[near_rim].max()),
         angular_seam_depth_difference_max_m=max(seam),pore_scale_m=240.)
 
@@ -288,17 +293,17 @@ def porosity_checks(gl,sites,seed):
     unit=qmc.Sobol(2,scramble=True,seed=48779).random_base2(11)
     chosen=sites[np.linspace(0,len(sites)-1,min(32,len(sites))).astype(int)]
     records=[]
-    for radial in (0.,.1,.25,.5,.75,.9,1.):
-        queries=np.concatenate([query_points(s[:2],radial*1000.,
+    for radial in (0.,.35,.69,.70,.75,.80,.85,.90,.95,1.):
+        queries=np.concatenate([query_points(s[:2],radial*PIT_RADIUS,
             unit[:,0]*2*np.pi,-unit[:,1]*800.) for s in chosen])
         data=probe.chunks(queries,seed=seed)
-        measured=float((data[:,2]<0.).mean());target=1.-radial
+        measured=float((data[:,2]<0.).mean());target=float(np.clip((1.-radial)/(1.-PIT_EMPTY_RADIUS),0.,1.))
         assert abs(measured-target)<.035,('Perlin void gradient misses target',radial,measured,target)
-        if radial==0.:assert np.all(data[:,2]<0.),'Central pore field retains stone'
+        if radial<=PIT_EMPTY_RADIUS:assert np.all(data[:,2]<0.),'The inner 70 percent retains stone'
         if radial==1.:assert np.all(data[:,2]>0.),'Rim pore field removes stone'
         records.append(dict(radius_fraction=radial,target_void_fraction=target,
             measured_void_fraction=measured,samples=len(data)))
-    assert all(a['measured_void_fraction']>b['measured_void_fraction']
+    assert all(a['measured_void_fraction']>=b['measured_void_fraction']
         for a,b in zip(records,records[1:])), 'Radial porosity is not monotonic in aggregate'
     return dict(sites=len(chosen),radial_bins=records,
         note='Isolated pore field before conical clipping; finite individual pits vary.')
@@ -309,7 +314,7 @@ def world_checks(gl,sites,seed,scale):
     geometry=PointProbe(gl,GEOMETRY)
     unit=qmc.Sobol(3,scramble=True,seed=74983).random_base2(11)
     chosen=sites[np.linspace(0,len(sites)-1,8).astype(int)]
-    queries=np.concatenate([query_points(s[:2],995.*np.sqrt(unit[:,0]),
+    queries=np.concatenate([query_points(s[:2],.995*PIT_RADIUS*np.sqrt(unit[:,0]),
         unit[:,1]*2*np.pi,0.) for s in chosen])
     depth=geometry.run(queries,seed=seed)[:,0]
     queries[:,1]=-depth*np.tile(.02+.96*unit[:,2],len(chosen))
@@ -323,6 +328,8 @@ def world_checks(gl,sites,seed,scale):
     assert carved.any(),'No actual open cavity below the original ground'
     assert np.all((data[carved,7]>=data[carved,8])&(data[carved,7]<=data[carved,9])), \
         'Carved samples escape the production band'
+    core=(data[:,11]<=PIT_EMPTY_RADIUS)&(data[:,1]>1.)&(depth+queries[:,1]>1.)
+    assert core.any() and np.all(data[core,0]<0.),'Actual 3D leaves rock inside the empty 70-percent core'
     # The entire axis is open to the sky; below the conical floor the old
     # substrate remains. Test this in production, not only the pore helper.
     centers=np.concatenate([query_points(s[:2],0.,0.,np.array((-810.,-799.,-600.,-300.,-1.,1.,100.)))
@@ -332,7 +339,7 @@ def world_checks(gl,sites,seed,scale):
     assert np.all(c[axis_air,0]<0.),'Central shaft retains a roof or a solid plug'
     assert np.all(c[~axis_air,0]>0.),'Cone drills deeper than 800m'
     outside=np.concatenate([query_points(s[:2],r,unit[:128,1]*2*np.pi,y)
-        for s in chosen for r,y in ((1001.,-10.),(1200.,-250.),(500.,-850.),(500.,100.))])
+        for s in chosen for r,y in ((1.001*PIT_RADIUS,-10.),(1.2*PIT_RADIUS,-250.),(.5*PIT_RADIUS,-850.),(.5*PIT_RADIUS,100.))])
     out=probe.run(outside,seed=seed,uDetailScale=scale)
     assert np.allclose(out[:,0],out[:,1],atol=.02), \
         'Excavation escapes the finite pit or modifies exterior air'
@@ -343,6 +350,7 @@ def world_checks(gl,sites,seed,scale):
     return dict(detail_scale=scale,samples=len(data),carved_air_samples=int(carved.sum()),
         maximum_band_density_error=float(np.max(abs(data[:,0]-wanted))),
         maximum_world_band_m=float(data[:,5].max()),
+        guaranteed_empty_core_samples=int(core.sum()),
         open_axis_samples=int(axis_air.sum()),protected_floor_samples=int((~axis_air).sum()),
         exterior_unchanged_samples=len(outside)),position
 
@@ -354,7 +362,7 @@ def seam_checks(gl):
         for cell in (-5,-2,-1,0,1,3,7):
             for other in (-15731.,4173.,19751.):
                 for side in (-.02,.02):
-                    xz=[cell*10000.+side,other]
+                    xz=[cell*PIT_SPACING+side,other]
                     if axis:xz.reverse()
                     queries.append((xz[0],-100.,xz[1],0.))
     data=probe.run(queries)
@@ -370,7 +378,7 @@ def mixed_checks(gl):
     assert len(accepted)==len(rejected)==6
     sites=np.concatenate((accepted,rejected))
     unit=qmc.Sobol(3,scramble=True,seed=33179).random_base2(9)
-    queries=np.concatenate([query_points(s[:2],950.*np.sqrt(unit[:,0]),
+    queries=np.concatenate([query_points(s[:2],.95*PIT_RADIUS*np.sqrt(unit[:,0]),
         unit[:,1]*2*np.pi,-unit[:,2]*800.) for s in sites])
     probe=PointProbe(gl,MIXED);records=[]
     for scale in (.2,.35,1.):
@@ -399,7 +407,7 @@ def render_figure(gl,path,report,sites,seed):
     import matplotlib.pyplot as plt
     from render_biome_landforms import isosurface,draw_projected_mesh
     center=sites[np.argmin(np.sum(sites[:,:2]**2,axis=1)),:2]
-    spacing=25.;size=105;extent=spacing*(size-1)
+    spacing=100.;size=261;extent=spacing*(size-1)
     axis=(np.arange(size)-(size-1)*.5)*spacing
     xx,zz=np.meshgrid(center[0]+axis,center[1]+axis)
     queries=np.column_stack((xx.ravel(),np.zeros(xx.size),zz.ravel(),np.zeros(xx.size)))
@@ -410,7 +418,7 @@ def render_figure(gl,path,report,sites,seed):
     fig=plt.figure(figsize=(14,10),constrained_layout=True)
     gs=fig.add_gridspec(2,2)
     ax=fig.add_subplot(gs[0,0]);draw_projected_mesh(ax,sample,isosurface(sample))
-    ax.set_title('Gouffre de 2 km : densité GLSL réelle',fontsize=11)
+    ax.set_title('Gouffre de 20 km : densité GLSL réelle',fontsize=11)
     geometry=PointProbe(gl,GEOMETRY).run(queries,seed=seed).reshape(size,size,16)
     ax=fig.add_subplot(gs[0,1]);im=ax.imshow(-geometry[:,:,0],origin='lower',cmap='terrain',
         extent=(-extent/2000.,extent/2000.,-extent/2000.,extent/2000.))
@@ -424,10 +432,10 @@ def render_figure(gl,path,report,sites,seed):
     ax.set_xlabel('Distance au centre (m)');ax.set_ylabel('Altitude (m)')
     ax.set_title('Coupe réelle : blanc = vide, noir = solide');ax.legend(fontsize=8)
     ax=fig.add_subplot(gs[1,1]);bins=report['porosity']['radial_bins']
-    ax.plot([r['radius_fraction']*1000. for r in bins],
+    ax.plot([r['radius_fraction']*PIT_RADIUS/1000. for r in bins],
         [r['measured_void_fraction']*100. for r in bins],'o-',label='Perlin GLSL mesuré')
-    ax.plot([0,1000],[100,0],'--',label='Cible')
-    ax.set_xlabel('Distance au centre (m)');ax.set_ylabel('Vide (%)')
+    ax.plot([0,PIT_EMPTY_RADIUS*PIT_RADIUS/1000.,PIT_RADIUS/1000.],[100,100,0],'--',label='Cible')
+    ax.set_xlabel('Distance au centre (km)');ax.set_ylabel('Vide (%)')
     ax.set_title('Gradient radial avant découpe par le cône');ax.grid(alpha=.2);ax.legend()
     fig.suptitle('Forêt froide — gouffre spiralé et parois poreuses\n'
         'Reconstruction diagnostique, pas une capture du jeu.',fontsize=14)
@@ -454,7 +462,7 @@ def main():
         report=dict(renderer=gl.renderer,source_sha256=fingerprint)
         print('Checking preserved ground and downward regional river mask...',flush=True)
         report['ground']=height_checks(gl)
-        print('Checking 10-km cells and whole-pit regional/river exclusion...',flush=True)
+        print('Checking 50-km cells and whole-pit regional/river exclusion...',flush=True)
         sites,first=get_sites(gl,1337);_,second=get_sites(gl,97)
         report['placement']=[first,second]
         print('Checking conical envelope, spiral seam and radial Perlin void...',flush=True)

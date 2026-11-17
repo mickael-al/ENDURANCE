@@ -1,0 +1,190 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": {
+    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/ground_settings.glsl": "a59d1e3b62081b9923c375a562d386c318a1d5d2f1265b1aef0c15cac26726ae",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/ground.glsl": "a78f69e9f19f06307fac599151803fb962f307173f3fb783e7c67a1c1f3db713",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/pit_settings.glsl": "b3a8048086c8794c111408a373df63a4cf73c7bfff7af98e7eda6d32cdd98d5b",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdForest/pits.glsl": "556893411353373e01ed97143848580a2ccb6396bd74344d2e493e33d4dffff1"
+  },
+  "region_scale_m": 120000.0,
+  "river_spacing_m": 50000.0,
+  "region_low": 0.042469,
+  "region_high": 0.442469,
+  "central_threshold": 0.242469,
+  "calibrated_30_percent_threshold": 0.24246898293495178,
+  "total_coverage_samples": 2105352,
+  "records": [
+    {
+      "seed": 1337,
+      "samples": 263169,
+      "dominant_fraction": 0.29990614396072485,
+      "mean_mask": 0.30031800270080566,
+      "full_mask_fraction": 0.143618739289202,
+      "previous_dominant_fraction": 0.48352579521144207
+    },
+    {
+      "seed": 17,
+      "samples": 263169,
+      "dominant_fraction": 0.29998974043295373,
+      "mean_mask": 0.29999545216560364,
+      "full_mask_fraction": 0.1440329218106996,
+      "previous_dominant_fraction": 0.4836055918440242
+    },
+    {
+      "seed": 41,
+      "samples": 263169,
+      "dominant_fraction": 0.2988269895010431,
+      "mean_mask": 0.29903754591941833,
+      "full_mask_fraction": 0.14407851988646078,
+      "previous_dominant_fraction": 0.4823972428363523
+    },
+    {
+      "seed": 12345,
+      "samples": 263169,
+      "dominant_fraction": 0.3007915065984215,
+      "mean_mask": 0.30086684226989746,
+      "full_mask_fraction": 0.1451234757893217,
+      "previous_dominant_fraction": 0.4844605557645467
+    },
+    {
+      "seed": 99991,
+      "samples": 263169,
+      "dominant_fraction": 0.3007953064380683,
+      "mean_mask": 0.3008427321910858,
+      "full_mask_fraction": 0.1440215222917593,
+      "previous_dominant_fraction": 0.4848063411724025
+    },
+    {
+      "seed": 73,
+      "samples": 263169,
+      "dominant_fraction": 0.29942736416523225,
+      "mean_mask": 0.29970094561576843,
+      "full_mask_fraction": 0.1437783325543662,
+      "previous_dominant_fraction": 0.4834535982581535
+    },
+    {
+      "seed": 5641,
+      "samples": 263169,
+      "dominant_fraction": 0.30072310948477976,
+      "mean_mask": 0.30068084597587585,
+      "full_mask_fraction": 0.14437870721855536,
+      "previous_dominant_fraction": 0.4834649977770938
+    },
+    {
+      "seed": 18263,
+      "samples": 263169,
+      "dominant_fraction": 0.2995413593546352,
+      "mean_mask": 0.29981279373168945,
+      "full_mask_fraction": 0.1442723117084459,
+      "previous_dominant_fraction": 0.48306981445383007
+    }
+  ],
+  "aggregate_dominant_fraction": 0.3000001899919823,
+  "aggregate_mean_mask": 0.3001568950712681,
+  "maximum_mask_step_at_250m": 0.0651756227016449,
+  "whole_pit_admission": [
+    {
+      "region_scale_m": 24000.0,
+      "seeds": [
+        {
+          "seed": 1337,
+          "candidates": 66049,
+          "accepted": 0,
+          "admitted_fraction": 0.0,
+          "river_clear_fraction": 0.4844887852668762
+        },
+        {
+          "seed": 17,
+          "candidates": 66049,
+          "accepted": 0,
+          "admitted_fraction": 0.0,
+          "river_clear_fraction": 0.485684871673584
+        },
+        {
+          "seed": 41,
+          "candidates": 66049,
+          "accepted": 0,
+          "admitted_fraction": 0.0,
+          "river_clear_fraction": 0.4850035607814789
+        },
+        {
+          "seed": 99991,
+          "candidates": 66049,
+          "accepted": 0,
+          "admitted_fraction": 0.0,
+          "river_clear_fraction": 0.48276278376579285
+        }
+      ],
+      "mean_admitted_fraction": 0.0
+    },
+    {
+      "region_scale_m": 60000.0,
+      "seeds": [
+        {
+          "seed": 1337,
+          "candidates": 66049,
+          "accepted": 392,
+          "admitted_fraction": 0.005934987682849169,
+          "river_clear_fraction": 0.4844887852668762
+        },
+        {
+          "seed": 17,
+          "candidates": 66049,
+          "accepted": 351,
+          "admitted_fraction": 0.005314236506819725,
+          "river_clear_fraction": 0.485684871673584
+        },
+        {
+          "seed": 41,
+          "candidates": 66049,
+          "accepted": 365,
+          "admitted_fraction": 0.0055262004025280476,
+          "river_clear_fraction": 0.4850035607814789
+        },
+        {
+          "seed": 99991,
+          "candidates": 66049,
+          "accepted": 357,
+          "admitted_fraction": 0.005405078176409006,
+          "river_clear_fraction": 0.48276278376579285
+        }
+      ],
+      "mean_admitted_fraction": 0.005545125692151487
+    },
+    {
+      "region_scale_m": 120000.0,
+      "seeds": [
+        {
+          "seed": 1337,
+          "candidates": 66049,
+          "accepted": 2462,
+          "admitted_fraction": 0.03727535530924797,
+          "river_clear_fraction": 0.4844887852668762
+        },
+        {
+          "seed": 17,
+          "candidates": 66049,
+          "accepted": 2475,
+          "admitted_fraction": 0.037472181022167206,
+          "river_clear_fraction": 0.485684871673584
+        },
+        {
+          "seed": 41,
+          "candidates": 66049,
+          "accepted": 2480,
+          "admitted_fraction": 0.03754788264632225,
+          "river_clear_fraction": 0.4850035607814789
+        },
+        {
+          "seed": 99991,
+          "candidates": 66049,
+          "accepted": 2528,
+          "admitted_fraction": 0.0382746160030365,
+          "river_clear_fraction": 0.48276278376579285
+        }
+      ],
+      "mean_admitted_fraction": 0.03764250874519348
+    }
+  ],
+  "note": "30% means ensemble area with regional mask >= 0.5; the smoothly weighted mean is reported separately. The river channel width is independent of this broad regional coverage. The wavelength comparison uses the same final 20-km pits and 50-km candidate cells; only regional wavelength changes. Whole-disk river/region safety is covered by check_cold_forest.py."
+}

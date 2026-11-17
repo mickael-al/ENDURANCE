@@ -17,13 +17,13 @@ ColdForestPitSite coldForestPitInCell(ivec2 cell)
 
 ColdForestPitSite coldForestPitSite(vec2 p)
 {
-    // 1000-m footprint inside the cell's 2500-m safe margin: no neighbour loop.
+    // 10-km footprint inside the cell's 12.5-km safe margin: no neighbour loop.
     return coldForestPitInCell(ivec2(floor(p / COLD_FOREST_PIT_SPACING)));
 }
 
 float coldForestPitEligibility(ColdForestPitSite site)
 {
-    if (!coldForestRiverDiskClear(site.center, COLD_FOREST_PIT_RADIUS + 100.0))
+    if (!coldForestRiverDiskClear(site.center, COLD_FOREST_PIT_RADIUS * 1.1))
         return 0.0;
     if (coldForestRegionMask(site.center) < COLD_FOREST_PIT_REGION_MIN)
         return 0.0;
@@ -32,7 +32,7 @@ float coldForestPitEligibility(ColdForestPitSite site)
     for (int i = 0; i < 8; ++i)
     {
         float angle = float(i) * (6.28318530718 / 8.0);
-        vec2 p = site.center + (COLD_FOREST_PIT_RADIUS + 200.0)
+        vec2 p = site.center + COLD_FOREST_PIT_RADIUS * 1.2
             * vec2(cos(angle), sin(angle));
         if (coldForestRegionMask(p) < COLD_FOREST_PIT_REGION_MIN) return 0.0;
     }
@@ -51,8 +51,8 @@ float coldForestPitDepth(vec2 p, ColdForestPitSite site)
         float phase = noiseInternalUintTo01(noiseInternalHash(site.key ^ 0x52682e93u))
             * 6.28318530718;
         float handedness = (site.key & 1u) == 0u ? -1.0 : 1.0;
-        // Broad inward/downward spiral. One evaluation per XZ column, not a
-        // repeated 3D search for the nearest point on a descending torus.
+        // Broad inward/downward spiral, cached per XZ column in a pure biome.
+        // No repeated 3D search for the nearest point on a descending torus.
         float spiral = sin(handedness * atan(q.y, q.x) + phase
             + radial * (6.28318530718 * COLD_FOREST_PIT_SPIRAL_TURNS));
         depth += COLD_FOREST_PIT_SPIRAL_DEPTH * 4.0 * radial * inward * spiral;
@@ -64,7 +64,8 @@ float coldForestPitDepth(vec2 p, ColdForestPitSite site)
 
 float coldForestPitVoidFraction(float radial01)
 {
-    return clamp(1.0 - radial01, 0.0, 1.0);
+    return clamp((1.0 - radial01) / max(1.0 - COLD_FOREST_PIT_EMPTY_RADIUS, 0.001),
+        0.0, 1.0);
 }
 
 float coldForestPitControl(vec2 p)
