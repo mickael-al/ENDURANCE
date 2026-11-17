@@ -526,6 +526,22 @@ dominant mountain area, cell-jittered ring placement, hollow torus dimensions,
 height-dependent porosity, ground preservation and density dispatch bounds.
 See [ColdSteppe settings and validation](../../docs/COLD_STEPPE_TORI.md).
 
+## BorealForest discrete layers and Voronoi cavities
+
+```sh
+python3 Tests/Terrain/calibrate_boreal_cavities.py --output /tmp/boreal_cavities.json
+python3 Tests/Terrain/check_boreal_forest.py --output /tmp/boreal_forest.json
+```
+
+The old soil, with only its localized dome removed, is a fixed preservation
+oracle. GPU probes check four independent five-octave simplex fields, strict
+activation above .7, layer counts and packed mountain controls. The composed
+three-Perlin/Voronoi field is calibrated for 60% void and sampled inside actual
+mountains at three detail scales, including original-ground protection, mixed
+biome controls, production dispatch and shared LOD points. This replaces the
+old localized-sculpture fixture for biome 7.
+See [settings and measured limits](../../docs/BOREAL_FOREST_LAYERS.md).
+
 ## Actual biome areas and site occurrence
 
 ```sh

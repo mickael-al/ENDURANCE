@@ -1,0 +1,43 @@
+{
+  "helper_sha256": "dbc194497db925c49b316c6d7e281ecd6717629e5840be7ba9ae407821bfce8a",
+  "settings_sha256": "81baadf1b229d3fca628b539c49058e47dbd26f864034081541b5423b59a3c31",
+  "calibration_samples": 1048576,
+  "threshold": 0.472800523,
+  "target_void_fraction": 0.6,
+  "interpretation": "Ensemble proportion before cropping to each added mountain; finite regions fluctuate.",
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "measured_quantile": 0.47280052304267883,
+  "independent_void_fraction": 0.5998811721801758,
+  "independent_void_at_measured_quantile": 0.5998811721801758,
+  "fixed_seed_world_volumes": [
+    {
+      "seed": 1337,
+      "samples": 262144,
+      "void_fraction": 0.5987358093261719,
+      "mean_noise_delta_after_200m_y": 0.13896667957305908,
+      "unchanged_y_fraction": 0.000499725341796875
+    },
+    {
+      "seed": 97,
+      "samples": 262144,
+      "void_fraction": 0.6009902954101562,
+      "mean_noise_delta_after_200m_y": 0.13925057649612427,
+      "unchanged_y_fraction": 0.0005035400390625
+    },
+    {
+      "seed": 98765,
+      "samples": 262144,
+      "void_fraction": 0.6001358032226562,
+      "mean_noise_delta_after_200m_y": 0.13927987217903137,
+      "unchanged_y_fraction": 0.0004730224609375
+    },
+    {
+      "seed": 31071,
+      "samples": 262144,
+      "void_fraction": 0.601806640625,
+      "mean_noise_delta_after_200m_y": 0.13919655978679657,
+      "unchanged_y_fraction": 0.000469207763671875
+    }
+  ],
+  "maximum_void_fraction_error": 0.0018066406250000222
+}

@@ -1,0 +1,220 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "73d247e3b87a9bb6482483af59a6c5bd93708a455ed10dc6edd3b53a36c59ea1",
+  "layers": [
+    {
+      "seed": 1337,
+      "samples": 262144,
+      "ground_bit_identical": true,
+      "layer_count_histogram": [
+        189599,
+        62510,
+        9423,
+        603,
+        9
+      ],
+      "mountain_area_fraction": 0.2767372131347656,
+      "raw_noise_min": 0.06309109926223755,
+      "raw_noise_max": 0.9531359672546387
+    },
+    {
+      "seed": 97,
+      "samples": 262144,
+      "ground_bit_identical": true,
+      "layer_count_histogram": [
+        189561,
+        62690,
+        9207,
+        678,
+        8
+      ],
+      "mountain_area_fraction": 0.2768821716308594,
+      "raw_noise_min": 0.05152741074562073,
+      "raw_noise_max": 0.9502862691879272
+    },
+    {
+      "seed": 98765,
+      "samples": 262144,
+      "ground_bit_identical": true,
+      "layer_count_histogram": [
+        189955,
+        62134,
+        9383,
+        659,
+        13
+      ],
+      "mountain_area_fraction": 0.2753791809082031,
+      "raw_noise_min": 0.06411576271057129,
+      "raw_noise_max": 0.9490916728973389
+    }
+  ],
+  "world": [
+    {
+      "seed": 1337,
+      "detail_scale": 0.2,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.598541259765625,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 0.34283447265625,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 97,
+      "detail_scale": 0.2,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.602630615234375,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 0.34283447265625,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 98765,
+      "detail_scale": 0.2,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.599517822265625,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 0.34283447265625,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 1337,
+      "detail_scale": 0.35,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.598968505859375,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 0.5999755859375,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 97,
+      "detail_scale": 0.35,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.602203369140625,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 0.5999755859375,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 98765,
+      "detail_scale": 0.35,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.597564697265625,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 0.5999755859375,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 1337,
+      "detail_scale": 1.0,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.59808349609375,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 1.7142333984375,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 97,
+      "detail_scale": 1.0,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.6041259765625,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 1.7142333984375,
+      "vertically_varying_columns_fraction": 1.0
+    },
+    {
+      "seed": 98765,
+      "detail_scale": 1.0,
+      "sampled_volume_points": 32768,
+      "void_fraction": 0.600006103515625,
+      "inside_band_samples": 32768,
+      "unchanged_ground_min_density": 1.7142333984375,
+      "vertically_varying_columns_fraction": 1.0
+    }
+  ],
+  "targeted_pipeline": {
+    "anchor": [
+      -350118,
+      284,
+      -115026
+    ],
+    "shared_exact_lod_samples": 125,
+    "production_density_samples": 1331
+  },
+  "mixed": [
+    {
+      "detail_scale": 0.2,
+      "biome_weight": 0.2351694107055664,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.2,
+      "biome_weight": 0.5,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.2,
+      "biome_weight": 0.7648305296897888,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.35,
+      "biome_weight": 0.2351694107055664,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.35,
+      "biome_weight": 0.5,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.35,
+      "biome_weight": 0.7648305296897888,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 1.0,
+      "biome_weight": 0.2351694107055664,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 1.0,
+      "biome_weight": 0.5,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 1.0,
+      "biome_weight": 0.7648305296897888,
+      "samples": 4096,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    }
+  ],
+  "figure": {
+    "seed": 1337,
+    "center_xz_m": [
+      -4926.473379135132,
+      -2624.509572982788
+    ],
+    "horizontal_extent_m": 8192.0,
+    "horizontal_samples": 129,
+    "vertical_samples": 97,
+    "horizontal_spacing_m": 64.0,
+    "note": "All densities are actual GLSL; hard layer boundaries are resolved at the plotted sampling step."
+  }
+}
