@@ -129,9 +129,8 @@ def check_ibl(gl,programs=None):
     parameters.upload(gl,uniform)
     gl.fullscreen(sky_program,3,5,attachments)
     color=gl.texels(attachments[2],(3,5))
-    luminance=2*.2126+4*.7152+8*.0722
-    assert all(abs(v-luminance)<1e-5 for v in rgb(color)),"Visible saturation control failed or affected HDR amplitude"
-    print("PASS sky G-buffer: unclamped linear HDR, explicit sky marker and independent visible saturation",flush=True)
+    assert all(abs(v-(2,4,8,1)[i%4])<1e-5 for i,v in enumerate(color)),"G-buffer applied display saturation before atmospheric composition"
+    print("PASS sky G-buffer: unclamped linear HDR, explicit sky marker and deferred final display saturation",flush=True)
 
 
 def main():

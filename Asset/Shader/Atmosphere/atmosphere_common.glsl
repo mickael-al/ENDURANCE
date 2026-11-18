@@ -66,6 +66,15 @@ float geAtmDiskMask(vec3 direction,vec3 sourceDirection,float angularRadius)
     return 1.0-smoothstep(chord*0.96,chord*1.04,length(direction-sourceDirection));
 }
 
+// For an ORTHOGRAPHIC directional shadow matrix only. The row norm converts
+// a world-space distance into its [0,1] depth difference and remains valid
+// when a large upstream caster margin expands the cascade's depth span.
+float geAtmDirectionalShadowBias(mat4 projectionView,float worldMetres)
+{
+    vec3 depthRow=vec3(projectionView[0][2],projectionView[1][2],projectionView[2][2]);
+    return max(worldMetres,0.0)*0.5*length(depthRow);
+}
+
 vec3 geAtmPalette(vec3 direction)
 {
     float e=clamp(direction.y,0.0,1.0);

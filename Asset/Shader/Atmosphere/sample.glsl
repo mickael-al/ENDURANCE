@@ -36,13 +36,15 @@ vec3 geAtmComposite(vec3 surfaceRadiance,vec3 worldPosition,vec2 screenUV)
     if(!uAtmosphereActive) return surfaceRadiance;
     vec3 s,t;
     geAtmSample(screenUV,length(worldPosition-geAtmCamera.xyz),s,t);
-    return max(surfaceRadiance,vec3(0.0))*t+s;
+    // Visible-atmosphere saturation changes the scattered light, not material
+    // reflectance or Beer-Lambert transmission. IBL has its own control.
+    return max(surfaceRadiance,vec3(0.0))*t+geAtmSaturate(s,geAtmArt.y);
 }
 
 vec3 geAtmCompositeSky(vec3 skyRadiance,vec2 screenUV)
 {
-    if(!uAtmosphereActive) return skyRadiance;
-    if(geAtmControl.y==0 && geAtmControl.w==0) return skyRadiance;
+    if(!uAtmosphereActive) return geAtmSaturate(skyRadiance,geAtmArt.y);
+    if(geAtmControl.y==0 && geAtmControl.w==0) return geAtmSaturate(skyRadiance,geAtmArt.y);
     vec3 s,t; geAtmSample(screenUV,geAtmVolume.x,s,t);
     vec3 baseS=max(textureLod(geAtmBaselineScattering,screenUV,0.0).rgb,vec3(0.0));
     vec3 baseT=clamp(textureLod(geAtmBaselineTransmission,screenUV,0.0).rgb,vec3(0.0),vec3(1.0));
@@ -51,7 +53,7 @@ vec3 geAtmCompositeSky(vec3 skyRadiance,vec2 screenUV)
     vec3 ratio=clamp(t/max(baseT,vec3(0.001)),vec3(0.0),vec3(1.0));
     // Keep the subtraction signed until final composition. Clamping the tail
     // first would brighten clear rays when the two LUT quadratures disagree.
-    return max(s+(skyRadiance-baseS)*ratio,vec3(0.0));
+    return geAtmSaturate(max(s+(skyRadiance-baseS)*ratio,vec3(0.0)),geAtmArt.y);
 }
 
 vec3 geAtmDirectTransmission(vec3 worldPosition,vec3 lightDirection)

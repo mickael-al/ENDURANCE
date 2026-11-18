@@ -33,6 +33,6 @@ void main()
     // The HDR G-buffer carries sky radiance unchanged to deferred composition.
     gPosition=vec4(0,0,0,-2);
     gNormal=vec3(0);
-    gColor=vec4(geAtmSaturate(color,geAtmArt.y),1);
+    gColor=vec4(color,1);
     gOther=vec3(0);
 }

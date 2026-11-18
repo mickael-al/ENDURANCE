@@ -21,12 +21,13 @@ float geAtmTerrainVisibility(vec3 worldPosition,int firstLayer)
         vec3 uvz=clip.xyz/clip.w*0.5+0.5;
         if(any(lessThan(uvz,vec3(0.0))) || any(greaterThan(uvz,vec3(1.0)))) continue;
         vec2 texel=1.0/vec2(textureSize(geAtmTerrainShadow,0).xy);
+        float bias=geAtmDirectionalShadowBias(geAtmShadowMatrices[layer].projview,0.25);
         float visibility=0.0;
         for(int y=0;y<2;++y) for(int x=0;x<2;++x)
         {
             vec2 uv=uvz.xy+(vec2(x,y)-0.5)*texel;
             float depth=textureLod(geAtmTerrainShadow,vec3(uv,float(layer)),0.0).r;
-            visibility+=step(uvz.z-0.0003,depth);
+            visibility+=step(uvz.z-bias,depth);
         }
         return visibility*0.25;
     }

@@ -20,7 +20,7 @@ namespace Ge
     {
         bool enabled=false;
         AtmosphereQuality quality=AtmosphereQuality::Ultra;
-        bool physicalAtmosphere=false;
+        bool physicalAtmosphere=true;
         bool localFog=false;
         bool godRays=false;
         bool clouds=false;

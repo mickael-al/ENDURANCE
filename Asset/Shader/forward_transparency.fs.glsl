@@ -244,10 +244,10 @@ void main()
 						}
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(WorldPos, 1.0);
-					float bias = calculateBias(shadowCoord, normal.rgb, L);
+					float bias = geAtmosphereDirectionalSurfaceBias(ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview, normal.rgb, L, float(textureSize(shadowDepth, 0).x));
 					shadow = filterPCF(shadowCoord, ubl.ubl[i].shadowID + cascadeIndex, bias);
 				}
-				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, WorldPos, L) * NdotL) * mix(ubd.ambiant, 1.0, shadow);
+				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, WorldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}
 			else if (ubl.ubl[i].status == 1) // PointLight
 			{

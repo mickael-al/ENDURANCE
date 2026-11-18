@@ -104,7 +104,7 @@ namespace
     void dispatch(int x,int y,int z,int gx=8,int gy=8,int gz=1)
     {
         glDispatchCompute((x+gx-1)/gx,(y+gy-1)/gy,(z+gz-1)/gz);
-        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
+        glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT|GL_TEXTURE_UPDATE_BARRIER_BIT);
     }
     GLint location(GLuint program,const char* name) { return glGetUniformLocation(program,name); }
     void stripVersion(std::string& text)
@@ -145,7 +145,8 @@ struct Atmosphere::Impl
     AtmospherePalette lastBakedPalette, lastSkyPalette, displayedPalette, fromPalette, targetPalette;
     glm::vec3 lastBakedCamera{0};
     Budget budget;
-    AtmosphereGpuParameters gpu{},previous{};
+    AtmosphereGpuParameters gpu{},previous{},lastVolumeParameters{},lastCloudShadowParameters{};
+    bool cloudShadowValid=false;
     std::array<GLuint,ProgramCount> programs{};
     GLuint parameters=0,vao=0;
     GLuint transmittance=0,multiple=0,skyView=0,noise=0,cloudShadow=0;
@@ -230,6 +231,13 @@ struct Atmosphere::Impl
     bool buildPrograms()
     {
         std::array<GLuint,ProgramCount> next{};
+        std::string errors;
+        const auto build=[&](const std::string& file,GLenum stage,const std::string& defines=std::string{},const std::string& vertex=std::string{})
+        {
+            const GLuint result=compile(file,stage,defines,vertex);
+            if(!result) errors+=file+": "+failure+"\n";
+            return result;
+        };
         // A source-only stage-2 checkout remains a functional gradient sky.
         // Adding the physical stages enables them without changing the game API.
         bool physical=std::filesystem::exists("../Asset/Shader/Atmosphere/volume.C.glsl");
@@ -239,22 +247,23 @@ struct Atmosphere::Impl
                 {Transmittance,"transmittance.C.glsl"},{MultipleScattering,"multiscatter.C.glsl"},
                 {SkyView,"skyview.C.glsl"},{Aerial,"aerial.C.glsl"},{CloudVolume,"cloud_volume.C.glsl"},
                 {Volume,"volume.C.glsl"},{CloudNoise,"cloud_noise.C.glsl"},{CloudShadow,"cloud_shadow.C.glsl"}}};
-            for(const auto& job:jobs) next[job.first]=compile(job.second,GL_COMPUTE_SHADER);
+            for(const auto& job:jobs) next[job.first]=build(job.second,GL_COMPUTE_SHADER);
         }
-        next[Environment]=compile("environment.C.glsl",GL_COMPUTE_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"");
-        next[Filter]=compile("filter.C.glsl",GL_COMPUTE_SHADER);
-        next[Blend]=compile("blend.C.glsl",GL_COMPUTE_SHADER);
-        next[Brdf]=compile("brdf.C.glsl",GL_COMPUTE_SHADER);
-        next[SkyDraw]=compile("sky.fs.glsl",GL_FRAGMENT_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"","sky.vs.glsl");
+        next[Environment]=build("environment.C.glsl",GL_COMPUTE_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"");
+        next[Filter]=build("filter.C.glsl",GL_COMPUTE_SHADER);
+        next[Blend]=build("blend.C.glsl",GL_COMPUTE_SHADER);
+        next[Brdf]=build("brdf.C.glsl",GL_COMPUTE_SHADER);
+        next[SkyDraw]=build("sky.fs.glsl",GL_FRAGMENT_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"","sky.vs.glsl");
         bool success=true;
         for(std::size_t i=physical?0:Environment;i<next.size();++i) success=success && next[i]!=0;
         if(!success)
         {
             for(GLuint p:next) if(p) glDeleteProgram(p);
+            failure=errors;
             return false;
         }
         releasePrograms(); programs=next; physicalPrograms=physical; failure.clear();
-        programsDirty=false; physicalDirty=multipleDirty=skyDirty=noiseDirty=dirty=true;
+        programsDirty=false; volumesReady=false; cloudShadowValid=false; physicalDirty=multipleDirty=skyDirty=noiseDirty=dirty=true;
         return true;
     }
 
@@ -268,7 +277,7 @@ struct Atmosphere::Impl
             &physicalSource,&physicalExtinction,&cloudSource,&cloudExtinction,
             &scattering,&transmission,&baselineScattering,&baselineTransmission,&lightingEnvironment})
             deleteTexture(*t);
-        hasEnvironment=false; environmentBlending=false; volumesReady=false;
+        hasEnvironment=false; environmentBlending=false; volumesReady=false; cloudShadowValid=false;
     }
     bool allocate(const Budget& b)
     {
@@ -554,7 +563,7 @@ void Atmosphere::setPaletteTarget(const AtmospherePalette& value,bool force)
     if(m->transition.target(p,m->config.paletteThreshold,m->config.transitionSeconds,force,m->hasEnvironment?&m->displayedPalette:nullptr)) m->dirty=true;
 }
 void Atmosphere::reloadShaders() { m->programsDirty=true; m->dirty=true; }
-void Atmosphere::invalidate() { m->dirty=m->physicalDirty=m->multipleDirty=m->skyDirty=m->noiseDirty=true; }
+void Atmosphere::invalidate() { m->dirty=m->physicalDirty=m->multipleDirty=m->skyDirty=m->noiseDirty=true; m->volumesReady=false; m->cloudShadowValid=false; }
 void Atmosphere::setSun(Lights* sun) { if(m->requestedSun!=sun) { m->requestedSun=sun; m->dirty=m->skyDirty=true; } }
 void Atmosphere::setMoon(Lights* moon) { if(m->requestedMoon!=moon) { m->requestedMoon=moon; m->dirty=m->skyDirty=true; } }
 void Atmosphere::setExternalEnvironment(unsigned int cube,std::uint64_t revision)
@@ -691,10 +700,19 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
             ++m->statistics.skyUpdates;
             m->lastSkyAltitude=m->gpu.camera.y; m->lastSkyPalette=m->transition.displayed(); m->skyDirty=false; m->end();
         }
-        // Cloud shadow animation is independent of climate/camera invalidation.
-        m->begin(CloudTime); m->commonTextures(); glUseProgram(m->programs[CloudShadow]);
-        textureImage(0,m->cloudShadow,GL_RG16F,0,false); dispatch(m->budget.shadow,m->budget.shadow,1);
-        m->end();
+        // Cloud shadow animation is independent of climate invalidation. A
+        // static layer retains its map until its world footprint/source changes.
+        const auto& oldShadow=m->lastCloudShadowParameters;
+        const bool cloudShadowChanged=!m->cloudShadowValid || animatedClouds ||
+            m->gpu.sunDirection!=oldShadow.sunDirection || m->gpu.moonDirection!=oldShadow.moonDirection ||
+            m->gpu.misc.x!=oldShadow.misc.x || m->gpu.control.z!=oldShadow.control.z ||
+            std::memcmp(&m->gpu.cloudLayer,&oldShadow.cloudLayer,4*sizeof(glm::vec4))!=0;
+        if(cloudShadowChanged)
+        {
+            m->begin(CloudTime); m->commonTextures(); glUseProgram(m->programs[CloudShadow]);
+            textureImage(0,m->cloudShadow,GL_RG16F,0,false); dispatch(m->budget.shadow,m->budget.shadow,1);
+            m->lastCloudShadowParameters=m->gpu; m->cloudShadowValid=true; m->end();
+        }
     }
     if(!m->hasEnvironment || ((m->dirty || animatedClouds) &&
         m->environmentElapsed>=std::max(0.0f,m->config.environmentInterval))) m->bakeEnvironment();
@@ -729,6 +747,15 @@ void Atmosphere::computeVolumes(Camera* camera)
     auto* lights=m->pc->lightManager;
     const auto shadowTexture=lights->getTextureShadowArray();
     m->gpu.shadow.z=static_cast<int>(lights->getFrameShadowBuffer().size());
+    auto volumeKey=m->gpu;
+    volumeKey.camera.w=0; volumeKey.misc.y=0;
+    const bool dynamicShadows=m->config.godRays && (m->gpu.shadow.x>=0 || m->gpu.shadow.y>=0);
+    const bool animatedClouds=m->config.clouds && m->config.cloudCoverage>0 && m->config.cloudDensity>0 && glm::length(m->config.wind)>0;
+    // A game hook may animate independently or replace its world atlas, and
+    // moving shadow casters have no scene revision counter: conservatively update.
+    const bool unknownGameMedium=m->config.localFog && bool(m->bindGameFog);
+    if(m->volumesReady && !dynamicShadows && !animatedClouds && !unknownGameMedium && m->radiancePath.empty() &&
+        std::memcmp(&volumeKey,&m->lastVolumeParameters,sizeof(volumeKey))==0) return;
     m->upload(); m->commonTextures(); textureUnit(4,shadowTexture);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,lights->getSsboShadow());
     const auto& b=m->budget;
@@ -745,7 +772,7 @@ void Atmosphere::computeVolumes(Camera* camera)
     textureImage(0,m->scattering,GL_RGBA16F); textureImage(1,m->transmission,GL_RGBA16F);
     textureImage(2,m->baselineScattering,GL_RGBA16F,0,false); textureImage(3,m->baselineTransmission,GL_RGBA16F,0,false);
     dispatch(b.width,b.height,1); m->end();
-    m->volumesReady=true; ++m->statistics.volumeUpdates;
+    m->lastVolumeParameters=volumeKey; m->volumesReady=true; ++m->statistics.volumeUpdates;
 }
 
 void Atmosphere::bindLighting(unsigned int program,bool)
