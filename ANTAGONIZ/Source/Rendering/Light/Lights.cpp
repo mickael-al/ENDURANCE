@@ -13,18 +13,42 @@
 #include "Transform.hpp"
 #include "Debug.hpp"
 #include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include "Camera.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
 
 namespace Ge
 {
+    namespace
+    {
+        float clampedDirectionalShadowBias(float value, float fallback)
+        {
+            // Remain valid under the engine's -ffast-math compilation flags.
+            std::uint32_t bits;
+            std::memcpy(&bits, &value, sizeof(bits));
+            if ((bits & 0x7f800000u) == 0x7f800000u) return fallback;
+            return glm::clamp(value, 0.0f, 8.0f);
+        }
+    }
+
     void Lights::setShadowCasterMargin(float metres)
     {
         const float next=std::isfinite(metres)?glm::clamp(metres,0.0f,200000.0f):0.0f;
         if(next==m_shadowCasterMargin) return;
         m_shadowCasterMargin=next;
         if(m_active && m_shadow && m_ubl.status==0) mapMemoryShadow();
+    }
+
+    void Lights::setDirectionalShadowBias(float depthTexels, float normalTexels)
+    {
+        const float depth = clampedDirectionalShadowBias(depthTexels, 0.5f);
+        const float normal = clampedDirectionalShadowBias(normalTexels, 1.5f);
+        if (m_ubl.shadowDepthBias == depth && m_ubl.shadowNormalBias == normal) return;
+        m_ubl.shadowDepthBias = depth;
+        m_ubl.shadowNormalBias = normal;
+        mapMemory();
     }
 
 	Lights::Lights(unsigned int index, GraphicsDataMisc *gdm) : GObject()
@@ -419,6 +443,13 @@ namespace Ge
 		if (ImGui::Checkbox("Shadow", &s))
 		{
 			setshadow(s);
+		}
+		if (m_ubl.status == 0)
+		{
+			glm::vec2 bias = getDirectionalShadowBias();
+			bool changed = ImGui::DragFloat("Shadow depth bias (texels)", &bias.x, 0.01f, 0.0f, 8.0f);
+			changed |= ImGui::DragFloat("Shadow normal bias (texels)", &bias.y, 0.01f, 0.0f, 8.0f);
+			if (changed) setDirectionalShadowBias(bias.x, bias.y);
 		}
 
 		if (ImGui::TreeNode("Hidden light planes"))

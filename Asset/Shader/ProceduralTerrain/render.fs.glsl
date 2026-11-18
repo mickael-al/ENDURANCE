@@ -1,4 +1,5 @@
 #version 460 core
+#include "../Geometry/gbuffer_geometry.glsl"
 
 layout(location = 0) in vec3 viewPosition;
 layout(location = 1) in vec3 worldPosition;
@@ -116,6 +117,7 @@ vec3 biomeColor(vec3 normal)
 
 void main()
 {
+    float geometryTag=geGBufferGeometryTag(dFdx(viewPosition),dFdy(viewPosition));
     vec3 normal = normalize(worldNormal);
     vec3 p = worldPosition * max(microDetailScale, 0.0001);
     // Fade detail before it becomes subpixel; distant chunks do no noise work.
@@ -136,7 +138,7 @@ void main()
             vec3(0.92, 0.68, 0.28), vec3(0.78, 0.82, 0.32));
         color = colors[chunkLod % 7u];
     }
-    gPosition = vec4(viewPosition, 0.0);
+    gPosition = vec4(viewPosition, geometryTag);
     gNormal = normal;
     gColor = vec4(color, 1.0);
     gOther = vec3(0.0, 0.88, 1.0);

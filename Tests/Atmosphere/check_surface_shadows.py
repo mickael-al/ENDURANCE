@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""Numerical GPU regression for directional surface-shadow receiver planes.
+"""GPU regression for the engine's directional surface shadow filter.
 
 The production helper reads a rasterized DEPTH_COMPONENT32 array through the
-same NEAREST sampler as the engine. Independent CPU tap counts check real
-occluders and PCF contact edges. Two negative controls reproduce the original
-grid and the remaining grid when only integer tap offsets are corrected.
-All GPU readbacks here are test instrumentation, never renderer code.
+engine's NEAREST sampler. An independent closed-form tent/rectangle oracle
+checks resolved occluders, bilinear transitions and map borders. Plane tests
+cover rotations, grazing angles, precision bounds and caster depth changes.
+The terrain regression separately preserves the old receiver-plane filter as
+its negative control. All readbacks here are test instrumentation.
 """
 from __future__ import annotations
 
@@ -51,6 +52,7 @@ class ShadowGL(AtmosphereGL):
         self.shadow_maps = {}
         self.output = self.texture(SIZE, internal=RGBA32F)
         self.diagnostic = self.texture(SIZE, internal=RGBA32F)
+        self.geometry = self.texture(SIZE, internal=RGBA32F)
 
     def shadow_texture(self, size):
         if size in self.shadow_maps:
@@ -105,7 +107,7 @@ class ShadowGL(AtmosphereGL):
         return texture
 
     def evaluate(self, case, texture, *, degenerate=0, domain=None, layer=1, w=1,
-                 position_error=(0, 0, 0)):
+                 position_error=(0, 0, 0), bias_texels=(.5, 1.5)):
         self.matrix(self.probe, "projectionView", case.projection)
         self.matrix(self.probe, "inverseProjectionView", case.inverse)
         self.uniform(self.probe, "plane", "3f", *case.plane)
@@ -114,14 +116,16 @@ class ShadowGL(AtmosphereGL):
         self.uniform(self.probe, "degenerateMode", "1i", degenerate)
         self.uniform(self.probe, "homogeneousW", "1f", w)
         self.uniform(self.probe, "worldPositionError", "3f", *position_error)
+        self.uniform(self.probe, "biasTexels", "2f", *bias_texels)
         self.sampler(0, texture, TEXTURE_2D_ARRAY)
-        self.fullscreen(self.probe, *SIZE, [self.output, self.diagnostic])
+        self.fullscreen(self.probe, *SIZE, [self.output, self.diagnostic, self.geometry])
         output = self.texels(self.output, SIZE)
         diagnostic = self.texels(self.diagnostic, SIZE)
-        assert all(math.isfinite(value) for value in output + diagnostic), case.name
-        visibility = output[1::4]
-        assert min(visibility) >= 0 and max(visibility) <= 1, case.name
-        return output, diagnostic
+        geometry = self.texels(self.geometry, SIZE)
+        assert all(math.isfinite(value) for value in output + diagnostic + geometry), case.name
+        visibility = output[0::4]
+        assert min(visibility) >= -1e-6 and max(visibility) <= 1 + 1e-6, case.name
+        return output, diagnostic, geometry
 
 
 def dot(a, b):
@@ -149,10 +153,15 @@ class Case:
     reverse_y: bool = True
     origin: tuple[float, float, float] = (0., 0., 0.)
     center: float = .5
-    gap: float = .01
+    gap: float | None = None
 
     def __post_init__(self):
         self.height = self.width * self.resolution[1] / self.resolution[0]
+        self.world_texel = self.width / self.resolution[0]
+        # Resolve blockers above the geometric offset/filter footprint at all
+        # tested slopes. Small contacts have their own fine-resolution cases.
+        if self.gap is None:
+            self.gap = 48 * self.world_texel
         z = unit((.32, -.84, .44))
         x0 = unit(cross((0., 1., 0.), z))
         y0 = cross(z, x0)
@@ -179,125 +188,146 @@ class Case:
 
 
 def expected_visibility(case, diagnostics, obstacle):
-    result = []
+    """Closed-form tent reconstruction of an opaque rectangle's coverage.
+
+    At each edge the coverage rises from zero to one over exactly one texel.
+    The product of its horizontal and vertical ramps is the bilinear footprint
+    of a resolved rectangular blocker. No depth/tap loop from the helper is
+    copied here; the independent rasterizer supplies the binary rectangle.
+    """
+    if not obstacle:
+        return [1.] * (len(diagnostics) // 4)
     nx, ny = case.resolution
     left, bottom, right, top = case.obstacle
+    def ramp(value):
+        return max(0., min(1., value))
+    result = []
     for i in range(0, len(diagnostics), 4):
-        u, v, z = diagnostics[i:i + 3]
-        if u < 0 or u > 1 or v < 0 or v > 1 or z < 0 or z > 1:
-            result.append(1.)
-            continue
-        ix, iy = math.floor(u * nx), math.floor(v * ny)
-        blocked = sum(1 for y in range(iy - 1, iy + 2) for x in range(ix - 1, ix + 2)
-                      if obstacle and left <= x < right and bottom <= y < top)
-        result.append(1 - blocked / 9)
+        u, v = diagnostics[i:i + 2]
+        horizontal = ramp(u * nx - left + .5) * ramp(right + .5 - u * nx)
+        vertical = ramp(v * ny - bottom + .5) * ramp(top + .5 - v * ny)
+        result.append(1. - horizontal * vertical)
     return result
+
+
+def check_oracle(case, result, diagnostic, obstacle):
+    expected = expected_visibility(case, diagnostic, obstacle)
+    actual = result[0::4]
+    error = max(abs(a - b) for a, b in zip(actual, expected))
+    assert error < 2e-6, (case.name, obstacle, error, min(actual), max(actual))
+    return error, expected
 
 
 def check():
     cases = [
-        Case("flat", (64, 64), 128, 100, 0, 0),
-        Case("inclined20", (64, 64), 128, 100, 20, 0),
-        Case("inclined45", (64, 64), 128, 100, 45, 37),
-        Case("inclined70", (64, 64), 128, 100, 70, 90),
-        Case("inclined85", (64, 64), 128, 100, 85, 135),
-        Case("azimuth_negative", (128, 64), 256, 500, 55, -47, rotation=63),
-        Case("unflipped_y", (64, 128), 128, 500, 55, 147, rotation=-31, reverse_y=False),
+        Case("flat", (64, 64), 128, 1000, 0, 0),
+        Case("inclined20", (64, 64), 128, 1000, 20, 0),
+        Case("inclined45", (64, 64), 128, 1000, 45, 37),
+        Case("inclined70", (64, 64), 128, 1000, 70, 90),
+        Case("inclined85", (64, 64), 128, 1000, 85, 135),
+        Case("azimuth_negative", (128, 64), 256, 1000, 55, -47, rotation=63),
+        Case("unflipped_y", (64, 128), 128, 1000, 55, 147, rotation=-31, reverse_y=False),
         Case("coarse_cascade", (32, 32), 64, 16100, 65, 23, rotation=27),
         Case("long_caster_margin", (256, 256), 1024, 16100, 45, 37, rotation=81),
         Case("near_depth", (128, 128), 256, 16100, 70, 199, center=.2),
         Case("far_depth", (128, 128), 256, 16100, 70, 251, center=.8),
         Case("distant_world", (256, 128), 2048, 16100, 45, -32,
-             rotation=-63, origin=(12000., 3600., -8000.), gap=.02),
-        Case("engine_resolution", (2048, 2048), 8192, 16100, 78, 47, rotation=36, gap=.02),
-        Case("extreme_depth_span", (128, 128), 512, 100000, 45, 37, gap=.05),
+             rotation=-63, origin=(12000., 3600., -8000.)),
+        Case("engine_resolution", (2048, 2048), 8192, 16100, 78, 47, rotation=36),
+        Case("extreme_depth_span", (128, 128), 512, 100000, 45, 37),
+        # Contacts are checked where they are actually resolvable: 1 mm texels,
+        # rather than asking a 2 m texel/grazing offset to resolve a 10 mm gap.
+        Case("resolved_10mm_flat", (128, 128), .128, 100, 0, 0, gap=.01),
+        Case("resolved_50mm_grazing", (2048, 2048), 2.048, 1000, 85, 135, gap=.05),
     ]
     maximum_error = 0.
-    old_grid, integer_grid = 0., 0.
-    worst_old_mean = 1.
     with ShadowGL() as gl:
-        print(f"OpenGL {gl.version}; {gl.renderer}")
+        print(f"OpenGL {gl.version}; {gl.renderer}", flush=True)
         for case in cases:
             for obstacle in (False, True):
                 texture = gl.rasterize(case, obstacle)
-                result, diagnostic = gl.evaluate(case, texture)
-                expected = expected_visibility(case, diagnostic, obstacle)
-                error = max(abs(a - b) for a, b in zip(result[1::4], expected))
+                result, diagnostic, _ = gl.evaluate(case, texture)
+                error, expected = check_oracle(case, result, diagnostic, obstacle)
                 maximum_error = max(maximum_error, error)
-                assert error < 2e-6, (case.name, obstacle, error,
-                    min(result[1::4]), max(result[1::4]), max(diagnostic[3::4]))
-                if not obstacle:
-                    old, partial = result[0::4], result[2::4]
-                    old_grid = max(old_grid, max(old) - min(old))
-                    integer_grid = max(integer_grid, max(partial) - min(partial))
-                    worst_old_mean = min(worst_old_mean, sum(old) / len(old))
-                else:
-                    assert min(expected) < .6 and max(expected) == 1, case.name
-            print(f"PASS {case.name}: inclined plane fully lit; {case.gap * 1000:g} mm occluder/PCF edge retained")
+                if obstacle:
+                    assert min(expected) < 1e-6 and max(expected) == 1., case.name
+                    assert any(.05 < value < .95 for value in expected), case.name
+            print(f"PASS {case.name}: plane fully lit; {case.gap:g} m blocker with "
+                  f"{case.world_texel:g} m texels; exact bilinear edge", flush=True)
 
-        assert old_grid >= .2 and worst_old_mean < .85, (old_grid, worst_old_mean)
-        assert integer_grid >= .9, integer_grid
-        print(f"PASS negative controls: old grid range={old_grid:.6f}, lowest mean={worst_old_mean:.6f}; "
-              f"integer-offset-only grid range={integer_grid:.6f}")
-
-        # Exercise the caller-provided representation bound independently of
-        # the storage/transform regression in check_position_precision.py.
-        # Its normalized margin must follow the signed plane equation, remain
-        # stable in metres when caster depth changes, and preserve contacts.
+        # A translation/long caster depth span must not change a geometric
+        # offset measured in world texels. The XYZ representation allowance
+        # remains a separate numerical margin; it must not move sampled UVs.
         precision_cases = [
-            (Case("near_precision", (128, 128), 256, 100, 45, 37,
-                  origin=(10., 20., 30.)), 100.),
-            (Case("kilometre_precision", (128, 128), 256, 16100, 45, 37,
-                  origin=(700., 600., 100.)), 1000.),
-            (Case("40km_precision", (256, 256), 1024, 16100, 45, 37,
-                  origin=(12000., 3600., -38000.), gap=.05), 40000.),
-            # Combining a 40 km world position with a 100 km depth span adds
-            # float-projection/depth quantization beyond the engine's 16 km
-            # caster margin. Keep a representable 100 mm occluder here; the
-            # preceding production-range case requires the 50 mm contact.
-            (Case("40km_extended_depth", (256, 256), 1024, 100000, 45, 37,
-                  origin=(12000., 3600., -38000.), gap=.10), 40000.),
+            Case("precision_16km_depth", (256, 256), 1024, 16100, 45, 37,
+                 origin=(12000., 3600., -38000.)),
+            Case("precision_100km_depth", (256, 256), 1024, 100000, 45, 37,
+                 origin=(12000., 3600., -38000.)),
         ]
-        precision_biases = []
-        for case, view_distance in precision_cases:
-            # Identity camera rotation here: the production diagnostic covers
-            # rotated camera matrices and actual quantized GBuffer positions.
-            error_bound = tuple(4 * 2**-23 * max(abs(value), view_distance if i == 2 else 0.)
-                                for i, value in enumerate(case.origin))
+        position_error = (4 * 2**-23 * 12000, 4 * 2**-23 * 3600, 4 * 2**-23 * 40000)
+        metric_biases, offsets = [], []
+        for case in precision_cases:
             texture = gl.rasterize(case, True)
-            result, diagnostic = gl.evaluate(case, texture, position_error=error_bound)
-            expected = expected_visibility(case, diagnostic, True)
-            error = max(abs(a - b) for a, b in zip(result[1::4], expected))
+            result, diagnostic, geometry = gl.evaluate(case, texture, position_error=position_error)
+            error, _ = check_oracle(case, result, diagnostic, True)
             maximum_error = max(maximum_error, error)
-            assert error < 2e-6, case.name
-            rows = [case.projection[row::4][:3] for row in range(3)]
-            q = tuple(.5 * (rows[2][i] - case.plane[0] * rows[0][i] -
-                            case.plane[1] * rows[1][i]) for i in range(3))
-            metric_bias = (.005 / case.depth + dot(tuple(abs(v) for v in q), error_bound)) * case.depth
-            actual = [value * case.depth for value in result[3::4]]
-            assert max(abs(value - metric_bias) for value in actual) < 1e-5, (case.name, metric_bias)
-            precision_biases.append(sum(actual) / len(actual))
-            print(f"PASS {case.name}: representation XYZ bound {tuple(round(v * 1000, 3) for v in error_bound)} mm; "
-                  f"actual bias {precision_biases[-1] * 1000:.3f} mm; {case.gap * 1000:g} mm occluder retained")
-        assert abs(precision_biases[-1] - precision_biases[-2]) < 1e-5
+            actual_bias = [value * case.depth for value in result[1::4]]
+            assert min(actual_bias) > .005, (case.name, min(actual_bias))
+            metric_biases.append(sum(actual_bias) / len(actual_bias))
+            offsets.append(geometry)
+            print(f"PASS {case.name}: explicit XYZ uncertainty, "
+                  f"numerical margin {metric_biases[-1] * 1000:.3f} mm, resolved blocker retained", flush=True)
+        assert abs(metric_biases[0] - metric_biases[1]) < 1e-5, metric_biases
+        assert max(abs(a - b) for a, b in zip(*offsets)) < 2e-4, "Caster Z span changed the world-space offset"
 
-        flat = cases[0]
+        # Tiny but resolved contact: collapse the derivative footprint and
+        # verify a finite light-direction fallback with the actual filter.
+        flat = cases[-2]
         texture = gl.rasterize(flat, True)
         for degenerate in (1, 2):
-            result, diagnostic = gl.evaluate(flat, texture, degenerate=degenerate)
-            expected = expected_visibility(flat, diagnostic, True)
-            assert max(abs(a - b) for a, b in zip(result[1::4], expected)) < 2e-6
-        print("PASS collapsed/collinear derivatives: finite fallback and real occluder preserved")
+            result, diagnostic, _ = gl.evaluate(flat, texture, degenerate=degenerate)
+            error, _ = check_oracle(flat, result, diagnostic, True)
+            maximum_error = max(maximum_error, error)
+        print("PASS collapsed/collinear derivatives: finite fallback and resolved 10 mm contact", flush=True)
+
+        # Zero is an explicit per-light setting, not an alias for defaults.
+        result, diagnostic, geometry = gl.evaluate(flat, texture, bias_texels=(0, 0))
+        assert all(value == 0. for value in geometry), "Explicit zero bias still displaced the receiver"
+        error, _ = check_oracle(flat, result, diagnostic, True)
+        maximum_error = max(maximum_error, error)
+        print("PASS explicit zero geometric bias retains the independent numerical margin", flush=True)
 
         for options in ({"layer": -1}, {"layer": 2}, {"w": 0}, {"w": -1},
                         {"domain": (-.2, .1, .1, .1)}, {"domain": (1.1, .1, .1, .1)}):
-            result, _ = gl.evaluate(flat, texture, **options)
-            assert all(value == 1 for value in result[1::4]), options
-        result, _ = gl.evaluate(flat, texture, layer=0)
-        assert all(value == 1 for value in result[1::4])
-        print("PASS invalid layer/projection/outside-map guards and independent array layers")
-        print(f"PASS exact receiver-plane 3x3 visibility: {len(cases) * 2 + len(precision_cases)} "
-              f"plane/occluder/precision cases, 2 degenerate and 7 guard draws; maximum error={maximum_error:.3g}")
+            result, _, _ = gl.evaluate(flat, texture, **options)
+            assert all(value == 1 for value in result[0::4]), options
+        result, _, _ = gl.evaluate(flat, texture, layer=0)
+        # Four floating-point weights can sum one ULP below one.
+        assert max(abs(value - 1.) for value in result[0::4]) < 2e-6
+        for center in (-.1, 1.1):
+            outside = Case("outside_depth", (128, 128), .128, 100, 0, 0, center=center, gap=.01)
+            result, _, _ = gl.evaluate(outside, texture)
+            assert all(value == 1 for value in result[0::4]), center
+        print("PASS invalid layer/W/outside-XY/outside-depth guards and independent array layers", flush=True)
+
+        # Cover the entire valid map with a resolved blocker. Border texels
+        # outside the map are lit, so the analytical tent loses coverage there;
+        # clamping the sampler or accidentally repeating an edge would fail.
+        edge = Case("map_edges", (64, 64), 128, 1000, 0, 0)
+        nx, ny = edge.resolution
+        edge.obstacle = (0, 0, nx, ny)
+        texture = gl.rasterize(edge, True)
+        domains = ((0., .25, .25 / nx, .5), (1. - .25 / nx, .25, .25 / nx, .5),
+                   (.25, 0., .5, .25 / ny), (.25, 1. - .25 / ny, .5, .25 / ny),
+                   (0., 0., .25 / nx, .25 / ny))
+        for domain in domains:
+            result, diagnostic, _ = gl.evaluate(edge, texture, domain=domain)
+            error, expected = check_oracle(edge, result, diagnostic, True)
+            maximum_error = max(maximum_error, error)
+            assert min(expected) > 0 and max(expected) < 1, domain
+        print("PASS four map borders and corner: outside taps contribute light with correct tent weights", flush=True)
+        print(f"PASS bilinear directional shadows: {len(cases)} planes/resolved blockers, "
+              f"XYZ/depth-span invariance, degenerate/zero-bias/guard/border checks; maximum oracle error={maximum_error:.3g}", flush=True)
 
 
 if __name__ == "__main__":

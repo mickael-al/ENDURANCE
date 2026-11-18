@@ -52,6 +52,8 @@ struct StructUBL
 	int shadowID;
 	int minPlaneID;//default -1
 	int maxPlaneID;//default -1
+	float shadowDepthBias; // texels; occupies existing std430 padding
+	float shadowNormalBias; // texels; light stride remains 80 bytes
 };
 
 layout(std430, binding = 4) buffer UniformBufferLight
@@ -326,7 +328,8 @@ void main()
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(WorldPos, 1.0);
 					shadow = geDirectionalSurfaceShadow(shadowDepth, shadowCoord,
 						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
-						shadowWorldDx, shadowWorldDy, shadowPositionError);
+						shadowWorldDx, shadowWorldDy, shadowPositionError,
+						vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
 				}
 				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, WorldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ab);
 			}

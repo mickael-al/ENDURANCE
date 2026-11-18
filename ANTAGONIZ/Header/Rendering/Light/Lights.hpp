@@ -40,6 +40,9 @@ namespace Ge
 		// Includes off-screen mountains lying towards the light from the receivers.
 		void setShadowCasterMargin(float metres);
 		float getShadowCasterMargin() const { return m_shadowCasterMargin; }
+		// Biases are measured in the world footprint of a cascade texel.
+		void setDirectionalShadowBias(float depthTexels, float normalTexels);
+		glm::vec2 getDirectionalShadowBias() const { return {m_ubl.shadowDepthBias, m_ubl.shadowNormalBias}; }
 		int addHiddenPlane(
 			const glm::vec3& position,
 			const glm::vec3& axisX,

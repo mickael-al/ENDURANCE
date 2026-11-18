@@ -193,6 +193,8 @@ void Editor::duplicateSceneObject(GObject* obj, GObject* parent)
 	if (DirectionalLight* dl = dynamic_cast<DirectionalLight*>(obj))
 	{
 		DirectionalLight* e = m_pc->lightManager->createDirectionalLight(dl->getEulerAngles(), dl->getColors(), *dl->getName());
+		const glm::vec2 shadowBias = dl->getDirectionalShadowBias();
+		e->setDirectionalShadowBias(shadowBias.x, shadowBias.y);
 		e->setName(*dl->getName());
 		e->setRange(dl->getRange());
 		e->setshadow(dl->getshadow());
@@ -1460,6 +1462,7 @@ std::vector<Lights*> Editor::ssLight(SceneData* sd, std::map<GObject*, std::vect
 			dl->setScale(sd->lightData[i].scale);
 			dl->setRange(sd->lightData[i].range);
 			dl->setSpotAngle(sd->lightData[i].spotAngle);
+			dl->setDirectionalShadowBias(sd->lightData[i].shadowDepthBias, sd->lightData[i].shadowNormalBias);
 			dl->setshadow(sd->lightData[i].shadow);
 			sd->dlight.push_back(dl);
 			so[(GObject*)dl] = sd->lightData[i].scripts;
@@ -2522,6 +2525,9 @@ void Editor::saveScene(const std::string& filePath, SceneData* sd)
 		ld.color = sd->dlight[i]->getColors();
 		ld.range = sd->dlight[i]->getRange();
 		ld.spotAngle = sd->dlight[i]->getSpotAngle();
+		const glm::vec2 shadowBias = sd->dlight[i]->getDirectionalShadowBias();
+		ld.shadowDepthBias = shadowBias.x;
+		ld.shadowNormalBias = shadowBias.y;
 		ld.shadow = sd->dlight[i]->getshadow();
 		ld.status = 0;
 		ld.scripts = scriptObject[(GObject*)sd->dlight[i]];

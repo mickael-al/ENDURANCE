@@ -6,15 +6,14 @@ diagnostic fragment pass reconstructs world position and shadow depth exactly
 as deferred lighting does. The independent analytic shadow plane removes PCF
 sampling error. Its signed receiver-depth error can cause false occlusion or
 detached shadows; it is not a request for a distance-scaled bias. The production
-helper supplies the residual bias. Readbacks are test instrumentation.
+helper supplies the numerical error allowance and the texel-scaled geometric bias. Readbacks are test instrumentation.
 
 The 40 km case deliberately keeps a compact 256 m shadow radius: it stresses
 absolute-coordinate precision rather than reproducing a far perspective
-cascade's footprint. A 50 mm separation there is comparable to the accumulated
-numerical uncertainty, so this one case requires >=99% mean occlusion (99.94%
-on the measured llvmpipe run with the component-wise error bound). It does not
-establish millimetre precision at arbitrary coordinates. The 100 mm obstacle
-must remain fully occluded everywhere, while the unoccluded plane stays fully lit.
+cascade's footprint. Numeric position error is measured separately from the
+production geometric bias. The 2 m and 4 m blockers span eight/sixteen shadow
+texels along the light; both must remain fully occluded while the receiver
+stays lit. Subtexel contact accuracy is not claimed by this test.
 """
 from __future__ import annotations
 
@@ -32,7 +31,7 @@ SLOPE_X, SLOPE_Y = 0.371, 0.193
 SHADOW_RADIUS, CASTER_MARGIN = 256.0, 16000.0
 SHADOW_SPAN = 2 * SHADOW_RADIUS + CASTER_MARGIN
 SHADOW_SIZE = 2048
-OBSTACLE_GAPS = (0., .05, .1)  # Metres measured along the light direction.
+OBSTACLE_GAPS = (0., 2., 4.)  # Metres measured along the light direction.
 
 
 def dot(a, b):
@@ -136,10 +135,8 @@ void main() {
     vec3 shadow=shadowCoordinate.xyz/shadowCoordinate.w;
     float exactPlaneDepth=planeAnchor.z+dot(planeGradient,shadow.xy-planeAnchor.xy);
     float errorMetres=(shadow.z-exactPlaneDepth)*shadowSpan;
-    vec2 gradient=geDirectionalReceiverDepthGradient(shadowProjectionView,shadowCoordinate.w,
-        shadowWorldDx,shadowWorldDy);
-    float biasMetres=geDirectionalSurfaceResidualBias(shadowProjectionView,shadow.z,
-        gradient,shadowPositionError)*shadowSpan;
+    float biasMetres=geDirectionalSurfaceNumericalBias(shadowProjectionView,shadow.z,
+        shadowPositionError)*shadowSpan;
     worldAndShadow=vec4(worldPos,shadow.z);
     derivativeXAndError=vec4(shadowWorldDx,errorMetres);
     derivativeYAndBias=vec4(shadowWorldDy,biasMetres);
@@ -208,7 +205,7 @@ def rasterize_shadow(gl, program, anchor, gradient):
         gl.glDrawArrays(0x0004,0,3)
     gl.glBindFramebuffer(0x8D40,0)
     gl.glMemoryBarrier(gl.ALL_BARRIER_BITS)
-    gl.check('rasterized plane and 50/100 mm obstacles in engine-format shadow map')
+    gl.check('rasterized plane and 2/4 m obstacles in engine-format shadow map')
     return texture
 
 
@@ -283,7 +280,7 @@ def measure(gl, opaque, probe, shadow_program, distance, internal, material_text
     maximum_obstacle_lit = 0.
     total_obstacle_lit = 0.
     false_shadow_pcf = 0
-    maximum_100mm_lit = 0.
+    maximum_4m_lit = 0.
     for y in range(2,HEIGHT-2):
         for x in range(2,WIDTH-2):
             i = (x+y*WIDTH)*4
@@ -309,13 +306,13 @@ def measure(gl, opaque, probe, shadow_program, distance, internal, material_text
             minimum_lit=min(minimum_lit,visibility[i])
             maximum_obstacle_lit=max(maximum_obstacle_lit,visibility[i+1])
             total_obstacle_lit+=visibility[i+1]
-            maximum_100mm_lit=max(maximum_100mm_lit,visibility[i+2])
+            maximum_4m_lit=max(maximum_4m_lit,visibility[i+2])
             false_shadow_pcf+=visibility[i]<1.-1e-6
             count += 1
     return (maximum_position, maximum_shadow, maximum_angle, minimum_bias, maximum_bias,
             100*outside_bias/count, 100*shadowed/count, minimum_signed_error, maximum_signed_error,
             minimum_lit,maximum_obstacle_lit,1.-total_obstacle_lit/count,100*false_shadow_pcf/count,
-            maximum_100mm_lit)
+            maximum_4m_lit)
 
 
 def check_production_allocations():
@@ -342,10 +339,10 @@ def main():
         position_error=position_error.replace('ubc.invView','inverseView')
         probe_source=probe_source.replace('//__PRODUCTION_POSITION_ERROR__',position_error)
         probe=gl.compile([(0x8B31,FULLSCREEN_VERTEX),(0x8B30,probe_source)], 'position/shadow precision diagnostic')
-        shadow_program=gl.compile([(0x8B31,FULLSCREEN_VERTEX),(0x8B30,SHADOW_FRAGMENT)], 'independent receiver/50/100 mm obstacle depth')
+        shadow_program=gl.compile([(0x8B31,FULLSCREEN_VERTEX),(0x8B30,SHADOW_FRAGMENT)], 'independent receiver/2/4 m obstacle depth')
         material=[gl.texture((1,1),internal=RGBA32F,value=v,linear=False) for v in
                   ((1,1,1,1),(.5,.5,1,1),(0,0,0,0),(1,1,1,1),(1,0,0,0))]
-        print('distance_m format max_world_error_m max_shadow_error_m max_derivative_angle_deg min_actual_bias_m max_actual_bias_m outside_bias_percent false_shadow_percent min_signed_error_m max_signed_error_m minimum_lit_visibility maximum_50mm_visibility mean_50mm_occlusion false_pcf_shadow_percent maximum_100mm_visibility',flush=True)
+        print('distance_m format max_world_error_m max_shadow_error_m max_derivative_angle_deg min_numerical_bias_m max_numerical_bias_m outside_bias_percent false_shadow_percent min_signed_error_m max_signed_error_m minimum_lit_visibility maximum_2m_visibility mean_2m_occlusion false_pcf_shadow_percent maximum_4m_visibility',flush=True)
         for distance in (100.,1000.,10000.,40000.):
             values={internal:measure(gl,opaque,probe,shadow_program,distance,internal,material) for internal in (RGBA16F,RGBA32F)}
             for internal,label in ((RGBA16F,'RGBA16F'),(RGBA32F,'RGBA32F')):
@@ -353,11 +350,8 @@ def main():
             half,full=values[RGBA16F],values[RGBA32F]
             assert full[0]<.025 and full[1]<.025, ('32F plane precision',distance,full)
             assert full[6]==0. and full[9]>=1.-1e-6, ('32F must not falsely self-shadow',distance,full)
-            if distance<40000:
-                assert full[10]<=1e-6, ('50 mm obstacle must remain fully shadowed through 10 km',distance,full)
-            else:
-                assert full[11]>=.99, ('50 mm obstacle at 40 km must retain >=99% mean occlusion',distance,full)
-            assert full[13]<=1e-6, ('100 mm obstacle must remain fully shadowed at every distance',distance,full)
+            assert full[10]<=1e-6, ('2 m blocker must remain fully shadowed with the production bias',distance,full)
+            assert full[13]<=1e-6, ('4 m blocker must remain fully shadowed at every distance',distance,full)
             assert half[0]>full[0]*10 and half[1]>full[1]*8, ('fixture must isolate storage loss',distance,half,full)
             assert full[2]<1.0 and half[2]>full[2]*5, ('receiver derivatives',distance,half,full)
             if distance>=1000:
@@ -365,7 +359,7 @@ def main():
         for width,height in ((1920,1080),(2560,1440),(3840,2160)):
             old=width*height*8; new=width*height*16
             print(f'gPosition {width}x{height}: {old} -> {new} bytes; additional {new-old} bytes ({(new-old)/1048576:.5f} MiB)',flush=True)
-        print('PASS actual opaque writer + PCF: no false 32F self-shadow through 40 km; 50 mm blocker fully shadowed through 10 km and >=99% at compact 40 km stress; 100 mm blocker fully shadowed everywhere',flush=True)
+        print('PASS actual opaque writer + PCF: no false 32F self-shadow through 40 km; 2 m and 4 m blockers fully shadowed with production texel bias at every distance',flush=True)
         gl.check('position precision regression')
 
 

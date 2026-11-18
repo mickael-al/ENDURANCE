@@ -146,11 +146,10 @@ def unit(vector):
     return tuple(value / length for value in vector)
 
 
-def camera(pitch_degrees, yaw_degrees, aspect):
+def camera(pitch_degrees, yaw_degrees, aspect, position=(120., 800., -450.)):
     pitch, yaw = map(math.radians, (pitch_degrees, yaw_degrees))
     cp, sp, cy, sy = math.cos(pitch), math.sin(pitch), math.cos(yaw), math.sin(yaw)
     rotation = ((cy, sy * sp, sy * cp), (0., cp, -sp), (-sy, cy * sp, cy * cp))
-    position = (120., 800., -450.)
     inverse = [rotation[row][column] if row < 3 else 0.
                for column in range(3) for row in range(4)] + [*position, 1.]
     transpose = tuple(zip(*rotation))
@@ -191,11 +190,11 @@ def maximum_error(first, second):
 
 
 class DeferredFixture:
-    def __init__(self, gl, size, pitch, yaw, mode):
+    def __init__(self, gl, size, pitch, yaw, mode, camera_position=(120., 800., -450.)):
         self.gl, self.size, self.mode = gl, size, mode
         width, height = size
         aspect = width / height
-        position, rotation, view, inverse, projection = camera(pitch, yaw, aspect)
+        position, rotation, view, inverse, projection = camera(pitch, yaw, aspect, camera_position)
         parameters = Parameters()
         parameters.set("Camera", *position, 0)
         parameters.set("Control", 0, 1, 0, 0)
@@ -363,9 +362,12 @@ void main() { observed=vec4(v_UV,0,1); }
 def check_directional_caller(gl, production, vertex, fragment):
     """Exercise the real directional-light branch with a rotated world plane."""
     size, pitch, yaw = (53, 37), -68, 35
-    fixture = DeferredFixture(gl, size, pitch, yaw, "opaque")
+    # Keep the geometric blocker resolved by this deliberately small map.
+    # The atmospheric UV cases above retain their 800 m camera altitude.
+    camera_position = (120., 8., -450.)
+    fixture = DeferredFixture(gl, size, pitch, yaw, "opaque", camera_position)
     width, height = size
-    position, rotation, _, _, _ = camera(pitch, yaw, width / height)
+    position, rotation, _, _, _ = camera(pitch, yaw, width / height, camera_position)
     view_positions, world_positions = [], []
     for y in range(height):
         for x in range(width):
@@ -390,6 +392,7 @@ def check_directional_caller(gl, production, vertex, fragment):
     struct.pack_into("<3f", light_data, 16, 30., 28., 25.)
     struct.pack_into("<3f", light_data, 32, *(-value for value in light))
     struct.pack_into("<2f4i", light_data, 44, 10., 30., 0, 0, -1, -1)
+    struct.pack_into("<2f", light_data, 68, .5, 1.5)  # Directional depth/normal bias in texels.
     gl.buffer(bytes(light_data), 1)
 
     def dot(a, b):
@@ -418,7 +421,7 @@ def check_directional_caller(gl, production, vertex, fragment):
     shadow = struct.pack("<20f", *projection_view, 0., 0., 0., -1_000_000.)
     gl.buffer(shadow * 4, 3)  # Actual cascade array; this scene selects cascade 0.
 
-    depth_size = (64, 64, 4)
+    depth_size = (256, 256, 4)  # <=0.15 m texels; the 2 m blocker is resolved.
     plane, obstacle = [], []
     for y in range(depth_size[1]):
         for x in range(depth_size[0]):
@@ -459,17 +462,29 @@ def check_directional_caller(gl, production, vertex, fragment):
         "The actual directional branch failed to produce a local caster shadow", max(drops), dark_pixels, clear_pixels,
     )
 
-    # A camera rotation makes view-space derivatives materially different
-    # from world-space derivatives. This negative control must create acne.
+    # Inspect the actual caller's geometric derivatives before light branches.
+    # A conservative bias can hide a wrong normal on a plane, so use a direct
+    # normal oracle instead of requiring wrong-space derivatives to make acne.
+    marker = re.search(r"vec3\s+shadowWorldDy\s*=[^;]+;", fragment).group()
+    diagnostic = fragment.replace(marker, marker +
+        "\n o_FragColor = abs(normalize(cross(shadowWorldDx, shadowWorldDy))); return;")
+    normal_probe = gl.compile([(0x8B31, vertex), (0x8B30, diagnostic)],
+                              "actual directional caller: geometric normal")
+    normals = render(plane_depth, normal_probe)
+    expected_normals = [(0., 1., 0.)] * len(normals)
+    normal_error = maximum_error(normals, expected_normals)
+    assert normal_error < 3e-5, ("Actual deferred derivatives must give the world ground normal", normal_error)
     wrong, dx_count = re.subn(r"vec3\s+shadowWorldDx\s*=[^;]+;",
-                             "vec3 shadowWorldDx = dFdx(viewPos.xyz);", fragment)
+                             "vec3 shadowWorldDx = dFdx(viewPos.xyz);", diagnostic)
     wrong, dy_count = re.subn(r"vec3\s+shadowWorldDy\s*=[^;]+;",
                              "vec3 shadowWorldDy = dFdy(viewPos.xyz);", wrong)
     assert dx_count == dy_count == 1
-    incorrect = gl.compile([(0x8B31, vertex), (0x8B30, wrong)], "negative control: directional derivatives in view space")
-    wrong_error = maximum_error(unoccluded, render(plane_depth, incorrect))
-    assert wrong_error > .05, ("Rotated-camera test did not detect derivatives supplied in the wrong space", wrong_error)
-    print(f"PASS real directional-light caller: rotated -68/35 degree camera, planar GBuffer32F and four-layer depth map; receiver matches empty map (error {plane_error:.8f}), 2 m caster darkens {dark_pixels} pixels while {clear_pixels} remain clear (max {max(drops):.4f} HDR); wrong-space derivatives fail by {wrong_error:.4f}", flush=True)
+    incorrect = gl.compile([(0x8B31, vertex), (0x8B30, wrong)],
+                           "negative control: directional derivatives in view space")
+    wrong_error = maximum_error(expected_normals, render(plane_depth, incorrect))
+    assert wrong_error > .5, ("Rotated-camera test did not detect a normal in the wrong space", wrong_error)
+    print(f"PASS real directional-light caller: rotated -68/35 degree camera, planar GBuffer32F and four-layer depth map; receiver matches empty map (error {plane_error:.8f}), resolved 2 m caster darkens {dark_pixels} pixels while {clear_pixels} remain clear (max {max(drops):.4f} HDR); normal error {normal_error:.7f}, wrong-space normal error {wrong_error:.4f}", flush=True)
+
 
 
 def main():

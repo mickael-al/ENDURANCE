@@ -19,6 +19,8 @@ struct StructUBL
 	int shadowID;
 	int minPlaneID;//default -1
 	int maxPlaneID;//default -1
+	float shadowDepthBias; // texels; occupies existing std430 padding
+	float shadowNormalBias; // texels; light stride remains 80 bytes
 };
 
 layout(std430, binding = 1) buffer UniformBufferLight

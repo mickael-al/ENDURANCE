@@ -8,7 +8,8 @@ DIRECTORY=Path(__file__).resolve().parent
 TESTS=("check_cpu.py","check_shaders.py","check_common.py","check_luts.py",
        "check_ibl.py","check_volumes.py","check_sampling.py","check_sky.py",
        "check_game_climate.py","check_game_component.py","check_revision.py","check_runtime.py",
-       "check_screen_composition.py","check_surface_shadows.py","check_position_precision.py")
+       "check_screen_composition.py","check_surface_shadows.py","check_position_precision.py",
+       "check_terrain_shadow.py","check_light_persistence.py","check_gbuffer_geometry.py")
 
 
 def main():

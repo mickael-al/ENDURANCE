@@ -1,5 +1,6 @@
 #version 450
 #include "Atmosphere/lighting.glsl"
+#include "Geometry/gbuffer_geometry.glsl"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
@@ -25,6 +26,8 @@ struct StructUBL
 	int shadowID;
 	int minPlaneID;//default -1
 	int maxPlaneID;//default -1
+	float shadowDepthBias; // texels; occupies existing std430 padding
+	float shadowNormalBias; // texels; light stride remains 80 bytes
 };
 
 layout(std430, binding = 1) buffer UniformBufferLight
@@ -252,6 +255,11 @@ void main()
 	vec3 worldPos = (ubc.invView * vec4(viewPos.xyz, 1)).xyz;
 	vec3 shadowWorldDx = mat3(ubc.invView) * dFdx(viewPos.xyz);
 	vec3 shadowWorldDy = mat3(ubc.invView) * dFdy(viewPos.xyz);
+	vec3 shadowGeometricNormal, viewGeometricNormal;
+	if (geGBufferGeometricNormal(viewPos.a, viewGeometricNormal))
+		shadowGeometricNormal = mat3(ubc.invView) * viewGeometricNormal;
+	else
+		shadowGeometricNormal = geDirectionalSurfaceNormal(shadowWorldDx, shadowWorldDy);
 	// Bound float storage/reconstruction error at the receiver distance.
 	vec3 shadowPositionError = 4.0 * 1.1920928955078125e-7 * max(
 		abs(ubc.invView[0].xyz) * abs(viewPos.x) + abs(ubc.invView[1].xyz) * abs(viewPos.y)
@@ -323,9 +331,10 @@ void main()
 						}
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(worldPos, 1.0);
-					shadow = geDirectionalSurfaceShadow(shadowDepth, shadowCoord,
+					shadow = geDirectionalSurfaceShadowFromNormal(shadowDepth, shadowCoord,
 						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
-						shadowWorldDx, shadowWorldDy, shadowPositionError);
+						shadowGeometricNormal, shadowPositionError,
+						vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
 				}
 				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, worldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}
