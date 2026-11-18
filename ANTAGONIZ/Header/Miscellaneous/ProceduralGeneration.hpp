@@ -97,6 +97,8 @@ public:
     void prepareRenderer() override;
     void drawRenderer() override;
     void drawShadowRenderer(unsigned int shadowIndex) override;
+    std::uint64_t shadowCasterBoundsRevision() const override;
+    void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const override;
     bool isInitialized() const noexcept;
     const Stats& getStats() const noexcept;
     const std::string& getLastError() const noexcept;

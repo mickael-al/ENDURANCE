@@ -131,6 +131,8 @@ struct ProceduralGeneration::Impl
     std::optional<PreparedPlan> preparedPlan;
     bool plannerLookahead = false, discardPlannerResult = false;
     std::vector<LodChunk> visibleSelection;
+    std::vector<Ge::ShadowCasterBounds> shadowCasterBounds;
+    std::uint64_t shadowBoundsRevision = Ge::nextShadowCasterBoundsRevision();
     CameraVisibilityCache cameraVisibility;
     struct ShadowVisibility
     {
@@ -444,14 +446,22 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         s.visibleKeys.clear();
         s.visible.clear();
         s.visible.reserve(s.visibleSelection.size());
+        s.shadowCasterBounds.clear();
+        s.shadowCasterBounds.reserve(s.visibleSelection.size());
         for (const auto& chunk : s.visibleSelection)
         {
             const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
             s.visibleKeys.insert(key);
             const auto& mesh = s.ready.at(key);
-            if (mesh.vertexCount) s.visible.push_back(mesh);
+            if (mesh.vertexCount)
+            {
+                s.visible.push_back(mesh);
+                const glm::dvec3 minimum(mesh.origin[0], mesh.origin[1], mesh.origin[2]);
+                s.shadowCasterBounds.push_back({minimum, minimum + static_cast<double>(mesh.extent)});
+            }
         }
         ++s.visibleRevision;
+        s.shadowBoundsRevision = Ge::nextShadowCasterBoundsRevision();
         ++m_stats.publishedLodGroups;
         publishedThisUpdate = true;
         s.transaction = {};
@@ -695,6 +705,12 @@ void ProceduralGeneration::drawShadowRenderer(unsigned int shadowIndex)
 }
 
 bool ProceduralGeneration::isInitialized() const noexcept { return m_impl != nullptr; }
+std::uint64_t ProceduralGeneration::shadowCasterBoundsRevision() const
+{ return m_impl ? m_impl->shadowBoundsRevision : 0; }
+void ProceduralGeneration::appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const
+{
+    if (m_impl) output.insert(output.end(), m_impl->shadowCasterBounds.begin(), m_impl->shadowCasterBounds.end());
+}
 const ProceduralGeneration::Stats& ProceduralGeneration::getStats() const noexcept { return m_stats; }
 const std::string& ProceduralGeneration::getLastError() const noexcept { return m_lastError; }
 const ProceduralGeneration::Config& ProceduralGeneration::getConfig() const noexcept { return m_config; }

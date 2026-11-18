@@ -286,33 +286,67 @@ REPEAT, mais ne doit pas alimenter les volumes atmospheriques en CLAMP.
 Les transparents utilisent la meme convention ecran, a leur propre profondeur.
 
 Le filtre directionnel commun se trouve dans
-`Asset/Shader/Shadow/directional_surface.glsl`. Les neuf comparaisons PCF
-calculent la profondeur du plan recepteur au centre du texel effectivement
-lu, y compris le decalage fractionnaire entre le fragment et ce centre.
-Les profondeurs sont lues avec `texelFetch`, puis les visibilites sont
-moyennees. Le plan provient des derivees geometriques, calculees avant les
-branches de materiaux/lumieres/cascades ; la normale de shading continue de
-servir a l’eclairage. En deferred, les derivees sont prises en espace vue
-puis tournees en espace monde avant la selection de cascade.
+`Asset/Shader/Shadow/directional_surface.glsl`. Il effectue **quatre lectures**
+de profondeur et interpole les quatre comparaisons de visibilite (PCF
+bilineaire). Il ne prolonge plus le plan d’un triangle sur les texels de ses
+voisins : cette extrapolation produisait du quadrillage sur les facettes du
+terrain, meme avec une marge de casters nulle.
 
-Le biais residuel comprend 5 mm, une estimation de l’incertitude float par
-composante XYZ et un plancher d’arrondi de profondeur. La borne XYZ est
-projetee sur le meme plan recepteur ; sa direction compte, ainsi que son
-effet sur les UV et sur Z. Elle conserve une petite marge proche et couvre
-les residus de transformation a grande distance. Une projection ou un plan
-degenere conserve un resultat fini.
+La normale servant au biais est geometrique, independante de la normale de
+shading et du microdetail. Les vrais fragment shaders opaque et terrain la
+calculent avec les derivees de leur primitive, avant les branches ou le
+discard. Ils la conservent dans le canal **deja existant** `gPosition.w`, avec
+le contrat partage de `Geometry/gbuffer_geometry.glsl` :
+
+| Valeur de `gPosition.w` | Signification |
+| --- | --- |
+| Strictement positive | Emission, valeur conservee. |
+| `-2` | Ciel. |
+| `0` ou ancien indicateur non encode | Surface historique ; repli sur les derivees deferred. |
+| Entier de `-1048579` a `-4` | Normale geometrique en espace vue, encodage octaedrique de 10 bits par axe. |
+
+Les tags sont exactement representables dans le RGBA32F et sont lus en
+NEAREST. Le deferred decode la normale puis la tourne en espace monde. Les
+transparents et l’eau utilisent les derivees de leur propre primitive. Il
+n’y a ni nouvel attachment, ni texture supplementaire, ni passe de calcul.
+Les shaders personnalises peuvent appeler `geGBufferGeometryTag` pour
+beneficier du meme contrat ; les anciens producteurs restent compatibles.
+
+Chaque lumiere directionnelle expose deux controles ImGui, en texels de la
+cascade, independants de la portee Z :
+
+| Controle | Defaut | Fonction |
+| --- | --- | --- |
+| `Shadow depth bias (texels)` | `0.5` | Decalage vers la lumiere. |
+| `Shadow normal bias (texels)` | `1.5` | Decalage selon la normale geometrique, ajuste a l’inclinaison. |
+
+Le facteur d’inclinaison utilise `max(sin(angle), sqrt(0.5))` : ce plancher
+conservateur tient compte du filtre qui peut chevaucher des facettes de pentes
+differentes, meme si la facette courante fait face au soleil.
+
+Ils sont bornes dans `[0,8]`, sauvegardes dans `LightData`, charges et copies
+avec la lumiere. Les anciennes scenes obtiennent les valeurs par defaut.
+Les champs utilisent le padding du bloc de lumiere : son stride reste de
+80 octets. Un biais plus fort peut detacher une ombre ou supprimer un detail
+plus petit que l’empreinte d’un texel ; ces controles ne remplacent pas une
+resolution de cascade suffisante.
+
+Le biais numerique ajoute 5 mm, une borne de l’incertitude de position XYZ
+projetee selon la lumiere et un plancher d’arrondi de profondeur. Il reste
+separe du decalage geometrique en texels. Les indices, projections et points
+hors carte sont controles ; les echantillons hors carte restent eclaires.
 
 Les positions vue de `gPosition` sont en **RGBA32F** a la creation et au
-redimensionnement. Cela preserve la geometrie servant aux profondeurs et
-aux derivees sur plusieurs kilometres. Le cout passe de 8 a 16 octets par
-pixel pour cet attachment : **+15,82 Mio a 1920 x 1080**, **+28,125 Mio a
-2560 x 1440**, **+63,28 Mio a 3840 x 2160**. Ce stockage appartient au
-G-buffer du moteur, hors compteur des seules textures atmospheriques.
-Les couleurs HDR restent dans leur format existant.
+redimensionnement, depuis la correction precedente. Le passage precedent
+de 16F a 32F ajoutait 8 octets par pixel pour cet attachment : **+15,82 Mio a
+1920 x 1080**, **+28,125 Mio a 2560 x 1440**, **+63,28 Mio a 3840 x 2160**.
+L’encodage geometrique de cette passe n’ajoute aucun octet a ce stockage.
+Les couleurs HDR conservent leur format.
 
-References du contrat : [coordonnees de fragment OpenGL](https://wikis.khronos.org/opengl/Fragment_Shader/Defined_Inputs)
-et [compensation du plan recepteur et derivees de cascades](https://learn.microsoft.com/windows/win32/dxtecharts/cascaded-shadow-maps).
-La validation du vrai triangle, du vrai shader opaque et des ombres se trouve
+References : [coordonnees de fragment OpenGL](https://wikis.khronos.org/opengl/Fragment_Shader/Defined_Inputs),
+[limites de la compensation par plan recepteur](https://learn.microsoft.com/windows/win32/dxtecharts/cascaded-shadow-maps)
+et [biais des ombres dans Unity HDRP](https://docs.unity.cn/Packages/com.unity.render-pipelines.high-definition@17.0/manual/Shadows-in-HDRP.html).
+La validation du vrai terrain, des facettes et des petits occultants se trouve
 dans `ATMOSPHERE_VALIDATION.md`.
 
 ## Brouillard dans les biomes voisins
@@ -357,13 +391,34 @@ d’ombres du moteur et de l’attenuation nuageuse. Les nuages ne sont pas une
 condition pour obtenir des rayons : une montagne peut masquer le soleil dans
 une atmosphere claire ou dans le brouillard local.
 
-La portee des cascades et la marge accordee aux obstacles sont exposees. En
-dehors de la couverture reelle d’une shadow map, le shader ne repete pas son
-pixel de bord ; il traite explicitement le point comme eclaire. Une montagne
-hors ecran peut produire une ombre si sa geometrie residente est rendue dans
-les cascades. Augmenter la marge d’ombres ne cree pas les chunks qui n’ont pas
-ete generes : la distance de streaming du terrain reste a dimensionner avec
-celle du rendu et des ombres.
+La marge de casters explicite est un **plancher de 4 000 m par defaut**, et
+non un plafond ou une augmentation du format de profondeur. Chaque cascade
+peut etendre son volume vers la lumiere a partir des AABB des maillages
+publies qui recouvrent sa projection XY. Les splits, la resolution des
+textures et leur format ne changent pas. La construction en double de la
+base et de la matrice evite qu’une extension purement Z fasse varier XY par
+soustraction de grandes positions.
+
+`CustomRenderer` fournit deux hooks optionnels, revision et ajout des bounds.
+Le terrain expose tous ses chunks publies non vides, y compris hors champ,
+et non seulement ceux du frustum camera. `LightManager` conserve ces bounds
+en cache et finalise les matrices apres tous les `prepareRenderer`. Une
+publication stationnaire invalide donc aussi le culling de la passe d’ombres
+courante. Le calcul reste CPU, sans lecture GPU ; il parcourt les bounds par
+cascade lors d’une actualisation de matrice. Il ne ralloue pas les textures.
+
+Les renderers sans bounds restent couverts par le plancher explicite ; un
+caster de ce type situe au-dela demande une marge adaptee. Une ancienne
+scene sauvegardee a 16 km conserve ce reglage. La scene `Terrain.scene`,
+dont la distance de terrain est 40 096 m, ne sauvegardait pas de marge et
+herite du defaut de 4 km. Des chunks charges peuvent encore necessiter une
+extension superieure a 4 km, voire a 16 km, selon la cascade et le soleil.
+
+En dehors de la couverture reelle d’une shadow map, le shader traite le point
+comme eclaire ; il ne repete pas son pixel de bord. Une montagne hors ecran
+peut projeter une ombre si sa geometrie residente est dessinee dans les
+cascades. Augmenter la marge ne cree pas les chunks absents : la distance de
+streaming reste a dimensionner avec celle du rendu et des ombres.
 
 Les nuages utilisent une texture 3D procedurale combinant Perlin et Worley,
 avec erosion des details, profils verticaux et deplacement du domaine par le

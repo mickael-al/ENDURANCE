@@ -9,6 +9,7 @@
 #include <algorithm>
 #include "ShadowMatrix.hpp"
 #include "UniformBufferPlaneHidden.hpp"
+#include "CustomRenderer.hpp"
 
 bool LightManager::initialize(GraphicsDataMisc * gdm)
 {
@@ -58,6 +59,7 @@ const std::vector<unsigned int>& LightManager::getFrameShadowBuffer() const
 
 void LightManager::release()
 {
+	m_shadowCasterBounds.clear();
 	while (!m_lights.empty())
 	{
 		Lights* light = m_lights.back();
@@ -74,6 +76,13 @@ void LightManager::release()
 	glDeleteFramebuffers(m_frameBufferDepthShadow.size(), m_frameBufferDepthShadow.data());
 	glDeleteTextures(1, &m_textureShadowArray);
 	Debug::RELEASESUCCESS("LightManager");
+}
+
+void LightManager::prepareShadowCasterBounds(const std::vector<CustomRenderer*>& renderers)
+{
+	// A newly published mountain may enter while the camera and sun are still.
+	// Cached providers are not walked or copied on unchanged frames.
+	if (m_shadowCasterBounds.update(renderers)) updateShadowCascadeMatrix();
 }
 
 void LightManager::updateShadowCascadeMatrix()

@@ -18,6 +18,7 @@
 #include "Camera.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
+#include "ShadowCasterBounds.hpp"
 
 namespace Ge
 {
@@ -35,7 +36,7 @@ namespace Ge
 
     void Lights::setShadowCasterMargin(float metres)
     {
-        const float next=std::isfinite(metres)?glm::clamp(metres,0.0f,200000.0f):0.0f;
+        const float next=finiteShadowCoordinate(metres)?glm::clamp(metres,0.0f,200000.0f):0.0f;
         if(next==m_shadowCasterMargin) return;
         m_shadowCasterMargin=next;
         if(m_active && m_shadow && m_ubl.status==0) mapMemoryShadow();
@@ -154,6 +155,12 @@ namespace Ge
 			const glm::vec3 lightUp = std::abs(lightDirection.y) > 0.99f
 				? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
 			const glm::mat4 invCam = glm::inverse(currentCamera->getProjectionMatrix() * currentCamera->getViewMatrix());
+			const glm::dvec3 direction = glm::normalize(glm::dvec3(lightDirection));
+			const glm::dvec3 right = glm::normalize(glm::cross(direction, glm::dvec3(lightUp)));
+			const glm::dvec3 up = glm::cross(right, direction);
+			const auto* pc = Engine::getPtrClassAddr();
+			const auto* casterBounds = m_ubl.status == 0 && pc && pc->lightManager
+				? &pc->lightManager->getShadowCasterBounds() : nullptr;
 
 			// Calculate orthographic projection matrix for each cascade
 			float lastSplitDist = 0.0;
@@ -199,15 +206,32 @@ namespace Ge
 				}
 				radius = std::ceil(radius * 16.0f) / 16.0f;
 
-				glm::vec3 maxExtents = glm::vec3(radius);
-				glm::vec3 minExtents = -maxExtents;
+				DirectionalShadowVolume volume;
+				volume.center = glm::dvec3(frustumCenter);
+				volume.right = right;
+				volume.up = up;
+				volume.direction = direction;
+				volume.radius = radius;
+				const float margin = casterBounds
+					? fitDirectionalShadowCasterMargin(volume, m_shadowCasterMargin, *casterBounds)
+					: m_shadowCasterMargin;
+				if (m_ubl.status == 0) m_directionalShadowCasterMargins[i] = margin;
 
-				m_shadowMatrix[i].pos = frustumCenter - lightDirection * (-minExtents.z + m_shadowCasterMargin);
-				glm::mat4 lightViewMatrix = glm::lookAt(m_shadowMatrix[i].pos, frustumCenter, lightUp);
-				glm::mat4 lightOrthoMatrix = glm::ortho(minExtents.x, maxExtents.x, maxExtents.y, minExtents.y, 0.0f, maxExtents.z - minExtents.z + m_shadowCasterMargin);
+				const double distance = volume.radius + static_cast<double>(margin);
+				m_shadowMatrix[i].pos = glm::vec3(volume.center - direction * distance);
+				// Build the basis independently of the eye position. Moving only
+				// the near plane must not rotate XY through float cancellation.
+				glm::dmat4 lightViewMatrix(1.0);
+				lightViewMatrix[0] = glm::dvec4(right.x, up.x, -direction.x, 0.0);
+				lightViewMatrix[1] = glm::dvec4(right.y, up.y, -direction.y, 0.0);
+				lightViewMatrix[2] = glm::dvec4(right.z, up.z, -direction.z, 0.0);
+				lightViewMatrix[3] = glm::dvec4(-glm::dot(right, volume.center),
+					-glm::dot(up, volume.center), glm::dot(direction, volume.center) - distance, 1.0);
+				const glm::dmat4 lightOrthoMatrix = glm::ortho(-volume.radius, volume.radius,
+					volume.radius, -volume.radius, 0.0, 2.0 * volume.radius + margin);
 
 				m_shadowMatrix[i].splitDepth = (nearClip + splitDist * clipRange) * -1.0f;
-				m_shadowMatrix[i].projview = lightOrthoMatrix * lightViewMatrix;				
+				m_shadowMatrix[i].projview = glm::mat4(lightOrthoMatrix * lightViewMatrix);
 				lastSplitDist = cascadeSplits[i];
 			}
 		}

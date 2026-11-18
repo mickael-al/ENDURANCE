@@ -3,9 +3,12 @@
 
 #include "Initializer.hpp"
 #include "Manager.hpp"
+#include "ShadowCasterBounds.hpp"
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
+
+class CustomRenderer;
 
 namespace Ge
 {
@@ -29,7 +32,9 @@ namespace Ge
 		unsigned int getSsboPlaneHidden() const;
 		unsigned int getTextureShadowArray() const;
 		const std::vector<unsigned int>& getFrameShadowBuffer() const;
-		void updateStorage();		
+		void updateStorage();
+		// Called after custom renderers publish their geometry for this frame.
+		void prepareShadowCasterBounds(const std::vector<CustomRenderer*>& renderers);
 	protected:
 		friend class Lights;
 		void updateStorageShadow();
@@ -47,9 +52,11 @@ namespace Ge
 		// Same packed index as the shadow SSBO and framebuffer layer; CPU data only.
 		bool getShadowMatrix(unsigned int shadowIndex, glm::mat4& matrix) const;
 		const std::vector<Lights*>& getLights() const { return m_lights; }
+		const std::vector<ShadowCasterBounds>& getShadowCasterBounds() const { return m_shadowCasterBounds.bounds(); }
     private:
 		GraphicsDataMisc * m_gdm;
-		std::vector<Lights *> m_lights;		
+		std::vector<Lights *> m_lights;
+		ShadowCasterBoundsCache m_shadowCasterBounds;
 		std::vector<unsigned int> m_frameBufferDepthShadow;
 		unsigned int m_ssboShadow;
 		unsigned int m_ssboPlaneHidden;

@@ -36,30 +36,60 @@ le deplacement et la derniere palette affichee. Le redemarrage de sa capture
 reprend depuis cet etat. Un nouvel objet `Atmosphere` commence a zero ; les
 reglages de scene sauvegardent la vitesse, pas cet etat d’execution.
 
-## Rendu complet : colonnes atmospheriques et quadrillage d’ombre
+## Rendu complet : composition et correction des ombres
 
-La passe suivant le test en jeu de `802d046` corrige les deux incompatibilites :
+La correction des UV après `802d046` reste conservée : les compositions du
+ciel et des opaques reçoivent des coordonnées dérivées de `gl_FragCoord`.
+Les UV négatifs du triangle historique ne sont plus fournis aux volumes CLAMP.
+Le contrôle des 18 dessins ciel/opaques reste séparé du contrôle des ombres.
 
-- Les compositions du ciel et des opaques recoivent des UV derives de
-  `gl_FragCoord` et de la resolution du rendu. Le triangle historique reste
-  intact et ses UV negatifs ne sont plus donnes aux volumes CLAMP.
-- Le filtre directionnel generique compare chaque texel a la profondeur du
-  plan recepteur en ce texel, fraction sous-texel comprise. Les derivees
-  geometriques sont calculees avant les branches, puis exprimees en monde.
-  Le meme helper sert aux opaques, aux transparents et a l’eau.
+### Pourquoi les anciens tests de plans ne suffisaient pas
 
-Les positions G-buffer passent en RGBA32F, a la creation et au resize, pour
-conserver les profondeurs et les derivees a grande distance. Le biais
-residuel ajoute une marge de precision XYZ au minimum proche de 5 mm.
-Le cout du changement de stockage est de 8 octets par pixel (+15,82 Mio a 1080p).
+Après le retour visuel sur `3b57f79`, le quadrillage est reproduit avec les
+vrais shaders terrain, le VBO compacté, le G-buffer et le deferred du moteur.
+Le filtre précédent extrapole un plan récepteur à chaque texel voisin ; sur
+les bosses triangulées, il donne environ **53 % de faux pixels d’ombre**, avec
+les marges de 0, 4 et 16 km. Un plan analytique continu n’exerçait ni les
+changements de facette ni les dérivées traversant ces frontières dans le G-buffer.
+Réduire uniquement la marge de profondeur ne corrige pas ce défaut.
 
-Trois nouveaux groupes completent la suite : vrai triangle/forward avec
-controles negatifs, plans inclines et occultants avec vraies textures de
-profondeur, puis vrai opaque/G-buffer a 100 m, 1 km, 10 km et 40 km. Les plans
-libres restent entierement eclaires. Le petit obstacle 50 mm du seul stress
-40 km conserve 99,94 % d’occlusion moyenne ; celui de 100 mm reste entierement
-ombre. Les mesures et leur tolerance sont detaillees dans
-`ATMOSPHERE_VALIDATION.md`. Aucun benchmark materiel n’est revendique.
+Les anciennes conclusions sur un quadrillage résolu et sur des contacts de
+50/100 mm à 40 km sont donc **supersédées** par les contrôles du terrain et des
+occultants résolus décrits dans `ATMOSPHERE_VALIDATION.md`. Le succès historique
+de 15 groupes ne vaut pas validation de la nouvelle passe.
+
+### Version validée par la suite consolidée
+
+- Quatre profondeurs sont comparées séparément, puis leurs visibilités sont
+  interpolées. Le filtre ne prolonge plus un plan à travers les facettes.
+- La normale géométrique est calculée sur la primitive, avant les branches
+  et le discard, puis encodée sur 20 bits octaédriques dans `gPosition.w`.
+  Le deferred la distingue de la normale de matériau. Les variantes forward
+  disposent directement de leurs dérivées de primitive.
+- `gPosition` reste RGBA32F/NEAREST. Les entiers négatifs encodés sont exacts ;
+  ciel `-2`, émission positive et repli historique `0` gardent leurs rôles.
+  Ce codage ne crée aucun attachement et n’ajoute aucun octet par pixel.
+- Chaque directionnelle expose ses biais profondeur/normale en texels
+  (défauts `0,5 / 1,5`, plage `[0,8]`, zéro explicite conservé). Leur stockage
+  réutilise la fin du bloc lumière de 80 octets et les valeurs sont persistées.
+- La marge de casters prend une base de **4 km** et s’étend par cascade selon
+  les AABB des maillages réellement publiés. Elle ne réduit pas le plancher
+  utilisateur. Le cache est révisé après la préparation des renderers,
+  sans readback, sans nouvelle texture et sans modification de la résolution XY.
+
+Le RGBA32F introduit lors de la passe précédente reste nécessaire aux grandes
+coordonnées : son surcoût historique par rapport au 16F est de 8 octets par
+pixel, soit 15,82 Mio à 1080p. Le nouvel encodage réutilise cet espace existant.
+Le déplacement géométrique dépend de la taille mondiale des texels ; il peut
+masquer des contacts trop petits pour la cascade. La marge numérique est
+contrôlée séparément, sans promettre une précision de contact universelle.
+
+**État courant : les 19 groupes de validation passent le 18 novembre 2026**,
+avec sortie 0 de `run_all.py`. La chaîne du terrain réel couvre 18 combinaisons
+et 438 732 évaluations de récepteurs sans faux auto-ombrage ; les occultants
+résolus restent présents. Le contrôle négatif conserve l’ancien défaut.
+Les deux étapes sont intégrées sur la branche de la PR #4. Aucune validation
+dans l’éditeur Windows ni mesure de performances sur GPU matériel n’est revendiquée.
 
 ## Brouillard du jeu : implementation et contrat
 
@@ -83,7 +113,12 @@ deplacement continue pendant une pause des comportements et pendant une
 disparition temporaire du generateur de terrain. Cette animation ne demande
 aucune reconstruction de l’atlas climatique.
 
-## Validation : etat de reprise
+## Validation : état de reprise
+
+La consolidation du 18 novembre 2026 couvre les 19 groupes ci-dessous,
+y compris les régressions atmosphère/continuité des passes précédentes.
+Le test du service C++ comprend toujours 18 groupes internes. Le contrôle
+syntaxique avec les vrais en-têtes est distinct de l’exécution des tests EGL.
 
 | Verification | Etat |
 | --- | --- |
@@ -92,11 +127,18 @@ aucune reconstruction de l’atlas climatique.
 | Syntaxe C++17 avec les vrais en-tetes du projet | **PASS** : Atmosphere.cpp, AtmosphereSettings.cpp et EnduranceAtmosphere.cpp. |
 | `python3 Tests/Atmosphere/check_revision.py` | **PASS** : ombres conservees dans le ciel compose, milieu vide neutre au soleil rasant, loi analytique en milieu homogene, couverture regionale/profils, vrai ciel courant independant du cube IBL, deplacement commun meteo/densite/ombres independant de l’horloge. |
 | Ordonnanceur C++ : cas de capture, budget, ressources et publication | **PASS** : snapshots stables, aucune publication partielle, revisions regroupees, mouvement continu sans famine, resize/reload conservant le dernier complet, cible temporelle influencant la soumission et plafond strict. |
-| Suite consolidee `python3 Tests/Atmosphere/run_all.py` | **PASS : les 15 groupes**, le 18 novembre 2026, apres integration de tous les correctifs. |
+| Suite consolidée `python3 Tests/Atmosphere/run_all.py` | **PASS : 19 groupes, sortie 0**, avec la reproduction et la correction du terrain réel. |
 | Interfaces generiques supplementaires | **PASS** : cubemap externe visible au demarrage, IBL precedente conservee jusqu’a publication, fog anime par le temps sans callback. |
 | Palette pendant la premiere capture, physique active et duree nulle | **PASS** : API, UBO et pixels HDR stables avant publication ; deux cibles successives pendant la capture ; aucune marche arriere et convergence vers la derniere cible. Cas physique avec fondu, gradient avec fondu, physique avec duree nulle. |
 | Offset nuageux commun et changement/arret de vent | **PASS** : arret, changement de direction et reprise a 137 s, images de densite/vue/ombres sans saut, IBL au deplacement fige, publication de la position finale, precision double et cache aerien sans nuages. Le contrat de recreation GPU a egalement ete relu. |
-| Verification visuelle dans l’editeur et mesures sur GPU cible | A effectuer sur la machine de jeu. |
+| Composition et surface directionnelle | **PASS** : 18 dessins ciel/opaques ; helper à quatre comparaisons, 16 configurations avec/sans occultant et contrôles supplémentaires. Les contacts fins sont vérifiés avec des texels de 1 mm. |
+| Positions à grande distance | **PASS** : vrai opaque/G-buffer32F, plan libre sans fausse ombre et occultants résolus de 2/4 m conservés jusqu’à 40 km. Les anciennes assertions de contact 50 mm sont retirées. |
+| Normale dans `gPosition.w` | **PASS** : 33 388 normales, erreur vectorielle maximale 0,0041474, marqueurs réservés, émission/discard, normal map et liaison opaque/skinned/cloth. |
+| Persistance des biais | **PASS** : vrais SceneData/json_struct, scènes anciennes, champs partiels, zéro et lumières distinctes ; clone/load/save relus. |
+| Couverture adaptative | **PASS** : vrais Lights/LightManager, cache de publication, plancher, XY inchangés, absence d’allocation GPU ; six publications du vrai terrain à caméra immobile. |
+| Terrain réel compacté → ombre → G-buffer → deferred | **PASS** : 18 combinaisons, 438 732 évaluations sans faux auto-ombrage, visibilité minimale 1 ; vrais occultants conservés. Contrôle indépendant de 252 triangles et 24 576 tags ; ancien helper figé toujours fautif. |
+| Syntaxe de la couverture et de l’éditeur avec vrais en-têtes | **PASS** : Lights.cpp, LightManager.cpp, ProceduralGeneration.cpp, RenderingEngine.cpp et Editor.cpp. |
+| Vérification visuelle dans l’éditeur Windows et mesures sur GPU cible | **NON EFFECTUÉES** : à réaliser sur la machine de jeu. |
 
 Le test du composant attend `stats().environmentReady` pendant au plus 300
 preparations de rendu avec `dt = 0`. Il ne fait donc pas avancer le vent pour

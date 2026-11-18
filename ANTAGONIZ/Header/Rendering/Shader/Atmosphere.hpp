@@ -57,7 +57,7 @@ namespace Ge
         float moonIlluminanceScale=0.05f;
         float aerialDistance=32768.0f;
         float altitudeUpdateThreshold=1.0f;
-        float shadowCasterMargin=16000.0f;
+        float shadowCasterMargin=4000.0f; // base; available caster bounds may extend each cascade
         float fogDensity=0.0f; // generic fallback; game may supply a world-space medium
         glm::vec3 fogAlbedo{0.78f,0.83f,0.88f};
         float fogBaseHeight=0.0f;

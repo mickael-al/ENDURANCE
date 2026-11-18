@@ -5,6 +5,8 @@
 #include "UniformBufferLight.hpp"
 #include "UniformBufferPlaneHidden.hpp"
 #include "ShadowMatrix.hpp"
+#include <array>
+#include <vector>
 
 #define TEXTURE_DIM 2048
 #define SHADOW_MAP_CASCADE_COUNT 4
@@ -40,6 +42,7 @@ namespace Ge
 		// Includes off-screen mountains lying towards the light from the receivers.
 		void setShadowCasterMargin(float metres);
 		float getShadowCasterMargin() const { return m_shadowCasterMargin; }
+		const std::array<float, SHADOW_MAP_CASCADE_COUNT>& getDirectionalShadowCasterMargins() const { return m_directionalShadowCasterMargins; }
 		// Biases are measured in the world footprint of a cascade texel.
 		void setDirectionalShadowBias(float depthTexels, float normalTexels);
 		glm::vec2 getDirectionalShadowBias() const { return {m_ubl.shadowDepthBias, m_ubl.shadowNormalBias}; }
@@ -77,6 +80,7 @@ namespace Ge
 		//shadow Dir
 		float cascadeSplitLambda = 0.96f;
 		float m_shadowCasterMargin = 0.0f;
+		std::array<float, SHADOW_MAP_CASCADE_COUNT> m_directionalShadowCasterMargins{};
 		glm::vec3 frustumCorners[8];
 	};
 }

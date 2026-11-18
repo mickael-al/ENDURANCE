@@ -444,6 +444,7 @@ namespace Ge
 		{
 			if (renderer != nullptr) renderer->prepareRenderer();
 		}
+		m_lightManager->prepareShadowCasterBounds(customRenderers);
 		m_atmosphere->prepare(m_cameraManager->getCurrentCamera(),
 			m_ptrClass->time ? m_ptrClass->time->getDeltaTime() : 0.0);
         endPhase(timings.prepareMilliseconds);
