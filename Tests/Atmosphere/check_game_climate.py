@@ -178,16 +178,20 @@ void main(){result=geGameFog(probePosition);}
             gl.dispatch(fog,4,4)
             return read_texture(gl,medium,size)
 
-        def sample(position):
+        def sample(position,wind_offset=(0.,0.,0.)):
             gl.glActiveTexture(0x84C0+6); gl.glBindTexture(0x0DE1,medium)
             gl.glActiveTexture(0x84C0+7); gl.glBindTexture(0x0DE1,shape)
             gl.uniform(probe,'probePosition','3f',*position)
+            # This is the actual game hook contract; there is no synthetic
+            # engine fog mode or test-only branch in the production shader.
+            gl.uniform(probe,'uGameFogWindOffset','3f',*wind_offset)
             gl.dispatch(probe,1)
             return struct.unpack('<4f',gl.read(probe_result,16))
 
         dry=generate(15)
         assert max(abs(v) for v in dry)==0
         assert sample((0,20,0))==(0,0,0,0)
+        assert sample((0,20,0),(240,50,-80))==(0,0,0,0)
         styles[14]['fogNoiseAmount']=0
         gl.write(style_buffer,packed_styles(styles))
         wet=generate(14)
@@ -195,12 +199,36 @@ void main(){result=geGameFog(probePosition);}
         assert near[3]>0 and max(abs(a-b) for a,b in zip(near,far))<1e-10
         assert 0<high[3]<near[3]*0.001
         assert all(0<=v<=near[3]+1e-10 for v in near[:3])
+        # Even vertical wind moves only structure: the smooth world's height
+        # profile and climate do not translate with the animated domain.
+        assert sample((0,60,0),(240,50,-80))==near
+        assert sample((0,1060,0),(240,50,-80))==high
         styles[14]['fogNoiseAmount']=.85
         gl.write(style_buffer,packed_styles(styles)); generate(14)
         assert sample((0,60,0))!=sample((450,60,450))
         assert sample((1000000,60,0))==(0,0,0,0)
+        stationary=(125.,60.,-175.)
+        start=sample(stationary)
+        displacement=(240.,0.,-80.)
+        later=sample(stationary,displacement)
+        assert abs(later[3]-start[3])>1e-7,'Structured fog failed to evolve at a stationary world position'
+        advected=sample(tuple(p+d for p,d in zip(stationary,displacement)),displacement)
+        assert max(abs(a-b) for a,b in zip(start,advected))<1e-9,'Noise features did not follow wind velocity'
+        assert sample(stationary,displacement)==later,'Fixed displacement must keep the medium stationary'
+        print('PASS real game fog wind: stationary animation, advected structure, smooth/absent and height profiles unchanged')
         original=generate(-1)
         assert max(original[3::4])>min(original[3::4])+0.00005
+        original_shape=read_texture(gl,shape,size)
+        # The wind domain may travel outside the atlas. It must not move the
+        # climate lookup or import wet media into an originally dry biome.
+        dry_indices=[i for i,a in enumerate(original[3::4]) if a==0]
+        assert dry_indices,'Mixed-climate fixture requires at least one dry node'
+        dry_index=dry_indices[len(dry_indices)//2]
+        dry_position=(placement[0]+((dry_index%size)+.5)*placement[2]/size,
+                      60.,placement[1]+((dry_index//size)+.5)*placement[2]/size)
+        assert sample(dry_position,(100000.,250.,-100000.))==(0,0,0,0)
+        assert read_texture(gl,medium,size)==original
+        assert read_texture(gl,shape,size)==original_shape
         # One atlas shift moves 2 texels at this resolution. The same world
         # nodes must preserve their media when recentered, avoiding swimming.
         shifted=generate(-1,(-35840.,-40960.,81920.,float(size)))

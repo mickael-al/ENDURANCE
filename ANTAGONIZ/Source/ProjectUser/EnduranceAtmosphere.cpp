@@ -21,7 +21,7 @@
 #include <utility>
 
 REGISTER(Behaviour,EnduranceAtmosphereComponent,paletteFile,palettes,engineSettings,
-         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent);
+         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent,fogWind);
 
 namespace
 {
@@ -183,6 +183,7 @@ struct EnduranceAtmosphereComponent::Impl
     int allocatedResolution=0;
     glm::vec2 lastSubmittedXZ{0.0f};
     glm::vec4 atlasOriginSize{0.0f};
+    glm::dvec3 fogWindOffset{0.0};
     std::uint32_t seed=1337;
     std::uint64_t terrainKey=0,revision=1,nextSequence=0,lastResultSequence=0;
     std::uint64_t submitted=0,completed=0,busyFrames=0,atlasUpdates=0;
@@ -254,6 +255,8 @@ struct EnduranceAtmosphereComponent::Impl
         glProgramUniform4fv(program,glGetUniformLocation(program,"uGameFogOriginSize"),1,&atlasOriginSize.x);
         glProgramUniform1i(program,glGetUniformLocation(program,"uGameFogAtlasValid"),atlasValid?1:0);
         glProgramUniform1ui(program,glGetUniformLocation(program,"uGameFogSeed"),seed);
+        glProgramUniform3f(program,glGetUniformLocation(program,"uGameFogWindOffset"),
+            float(fogWindOffset.x),float(fogWindOffset.y),float(fogWindOffset.z));
     }
 
     void collect()
@@ -421,6 +424,18 @@ void EnduranceAtmosphereComponent::prepareRenderer()
     m->atmosphere->setSun(lights.first);
     m->atmosphere->setMoon(lights.second);
     m->atmosphere->settings().fallbackToFirstDirectional=(sunLightIndex==-2);
+
+    // Render time progresses even when behaviours are paused or the camera
+    // stays still. Integrate the velocity rather than multiplying the current
+    // wind by total time: editing the wind must not relocate existing features.
+    const double deltaSeconds=m->pc->time ? m->pc->time->getDeltaTime() : 0.0;
+    if(std::isfinite(deltaSeconds) && deltaSeconds>0.0)
+        for(int axis=0;axis<3;++axis)
+        {
+            const double velocity=std::isfinite(fogWind[axis])
+                ? std::clamp(fogWind[axis],-100.0f,100.0f) : 0.0;
+            m->fogWindOffset[axis]+=velocity*deltaSeconds;
+        }
 
     if(!m->atmosphere->settings().enabled)
     {
@@ -591,6 +606,10 @@ void EnduranceAtmosphereComponent::onGUI()
     if(ImGui::IsItemHovered())
         ImGui::SetTooltip("World-space grid; actual extent is at least 2.5 times the atmospheric ray distance.\n"
                           "Exact terrain climate is sampled at grid nodes; fog properties interpolate between them.");
+    ImGui::DragFloat3("Fog wind XYZ (m/s)",fogWind.data(),0.1f,-100.0f,100.0f,"%.2f");
+    if(ImGui::IsItemHovered())
+        ImGui::SetTooltip("Advects only the 3D fog structure. Biome regions and the height profile remain fixed.\n"
+                          "Set all components to zero to stop motion; changing wind preserves the current noise position.");
     if(ImGui::TreeNode("Biome palette and local medium"))
     {
         static int selected=0;

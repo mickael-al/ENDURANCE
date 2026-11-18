@@ -53,6 +53,9 @@ public:
     // Fog coordinates remain fixed between atlas transactions.
     int fogAtlasResolution=0;
     float fogAtlasExtent=81920.0f;
+    // World-space velocity in m/s. Only the 3D structure moves; biome regions
+    // and the altitude-dependent density stay attached to the world.
+    std::array<float,3> fogWind{{4.0f,0.0f,1.0f}};
 
 private:
     struct Impl;
