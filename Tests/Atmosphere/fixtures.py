@@ -7,7 +7,7 @@ import struct
 FIELDS = """
 Radii Rayleigh Mie Absorption Medium SunDirection SunRadiance SunDisk
 MoonDirection MoonRadiance MoonDisk Horizon Middle Zenith Art Camera Volume Fog
-FogNoise CloudLayer CloudShape CloudWind ShadowOrigin Shadow Quality Samples
+FogNoise CloudLayer CloudShape CloudOffset ShadowOrigin Shadow Quality Samples
 Control Misc CloudWeather CloudProfiles
 """.split()
 IDENTITY = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.]
@@ -36,7 +36,7 @@ class Parameters:
         self.set("FogNoise", 500., .6, 10., 5.)
         self.set("CloudLayer", 2000., 1500., .5, .004)
         self.set("CloudShape", 4000., 4., .25, .6)
-        self.set("CloudWind", 30., 5., 20000., 0.)
+        self.set("CloudOffset", 0., 0., 20000., 0.)
         self.set("Shadow", -1, -1, 0, 0)
         self.set("Quality", 24, 40, 8, 12)
         self.set("Samples", 2, 4, 4, 12)

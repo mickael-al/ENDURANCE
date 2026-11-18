@@ -245,8 +245,10 @@ def check_weather(gl, fixture):
             assert all(row[2] == 0 for row in rows), "Zero global coverage generated local cloud density"
     f.parameters.values["CloudLayer"][2] = .42
 
-    # Test the actual advected fields, not merely the wind or time uniforms.
+    # Test the actual advected fields using the displacement integrated by
+    # the engine, independent of the clock still available to custom hooks.
     f.parameters.values["Camera"][3] = 137
+    f.parameters.set("CloudOffset", 30 * 137, 5 * 137, 20000, 0)
     stationary = sample()
     assert max(abs(a[0] - b[0]) for a, b in zip(weather, stationary)) > .01, "Regional weather stopped at a stationary camera"
     advected = [(x + 30 * 137, y, z + 5 * 137, w) for x, y, z, w in positions]
@@ -258,6 +260,7 @@ def check_weather(gl, fixture):
         "3D cloud density does not share the weather wind domain"
     )
     f.parameters.values["Camera"][3] = 0
+    f.parameters.set("CloudOffset", 0, 0, 20000, 0)
     f.parameters.values["Misc"][0] += 1
     f.cloud_noise()
     changed_seed = sample()
@@ -364,9 +367,11 @@ def check_current_visible_clouds(gl, fixture):
 
     initial = capture()
     f.parameters.values["Camera"][3] = 137
+    assert capture() == initial, "The clock moved visible clouds without an accumulated displacement"
+    f.parameters.set("CloudOffset", 30 * 137, 5 * 137, 20000, 0)
     later = capture()
-    time_difference = max(abs(a - b) for a, b in zip(rgb(initial), rgb(later)))
-    assert time_difference > .02, "Visible clouds stopped while camera and IBL stayed fixed"
+    offset_difference = max(abs(a - b) for a, b in zip(rgb(initial), rgb(later)))
+    assert offset_difference > .02, "Visible clouds ignored accumulated displacement while camera and IBL stayed fixed"
     f.parameters.set("Camera", 7100, 100, -4300, 137)
     moved = capture()
     position_difference = max(abs(a - b) for a, b in zip(rgb(later), rgb(moved)))
@@ -384,7 +389,77 @@ def check_current_visible_clouds(gl, fixture):
     gl.image(0, delta)
     gl.dispatch_extent(visible_program, *size)
     assert all(value == 0 for value in rgb(gl.texels(delta, size))), "Coverage-zero visible cloud pass retained stale cloud pixels"
-    print(f"PASS current visible sky: real sky.fs matches current cloud ray, ignores changed frozen IBL, advances at fixed camera (+{time_difference:.4f} HDR) and after XZ motion (+{position_difference:.4f}); empty view clears stale delta", flush=True)
+    print(f"PASS current visible sky: real sky.fs matches current cloud ray, ignores changed frozen IBL and clock-only changes, advances with cloud displacement at fixed camera (+{offset_difference:.4f} HDR) and after camera XZ motion (+{position_difference:.4f}); empty view clears stale delta", flush=True)
+
+
+def check_accumulated_advection(gl, fixture):
+    """Velocity edits must not reinterpret all elapsed time in the shaders."""
+    f = fixture
+    program = gl.compute(TEST_DIRECTORY / "revision_weather.C.glsl")
+    f.parameters = Parameters()
+    f.parameters.set("Control", 0, 0, 1, 0)
+    f.parameters.set("CloudLayer", 2200, 1800, .58, .0012)
+    f.parameters.set("CloudShape", 6000, 4, .35, .6)
+    f.parameters.set("CloudWeather", 48000, .65, 1.4, .7)
+    f.parameters.set("Samples", 2, 8, 32, 48)
+    f.parameters.set("SunDirection", .3, .9, .3, 1)
+    f.parameters.set("MoonDirection", -.6, .7, .3, 1)
+    # Begin at a nonzero phase: a leftover offset*time calculation must fail
+    # even when no displacement is added during the time-only checks.
+    phase = (-875., 2125.)
+    f.parameters.set("CloudOffset", *phase, 20000, 0)
+    f.cloud_noise()
+    positions = [(x * 1733.19 - 14000, 2560., z * 1931.13 - 11000, 0.)
+                 for z in range(13) for x in range(17)]
+
+    def capture(rows=positions):
+        f.upload()
+        gl.sampler(3, f.noise, TEXTURE_3D)
+        fields = query(gl, program, rows)
+        gl.image(0, f.cloud_shadow, internal=RG16F)
+        gl.dispatch_extent(f.programs["cloud_shadow.C.glsl"], *f.shadow_size)
+        shadows = gl.texels(f.cloud_shadow, f.shadow_size, channels=2)
+        finite(shadows, "advected sun/moon cloud-shadow map")
+        assert all(0 <= value <= 1 for value in shadows)
+        return fields, shadows
+
+    original_fields, original_shadows = capture()
+    f.parameters.values["Camera"][3] = 137
+    assert capture() == (original_fields, original_shadows), (
+        "The clock alone displaced regional weather, 3D density or cloud shadows at fixed nonzero offset"
+    )
+
+    delta = (4110., 685.)
+    f.parameters.set("CloudOffset", phase[0] + delta[0], phase[1] + delta[1], 20000, 0)
+    moved_fields, moved_shadows = capture()
+    coverage_change = max(abs(a[0] - b[0]) for a, b in zip(original_fields, moved_fields))
+    density_change = max(abs(a[2] - b[2]) for a, b in zip(original_fields, moved_fields))
+    shadow_change = max(abs(a - b) for a, b in zip(original_shadows, moved_shadows))
+    assert coverage_change > .01, "Accumulated displacement did not advect regional weather"
+    assert density_change > 1e-5, "Accumulated displacement did not advect 3D cloud density"
+    assert shadow_change > .01, "Accumulated displacement did not advect cloud shadows"
+
+    # Translating observations and the shadow-map world origin by exactly
+    # the added displacement must recover the same medium and optical depth.
+    # This checks shared direction/scale and transport, not just 'it changed'.
+    transported_positions = [(x + delta[0], y, z + delta[1], w)
+                             for x, y, z, w in positions]
+    f.parameters.set("ShadowOrigin", delta[0], delta[1], 0, 0)
+    transported_fields, transported_shadows = capture(transported_positions)
+    assert max(abs(a[i] - b[i]) for a, b in zip(original_fields, transported_fields)
+               for i in (0, 1, 3)) < 3e-5, "Weather/profile transport disagrees with accumulated displacement"
+    assert max(abs(a[2] - b[2]) for a, b in zip(original_fields, transported_fields)) < 2e-7, (
+        "3D density transport disagrees with regional weather displacement"
+    )
+    shadow_transport_error = max(abs(a - b) for a, b in zip(original_shadows, transported_shadows))
+    assert shadow_transport_error < .0015, (
+        "Sun/moon shadow-map transport disagrees with weather and density displacement", shadow_transport_error,
+    )
+    f.parameters.values["Camera"][3] = 1_000_000
+    assert capture(transported_positions) == (transported_fields, transported_shadows), (
+        "Large elapsed time changed cloud phase despite an unchanged accumulated offset"
+    )
+    print(f"PASS accumulated cloud displacement: clock changes to 137 s and 1,000,000 s preserve fixed nonzero phase exactly; offset moves coverage ({coverage_change:.4f}), density ({density_change:.6f}/m) and shadows ({shadow_change:.4f}); translating observations recovers all fields and both shadow channels (error {shadow_transport_error:.6f})", flush=True)
 
 
 CHECKS = {
@@ -392,6 +467,7 @@ CHECKS = {
     "composition": check_cloud_shadow_composition,
     "weather": check_weather,
     "visible": check_current_visible_clouds,
+    "advection": check_accumulated_advection,
 }
 
 

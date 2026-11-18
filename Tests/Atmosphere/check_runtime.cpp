@@ -8,6 +8,7 @@
 #include "GraphicsDataMisc.hpp"
 #include "ShaderCompilation.hpp"
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -99,6 +100,208 @@ namespace
         require(location>=0,std::string("Runtime fixture missing active uniform ")+name);
         GLint value=-100; glGetUniformiv(program,location,&value); return value;
     }
+    std::array<float,168> uploadedParameters()
+    {
+        GLint buffer=0; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING,6,&buffer);
+        require(buffer!=0,"Atmosphere parameter UBO is not bound");
+        GLint64 bytes=0; glGetNamedBufferParameteri64v(static_cast<GLuint>(buffer),GL_BUFFER_SIZE,&bytes);
+        require(bytes==672,"Unexpected atmosphere UBO layout");
+        std::array<float,168> data{};
+        // Readback belongs exclusively to the test, never to the render loop.
+        glGetNamedBufferSubData(static_cast<GLuint>(buffer),0,sizeof(data),data.data());
+        checkGL("reading uploaded atmosphere parameters");
+        return data;
+    }
+    Ge::AtmosphereSettings smallSettings()
+    {
+        Ge::AtmosphereSettings s;
+        s.enabled=true; s.quality=Ge::AtmosphereQuality::Low;
+        s.cubemapSize=16; s.prefilterSize=16; s.irradianceSize=4;
+        s.iblSamples=8; s.skySteps=8; s.cloudLightSteps=2;
+        s.volumeWidth=16; s.volumeHeight=9; s.volumeDepth=16;
+        s.cloudViewWidth=16; s.cloudViewHeight=9;
+        s.localFog=false; s.godRays=false; s.clouds=false;
+        s.sunDiskIntensity=0; s.moonDiskIntensity=0;
+        s.environmentInterval=0; s.environmentBlendSeconds=.25f;
+        s.iblMaxWorkUnitsPerFrame=1; s.targetGpuMilliseconds=1000;
+        s.measureGpu=false;
+        return s;
+    }
+    void checkInitialPalette(bool physical,float duration)
+    {
+        Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        auto& config=atmosphere.settings(); config=smallSettings();
+        config.physicalAtmosphere=physical; config.transitionSeconds=duration;
+        config.environmentBlendSeconds=duration==0?0:.25f;
+        Ge::AtmospherePalette initial;
+        initial.horizon=initial.middle=initial.zenith=glm::vec3(.5f);
+        initial.strength=1; initial.exposure=1;
+        atmosphere.setPaletteTarget(initial,true);
+        Targets targets;
+        const auto frame=[&](double dt)
+        {
+            atmosphere.prepare(&camera,dt);
+            require(atmosphere.active(),"Initial palette fixture did not render: "+atmosphere.error());
+            glBindFramebuffer(GL_FRAMEBUFFER,targets.fbo); glViewport(0,0,32,18);
+            atmosphere.renderSky(0); checkGL("initial palette sky render");
+            const auto gpu=uploadedParameters();
+            require(std::abs(gpu[14*4]-atmosphere.displayedPalette().exposure)<1e-6f,
+                    "Visible palette API and uploaded artistic exposure disagree");
+            require(std::abs(gpu[11*4]-.5f)<1e-6f && std::abs(gpu[12*4]-.5f)<1e-6f &&
+                    std::abs(gpu[13*4]-.5f)<1e-6f,"Initial palette test unexpectedly changed gradient stops");
+            return readTexture(targets.colors[2],GL_TEXTURE_2D);
+        };
+        const auto first=frame(0);
+        require(!atmosphere.stats().environmentReady && atmosphere.stats().captureWorkCompleted==1,
+                "Initial palette fixture did not stop after the first snapshot");
+        require(maximumRGB(first)>0,"Initial palette fixture rendered no measurable sky");
+        auto target=initial; target.exposure=2;
+        atmosphere.setPaletteTarget(target,true);
+        require(atmosphere.displayedPalette().exposure==1,
+                "A target changed the visible palette before the first capture was published");
+        float previousExposure=1,previousRadiance=maximumRGB(first);
+        bool retargeted=false,published=false,converged=false;
+        for(int i=0;i<300;++i)
+        {
+            if(i==4)
+            {
+                require(!atmosphere.stats().environmentReady,"Fixture retarget arrived after initial publication");
+                target.exposure=4; atmosphere.setPaletteTarget(target,true); retargeted=true;
+            }
+            const auto pixels=frame(.1);
+            const auto& state=atmosphere.stats();
+            const float exposure=atmosphere.displayedPalette().exposure;
+            const float radiance=maximumRGB(pixels);
+            if(!state.environmentReady)
+            {
+                require(std::abs(exposure-1)<1e-6f,"Visible palette drifted during the first multi-frame capture");
+                closeTextures(pixels,first,.0002f,"Sky radiance drifted while its initial IBL capture was pending");
+            }
+            require(exposure>=previousExposure-1e-6f,"Publication moved the displayed palette backwards");
+            require(radiance>=previousRadiance-.002f,"Publication moved visible sky radiance backwards");
+            previousExposure=exposure; previousRadiance=radiance;
+            published=published || state.environmentReady;
+            if(retargeted && published && state.environmentUpdates>=2 && std::abs(exposure-4)<.0001f)
+            { converged=true; break; }
+        }
+        require(converged,"Initial capture lost the latest palette target instead of converging");
+        require(std::abs(previousRadiance/maximumRGB(first)-4)<.015f,
+                "Visible sky did not converge to the latest HDR exposure");
+        atmosphere.release();
+        std::cout<<"PASS initial palette: "<<(physical?"physical":"gradient")<<", duration "<<duration
+                 <<", stable API/UBO/HDR sky until initial publication, no rollback, latest target converges\n"<<std::flush;
+    }
+    void checkCloudWind()
+    {
+        Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        camera.position={700,1600,200};
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        auto& config=atmosphere.settings(); config=smallSettings();
+        config.clouds=true; config.cloudCoverage=.8f; config.cloudDensity=.002f;
+        config.cloudBaseHeight=1000; config.cloudThickness=3000; config.cloudScale=1200;
+        config.cloudWeatherScale=8000; config.wind={12,4}; config.aerialDistance=4096;
+        config.environmentBlendSeconds=0;
+        const auto referenceSettings=config;
+        Targets targets;
+        GLuint cloudExtinction=0;
+        struct Observation
+        {
+            glm::vec2 offset{};
+            std::vector<float> delta,shadow,extinction,sky;
+        };
+        const auto frame=[&](double dt,bool images=true)
+        {
+            atmosphere.prepare(&camera,dt);
+            require(atmosphere.active(),"Cloud wind fixture did not render: "+atmosphere.error());
+            glBindFramebuffer(GL_FRAMEBUFFER,targets.fbo); glViewport(0,0,32,18);
+            atmosphere.renderSky(0);
+            const auto delta=textureAt(1,GL_TEXTURE_BINDING_2D);
+            const auto shadow=textureAt(14,GL_TEXTURE_BINDING_2D);
+            const auto previousCloudDispatches=atmosphere.stats().cloudVolumeDispatches;
+            atmosphere.computeVolumes(&camera);
+            if(atmosphere.stats().cloudVolumeDispatches>previousCloudDispatches)
+                cloudExtinction=textureAt(12,GL_TEXTURE_BINDING_3D);
+            Observation value;
+            if(images)
+            {
+                const auto gpu=uploadedParameters();
+                value.offset={gpu[21*4],gpu[21*4+1]}; // std140 CloudOffset XY, unchanged ABI.
+                value.delta=readTexture(delta,GL_TEXTURE_2D);
+                value.shadow=readTexture(shadow,GL_TEXTURE_2D);
+                value.extinction=readTexture(cloudExtinction,GL_TEXTURE_3D);
+                value.sky=readTexture(targets.colors[2],GL_TEXTURE_2D);
+            }
+            checkGL("cloud wind runtime frame");
+            return value;
+        };
+        const auto offsetIs=[](const Observation& value,const glm::vec2& expected)
+        {
+            require(glm::length(value.offset-expected)<.001f,
+                    "Uploaded cloud offset is not the accumulated world displacement");
+        };
+        const auto unchanged=[](const Observation& a,const Observation& b,const std::string& event)
+        {
+            closeTextures(a.delta,b.delta,.0002f,event+": visible cloud formations teleported");
+            closeTextures(a.shadow,b.shadow,.0002f,event+": cloud shadows teleported");
+            closeTextures(a.extinction,b.extinction,1e-7f,event+": cloud density teleported");
+            closeTextures(a.sky,b.sky,.0002f,event+": visible sky teleported");
+        };
+        const auto first=frame(137);
+        offsetIs(first,{1644,548});
+        require(!atmosphere.stats().environmentReady && atmosphere.stats().captureWorkCompleted==1,
+                "Cloud snapshot fixture did not freeze its first 137-second offset");
+        config.wind={0,0};
+        const auto stopped=frame(0); offsetIs(stopped,first.offset); unchanged(first,stopped,"Stopping wind at 137 seconds");
+        const auto stationary=frame(25); offsetIs(stationary,first.offset); unchanged(stopped,stationary,"Waiting with wind stopped");
+        config.wind={-7,9};
+        const auto resumed=frame(0); offsetIs(resumed,first.offset); unchanged(stationary,resumed,"Changing wind direction at rest");
+        const auto moved=frame(2.5); offsetIs(moved,first.offset+glm::vec2(-17.5f,22.5f));
+        require(moved.delta!=resumed.delta || moved.extinction!=resumed.extinction,
+                "Resumed wind did not advect the actual cloud field");
+        config.wind={3,-11};
+        const auto redirected=frame(0); offsetIs(redirected,moved.offset); unchanged(moved,redirected,"Changing a moving wind");
+        const auto changed=frame(1.25); offsetIs(changed,moved.offset+glm::vec2(3.75f,-13.75f));
+        // Make the live field substantially different from the captured one.
+        config.wind={120,40}; const auto far=frame(19);
+        offsetIs(far,changed.offset+glm::vec2(2280,760));
+        config.wind={0,0}; frame(0,false);
+
+        std::string error;
+        const auto material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
+        require(material!=0,error);
+        Ge::Atmosphere reference; reference.initialize(&pc,&graphics); reference.settings()=referenceSettings;
+        reference.settings().iblMaxWorkUnitsPerFrame=64;
+        reference.prepare(&camera,137); reference.settings().wind={0,0};
+        for(int i=0;i<100 && !reference.stats().environmentReady;++i) reference.prepare(&camera,0);
+        require(reference.stats().environmentReady,"Static cloud offset reference did not finish its IBL");
+        reference.bindLighting(material);
+        const auto frozenIbl=readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP);
+        reference.release();
+        for(int i=0;i<250 && !atmosphere.stats().environmentReady;++i) frame(0,false);
+        require(atmosphere.stats().environmentReady,"Moving clouds starved their initial frozen IBL");
+        atmosphere.bindLighting(material);
+        closeTextures(readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP),frozenIbl,.003f,
+                      "IBL capture read a changing cloud offset instead of its own snapshot");
+        const auto firstPublication=atmosphere.stats().environmentUpdates;
+        config.iblMaxWorkUnitsPerFrame=16;
+        for(int i=0;i<200 && atmosphere.stats().environmentUpdates==firstPublication;++i) frame(0,false);
+        require(atmosphere.stats().environmentUpdates>firstPublication,
+                "Stopping wind lost the final offset revision before IBL publication");
+        atmosphere.bindLighting(material);
+        const auto latestIbl=readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP);
+        require(latestIbl!=frozenIbl,"Cloud offset fixture did not distinguish the new IBL from the frozen one");
+
+        const auto beforePrecision=frame(0);
+        config.wind={1,0}; frame(16777216.0,false);
+        config.wind={.125f,0}; frame(1,false);
+        config.wind={-1,0}; const auto afterPrecision=frame(16777216.0);
+        offsetIs(afterPrecision,beforePrecision.offset+glm::vec2(.125f,0));
+        atmosphere.release(); glDeleteProgram(material);
+        std::cout<<"PASS cloud wind: accumulated offset at 137s, continuous stop/redirection/restart, real visible/shadow/density fields, frozen IBL offset, latest stopped revision, double-precision residue\n"<<std::flush;
+    }
     void checkSettings()
     {
         Ge::Atmosphere original,restored;
@@ -163,6 +366,10 @@ namespace
     {
         std::filesystem::current_path(root/"ENDURANCE");
         checkSettings();
+        checkInitialPalette(true,.3f);
+        checkInitialPalette(false,.3f);
+        checkInitialPalette(true,0);
+        checkCloudWind();
         std::string error;
         const GLuint material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
         require(material!=0,error);
@@ -235,6 +442,8 @@ namespace
                 atmosphere.stats().skyUpdates==initial.skyUpdates &&
                 atmosphere.stats().environmentUpdates==initial.environmentUpdates,
                 "Stationary cloudless frame rebuilt invariant sky/IBL resources");
+        require(atmosphere.stats().aerialDispatches==initial.aerialDispatches,
+                "Advancing an invisible cloud offset invalidated a stationary cloudless aerial volume");
         camera.forward={1,0,0}; frame(.1);
         require(atmosphere.stats().skyUpdates==initial.skyUpdates,"View rotation rebuilt world-space sky LUT");
         camera.position.y+=2500; frame(.1);

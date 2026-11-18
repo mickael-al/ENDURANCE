@@ -7,7 +7,7 @@ void main()
     ivec2 p=ivec2(gl_GlobalInvocationID.xy),size=imageSize(geAtmShadowOutput);
     if(any(greaterThanEqual(p,size))) return;
     vec2 uv=(vec2(p)+0.5)/vec2(size);
-    vec2 xz=geAtmShadowOrigin.xy+(uv*2.0-1.0)*max(geAtmCloudWind.z,1.0);
+    vec2 xz=geAtmShadowOrigin.xy+(uv*2.0-1.0)*max(geAtmCloudOffset.z,1.0);
     vec2 transmission=vec2(1.0);
     if(geAtmHasClouds())
     {

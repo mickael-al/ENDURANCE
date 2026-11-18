@@ -93,6 +93,7 @@ def check_sky(gl,preview_path=None):
     assert empty==clear and empty_ibl==clear_ibl,"Coverage-zero sky is not clear-sky identity"
     f.parameters.values["CloudLayer"][2]=.42
     f.parameters.values["Camera"][3]=137
+    f.parameters.set("CloudOffset",30*137,5*137,20000,0)
     moving,moving_ibl=capture(True)
     assert max(abs(a-b) for a,b in zip(rgb(cloud_ibl),rgb(moving_ibl)))>.01,"Cloud sky/cubemap stopped when camera XYZ stayed fixed"
     f.parameters.set("SunDirection",0,0,0,0)

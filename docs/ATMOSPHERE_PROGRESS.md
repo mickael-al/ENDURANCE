@@ -2,7 +2,7 @@
 
 ## État actuel
 
-Les cinq paliers fonctionnels et les sept points de la passe de correction sont implémentés. La branche d'intégration est
+Les cinq paliers fonctionnels, les sept points de la passe de correction et les deux derniers correctifs de continuite sont implementes. La branche d'intégration est
 `feature/atmosphere-biome-sky`, issue de `feature/terrain-noise-library`
 (commit GitHub de base `2ab58174c1a33f8b1b795b466075fd618424e933`, arbre
 `bc47314734e8bfd1b3f915e53b6a08b4e9d99238`). Ne pas repartir de l'ancien `master`.
@@ -35,6 +35,18 @@ Les références de seuil sont les derniers états effectivement acceptés ou
 calculés ; les captures animées des nuages ne réinitialisent pas le seuil de
 SkyView. Les publications font progresser l'ancien fondu avant de capturer une
 nouvelle cible. Le dépassement de la durée du fondu publie bien sa dernière image.
+
+Pendant la premiere capture IBL, conserver la palette visible et memoriser
+la derniere cible acceptee sans avancer son fondu. La premiere publication
+relance ce fondu depuis l’etat affiche, y compris si sa duree est nulle ou si
+la capture a ete annulee puis reconstruite.
+
+Le vent nuageux est integre en double precision dans un deplacement commun
+a la meteo, a la densite et aux ombres. L’offset est fige par capture, tandis
+que la vue courante utilise sa valeur actuelle. Ne pas revenir a une formule
+vitesse courante × temps total. Une recreation GPU du meme service conserve
+l’horloge, l’offset et la derniere palette visible ; un nouvel objet repart
+avec un deplacement nul.
 
 Les extinctions et sources sont additionnées avant l'intégration. Les coefficients colores sont en RGBA32F, l’extinction nuageuse en R32F ; les sorties intégrées, les cubemaps et
 l'IBL sont en HDR. L'éclairage direct et l'IBL ne comptent pas deux fois les disques.
@@ -73,3 +85,16 @@ La suite consolidee des douze groupes passe. Les regressions du ciel compose,
 du soleil rasant, du brouillard reel, des snapshots, des budgets et des
 ressources conditionnelles sont couvertes. Conserver les snapshots GPU d’une capture et ne jamais
 reutiliser son set de travail pendant un fondu public.
+
+## Complements de continuite valides
+
+La palette reste stable pendant la premiere capture, puis rejoint la derniere
+cible. Les regressions verifient l’API, le bloc uniforme et les pixels HDR,
+avec atmosphere physique, ciel gradient et duree nulle.
+
+Le vent nuageux conserve les formations a 137 secondes lors d’un arret ou
+d’un changement de vitesse. Les tests couvrent densite, vue, ombres, partage
+avec la meteo, snapshot IBL et publication de la position finale apres arret.
+Les **18 groupes internes** du runtime et les **12 groupes** de la suite
+consolidee passent. Preuves : `ATMOSPHERE_VALIDATION.md` et
+`ATMOSPHERE_REVISION.md`.

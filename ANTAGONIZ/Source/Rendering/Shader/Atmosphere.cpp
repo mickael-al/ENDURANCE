@@ -30,7 +30,7 @@ namespace
         glm::vec4 sunDirection{},sunRadiance{},sunDisk{};
         glm::vec4 moonDirection{},moonRadiance{},moonDisk{};
         glm::vec4 horizon{},middle{},zenith{},art{},camera{},volume{},fog{},fogNoise{};
-        glm::vec4 cloudLayer{},cloudShape{},cloudWind{},shadowOrigin{};
+        glm::vec4 cloudLayer{},cloudShape{},cloudOffset{},shadowOrigin{};
         glm::ivec4 shadow{},quality{},samples{},control{};
         glm::uvec4 misc{};
         glm::vec4 cloudWeather{},cloudProfiles{};
@@ -173,11 +173,12 @@ struct Atmosphere::Impl
     std::uint64_t externalRevision=0;
     bool dirty=true,programsDirty=true,ready=false,physicalPrograms=false;
     bool physicalDirty=true,multipleDirty=true,skyDirty=true,noiseDirty=true,volumesReady=false;
-    bool hasEnvironment=false,environmentBlending=false,needsCapture=true;
+    bool hasEnvironment=false,hasDisplayedPalette=false,environmentBlending=false,needsCapture=true;
     bool liveSkyReady=false,visibleCloudValid=false;
     bool allocatedPhysical=false,allocatedClouds=false,allocatedMedia=false;
     unsigned frame=0;
     double time=0.0,environmentElapsed=0.0,blendElapsed=1.0;
+    glm::dvec2 cloudDisplacement{0.0};
     float blendDuration=0.0f,lastSkyAltitude=std::numeric_limits<float>::infinity();
     AtmospherePalette lastBakedPalette, lastSkyPalette, lastRequestedPalette, displayedPalette, fromPalette, targetPalette;
     glm::vec3 lastBakedCamera{0};
@@ -313,6 +314,13 @@ struct Atmosphere::Impl
 
     bool cloudsEnabled() const
     { return config.clouds && config.cloudCoverage>0.0f && config.cloudDensity>0.0f; }
+    const AtmospherePalette& capturePalette() const
+    {
+        // Until the first complete IBL is ready, the live sky and every
+        // restarted capture use the same visible palette. Pending targets
+        // remain in transition.accepted(), without advancing out of view.
+        return hasEnvironment?transition.displayed():displayedPalette;
+    }
     bool mediumEnabled() const
     { return config.physicalAtmosphere || cloudsEnabled() || (config.localFog && (config.fogDensity>0 || !gameFogPath.empty())); }
     GLuint createTexture(GLenum target,GLenum format,int width,int height,int depth=1,int levels=1)
@@ -572,7 +580,7 @@ struct Atmosphere::Impl
             config.sunDiskColor,config.sunDiskIntensity,config.sunAngularRadius);
         lightParameters(moon,gpu.moonDirection,gpu.moonRadiance,gpu.moonDisk,config.moonIlluminanceScale,
             config.moonDiskColor,config.moonDiskIntensity,config.moonAngularRadius);
-        const auto& palette=transition.displayed();
+        const auto& palette=capturePalette();
         gpu.horizon={palette.horizon,palette.strength};
         gpu.middle={palette.middle,palette.middleElevation};
         gpu.zenith={palette.zenith,palette.gradientPower};
@@ -586,14 +594,14 @@ struct Atmosphere::Impl
         gpu.cloudLayer={config.cloudBaseHeight,std::max(1.0f,config.cloudThickness),
             std::clamp(config.cloudCoverage,0.0f,1.0f),std::max(0.0f,config.cloudDensity)};
         gpu.cloudShape={std::max(100.0f,config.cloudScale),1.0f/std::max(.01f,config.cloudDetailScale),.28f,.65f};
-        gpu.cloudWind={config.wind.x,config.wind.y,std::max(config.aerialDistance,1024.0f),0};
+        gpu.cloudOffset={float(cloudDisplacement.x),float(cloudDisplacement.y),std::max(config.aerialDistance,1024.0f),0};
         gpu.cloudWeather={std::max(100.0f,config.cloudWeatherScale),std::clamp(config.cloudWeatherStrength,0.0f,1.0f),
             std::clamp(config.cloudWeatherContrast,.05f,8.0f),std::clamp(config.cloudProfileVariation,0.0f,1.0f)};
         glm::vec3 profiles=glm::max(config.cloudProfileMix,glm::vec3(0));
         const float total=profiles.x+profiles.y+profiles.z;
         profiles=total>1e-6f?profiles/total:glm::vec3(.25f,.5f,.25f);
         gpu.cloudProfiles={profiles,0};
-        const float shadowTexel=2.0f*gpu.cloudWind.z/static_cast<float>(budget.shadow);
+        const float shadowTexel=2.0f*gpu.cloudOffset.z/static_cast<float>(budget.shadow);
         gpu.shadowOrigin={std::floor(gpu.camera.x/shadowTexel)*shadowTexel,
             std::floor(gpu.camera.z/shadowTexel)*shadowTexel,0,0};
         gpu.shadow={sun?sun->getShadowIndex():-1,moon?moon->getShadowIndex():-1,0,0};
@@ -673,7 +681,7 @@ struct Atmosphere::Impl
     void startCapture(const AtmosphereGpuParameters& candidate)
     {
         capture.active=true; capture.budget=budget; capture.parameters=candidate;
-        capture.palette=transition.displayed(); capture.revision=statistics.requestedEnvironmentRevision;
+        capture.palette=capturePalette(); capture.revision=statistics.requestedEnvironmentRevision;
         capture.tile=8*std::clamp(config.iblTileSize/8,1,8);
         capture.cursor=0; capture.work.clear();
         capture.work.push_back({SnapshotWork});
@@ -709,6 +717,11 @@ struct Atmosphere::Impl
             copySet(environments[1],environments[0]); copySet(environments[1],environments[2]);
             hasEnvironment=true; environmentBlending=false;
             displayedPalette=fromPalette=targetPalette;
+            // The first capture may span many frames and several climate
+            // requests. Start their fade only now, from the still-visible
+            // initial state, toward the most recent accepted target.
+            const auto pending=transition.accepted();
+            transition.target(pending,0,config.transitionSeconds,true,&displayedPalette);
         }
         else
         {
@@ -841,7 +854,7 @@ const AtmosphereSettings& Atmosphere::settings() const { return m->config; }
 const AtmosphereStats& Atmosphere::stats() const { return m->statistics; }
 const std::string& Atmosphere::error() const { return m->failure; }
 bool Atmosphere::active() const { return m->config.enabled && m->ready && (m->hasEnvironment || m->liveSkyReady); }
-const AtmospherePalette& Atmosphere::displayedPalette() const { return m->hasEnvironment?m->displayedPalette:m->transition.displayed(); }
+const AtmospherePalette& Atmosphere::displayedPalette() const { return m->hasDisplayedPalette?m->displayedPalette:m->transition.displayed(); }
 void Atmosphere::setPaletteTarget(const AtmospherePalette& value,bool force)
 {
     AtmospherePalette p=value;
@@ -856,7 +869,7 @@ void Atmosphere::setPaletteTarget(const AtmospherePalette& value,bool force)
     p.gradientPower=std::isfinite(p.gradientPower)?std::clamp(p.gradientPower,.05f,8.0f):1.0f;
     p.strength=std::isfinite(p.strength)?std::clamp(p.strength,0.0f,1.0f):.35f;
     p.exposure=std::isfinite(p.exposure)?std::clamp(p.exposure,0.0f,64.0f):1.0f;
-    if(m->transition.target(p,m->config.paletteThreshold,m->config.transitionSeconds,force,m->hasEnvironment?&m->displayedPalette:nullptr)) m->dirty=true;
+    if(m->transition.target(p,m->config.paletteThreshold,m->config.transitionSeconds,force,m->hasDisplayedPalette?&m->displayedPalette:nullptr)) m->dirty=true;
 }
 void Atmosphere::reloadShaders() { m->programsDirty=true; m->dirty=true; }
 void Atmosphere::invalidate() { m->dirty=m->physicalDirty=m->multipleDirty=m->skyDirty=m->noiseDirty=true; m->volumesReady=false; m->cloudShadowValid=false; }
@@ -915,8 +928,23 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
     m->statistics.iblSubmittedMilliseconds=0;
     const double dt=std::isfinite(deltaSeconds)?std::max(deltaSeconds,0.0):0.0;
     m->time+=dt; m->environmentElapsed+=dt; m->blendElapsed+=dt;
+    // Integrate velocity, not velocity times the total clock: editing or
+    // stopping the wind must preserve the current cloud/weather formation.
+    // Keep CPU precision between frames; a capture copies the uploaded offset
+    // by value along with its other frozen parameters and shadow map.
+    for(int axis=0;axis<2;++axis)
+    {
+        const double velocity=std::isfinite(m->config.wind[axis])
+            ?std::clamp(m->config.wind[axis],-1000.0f,1000.0f):0.0;
+        m->cloudDisplacement[axis]+=velocity*dt;
+    }
     if(!m->transition.initialized()) m->transition.target(AtmospherePalette{},0,0);
-    m->transition.advance(dt);
+    if(!m->hasDisplayedPalette)
+    {
+        m->displayedPalette=m->transition.displayed();
+        m->hasDisplayedPalette=true;
+    }
+    if(m->hasEnvironment) m->transition.advance(dt);
     if(m->programsDirty)
     {
         m->cancelCapture();
@@ -953,13 +981,12 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
     if(std::abs(m->gpu.camera.y-m->lastBakedCamera.y)>=std::max(.01f,m->config.altitudeUpdateThreshold) ||
        (m->cloudsEnabled() && glm::dot(cloudMotion,cloudMotion)>=std::pow(std::max(.01f,m->config.movementThreshold),2.0f)))
     { m->dirty=true; m->lastBakedCamera=glm::vec3(m->gpu.camera); }
-    if(atmospherePaletteDifference(m->transition.displayed(),m->lastRequestedPalette)>=std::max(.000001f,m->config.environmentThreshold))
-    { m->dirty=true; m->lastRequestedPalette=m->transition.displayed(); }
+    if(atmospherePaletteDifference(m->capturePalette(),m->lastRequestedPalette)>=std::max(.000001f,m->config.environmentThreshold))
+    { m->dirty=true; m->lastRequestedPalette=m->capturePalette(); }
     if(m->gpu.misc.x!=old.misc.x) m->noiseDirty=m->dirty=true;
-    if(std::memcmp(&m->gpu.cloudLayer,&old.cloudLayer,3*sizeof(glm::vec4))!=0 ||
+    if(std::memcmp(&m->gpu.cloudLayer,&old.cloudLayer,2*sizeof(glm::vec4))!=0 || m->gpu.cloudOffset.z!=old.cloudOffset.z ||
         m->gpu.cloudWeather!=old.cloudWeather || m->gpu.cloudProfiles!=old.cloudProfiles || m->gpu.control.z!=old.control.z)
         m->dirty=true;
-    const bool animatedClouds=m->cloudsEnabled() && glm::length(m->config.wind)>0;
     m->upload();
     if(m->physicalPrograms)
     {
@@ -986,7 +1013,7 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
         }
         m->multipleDirty=false;
         const auto& oldShadow=m->lastCloudShadowParameters;
-        const bool cloudShadowChanged=!m->cloudShadowValid || animatedClouds ||
+        const bool cloudShadowChanged=!m->cloudShadowValid ||
             m->gpu.sunDirection!=oldShadow.sunDirection || m->gpu.moonDirection!=oldShadow.moonDirection ||
             m->gpu.misc.x!=oldShadow.misc.x || m->gpu.cloudWeather!=oldShadow.cloudWeather ||
             m->gpu.cloudProfiles!=oldShadow.cloudProfiles ||
@@ -1001,7 +1028,9 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
     }
     // Coalesce newer input while a job runs; never restart on camera motion or
     // wind. A complete older capture is published, then the latest is queued.
-    if((animatedClouds || !m->radiancePath.empty()) && !m->capture.active &&
+    const bool cloudDisplacementChanged=m->cloudsEnabled() &&
+        glm::vec2(m->gpu.cloudOffset)!=glm::vec2(m->capture.parameters.cloudOffset);
+    if((cloudDisplacementChanged || !m->radiancePath.empty()) && !m->capture.active &&
         m->environmentElapsed>=std::max(0.0f,m->config.environmentInterval)) m->dirty=true;
     if(m->dirty)
     {
@@ -1012,7 +1041,7 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
     m->previous=candidate;
     // The current camera view is independent of the IBL capture clock. Only
     // its artistic state follows the actually published palette/blend.
-    const auto& displayed=m->hasEnvironment?m->displayedPalette:m->transition.displayed();
+    const auto& displayed=m->displayedPalette;
     m->gpu.horizon={displayed.horizon,displayed.strength};
     m->gpu.middle={displayed.middle,displayed.middleElevation};
     m->gpu.zenith={displayed.zenith,displayed.gradientPower}; m->gpu.art.x=displayed.exposure;
@@ -1029,7 +1058,7 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
         }
         auto viewKey=m->gpu;
         viewKey.misc.y=0;
-        if(!animatedClouds && m->radiancePath.empty()) viewKey.camera.w=0;
+        if(m->radiancePath.empty()) viewKey.camera.w=0;
         if(m->cloudsEnabled() && (!m->visibleCloudValid || std::memcmp(&viewKey,&m->lastVisibleCloudParameters,sizeof(viewKey))!=0))
         {
             m->begin(CloudTime); m->commonTextures(); glUseProgram(m->programs[VisibleClouds]);
@@ -1068,17 +1097,17 @@ void Atmosphere::computeVolumes(Camera* camera)
     m->gpu.shadow.z=static_cast<int>(lights->getFrameShadowBuffer().size());
     auto volumeKey=m->gpu;
     volumeKey.camera.w=0; volumeKey.misc.y=0;
+    if(!m->cloudsEnabled()) volumeKey.cloudOffset.x=volumeKey.cloudOffset.y=0;
     if(!m->mediumEnabled())
     {
         // The one-voxel identities allocated on the toggle need no compute.
         m->lastVolumeParameters=volumeKey; m->volumesReady=true; return;
     }
     const bool dynamicShadows=m->config.godRays && (m->gpu.shadow.x>=0 || m->gpu.shadow.y>=0);
-    const bool animatedClouds=m->cloudsEnabled() && glm::length(m->config.wind)>0;
     // A game hook may animate independently or replace its world atlas, and
     // moving shadow casters have no scene revision counter: conservatively update.
     const bool unknownGameMedium=m->config.localFog && (!m->gameFogPath.empty() || bool(m->bindGameFog));
-    if(m->volumesReady && !dynamicShadows && !animatedClouds && !unknownGameMedium && m->radiancePath.empty() &&
+    if(m->volumesReady && !dynamicShadows && !unknownGameMedium && m->radiancePath.empty() &&
         std::memcmp(&volumeKey,&m->lastVolumeParameters,sizeof(volumeKey))==0) return;
     m->upload(); m->commonTextures(); textureUnit(4,shadowTexture);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,lights->getSsboShadow());
@@ -1143,6 +1172,8 @@ void Atmosphere::release()
     if(m->vao) glDeleteVertexArrays(1,&m->vao);
     for(auto& entry:m->timers) if(entry.query) glDeleteQueries(1,&entry.query);
     m->parameters=m->vao=0; m->timers={}; m->ready=false;
+    // Resource recreation retains the simulation clock, integrated cloud
+    // displacement and last visible palette. A new Atmosphere starts afresh.
     m->programsDirty=true; m->bindGameFog={}; m->pc=nullptr; m->graphics=nullptr;
 }
 }

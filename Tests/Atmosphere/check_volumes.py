@@ -153,7 +153,9 @@ def check_volumes(gl):
     assert all(0<=v<=1 for v in cloud_shadow) and min(cloud_shadow[::2])<.9,"Clouds did not attenuate sunlight"
     assert all(v==1 for v in cloud_shadow[1::2]),"Unassigned secondary source has non-identity cloud transmission"
     assert all(a<=b+.001 for a,b in zip(rgb(cloud_t),rgb(t))),"Cloud addition reduced extinction"
+    # The engine integrates velocity; shaders consume its current displacement.
     f.parameters.values["Camera"][3]=97
+    f.parameters.set("CloudOffset",30*97,5*97,20000,0)
     f.volumes()
     later_e=gl.texels(f.coefficients[3],f.size,target=TEXTURE_3D,channels=1)
     assert max(abs(a-b) for a,b in zip(cloud_e,later_e))>1e-5,"Cloud animation stopped with stationary camera"

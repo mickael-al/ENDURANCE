@@ -28,7 +28,7 @@ layout(std140, binding=6) uniform GeAtmosphereParameters
     vec4 geAtmFogNoise;       // reserved; structured game fog is provided by geGameFog
     vec4 geAtmCloudLayer;     // bottom altitude, thickness, coverage, extinction density
     vec4 geAtmCloudShape;     // shape scale metres, detail frequency multiplier, erosion, phase g
-    vec4 geAtmCloudWind;      // wind X, wind Z, shadow map half extent, reserved
+    vec4 geAtmCloudOffset;    // accumulated displacement X,Z metres, shadow map half extent, reserved
     vec4 geAtmShadowOrigin;   // cloud shadow world centre X,Z, reserved, reserved
     ivec4 geAtmShadow;        // sun shadow first layer, moon first layer, total shadow layers, reserved
     ivec4 geAtmQuality;       // sky steps, transmittance steps, multiple-scatter directions, MS steps

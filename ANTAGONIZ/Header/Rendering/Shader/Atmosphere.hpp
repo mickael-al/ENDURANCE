@@ -74,7 +74,7 @@ namespace Ge
         float cloudWeatherContrast=1.4f;
         float cloudProfileVariation=0.7f;
         glm::vec3 cloudProfileMix{0.25f,0.5f,0.25f}; // stratus, cumulus, towers
-        glm::vec2 wind{12.0f,4.0f};
+        glm::vec2 wind{12.0f,4.0f}; // m/s XZ; integrated at render time, stopping preserves position
         std::uint32_t cloudSeed=1337;
         // Zero selects the preset. Explicit overrides are clamped on upload.
         int cubemapSize=0, irradianceSize=0, prefilterSize=0;

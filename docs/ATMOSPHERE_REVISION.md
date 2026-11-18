@@ -15,6 +15,27 @@ La validation GPU de jeu et celle de l’editeur restent distinctes des tests nu
 | 6. Cout des effets desactives | Les passes inutiles sont ignorees ; des ressources neutres de taille 1 × 1 × 1 remplacent les volumes de coefficients desactives. L’extinction nuageuse utilise un canal R32F. | Identites de composition preservees avec chaque effet desactive, pas de lecture de ressources non initialisees ; allocations et dispatches reduits. |
 | 7. Formes et ouvertures des nuages | Une modulation meteorologique a grande echelle controle la couverture et les ouvertures ; trois profils verticaux proposent stratus, cumulus et tours. Reglages exposes dans ImGui et sauvegardes. | Presence d’ouvertures coherentes, profils visiblement distincts et aller-retour des nouveaux reglages de scene. |
 
+## Complements de continuite
+
+Deux corrections supplementaires apres l’audit de `eb84b0f` sont integrees,
+relues et couvertes par les regressions dediees ci-dessous.
+
+- **Premiere capture et palette visible** : la palette affichee reste fixe
+  jusqu’a la premiere publication complete. Les cibles acceptees pendant la
+  capture sont memorisees, puis le fondu reprend depuis l’etat publie vers la
+  derniere cible. La duree nulle et une premiere capture annulee/recreee ne
+  doivent pas provoquer un aller-retour vers une ancienne couleur.
+- **Continuite du vent des nuages** : la vitesse XZ est integree en double
+  precision. Un deplacement commun alimente meteo, densite, details et
+  ombres ; chaque capture en conserve sa propre valeur figee. Changer ou
+  stopper le vent conserve la formation a sa position courante. Une derniere
+  mise a jour IBL reste possible apres l’arret pour rejoindre cette position.
+
+Une recreation des ressources GPU du meme service conserve l’horloge,
+le deplacement et la derniere palette affichee. Le redemarrage de sa capture
+reprend depuis cet etat. Un nouvel objet `Atmosphere` commence a zero ; les
+reglages de scene sauvegardent la vitesse, pas cet etat d’execution.
+
 ## Brouillard du jeu : implementation et contrat
 
 `EnduranceAtmosphereComponent::fogWind` contient le vent XYZ, avec une valeur
@@ -44,10 +65,12 @@ aucune reconstruction de l’atlas climatique.
 | `python3 Tests/Atmosphere/check_game_climate.py` | **PASS** : vrai hook du jeu, animation a position fixe, transport de structure, modes absent/lisse et profil Y conserves, atlas fixe et biome sec restant sec. |
 | `python3 Tests/Atmosphere/check_game_component.py` | **PASS avec l’ordonnanceur multi-images** : sources C++ du composant et du moteur compilees sans modification, vrais uniforms/atlas/transmission, JSON, integration temporelle et reintegration du hook anime avec parametres moteur inchanges. |
 | Syntaxe C++17 avec les vrais en-tetes du projet | **PASS** : Atmosphere.cpp, AtmosphereSettings.cpp et EnduranceAtmosphere.cpp. |
-| `python3 Tests/Atmosphere/check_revision.py` | **PASS** : ombres conservees dans le ciel compose, milieu vide neutre au soleil rasant, loi analytique en milieu homogene, couverture regionale/profils, vrai ciel courant independant du cube IBL. |
+| `python3 Tests/Atmosphere/check_revision.py` | **PASS** : ombres conservees dans le ciel compose, milieu vide neutre au soleil rasant, loi analytique en milieu homogene, couverture regionale/profils, vrai ciel courant independant du cube IBL, deplacement commun meteo/densite/ombres independant de l’horloge. |
 | Ordonnanceur C++ : cas de capture, budget, ressources et publication | **PASS** : snapshots stables, aucune publication partielle, revisions regroupees, mouvement continu sans famine, resize/reload conservant le dernier complet, cible temporelle influencant la soumission et plafond strict. |
 | Suite consolidee `python3 Tests/Atmosphere/run_all.py` | **PASS : les 12 groupes**, le 18 novembre 2026, apres integration de tous les correctifs. |
 | Interfaces generiques supplementaires | **PASS** : cubemap externe visible au demarrage, IBL precedente conservee jusqu’a publication, fog anime par le temps sans callback. |
+| Palette pendant la premiere capture, physique active et duree nulle | **PASS** : API, UBO et pixels HDR stables avant publication ; deux cibles successives pendant la capture ; aucune marche arriere et convergence vers la derniere cible. Cas physique avec fondu, gradient avec fondu, physique avec duree nulle. |
+| Offset nuageux commun et changement/arret de vent | **PASS** : arret, changement de direction et reprise a 137 s, images de densite/vue/ombres sans saut, IBL au deplacement fige, publication de la position finale, precision double et cache aerien sans nuages. Le contrat de recreation GPU a egalement ete relu. |
 | Verification visuelle dans l’editeur et mesures sur GPU cible | A effectuer sur la machine de jeu. |
 
 Le test du composant attend `stats().environmentReady` pendant au plus 300

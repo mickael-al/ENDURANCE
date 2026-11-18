@@ -151,6 +151,22 @@ d’arrivee fixes. Elle progresse lorsque la camera s’arrete et lorsque les
 comportements de jeu sont suspendus par la pause de l’editeur. La preparation
 s’effectue apres la mise a jour de la camera active.
 
+Au premier demarrage, la palette artistique affichee reste fixe pendant la
+construction de la premiere capture IBL. Les nouvelles cibles continuent
+d’etre acceptees selon le seuil, mais leur fondu ne progresse pas en arriere-plan.
+La premiere publication reprend donc exactement cette palette visible, puis
+le fondu part de cet etat vers la derniere cible acceptee. Une duree nulle
+reste autorisee ; elle ne libere pas la palette pendant la premiere capture.
+Annuler cette capture pour un changement de qualite ou un rechargement de
+shader conserve le meme etat visible jusqu’a une publication complete.
+
+La liberation puis recreation des ressources GPU du meme service conserve
+son horloge, le deplacement cumule des nuages et sa derniere palette affichee.
+La premiere capture recreee repart de cette palette avant de reprendre une
+eventuelle cible en attente. Un nouvel objet `Atmosphere` commence avec un
+deplacement nul. Cette continuite en memoire ne constitue pas une sauvegarde
+du temps ou du deplacement dans le JSON de scene.
+
 Les dependances physiques sont distinctes des changements de palette :
 
 | Ressource | Principales dependances |
@@ -159,10 +175,10 @@ Les dependances physiques sont distinctes des changements de palette :
 | Diffusion multiple | Atmosphere et albedo du sol ; indexee par altitude et angle solaire. |
 | SkyView | Altitude camera, directions/couleurs des sources, parametres physiques et correction artistique. La rotation de la camera ne change pas un ciel couvrant toutes les directions. |
 | Environnement HDR et IBL | Ciel, palette, sources, nuages/vent/meteo, source externe et sa revision ; etat fige pour toute la transaction. |
-| Nuages visibles | Camera et matrices courantes, temps/vent, sources, meteo et palette affichee ; cadence independante de l’IBL. |
+| Nuages visibles | Camera et matrices courantes, deplacement de vent integre, sources, meteo et palette affichee ; cadence independante de l’IBL. |
 | Volumes vus par la camera | Matrices de vue/projection, altitude/position, distance, ombres courantes, atmosphere et milieux locaux. |
 | Bruit volumetrique des nuages | Seed et configuration de la texture procedurale. Le vent deplace l’echantillonnage, pas la texture generee. |
-| Ombres des nuages | Couche nuageuse, couverture/densite, vent/temps, sources et domaine spatial. |
+| Ombres des nuages | Couche nuageuse, couverture/densite, meme deplacement integre que la densite, sources et domaine spatial. |
 | Atlas de brouillard ENDURANCE | Seed, parametres de rivage, palettes/proprietes des milieux et deplacement hors de la zone de garde. |
 
 Les nuages et leurs ombres continuent d’evoluer avec le temps lorsque la camera
@@ -330,6 +346,20 @@ seed et ses mipmaps. `cloudWeatherScale`, `cloudWeatherStrength` et
 regionales. `cloudProfileMix` melange stratus, cumulus et tours ;
 `cloudProfileVariation` permet de faire varier ce melange dans le monde.
 Les controles sont exposes dans ImGui et serialises avec les reglages moteur.
+
+Le vent nuageux est une vitesse XZ en metres par seconde. Le service integre
+cette vitesse en double precision, puis fournit un seul deplacement en
+metres dans le bloc uniforme commun. La meteo regionale, les grandes formes,
+les details, l’auto-ombrage et la carte d’ombres echantillonnent tous ce meme
+domaine deplace. Modifier la vitesse ou l’inverser ne repositionne pas la
+formation courante ; un vent nul la conserve a sa derniere position.
+
+Chaque capture IBL fige ce deplacement avec ses autres parametres et ses
+textures, pendant que la vue courante continue d’utiliser la position actuelle.
+Si le vent s’arrete pendant la capture, une actualisation ulterieure peut
+encore etre necessaire pour publier la position finale. Les caches suivent
+le deplacement effectivement utilise. Lorsque les nuages sont desactives,
+leur deplacement ne provoque pas de nouveau calcul des volumes statiques.
 
 La vue courante ajoute du travail par image : en Ultra, 320 × 180 pixels,
 40 pas primaires et 8 pas vers une source representent jusqu’a 18,4 millions

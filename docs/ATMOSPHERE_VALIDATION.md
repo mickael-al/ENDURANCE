@@ -1,8 +1,13 @@
 # Validation du ciel et de l'atmosphère
 
 La passe de correction du 18 novembre 2026 passe les **12 groupes** de la
-suite consolidee. Le harnais C++ du service comprend **14 groupes internes**,
+suite consolidee. Le harnais C++ du service comprend **18 groupes internes**,
 en plus du test du vrai composant ENDURANCE.
+
+Les deux derniers correctifs de continuite sont inclus dans cette validation :
+palette visible maintenue pendant la premiere capture IBL et vent nuageux
+integre en deplacement. Les nouvelles regressions controlent aussi les
+images produites, au-dela des valeurs de l’API et du bloc uniforme.
 
 ## Tests reproductibles
 
@@ -90,6 +95,22 @@ L’ancien test qui injectait un mode generique de brouillard GLSL 2, non expose
 par le C++, a ete retire avec ce chemin inutilise. L’animation du brouillard
 est maintenant verifiee par les deux vrais chemins de jeu, shader et composant.
 
+### Complements de continuite : resultats
+
+| Cas dedie | Contrat verifie par la nouvelle regression | Etat |
+| --- | --- | --- |
+| Premiere capture IBL | Palette visible fixe, deux cibles acceptees pendant la capture, reprise depuis la premiere publication sans marche arriere et convergence vers la derniere cible. | **PASS** : physique avec fondu, gradient avec fondu, physique avec duree nulle ; API, UBO et pixels HDR. |
+| Vent nuageux integre | Meme deplacement pour meteo/densite/ombres, changement et arret de vitesse sans saut, valeur figee pour une capture, convergence IBL vers la position finale apres arret. | **PASS** : arret et reprise a 137 s, nouvelle direction, champs GPU reels, reference IBL figee, residu de 0,125 m apres un aller-retour de 2^24 m. |
+| Caches et cycle de vie | Le vent ne doit pas recalculer les volumes statiques lorsque les nuages sont desactives. | **PASS** : compteur aerialDispatches inchange ; regression existante release/restart toujours valide. La conservation de l’horloge, du deplacement et de la palette lors de recreation GPU est un contrat relu dans le code. |
+
+Les fixtures GLSL fournissent un deplacement deja integre ; le test C++
+verifie l’integration reelle des vitesses par le service. A deplacement fixe,
+changer uniquement l’horloge a 137 s puis 1 000 000 s laisse meteo, densite
+et cartes d’ombres soleil/lune identiques. Deplacer observations et centre
+de carte du meme vecteur retrouve les champs initiaux, ce qui verifie leur
+transport commun. Les lectures GPU utilisees pour ces assertions sont
+limitees aux tests et ne sont pas ajoutees au pipeline de production.
+
 ## Exécution dans l'environnement de développement
 
 Première exécution : 18 novembre 2026, Linux, OpenGL 4.5 Core, Mesa
@@ -131,6 +152,9 @@ l'éditeur. Ne pas déduire son succès des tests de compilation.
 
 1. Traverser une frontière climatique lentement, puis rapidement ; s'arrêter
    pendant le fondu. Changer à nouveau de cible avant la fin de la transition.
+   Au premier demarrage, ralentir volontairement la capture IBL et changer de
+   cible avant sa publication. Controler la palette avec atmosphere physique
+   active, puis avec une duree de transition nulle.
 2. Monter de la plaine au-dessus de la couche de nuages ; comparer l'horizon,
    les montagnes proches et lointaines, puis redescendre.
 3. Observer des matériaux mats et métalliques avec plusieurs rugosités ;
@@ -161,7 +185,11 @@ l'éditeur. Ne pas déduire son succès des tests de compilation.
 11. Modifier le vent du brouillard, le mettre a zero, puis recharger la scene.
     La nappe climatique doit rester au meme endroit et le bruit ne doit pas
     sauter lors du changement de vitesse.
-12. Mesurer séparément LUT, ciel, IBL, perspective aérienne, brouillard et
+12. Modifier puis inverser le vent des nuages, enfin le mettre a zero. La
+    formation et ses ombres doivent conserver leur position au changement de
+    vitesse. Conserver une capture lente pendant l’arret et verifier qu’elle
+    converge ensuite vers la derniere position affichee.
+13. Mesurer séparément LUT, ciel, IBL, perspective aérienne, brouillard et
    nuages avec les compteurs ImGui, après compilation et réchauffement.
    Relever résolution d'écran, matériel, préréglage et budgets personnalisés.
 

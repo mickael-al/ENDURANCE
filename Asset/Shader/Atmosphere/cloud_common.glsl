@@ -46,7 +46,7 @@ vec2 geAtmCloudWeatherAt(vec3 worldPosition,float footprint)
     if(geAtmCloudWeather.y<=0.0 && geAtmCloudWeather.w<=0.0)
         return vec2(globalCoverage,0.5);
     float scale=max(geAtmCloudWeather.x,100.0);
-    vec2 uv=(worldPosition.xz-geAtmCloudWind.xy*geAtmCamera.w)/scale;
+    vec2 uv=(worldPosition.xz-geAtmCloudOffset.xy)/scale;
     float texels=max(footprint,0.0)*float(textureSize(geAtmCloudNoise,0).x)/scale;
     float lod=clamp(log2(max(texels,1.0)),0.0,float(max(textureQueryLevels(geAtmCloudNoise)-1,0)));
     vec4 weather=textureLod(geAtmCloudNoise,vec3(uv.x,0.371,uv.y),lod);
@@ -82,8 +82,10 @@ float geAtmCloudDensityAtFootprint(vec3 worldPosition,float footprint)
     if(height<=0.0 || height>=1.0) return 0.0;
     vec2 weather=geAtmCloudWeatherAt(worldPosition,footprint);
     if(weather.x<=0.0) return 0.0;
-    vec3 wind=vec3(geAtmCloudWind.x,0.0,geAtmCloudWind.y)*geAtmCamera.w;
-    vec3 p=(worldPosition-wind)/max(geAtmCloudShape.x,1.0);
+    // The CPU integrates velocity changes into a continuous displacement.
+    // Weather, shape and all shadow rays sample the same advected domain.
+    vec3 offset=vec3(geAtmCloudOffset.x,0.0,geAtmCloudOffset.y);
+    vec3 p=(worldPosition-offset)/max(geAtmCloudShape.x,1.0);
     float texels=max(footprint,0.0)*float(textureSize(geAtmCloudNoise,0).x)/max(geAtmCloudShape.x,1.0);
     float lastLevel=float(max(textureQueryLevels(geAtmCloudNoise)-1,0));
     float lod=clamp(log2(max(texels,1.0)),0.0,lastLevel);
@@ -135,7 +137,7 @@ float geAtmCloudVisibility(vec3 position,vec3 sourceDirection,bool secondary)
     // Regularized projection remains finite at exactly horizontal light.
     float distance=(geAtmCloudShadowHeight(sourceDirection)-position.y)*y/(y*y+0.002*0.002);
     vec2 anchor=position.xz+sourceDirection.xz*distance;
-    vec2 uv=(anchor-geAtmShadowOrigin.xy)/(2.0*max(geAtmCloudWind.z,1.0))+0.5;
+    vec2 uv=(anchor-geAtmShadowOrigin.xy)/(2.0*max(geAtmCloudOffset.z,1.0))+0.5;
     if(any(lessThan(uv,vec2(0.0))) || any(greaterThan(uv,vec2(1.0)))) return 1.0;
     vec2 values=textureLod(geAtmCloudShadow,uv,0.0).rg;
     float whole=clamp(secondary ? values.g : values.r,0.0001,1.0);
