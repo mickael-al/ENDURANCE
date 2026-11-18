@@ -23,7 +23,7 @@ namespace Ge
         bool physicalAtmosphere=true;
         bool localFog=true;
         bool godRays=true;
-        bool clouds=false;
+        bool clouds=true;
         bool measureGpu=true;
         bool fallbackToFirstDirectional=true;
         float movementThreshold=0.1f;

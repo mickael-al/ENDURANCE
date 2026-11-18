@@ -1,31 +1,64 @@
 # Ciel et atmosphère — état de reprise
 
-## Base de travail
+## État actuel
 
-- Branche d'intégration : `feature/atmosphere-biome-sky`.
-- Base utilisateur : `feature/terrain-noise-library`, commit GitHub `2ab58174c1a33f8b1b795b466075fd618424e933`.
-- Arbre de base vérifié : `bc47314734e8bfd1b3f915e53b6a08b4e9d99238`. La copie locale initiale porte le même arbre sous le commit `a14d15c`.
-- Ne pas repartir de `master` : la bibliothèque Noise, les recettes récentes et les réglages volcaniques sont sur la branche de développement.
+Les cinq paliers fonctionnels sont implémentés. La branche d'intégration est
+`feature/atmosphere-biome-sky`, issue de `feature/terrain-noise-library`
+(commit GitHub de base `2ab58174c1a33f8b1b795b466075fd618424e933`, arbre
+`bc47314734e8bfd1b3f915e53b6a08b4e9d99238`). Ne pas repartir de l'ancien `master`.
 
-## Étapes
+1. **Palettes et interfaces** : 25 biomes et Marine, JSON linéaire HDR, état de transition indépendant du framerate, API moteur sans identifiants de biomes.
+2. **Ciel et IBL** : ensembles HDR complets, irradiance E/pi, préfiltrage GGX, BRDF conservée, fondu partagé avec reprise de l'état affiché et disques analytiques à la résolution d'écran.
+3. **Atmosphère** : transmittance, diffusion multiple approximée, SkyView, coefficients volumétriques et perspective aérienne à la profondeur propre des opaques/transparents.
+4. **Brouillard et rayons** : atlas climatique mondial, milieux lisses/bruités/absents, ombres de terrain, marge de casters et biais exprimé en mètres ; ancien fog suspendu.
+5. **Nuages et optimisation** : Perlin–Worley périodique, ombres solaires/lunaires, vent, mipmaps du bruit, profils Low/Medium/High/**Ultra par défaut**, budgets et mesures GPU séparées.
 
-1. **Palettes et interfaces** : matrice des 25 biomes et fond marin, données JSON linéaires, interface moteur sans noms de biomes, transition indépendante du framerate. Implémenté.
-2. **Ciel et IBL** : cubemaps HDR cohérentes, irradiance, préfiltrage GGX, BRDF partagée, sources explicites et état affiché commun. Implémenté ; ce palier affiche le gradient artistique, avec les milieux physiques désactivés par défaut.
-3. **Atmosphère** : LUT de transmittance et diffusion multiple, SkyView, perspective aérienne à la profondeur des fragments. Implémenté et activé. Transmittance et diffusion multiple ont des invalidations séparées. Le brouillard et les ombres volumétriques sont ajoutés au palier 4, puis les nuages au palier 5.
-4. **Brouillard et rayons** : atlas de propriétés spatiales GPU, brouillard lisse/bruité/absent, ombres terrain y compris hors écran dans les cascades, extinction et diffusion composées ensemble. Implémenté et activé ; les nuages restent désactivés dans ce palier.
-5. **Nuages et optimisation** : bruit Perlin–Worley, lumière atténuée, profils qualité Ultra par défaut, temps GPU séparés, validation. À intégrer.
+## Où reprendre
 
-## Décisions conservées
+- Ouvrir `ENDURANCE/Scene/Terrain.scene`, puis Play.
+- Inspecter `Procedural terrain` → `EnduranceAtmosphereComponent`.
+- Cette scène assigne le soleil d'index 0, laisse la lune absente et utilise une
+  portée atmosphérique de **49 152 m** ; sa génération de terrain existante est conservée.
+- Matrice : `ENDURANCE/Ressources/Atmosphere/biome_palettes.json`.
+- API et utilisation : `docs/ATMOSPHERE.md`.
+- Parcours de validation et preuves : `docs/ATMOSPHERE_VALIDATION.md`.
 
-- La recette climatique du terrain reste l'unique référence. Évaluation GPU du point caméra ; lecture CPU différée seulement après signalement d'une fence, sans attente.
-- Le climat complet coûte trop cher pour chaque pas volumétrique. Les propriétés locales du brouillard sont mises en cache sur une carte GPU en coordonnées mondiales ; interpolation spatiale documentée.
-- Les coefficients physiques, de brouillard et de nuages sont additionnés avant l'intégration. Les transparents échantillonnent la diffusion et la transmittance à leur propre profondeur.
-- Le disque direct reste visible ; l'IBL est filtrée sans ce disque pour éviter le double comptage avec les lumières directionnelles.
-- Pas d'accumulation temporelle dans cette première version : pas d'historique à réinitialiser lors des téléportations, des changements de seed ou des occultations.
+## Décisions à préserver
 
-## Validation à compléter
+Le classificateur climatique est partagé avec le terrain, vérifié identique
+sur 4 356 échantillons. Les résultats de palette passent par trois buffers et
+ne sont lus qu'après une fence signalée, sans attente. Le brouillard est
+échantillonné dans le monde ; son atlas réutilise la recette exacte aux nœuds
+puis interpole les propriétés entre eux. Il couvre les régions voisines.
 
-Palier 2 : transitions C++, classification climatique, HDR et filtrage IBL vérifiés par les tests dédiés. Les fonctions de support GLSL sont déjà présentes car le chargeur développe les includes avant le préprocesseur ; les passes physiques seront activées au palier suivant.
+Les références de seuil sont les derniers états effectivement acceptés ou
+calculés ; les captures animées des nuages ne réinitialisent pas le seuil de
+SkyView. Les publications font progresser l'ancien fondu avant de capturer une
+nouvelle cible. Le dépassement de la durée du fondu publie bien sa dernière image.
 
+Les extinctions et sources sont additionnées avant l'intégration. Les quatre
+volumes de coefficients sont en RGBA32F ; les sorties intégrées, les cubemaps et
+l'IBL sont en HDR. L'éclairage direct et l'IBL ne comptent pas deux fois les disques.
+La saturation de l'atmosphère visible est appliquée après la composition ; celle
+de l'IBL est indépendante. Les ombres utilisent la profondeur des vraies cascades,
+jamais une estimation à partir de la profondeur écran.
 
-Tests OpenGL réels possibles avec EGL/llvmpipe dans cet environnement. Les temps de ce rendu logiciel ne doivent pas être présentés comme des performances sur une carte graphique de jeu. Compilation C++ et essais visuels de la scène Windows restent à distinguer des tests isolés des shaders.
+## Validation et prochaine action
+
+Les tests CPU, shaders OpenGL et service C++ de production fonctionnent sur
+EGL/Mesa llvmpipe. Commande consolidée :
+
+```bash
+python3 Tests/Atmosphere/run_all.py
+```
+
+La vérification syntaxique porte sur les sept unités C++ modifiées, avec les
+vrais en-têtes. Le harnais runtime emploie les vrais shaders, cache, sérialisation
+et service atmosphérique, avec des objets caméra/lumière/éditeur de test.
+
+**À vérifier sur la machine de jeu** : compilation et lancement de l'éditeur
+Windows, apparence des silhouettes en déplacement rapide, ombres de grandes
+montagnes hors écran mais générées, reflets et transparents, sauvegarde/rechargement
+dans l'éditeur, et coût Ultra sur la carte graphique cible. Les tests logiciels ne
+remplacent pas cette validation visuelle et de performance. Le détail des budgets
+et des limites se trouve dans `ATMOSPHERE_VALIDATION.md`.

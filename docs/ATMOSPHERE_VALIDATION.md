@@ -1,0 +1,149 @@
+# Validation du ciel et de l'atmosphère
+
+## Tests reproductibles
+
+Depuis la racine du dépôt :
+
+```bash
+python3 Tests/Atmosphere/run_all.py
+```
+
+Ou, pour isoler une catégorie :
+
+```bash
+python3 Tests/Atmosphere/check_cpu.py
+python3 Tests/Atmosphere/check_shaders.py
+python3 Tests/Atmosphere/check_common.py
+python3 Tests/Atmosphere/check_luts.py
+python3 Tests/Atmosphere/check_ibl.py
+python3 Tests/Atmosphere/check_volumes.py
+python3 Tests/Atmosphere/check_sampling.py
+python3 Tests/Atmosphere/check_sky.py
+python3 Tests/Atmosphere/check_game_climate.py
+python3 Tests/Atmosphere/check_runtime.py
+```
+
+Le test CPU utilise le vrai `AtmosphereState.hpp`, C++17 et le GLM embarqué.
+Les tests GPU compilent et exécutent les vrais shaders GLSL, avec leurs includes,
+dans le contexte EGL sans fenêtre déjà employé par les tests du terrain.
+Ils n'ont besoin d'aucun paquet Python externe. OpenGL desktop 4.5 et EGL sont
+nécessaires ; une erreur de création du contexte est un échec de disponibilité,
+pas un succès silencieux.
+
+Le test d'intégration C++ lie les véritables `Atmosphere.cpp`,
+`AtmosphereSettings.cpp`, `ShaderCompilation.cpp` et `ShaderBinaryCache.cpp`
+dans une bibliothèque temporaire chargée dans le même contexte EGL. Seuls
+l'appartenance à l'éditeur et les objets caméra/lumière sont remplacés par
+de petits objets de test. Les matrices, les appels OpenGL, les compilations,
+les images, les textures et le code de publication sont ceux de production.
+Ce test demande également une bibliothèque GLEW 2.2 et un compilateur C++17 ;
+il réutilise les en-têtes embarqués dans `ThirdParty` et n'exige pas les
+en-têtes système EGL.
+
+Les textures de sortie sont préremplies de NaN. Les dimensions impaires
+exercent les groupes de calcul partiels. Les lectures GPU bloquantes servent
+exclusivement aux assertions des tests, jamais au chemin de rendu du jeu.
+
+## Vérifications automatisées
+
+| Test | Ce qu'il vérifie |
+| --- | --- |
+| `check_cpu.py` | Fondu interrompu depuis la couleur affichée ; convergence sans nouvel événement caméra ; référence du seuil conservée après les petits écarts ; changements de paramètres du gradient ; forçage et durée nulle ; valeurs HDR ; indépendance aux subdivisions du temps ; rejet des delta-times négatifs, infinis et NaN. |
+| `check_shaders.py` | Compilation et liaison des 14 programmes/variantes de production présents dans `Asset/Shader/Atmosphere`, avec leurs dépendances réelles, et des sept associations matériaux/vertex : deferred, forward, transparence, eau, géométrie skinned et cloth. |
+| `check_common.py` | Intégration homogène comparée à une solution analytique indépendante ; transmittance de Beer-Lambert ; limite sans extinction ; densités décroissant avec l'altitude ; radiance HDR ; conservation de l'obscurité par la correction artistique ; aller-retour de la projection du ciel ; masque du disque fini au centre, au bord et à l'extérieur, même avec un rayon de 1e-5 radian. |
+| `check_luts.py` | LUT intégralement écrites ; transmittance RGB dans `[0,1]` ; variation avec l'altitude, y compris depuis l'extérieur de l'atmosphère ; extinction doublée donnant `T²` ; vide donnant `T=1` ; absence de source donnant un ciel noir fini ; lune seule ; linéarité de l'irradiance ; SkyView affectée par l'altitude et indépendante de la rotation de la vue. |
+| `check_ibl.py` | Invariance d'une radiance constante HDR sous convolution diffuse et GGX ; six faces et tous les mips écrits ; élargissement d'une source angulaire par la rugosité ; fondu HDR exact ; disque visible exclu de la source IBL ; LUT BRDF bornée ; ciel HDR non modifié dans le G-buffer avant la composition finale. |
+| `check_volumes.py` | Volumes de coefficients RGBA32F et résultats RGBA16F écrits et finis ; intégration monotone ; vraie lecture d'une texture d'ombres de terrain, même sans nuages ; brouillard absorbant comparé à la solution analytique ; modes absent et bruité ; nuages déterministes selon la seed ; couverture nulle ; ombres de nuages ; vent continu à caméra immobile ; aucune source. |
+| `check_sampling.py` | Fonction de composition commune au deferred et aux transparents : profondeur propre du fragment, identité à distance nulle, borne au dernier plan du volume, composition du brouillard devant le ciel et désactivation complète. Saturation appliquée au ciel après composition de tous les milieux ; sur les objets, seule la diffusion est modifiée, sans changer la réflectance ni la transmittance spectrale. |
+| `check_sky.py` | Variante physique complète de génération des cubemaps : HDR, disque solaire, nuages visibles avec une couverture de 0,42, identité à couverture nulle, animation sans déplacement, IBL sans énergie directe du disque et absence de sources. |
+| `check_game_climate.py` | 26 palettes forcées, concordance des poids avec le terrain à des positions/seed connues, brouillard de jeu absent/lisse/bruité, altitude et ancrage de l'atlas dans le monde. |
+| `check_runtime.py` | Exécution du C++ de production : allocations, formats d'images, tailles de dispatch, six faces et cinq mips publiés, bindings matériaux sans programme courant, dessin HDR, invalidation séparée des LUT, fondu à faible framerate avec rebakes continus, parallaxe des nuages sans vent, sources optionnelles, désactivation/réactivation, timers asynchrones, destruction et redémarrage. Sérialisation JSON exacte avec HDR/vecteurs, rejet atomique des entrées invalides, personnalisation de radiance cohérente entre IBL et diffusion, conservation de l'état complet après échec de compilation, brouillard de jeu ajouté au milieu générique. |
+
+Les tests utilisent de petites résolutions et des budgets réduits pour vérifier
+les invariants. Ils ne remplacent pas les préréglages de qualité du moteur,
+dont la valeur initiale est **Ultra**.
+
+## Exécution dans l'environnement de développement
+
+Première exécution : 18 novembre 2026, Linux, OpenGL 4.5 Core, Mesa
+25.0.7, llvmpipe LLVM 19.1.7. Les programmes de production, dont la variante
+physique de génération de cubemap, ont été compilés puis exécutés par ces tests.
+Le journal de validation final de la branche doit préciser la compilation de
+l'éditeur et les observations qui demandent encore le matériel de jeu.
+
+Le renderer llvmpipe est logiciel. Ses durées ne prédisent pas les temps GPU
+sur la carte graphique de jeu et ne constituent pas un benchmark Ultra.
+L'environnement initial dispose de `g++` et de bibliothèques OpenGL/EGL,
+mais pas de CMake ou Ninja dans le `PATH`. Les contrôles autonomes n'exigent
+pas une reconstruction complète de l'éditeur.
+
+Les sept unités `Atmosphere.cpp`, `AtmosphereSettings.cpp`,
+`RenderingEngine.cpp`, `FrameBuffer.cpp`, `PostProcess.cpp`, `Lights.cpp` et
+`EnduranceAtmosphere.cpp` ont aussi passé `g++ -std=c++17 -fsyntax-only` avec
+les véritables en-têtes du moteur et les dépendances embarquées. Les options
+de cette vérification sont `GLEW_NO_GLU`, `GLFW_INCLUDE_NONE`,
+`ENDURANCE_ENABLE_NETWORK=0` et `ANTAGONIZ_UNIX`. Cette vérification porte
+sur l'intégration des déclarations et du code C++, sans constituer une
+liaison ni une exécution de l'éditeur complet.
+
+Un panorama de diagnostic peut être produit avec Pillow en option :
+
+```bash
+python3 Tests/Atmosphere/check_sky.py --preview /tmp/atmosphere_diagnostic.png
+```
+
+Il compare ciel clair, couverture de 0,42 et même météo après 137 secondes à
+position caméra constante. Il visualise les cubemaps réellement calculées ;
+il n'est pas une capture de l'éditeur, n'inclut pas le terrain et emploie de
+petits budgets, un disque agrandi pour le test et un tone mapping de diagnostic.
+
+## Parcours visuel à effectuer sur le GPU de jeu
+
+La validation visuelle porte sur le jeu rendu et demande une session de
+l'éditeur. Ne pas déduire son succès des tests de compilation.
+
+1. Traverser une frontière climatique lentement, puis rapidement ; s'arrêter
+   pendant le fondu. Changer à nouveau de cible avant la fin de la transition.
+2. Monter de la plaine au-dessus de la couche de nuages ; comparer l'horizon,
+   les montagnes proches et lointaines, puis redescendre.
+3. Observer des matériaux mats et métalliques avec plusieurs rugosités ;
+   changer de biome et faire tourner le soleil pendant la capture IBL.
+4. Tester un soleil seul, soleil et lune, lune seule, puis aucune source.
+   Contrôler qu'aucune direction normalisée n'est construite à partir d'un
+   vecteur nul et qu'aucun disque résiduel n'apparaît.
+5. Observer un brouillard voisin depuis une zone claire, puis entrer dans la
+   nappe. Comparer les modes absent, lisse et bruité.
+6. Désactiver les nuages et vérifier que les montagnes produisent encore des
+   ombres volumétriques. Tester aussi un obstacle hors écran et les limites
+   de portée des cascades d'ombres.
+7. Vérifier eau, verre, particules et plusieurs couches transparentes devant
+   et derrière le brouillard. La profondeur utilisée doit être celle du
+   fragment transparent, et les contributions ne doivent pas être appliquées
+   une seconde fois à toute l'image.
+8. Réduire la résolution des volumes ; observer les crêtes de montagnes et
+   objets minces en rotation et translation rapides. L'absence d'historique
+   temporel ne dispense pas de contrôler la stabilité spatiale.
+9. Mesurer séparément LUT, ciel, IBL, perspective aérienne, brouillard et
+   nuages avec les compteurs ImGui, après compilation et réchauffement.
+   Relever résolution d'écran, matériel, préréglage et budgets personnalisés.
+
+## Références techniques
+
+- Sébastien Hillaire, **A Scalable and Production Ready Sky and Atmosphere
+  Rendering Technique**, EGSR 2020 :
+  <https://sebh.github.io/publications/egsr2020.pdf>.
+  LUT de transmittance, ciel et perspective aérienne ; approximation de
+  diffusion multiple. L'implémentation du dépôt est une adaptation propre,
+  pas un portage intégral de la référence.
+- Eric Bruneton, **Precomputed Atmospheric Scattering**, fonctions GLSL
+  documentées :
+  <https://ebruneton.github.io/precomputed_atmospheric_scattering/atmosphere/functions.glsl.html>.
+  Transmittance, composition entre deux points, séparation éclairage direct
+  et indirect.
+- Guerrilla, **Nubis: Authoring Real-Time Volumetric Cloudscapes with the
+  Decima Engine**, SIGGRAPH 2017 :
+  <https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine>.
+  Formes Perlin-Worley, profils verticaux, couverture et érosion.
+- Google, **Filament**, éclairage indirect et préfiltrage des environnements :
+  <https://google.github.io/filament/main/filament.html>.
+  Distinction irradiance diffuse, préfiltrage spéculaire et intégration BRDF.
