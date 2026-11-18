@@ -459,7 +459,12 @@ void EnduranceAtmosphereComponent::prepareRenderer()
     }
     if(!terrain)
     {
+        // A terrain can disappear briefly while its generator is rebuilt.
+        // Invalidate pending camera results and rebuild the atlas when it
+        // returns, even if its seed, settings and camera position are unchanged.
+        if(m->terrainKey!=0) { m->terrainKey=0; ++m->revision; }
         m->atlasValid=false;
+        m->atlasDirty=true; m->forceSample=true;
         m->collect();
         return;
     }

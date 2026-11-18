@@ -21,8 +21,8 @@ namespace Ge
         bool enabled=false;
         AtmosphereQuality quality=AtmosphereQuality::Ultra;
         bool physicalAtmosphere=true;
-        bool localFog=false;
-        bool godRays=false;
+        bool localFog=true;
+        bool godRays=true;
         bool clouds=false;
         bool measureGpu=true;
         bool fallbackToFirstDirectional=true;

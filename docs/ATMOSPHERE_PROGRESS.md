@@ -11,8 +11,8 @@
 
 1. **Palettes et interfaces** : matrice des 25 biomes et fond marin, données JSON linéaires, interface moteur sans noms de biomes, transition indépendante du framerate. Implémenté.
 2. **Ciel et IBL** : cubemaps HDR cohérentes, irradiance, préfiltrage GGX, BRDF partagée, sources explicites et état affiché commun. Implémenté ; ce palier affiche le gradient artistique, avec les milieux physiques désactivés par défaut.
-3. **Atmosphère** : LUT de transmittance et diffusion multiple, SkyView, perspective aérienne à la profondeur des fragments. Implémenté et activé. Transmittance et diffusion multiple ont des invalidations séparées. Le brouillard local, les ombres volumétriques et les nuages restent désactivés dans ce palier.
-4. **Brouillard et rayons** : propriétés spatiales GPU, ombres terrain, extinction et diffusion composées ensemble. À intégrer.
+3. **Atmosphère** : LUT de transmittance et diffusion multiple, SkyView, perspective aérienne à la profondeur des fragments. Implémenté et activé. Transmittance et diffusion multiple ont des invalidations séparées. Le brouillard et les ombres volumétriques sont ajoutés au palier 4, puis les nuages au palier 5.
+4. **Brouillard et rayons** : atlas de propriétés spatiales GPU, brouillard lisse/bruité/absent, ombres terrain y compris hors écran dans les cascades, extinction et diffusion composées ensemble. Implémenté et activé ; les nuages restent désactivés dans ce palier.
 5. **Nuages et optimisation** : bruit Perlin–Worley, lumière atténuée, profils qualité Ultra par défaut, temps GPU séparés, validation. À intégrer.
 
 ## Décisions conservées
