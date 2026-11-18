@@ -2,6 +2,13 @@
 
 ## État actuel
 
+Passe de validation du rendu complet apres le retour en jeu sur `802d046` :
+coordonnees de composition corrigees depuis `gl_FragCoord`, filtre directionnel
+avec profondeur du plan recepteur a chaque texel, positions G-buffer en 32F.
+Les regressions du vrai triangle, des plans inclines et du vrai G-buffer
+a grande distance passent. La suite comprend maintenant 15 groupes ; la marge
+numerique XYZ conserve les contacts avec la tolerance documentee a 40 km.
+
 Les cinq paliers fonctionnels, les sept points de la passe de correction et les deux derniers correctifs de continuite sont implementes. La branche d'intégration est
 `feature/atmosphere-biome-sky`, issue de `feature/terrain-noise-library`
 (commit GitHub de base `2ab58174c1a33f8b1b795b466075fd618424e933`, arbre
@@ -56,7 +63,7 @@ jamais une estimation à partir de la profondeur écran.
 
 ## Validation et prochaine action
 
-Les douze groupes de tests CPU, shaders OpenGL, service C++ de production
+Les quinze groupes de tests CPU, shaders OpenGL, service C++ de production
 et composant ENDURANCE passent sur EGL/Mesa llvmpipe. La passe de correction
 a aussi verifie les trois unites C++ modifiees avec les vrais en-tetes. Commande consolidée :
 
@@ -81,7 +88,7 @@ Les sept points de l’audit sont suivis dans `ATMOSPHERE_REVISION.md` :
 reference nuageuse sans ombres terrain, soleil rasant, vent du vrai brouillard
 ENDURANCE, nuages visibles a la camera courante, IBL par transactions et
 tuiles, ressources conditionnelles/R32F, couverture regionale et profils.
-La suite consolidee des douze groupes passe. Les regressions du ciel compose,
+La suite consolidee des quinze groupes passe. Les regressions du ciel compose,
 du soleil rasant, du brouillard reel, des snapshots, des budgets et des
 ressources conditionnelles sont couvertes. Conserver les snapshots GPU d’une capture et ne jamais
 reutiliser son set de travail pendant un fondu public.
@@ -95,6 +102,6 @@ avec atmosphere physique, ciel gradient et duree nulle.
 Le vent nuageux conserve les formations a 137 secondes lors d’un arret ou
 d’un changement de vitesse. Les tests couvrent densite, vue, ombres, partage
 avec la meteo, snapshot IBL et publication de la position finale apres arret.
-Les **18 groupes internes** du runtime et les **12 groupes** de la suite
+Les **18 groupes internes** du runtime et les **15 groupes** de la suite
 consolidee passent. Preuves : `ATMOSPHERE_VALIDATION.md` et
 `ATMOSPHERE_REVISION.md`.

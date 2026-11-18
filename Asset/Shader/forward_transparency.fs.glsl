@@ -179,6 +179,12 @@ out vec4 o_FragColor;
 
 void main()
 {	
+	// Surface geometry, before any material/light/cascade branch or normal mapping.
+	vec3 shadowWorldDx = dFdx(WorldPos);
+	vec3 shadowWorldDy = dFdy(WorldPos);
+	// WorldPos is interpolated directly; no G-buffer view-position reconstruction.
+	vec3 shadowPositionError = 4.0 * 1.1920928955078125e-7 * abs(WorldPos);
+
 	vec4 col = texture(albedoTexture, fragTexCoord) * ubm.ubm[imaterial].albedo * vec4(Color, 1.0);
 	vec3 norm = texture(normalTexture, fragTexCoord).rgb;
 	norm = mix(vec3(0.5, 0.5, 1.0), norm, ubm.ubm[imaterial].normal);
@@ -244,8 +250,9 @@ void main()
 						}
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(WorldPos, 1.0);
-					float bias = geAtmosphereDirectionalSurfaceBias(ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview, normal.rgb, L, float(textureSize(shadowDepth, 0).x));
-					shadow = filterPCF(shadowCoord, ubl.ubl[i].shadowID + cascadeIndex, bias);
+					shadow = geDirectionalSurfaceShadow(shadowDepth, shadowCoord,
+						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
+						shadowWorldDx, shadowWorldDy, shadowPositionError);
 				}
 				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, WorldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}

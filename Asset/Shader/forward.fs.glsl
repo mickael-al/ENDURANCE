@@ -247,14 +247,27 @@ void main()
 	vec4 col = texture(gColor, v_UV).rgba;
 	vec3 other = texture(gOther, v_UV).rgb;//metallic roughness ao emit
 
+	// Evaluate geometry derivatives before sky/material/light/cascade branches.
+	// Differentiate in view space before adding a potentially large world origin.
+	vec3 worldPos = (ubc.invView * vec4(viewPos.xyz, 1)).xyz;
+	vec3 shadowWorldDx = mat3(ubc.invView) * dFdx(viewPos.xyz);
+	vec3 shadowWorldDy = mat3(ubc.invView) * dFdy(viewPos.xyz);
+	// Bound float storage/reconstruction error at the receiver distance.
+	vec3 shadowPositionError = 4.0 * 1.1920928955078125e-7 * max(
+		abs(ubc.invView[0].xyz) * abs(viewPos.x) + abs(ubc.invView[1].xyz) * abs(viewPos.y)
+		+ abs(ubc.invView[2].xyz) * abs(viewPos.z), abs(worldPos));
+
+	// The engine fullscreen triangle carries legacy repeat UVs (Y in [-1,0]).
+	// Atmospheric volumes require normalized screen coordinates at this pixel.
+	vec2 atmosphereUV = gl_FragCoord.xy * uAtmosphereInvResolution;
+
 	if (viewPos.a == -2.0)
 	{
-		o_FragColor = geAtmCompositeSky(col.rgb, v_UV);
+		o_FragColor = geAtmCompositeSky(col.rgb, atmosphereUV);
 		return;
 	}
 	vec3 color = col.rgb;
 	color = pow(color, vec3(ubd.gamma));
-	vec3 worldPos = (ubc.invView * vec4(viewPos.xyz, 1)).xyz;
 
 	vec3 V = normalize(ubc.camPos - worldPos);
 
@@ -310,8 +323,9 @@ void main()
 						}
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(worldPos, 1.0);
-					float bias = geAtmosphereDirectionalSurfaceBias(ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview, normal.rgb, L, float(textureSize(shadowDepth, 0).x));
-					shadow = filterPCF(shadowCoord, ubl.ubl[i].shadowID + cascadeIndex, bias);
+					shadow = geDirectionalSurfaceShadow(shadowDepth, shadowCoord,
+						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
+						shadowWorldDx, shadowWorldDy, shadowPositionError);
 				}
 				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, worldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}
@@ -373,5 +387,5 @@ void main()
 		color = viewPos.a * color;
 	}
 
-	o_FragColor = geAtmComposite(color, worldPos, v_UV);
+	o_FragColor = geAtmComposite(color, worldPos, atmosphereUV);
 }

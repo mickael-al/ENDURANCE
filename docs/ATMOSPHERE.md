@@ -275,6 +275,46 @@ avec une resolution configurable et interroges a la profondeur du fragment.
 Cela evite les trainees dues a un historique reprojete, sans supprimer le
 besoin de verifier les silhouettes et les objets fins a faible resolution.
 
+## Coordonnees ecran et precision des ombres de surface
+
+La composition atmospherique deferred utilise `gl_FragCoord.xy *
+uAtmosphereInvResolution` pour les objets comme pour le ciel. Les passes
+concernes dessinent dans un viewport d’origine `(0,0)` ayant les dimensions
+du framebuffer. Le triangle historique de `ModelManager` conserve ses UV de
+texture : leur Y dans `[-1,0]` fonctionne avec les textures G-buffer en
+REPEAT, mais ne doit pas alimenter les volumes atmospheriques en CLAMP.
+Les transparents utilisent la meme convention ecran, a leur propre profondeur.
+
+Le filtre directionnel commun se trouve dans
+`Asset/Shader/Shadow/directional_surface.glsl`. Les neuf comparaisons PCF
+calculent la profondeur du plan recepteur au centre du texel effectivement
+lu, y compris le decalage fractionnaire entre le fragment et ce centre.
+Les profondeurs sont lues avec `texelFetch`, puis les visibilites sont
+moyennees. Le plan provient des derivees geometriques, calculees avant les
+branches de materiaux/lumieres/cascades ; la normale de shading continue de
+servir a l’eclairage. En deferred, les derivees sont prises en espace vue
+puis tournees en espace monde avant la selection de cascade.
+
+Le biais residuel comprend 5 mm, une estimation de l’incertitude float par
+composante XYZ et un plancher d’arrondi de profondeur. La borne XYZ est
+projetee sur le meme plan recepteur ; sa direction compte, ainsi que son
+effet sur les UV et sur Z. Elle conserve une petite marge proche et couvre
+les residus de transformation a grande distance. Une projection ou un plan
+degenere conserve un resultat fini.
+
+Les positions vue de `gPosition` sont en **RGBA32F** a la creation et au
+redimensionnement. Cela preserve la geometrie servant aux profondeurs et
+aux derivees sur plusieurs kilometres. Le cout passe de 8 a 16 octets par
+pixel pour cet attachment : **+15,82 Mio a 1920 x 1080**, **+28,125 Mio a
+2560 x 1440**, **+63,28 Mio a 3840 x 2160**. Ce stockage appartient au
+G-buffer du moteur, hors compteur des seules textures atmospheriques.
+Les couleurs HDR restent dans leur format existant.
+
+References du contrat : [coordonnees de fragment OpenGL](https://wikis.khronos.org/opengl/Fragment_Shader/Defined_Inputs)
+et [compensation du plan recepteur et derivees de cascades](https://learn.microsoft.com/windows/win32/dxtecharts/cascaded-shadow-maps).
+La validation du vrai triangle, du vrai shader opaque et des ombres se trouve
+dans `ATMOSPHERE_VALIDATION.md`.
+
 ## Brouillard dans les biomes voisins
 
 Le climat n’est pas recalcule a chaque pas de ray marching. Le jeu genere un

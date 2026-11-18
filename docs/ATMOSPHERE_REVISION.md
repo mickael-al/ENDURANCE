@@ -36,6 +36,31 @@ le deplacement et la derniere palette affichee. Le redemarrage de sa capture
 reprend depuis cet etat. Un nouvel objet `Atmosphere` commence a zero ; les
 reglages de scene sauvegardent la vitesse, pas cet etat d’execution.
 
+## Rendu complet : colonnes atmospheriques et quadrillage d’ombre
+
+La passe suivant le test en jeu de `802d046` corrige les deux incompatibilites :
+
+- Les compositions du ciel et des opaques recoivent des UV derives de
+  `gl_FragCoord` et de la resolution du rendu. Le triangle historique reste
+  intact et ses UV negatifs ne sont plus donnes aux volumes CLAMP.
+- Le filtre directionnel generique compare chaque texel a la profondeur du
+  plan recepteur en ce texel, fraction sous-texel comprise. Les derivees
+  geometriques sont calculees avant les branches, puis exprimees en monde.
+  Le meme helper sert aux opaques, aux transparents et a l’eau.
+
+Les positions G-buffer passent en RGBA32F, a la creation et au resize, pour
+conserver les profondeurs et les derivees a grande distance. Le biais
+residuel ajoute une marge de precision XYZ au minimum proche de 5 mm.
+Le cout du changement de stockage est de 8 octets par pixel (+15,82 Mio a 1080p).
+
+Trois nouveaux groupes completent la suite : vrai triangle/forward avec
+controles negatifs, plans inclines et occultants avec vraies textures de
+profondeur, puis vrai opaque/G-buffer a 100 m, 1 km, 10 km et 40 km. Les plans
+libres restent entierement eclaires. Le petit obstacle 50 mm du seul stress
+40 km conserve 99,94 % d’occlusion moyenne ; celui de 100 mm reste entierement
+ombre. Les mesures et leur tolerance sont detaillees dans
+`ATMOSPHERE_VALIDATION.md`. Aucun benchmark materiel n’est revendique.
+
 ## Brouillard du jeu : implementation et contrat
 
 `EnduranceAtmosphereComponent::fogWind` contient le vent XYZ, avec une valeur
@@ -67,7 +92,7 @@ aucune reconstruction de l’atlas climatique.
 | Syntaxe C++17 avec les vrais en-tetes du projet | **PASS** : Atmosphere.cpp, AtmosphereSettings.cpp et EnduranceAtmosphere.cpp. |
 | `python3 Tests/Atmosphere/check_revision.py` | **PASS** : ombres conservees dans le ciel compose, milieu vide neutre au soleil rasant, loi analytique en milieu homogene, couverture regionale/profils, vrai ciel courant independant du cube IBL, deplacement commun meteo/densite/ombres independant de l’horloge. |
 | Ordonnanceur C++ : cas de capture, budget, ressources et publication | **PASS** : snapshots stables, aucune publication partielle, revisions regroupees, mouvement continu sans famine, resize/reload conservant le dernier complet, cible temporelle influencant la soumission et plafond strict. |
-| Suite consolidee `python3 Tests/Atmosphere/run_all.py` | **PASS : les 12 groupes**, le 18 novembre 2026, apres integration de tous les correctifs. |
+| Suite consolidee `python3 Tests/Atmosphere/run_all.py` | **PASS : les 15 groupes**, le 18 novembre 2026, apres integration de tous les correctifs. |
 | Interfaces generiques supplementaires | **PASS** : cubemap externe visible au demarrage, IBL precedente conservee jusqu’a publication, fog anime par le temps sans callback. |
 | Palette pendant la premiere capture, physique active et duree nulle | **PASS** : API, UBO et pixels HDR stables avant publication ; deux cibles successives pendant la capture ; aucune marche arriere et convergence vers la derniere cible. Cas physique avec fondu, gradient avec fondu, physique avec duree nulle. |
 | Offset nuageux commun et changement/arret de vent | **PASS** : arret, changement de direction et reprise a 137 s, images de densite/vue/ombres sans saut, IBL au deplacement fige, publication de la position finale, precision double et cache aerien sans nuages. Le contrat de recreation GPU a egalement ete relu. |

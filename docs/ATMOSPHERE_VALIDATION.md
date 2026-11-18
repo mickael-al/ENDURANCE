@@ -1,6 +1,6 @@
 # Validation du ciel et de l'atmosphère
 
-La passe de correction du 18 novembre 2026 passe les **12 groupes** de la
+La passe de correction du 18 novembre 2026 passe les **15 groupes** de la
 suite consolidee. Le harnais C++ du service comprend **18 groupes internes**,
 en plus du test du vrai composant ENDURANCE.
 
@@ -32,6 +32,9 @@ python3 Tests/Atmosphere/check_game_climate.py
 python3 Tests/Atmosphere/check_game_component.py
 python3 Tests/Atmosphere/check_revision.py
 python3 Tests/Atmosphere/check_runtime.py
+python3 Tests/Atmosphere/check_screen_composition.py
+python3 Tests/Atmosphere/check_surface_shadows.py
+python3 Tests/Atmosphere/check_position_precision.py
 ```
 
 Le test CPU utilise le vrai `AtmosphereState.hpp`, C++17 et le GLM embarqué.
@@ -71,10 +74,61 @@ exclusivement aux assertions des tests, jamais au chemin de rendu du jeu.
 | `check_game_component.py` | Execute le vrai composant ENDURANCE et son hook : vent XYZ persistant, bruit anime a camera fixe avec atlas inchange, invariance 4 s / 4 × 1 s, changement de vent sans saut, vitesse nulle, deltas invalides et reprise apres reconstruction du terrain. Aucun mode GLSL artificiel. |
 | `check_revision.py` | Ombres de terrain sur les nuages jusque dans le ciel compose, reference non occultee et extinction inchangees ; milieu nuageux absent neutre aux angles rasants ; continuite du rayon et de sa carte autour de l’horizon ; meteo regionale, ouvertures et profils verticaux ; vrai dessin du ciel courant independant d’une cubemap figee. |
 | `check_runtime.py` | Exécution du C++ de production : allocations, formats d'images, tailles de dispatch, six faces et cinq mips publiés, bindings matériaux sans programme courant, dessin HDR, invalidation séparée des LUT, fondu à faible framerate avec rebakes continus, parallaxe des nuages sans vent, sources optionnelles, désactivation/réactivation, timers asynchrones, destruction et redémarrage. Sérialisation JSON exacte avec HDR/vecteurs, rejet atomique des entrées invalides, personnalisation de radiance cohérente entre IBL et diffusion, conservation de l'état complet après échec de compilation, brouillard de jeu ajoute au milieu generique. Ordonnanceur multi-images : limites de travail, gel des LUT/bruit/cubemap externe, revisions regroupees sans famine, publication complete, resize/reload avec ancienne IBL conservee, allocation R32F et absence de dispatchs pour les effets coupes. Source externe visible des la premiere image et hook de brouillard anime sans callback. |
+| `check_screen_composition.py` | Triangle indexe extrait de ModelManager, vrais forward.vs/fs, G-buffer NEAREST/REPEAT, volumes LINEAR/CLAMP. Ciel et opaques a trois resolutions et angles 0/+72/-68 degres, bords et desactivation ; ancien caller UV volontairement restaure en memoire comme controle negatif. La vraie branche directionnelle compare plan libre, carte vide et occultant sous camera pivotee. |
+| `check_surface_shadows.py` | Helper de production, depth32/NEAREST, 32 configurations plan/occultant/precision, deux cas degeneres et sept gardes. Pentes 0-85 degres, axes signes, Y inverse, resolutions 32-2048, cartes rectangulaires, profondeur jusqu’a 100 km ; contacts proches et controles negatifs de l’ancien filtre et des seuls offsets entiers. |
+| `check_position_precision.py` | Vrais shaders opaques ecrivant 16F puis 32F, reconstruction et derivees deferred, expression XYZ extraite du vrai caller, shadow map depth32/NEAREST et vrai PCF. Plans a 100 m, 1 km, 10 km et 40 km, occultants de 50/100 mm, allocations initiale et apres resize en 32F. |
 
 Les tests utilisent de petites résolutions et des budgets réduits pour vérifier
 les invariants. Ils ne remplacent pas les préréglages de qualité du moteur,
 dont la valeur initiale est **Ultra**.
+
+## Corrections issues du rendu complet apres 802d046
+
+Les anciens tests alimentaient directement les helpers atmospheriques avec
+des UV positifs. Le nouveau test reproduit le triangle reel et execute la
+composition finale. Les 18 cas ciel/opaques, dont les inclinaisons +72 et
+-68 degres, ont une erreur HDR maximale de **4,4e-7**, bords compris.
+Retablir uniquement les anciens appels `v_UV` produit des erreurs de
+**0,1803** sur le ciel et **0,4351** sur les opaques : le controle negatif
+verifie que la regression detecte effectivement l’incompatibilite historique.
+
+Le test de la vraie branche directionnelle utilise une camera inclinee et
+une carte de profondeur analytique. Le plan libre donne exactement le meme
+rendu qu’une carte vide ; l’occultant assombrit 174 pixels et en laisse 1787
+clairs. Passer volontairement les derivees en espace camera au lieu de
+monde reintroduit une erreur HDR de 1,4452.
+
+Les 41 evaluations GPU du test de filtre conservent le plan libre et les
+occultants ; l’erreur maximale de visibilite face au comptage CPU independant
+est **2,65e-8**. L’ancien filtre cree une variation de visibilite allant
+jusqu’a **0,666667** sur un plan sans obstacle. Corriger seulement les
+offsets entiers laisse aussi un motif : les centres reels des texels sont
+necessaires. Les contacts de 10 mm sont conserves a proximite.
+
+Le controle de precision fait ecrire le vrai shader opaque dans les deux
+formats. Dans son plan a 1 km, l’erreur monde maximale passe d’environ
+**0,50 m en 16F a 0,267 mm en 32F**. Les derivees sont egalement preservees.
+Avec le format 32F et la marge XYZ du vrai caller :
+
+| Distance du plan | Plan libre eclaire | Occultant de 50 mm : occlusion moyenne | Occultant de 100 mm : occlusion |
+| --- | --- | --- | --- |
+| 100 m | 100 % | 100 % | 100 % |
+| 1 km | 100 % | 100 % | 100 % |
+| 10 km | 100 % | 100 % | 100 % |
+| 40 km | 100 % | 99,9396 % | 100 % |
+
+Le dernier cas est un stress : un petit volume d’ombre de rayon 256 m reste
+centre sur un plan vu a 40 km, avec une marge de casters de 16 km. Il ne
+reproduit pas les dimensions usuelles d’une derniere cascade perspective.
+La marge numerique y atteint **34,954 a 35,283 mm**. Le critere d’occlusion
+est au moins 99 % pour le seul obstacle 50 mm de ce cas ; les plans libres,
+les autres distances et l’obstacle 100 mm conservent leurs exigences strictes.
+Cela ne constitue pas une garantie de precision millimetrique universelle.
+
+`FrameBuffer.cpp` passe la verification syntaxique C++17 avec les vrais
+en-tetes. Le changement 32F ajoute 8 octets par pixel au G-buffer de positions,
+soit 15,82 Mio a 1080p ; il doit entrer dans les mesures de bande passante sur
+GPU materiel. Les tests ci-dessus mesurent la justesse, pas un temps de trame.
 
 ## Regressions de la passe de correction
 

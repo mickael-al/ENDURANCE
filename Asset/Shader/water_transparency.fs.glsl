@@ -232,6 +232,12 @@ out vec4 o_FragColor;
 
 void main()
 {	
+	// Surface geometry, before any material/light/cascade branch or normal mapping.
+	vec3 shadowWorldDx = dFdx(WorldPos);
+	vec3 shadowWorldDy = dFdy(WorldPos);
+	// WorldPos is interpolated directly; no G-buffer view-position reconstruction.
+	vec3 shadowPositionError = 4.0 * 1.1920928955078125e-7 * abs(WorldPos);
+
 	ivec2 viewportSize = textureSize(oclusionTexture, 0);
 	float depth = texture(oclusionTexture, gl_FragCoord.xy / viewportSize).r;
 	float WaterDepth = 5.0;
@@ -318,8 +324,9 @@ void main()
 						}
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(WorldPos, 1.0);
-					float bias = geAtmosphereDirectionalSurfaceBias(ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview, normal.rgb, L, float(textureSize(shadowDepth, 0).x));
-					shadow = filterPCF(shadowCoord, ubl.ubl[i].shadowID + cascadeIndex, bias);
+					shadow = geDirectionalSurfaceShadow(shadowDepth, shadowCoord,
+						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
+						shadowWorldDx, shadowWorldDy, shadowPositionError);
 				}
 				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, WorldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ab);
 			}
