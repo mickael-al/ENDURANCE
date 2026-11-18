@@ -1,0 +1,838 @@
+{
+  "version": 1,
+  "colorSpace": "linear-sRGB",
+  "palettes": [
+    {
+      "biome": "PolarIce",
+      "horizon": [
+        0.5583404,
+        0.7083758,
+        0.7156935
+      ],
+      "middle": [
+        0.1878208,
+        0.3467041,
+        0.4286905
+      ],
+      "zenith": [
+        0.0193824,
+        0.0451862,
+        0.1046165
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 2.5e-05,
+      "fogAlbedo": [
+        0.9005,
+        0.92751,
+        0.92882
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 140,
+      "fogNoiseAmount": 0.0,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "FrozenTundra",
+      "horizon": [
+        0.5711248,
+        0.6444797,
+        0.6239604
+      ],
+      "middle": [
+        0.2269659,
+        0.3094689,
+        0.3467041
+      ],
+      "zenith": [
+        0.0409152,
+        0.0666259,
+        0.1119324
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 1.8e-05,
+      "fogAlbedo": [
+        0.9028,
+        0.91601,
+        0.91231
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 120,
+      "fogNoiseAmount": 0.25,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "Tundra",
+      "horizon": [
+        0.5520114,
+        0.5711248,
+        0.4677838
+      ],
+      "middle": [
+        0.2622507,
+        0.3324515,
+        0.3094689
+      ],
+      "zenith": [
+        0.0481718,
+        0.0953075,
+        0.1144354
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 2e-05,
+      "fogAlbedo": [
+        0.89936,
+        0.9028,
+        0.8842
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 100,
+      "fogNoiseAmount": 0.4,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "Taiga",
+      "horizon": [
+        0.456411,
+        0.5711248,
+        0.5332764
+      ],
+      "middle": [
+        0.1499598,
+        0.3049873,
+        0.3185468
+      ],
+      "zenith": [
+        0.0221739,
+        0.0684782,
+        0.1094617
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 4.5e-05,
+      "fogAlbedo": [
+        0.88215,
+        0.9028,
+        0.89599
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 160,
+      "fogNoiseAmount": 0.6,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "BorealBog",
+      "horizon": [
+        0.4125426,
+        0.5149177,
+        0.4677838
+      ],
+      "middle": [
+        0.1682694,
+        0.2831487,
+        0.2663556
+      ],
+      "zenith": [
+        0.0295568,
+        0.0742136,
+        0.0822827
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.00015,
+      "fogAlbedo": [
+        0.87426,
+        0.89269,
+        0.8842
+      ],
+      "fogBaseHeight": 60.0,
+      "fogHeightScale": 85,
+      "fogNoiseAmount": 0.75,
+      "fogNoiseScale": 0.0025
+    },
+    {
+      "biome": "RockyTundra",
+      "horizon": [
+        0.6307571,
+        0.6172066,
+        0.5520114
+      ],
+      "middle": [
+        0.2663556,
+        0.3277781,
+        0.3915725
+      ],
+      "zenith": [
+        0.043735,
+        0.0781874,
+        0.1470273
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 8e-06,
+      "fogAlbedo": [
+        0.91354,
+        0.9111,
+        0.89936
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 100,
+      "fogNoiseAmount": 0.0,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "ColdSteppe",
+      "horizon": [
+        0.6172066,
+        0.5906188,
+        0.5028865
+      ],
+      "middle": [
+        0.2746773,
+        0.3277781,
+        0.3762621
+      ],
+      "zenith": [
+        0.0451862,
+        0.0865005,
+        0.1499598
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 1e-05,
+      "fogAlbedo": [
+        0.9111,
+        0.90631,
+        0.89052
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 120,
+      "fogNoiseAmount": 0.25,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "BorealForest",
+      "horizon": [
+        0.4735315,
+        0.5840784,
+        0.5028865
+      ],
+      "middle": [
+        0.1620294,
+        0.3185468,
+        0.2746773
+      ],
+      "zenith": [
+        0.021219,
+        0.0865005,
+        0.1094617
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 4e-05,
+      "fogAlbedo": [
+        0.88524,
+        0.90513,
+        0.89052
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 170,
+      "fogNoiseAmount": 0.55,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "ColdForest",
+      "horizon": [
+        0.496933,
+        0.5840784,
+        0.5775804
+      ],
+      "middle": [
+        0.1714411,
+        0.3094689,
+        0.3467041
+      ],
+      "zenith": [
+        0.0241576,
+        0.0722719,
+        0.1274377
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 6e-05,
+      "fogAlbedo": [
+        0.88945,
+        0.90513,
+        0.90396
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 190,
+      "fogNoiseAmount": 0.6,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "ColdMarsh",
+      "horizon": [
+        0.4286905,
+        0.5209956,
+        0.4851499
+      ],
+      "middle": [
+        0.1651322,
+        0.2663556,
+        0.2501583
+      ],
+      "zenith": [
+        0.031896,
+        0.0722719,
+        0.0865005
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.000175,
+      "fogAlbedo": [
+        0.87716,
+        0.89378,
+        0.88733
+      ],
+      "fogBaseHeight": 60.0,
+      "fogHeightScale": 100,
+      "fogNoiseAmount": 0.8,
+      "fogNoiseScale": 0.0025
+    },
+    {
+      "biome": "DryPlain",
+      "horizon": [
+        0.6653873,
+        0.5840784,
+        0.4178851
+      ],
+      "middle": [
+        0.3277781,
+        0.381326,
+        0.381326
+      ],
+      "zenith": [
+        0.0561285,
+        0.1328683,
+        0.1980693
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.0,
+      "fogAlbedo": [
+        0.91977,
+        0.90513,
+        0.87522
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 120,
+      "fogNoiseAmount": 0.0,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "Meadow",
+      "horizon": [
+        0.6375969,
+        0.6583748,
+        0.5088813
+      ],
+      "middle": [
+        0.2622507,
+        0.4286905,
+        0.4178851
+      ],
+      "zenith": [
+        0.0395462,
+        0.1499598,
+        0.2122308
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 1.2e-05,
+      "fogAlbedo": [
+        0.91477,
+        0.91851,
+        0.8916
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 90,
+      "fogNoiseAmount": 0.4,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "TemperateForest",
+      "horizon": [
+        0.5271151,
+        0.6172066,
+        0.4851499
+      ],
+      "middle": [
+        0.1980693,
+        0.381326,
+        0.3371636
+      ],
+      "zenith": [
+        0.0307134,
+        0.1144354,
+        0.1651322
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 3.5e-05,
+      "fogAlbedo": [
+        0.89488,
+        0.9111,
+        0.88733
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 160,
+      "fogNoiseAmount": 0.55,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "TemperateRainforest",
+      "horizon": [
+        0.462077,
+        0.5711248,
+        0.5028865
+      ],
+      "middle": [
+        0.1746474,
+        0.3613068,
+        0.3371636
+      ],
+      "zenith": [
+        0.0241576,
+        0.1094617,
+        0.1470273
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.0001,
+      "fogAlbedo": [
+        0.88317,
+        0.9028,
+        0.89052
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 220,
+      "fogNoiseAmount": 0.7,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "TemperateMarsh",
+      "horizon": [
+        0.5149177,
+        0.5711248,
+        0.4286905
+      ],
+      "middle": [
+        0.2269659,
+        0.3467041,
+        0.2746773
+      ],
+      "zenith": [
+        0.043735,
+        0.1195384,
+        0.1119324
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.00019,
+      "fogAlbedo": [
+        0.89269,
+        0.9028,
+        0.87716
+      ],
+      "fogBaseHeight": 60.0,
+      "fogHeightScale": 95,
+      "fogNoiseAmount": 0.85,
+      "fogNoiseScale": 0.0025
+    },
+    {
+      "biome": "RockDesert",
+      "horizon": [
+        0.7011019,
+        0.5583404,
+        0.381326
+      ],
+      "middle": [
+        0.4072402,
+        0.4286905,
+        0.381326
+      ],
+      "zenith": [
+        0.0822827,
+        0.1529262,
+        0.2269659
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.0,
+      "fogAlbedo": [
+        0.9262,
+        0.9005,
+        0.86864
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 200,
+      "fogNoiseAmount": 0.0,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "DrySavanna",
+      "horizon": [
+        0.6795425,
+        0.5457245,
+        0.3371636
+      ],
+      "middle": [
+        0.3712377,
+        0.4341536,
+        0.3324515
+      ],
+      "zenith": [
+        0.0666259,
+        0.1529262,
+        0.1878208
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 9e-06,
+      "fogAlbedo": [
+        0.92232,
+        0.89823,
+        0.86069
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 150,
+      "fogNoiseAmount": 0.2,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "Savanna",
+      "horizon": [
+        0.6653873,
+        0.5972018,
+        0.381326
+      ],
+      "middle": [
+        0.3419144,
+        0.456411,
+        0.3762621
+      ],
+      "zenith": [
+        0.0497066,
+        0.1651322,
+        0.2158605
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 1.5e-05,
+      "fogAlbedo": [
+        0.91977,
+        0.9075,
+        0.86864
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 160,
+      "fogNoiseAmount": 0.3,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "DryJungle",
+      "horizon": [
+        0.6038273,
+        0.5647115,
+        0.381326
+      ],
+      "middle": [
+        0.2622507,
+        0.3915725,
+        0.3139887
+      ],
+      "zenith": [
+        0.0423114,
+        0.1301365,
+        0.1144354
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 4.5e-05,
+      "fogAlbedo": [
+        0.90869,
+        0.90165,
+        0.86864
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 160,
+      "fogNoiseAmount": 0.5,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "TropicalJungle",
+      "horizon": [
+        0.5209956,
+        0.6375969,
+        0.496933
+      ],
+      "middle": [
+        0.2050787,
+        0.456411,
+        0.4178851
+      ],
+      "zenith": [
+        0.021219,
+        0.1589608,
+        0.2015563
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.00011,
+      "fogAlbedo": [
+        0.89378,
+        0.91477,
+        0.88945
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 240,
+      "fogNoiseAmount": 0.7,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "VolcanicDesert",
+      "horizon": [
+        0.5647115,
+        0.3864294,
+        0.3049873
+      ],
+      "middle": [
+        0.2383976,
+        0.184475,
+        0.223228
+      ],
+      "zenith": [
+        0.0368895,
+        0.0343398,
+        0.06301
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 1.5e-05,
+      "fogAlbedo": [
+        0.90165,
+        0.86956,
+        0.8549
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 300,
+      "fogNoiseAmount": 0.35,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "RedDesert",
+      "horizon": [
+        0.7230551,
+        0.4452012,
+        0.2622507
+      ],
+      "middle": [
+        0.4677838,
+        0.3277781,
+        0.2541521
+      ],
+      "zenith": [
+        0.0865005,
+        0.1328683,
+        0.2015563
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.0,
+      "fogAlbedo": [
+        0.93015,
+        0.88014,
+        0.84721
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 200,
+      "fogNoiseAmount": 0.0,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "AridPlateau",
+      "horizon": [
+        0.7083758,
+        0.5906188,
+        0.4125426
+      ],
+      "middle": [
+        0.3613068,
+        0.4396572,
+        0.4452012
+      ],
+      "zenith": [
+        0.0544803,
+        0.1441285,
+        0.2383976
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.0,
+      "fogAlbedo": [
+        0.92751,
+        0.90631,
+        0.87426
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 200,
+      "fogNoiseAmount": 0.0,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "BurningJungle",
+      "horizon": [
+        0.6444797,
+        0.4793202,
+        0.3185468
+      ],
+      "middle": [
+        0.3277781,
+        0.3467041,
+        0.2345506
+      ],
+      "zenith": [
+        0.0544803,
+        0.1070231,
+        0.0998987
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 5.5e-05,
+      "fogAlbedo": [
+        0.91601,
+        0.88628,
+        0.85734
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 240,
+      "fogNoiseAmount": 0.6,
+      "fogNoiseScale": 0.0015
+    },
+    {
+      "biome": "TropicalMangrove",
+      "horizon": [
+        0.5583404,
+        0.6104956,
+        0.4341536
+      ],
+      "middle": [
+        0.2345506,
+        0.4019778,
+        0.3515326
+      ],
+      "zenith": [
+        0.031896,
+        0.1384316,
+        0.1529262
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 0.00021,
+      "fogAlbedo": [
+        0.9005,
+        0.90989,
+        0.87815
+      ],
+      "fogBaseHeight": 60.0,
+      "fogHeightScale": 110,
+      "fogNoiseAmount": 0.85,
+      "fogNoiseScale": 0.0025
+    },
+    {
+      "biome": "Marine",
+      "horizon": [
+        0.5149177,
+        0.6795425,
+        0.6938718
+      ],
+      "middle": [
+        0.1620294,
+        0.3864294,
+        0.4793202
+      ],
+      "zenith": [
+        0.017642,
+        0.0886556,
+        0.1912017
+      ],
+      "middleElevation": 0.25,
+      "gradientPower": 1.0,
+      "strength": 0.38,
+      "exposure": 1.0,
+      "fogDensity": 4.5e-05,
+      "fogAlbedo": [
+        0.89269,
+        0.92232,
+        0.9249
+      ],
+      "fogBaseHeight": 20.0,
+      "fogHeightScale": 100,
+      "fogNoiseAmount": 0.4,
+      "fogNoiseScale": 0.0015
+    }
+  ]
+}

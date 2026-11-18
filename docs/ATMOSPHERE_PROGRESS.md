@@ -1,0 +1,28 @@
+# Ciel et atmosphère — état de reprise
+
+## Base de travail
+
+- Branche d'intégration : `feature/atmosphere-biome-sky`.
+- Base utilisateur : `feature/terrain-noise-library`, commit GitHub `2ab58174c1a33f8b1b795b466075fd618424e933`.
+- Arbre de base vérifié : `bc47314734e8bfd1b3f915e53b6a08b4e9d99238`. La copie locale initiale porte le même arbre sous le commit `a14d15c`.
+- Ne pas repartir de `master` : la bibliothèque Noise, les recettes récentes et les réglages volcaniques sont sur la branche de développement.
+
+## Étapes
+
+1. **Palettes et interfaces** : matrice des 25 biomes et fond marin, données JSON linéaires, interface moteur sans noms de biomes, transition indépendante du framerate. Implémenté.
+2. **Ciel et IBL** : cubemaps HDR cohérentes, irradiance, préfiltrage GGX, BRDF partagée, source solaire explicite. En cours.
+3. **Atmosphère** : LUT de transmittance et diffusion multiple, SkyView, perspective aérienne à la profondeur des fragments. À intégrer.
+4. **Brouillard et rayons** : propriétés spatiales GPU, ombres terrain, extinction et diffusion composées ensemble. À intégrer.
+5. **Nuages et optimisation** : bruit Perlin–Worley, lumière atténuée, profils qualité Ultra par défaut, temps GPU séparés, validation. À intégrer.
+
+## Décisions conservées
+
+- La recette climatique du terrain reste l'unique référence. Évaluation GPU du point caméra ; lecture CPU différée seulement après signalement d'une fence, sans attente.
+- Le climat complet coûte trop cher pour chaque pas volumétrique. Les propriétés locales du brouillard sont mises en cache sur une carte GPU en coordonnées mondiales ; interpolation spatiale documentée.
+- Les coefficients physiques, de brouillard et de nuages sont additionnés avant l'intégration. Les transparents échantillonnent la diffusion et la transmittance à leur propre profondeur.
+- Le disque direct reste visible ; l'IBL est filtrée sans ce disque pour éviter le double comptage avec les lumières directionnelles.
+- Pas d'accumulation temporelle dans cette première version : pas d'historique à réinitialiser lors des téléportations, des changements de seed ou des occultations.
+
+## Validation à compléter
+
+Tests OpenGL réels possibles avec EGL/llvmpipe dans cet environnement. Les temps de ce rendu logiciel ne doivent pas être présentés comme des performances sur une carte graphique de jeu. Compilation C++ et essais visuels de la scène Windows restent à distinguer des tests isolés des shaders.
