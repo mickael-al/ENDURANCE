@@ -56,7 +56,7 @@ vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
     vec3 sky=max(textureLod(geAtmSkyView,geAtmSkyUV(direction),0.0).rgb,vec3(0.0));
     if(includeClouds && geAtmControl.z!=0 && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0)
     {
-        float maximum=min(120000.0,max(geAtmCloudShape.x,1.0)*16.0);
+        float maximum=geAtmCloudMaximumRayDistance();
         vec2 path=geAtmCloudLayerPath(geAtmCamera.xyz,direction,maximum);
         // The planetary ground bounds rays into the lower hemisphere.
         vec2 planetPath=geAtmPath(geAtmOrigin(),direction);
@@ -96,6 +96,8 @@ vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
                 vec3 cloudSource=cloud>0.0 ? geAtmSkyCloudSource(world,planet,direction,cloud) : vec3(0.0);
                 geAtmIntegrate(baselineS,baselineT,physical,physicalExtinction,end-begin);
                 geAtmIntegrate(combinedS,combinedT,physical+cloudSource,physicalExtinction+vec3(cloud),end-begin);
+                // A fully extinguished tail cannot affect the visible ray.
+                if(all(lessThan(combinedT,vec3(1e-5)))) break;
             }
             // Recover only the attenuated tail contribution; this ratio form
             // cannot amplify numerical noise when baseline transmission is tiny.

@@ -15,6 +15,7 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -22,7 +23,7 @@ namespace Ge
 {
 namespace
 {
-    // Exactly 28 16-byte slots followed by three column-major matrices.
+    // Exactly 30 16-byte slots followed by three column-major matrices.
     struct alignas(16) AtmosphereGpuParameters
     {
         glm::vec4 radii{},rayleigh{},mie{},absorption{},medium{};
@@ -32,10 +33,11 @@ namespace
         glm::vec4 cloudLayer{},cloudShape{},cloudWind{},shadowOrigin{};
         glm::ivec4 shadow{},quality{},samples{},control{};
         glm::uvec4 misc{};
+        glm::vec4 cloudWeather{},cloudProfiles{};
         glm::mat4 invView{1},invProjection{1},view{1};
     };
-    static_assert(sizeof(AtmosphereGpuParameters)==640,"Atmosphere std140 layout drift");
-    static_assert(offsetof(AtmosphereGpuParameters,invView)==448,"Atmosphere std140 matrix offset");
+    static_assert(sizeof(AtmosphereGpuParameters)==672,"Atmosphere std140 layout drift");
+    static_assert(offsetof(AtmosphereGpuParameters,invView)==480,"Atmosphere std140 matrix offset");
 
     struct Budget
     {
@@ -44,6 +46,7 @@ namespace
         int width=128,height=72,depth=80,noise=64,shadow=256;
         int skySteps=48,transSteps=64,multiDirections=24,multiSteps=16;
         int volumeSteps=1,cloudLightSteps=6,cloudShadowSteps=12,cloudSkySteps=28;
+        int cloudViewWidth=256,cloudViewHeight=144;
         bool operator==(const Budget& b) const { return std::memcmp(this,&b,sizeof(Budget))==0; }
         bool operator!=(const Budget& b) const { return !(*this==b); }
     };
@@ -73,6 +76,8 @@ namespace
         b.width=overrideSize(s.volumeWidth,b.width,16,320);
         b.height=overrideSize(s.volumeHeight,b.height,9,180);
         b.depth=overrideSize(s.volumeDepth,b.depth,16,192);
+        b.cloudViewWidth=overrideSize(s.cloudViewWidth,2*b.width,16,1280);
+        b.cloudViewHeight=overrideSize(s.cloudViewHeight,2*b.height,9,720);
         return b;
     }
     int mipCount(int size) { return 1+static_cast<int>(std::floor(std::log2(std::max(size,1)))); }
@@ -97,7 +102,8 @@ namespace
         // Initialize every level, including levels not sampled until later.
         const float black[4]={0,0,0,0};
         for(int level=0;level<levels;++level)
-            glClearTexImage(t,level,format==GL_RG16F?GL_RG:GL_RGBA,GL_FLOAT,black);
+            glClearTexImage(t,level,(format==GL_R32F || format==GL_R16F)?GL_RED:
+                ((format==GL_RG16F || format==GL_RG32F)?GL_RG:GL_RGBA),GL_FLOAT,black);
         return t;
     }
     void deleteTexture(GLuint& texture) { if(texture) glDeleteTextures(1,&texture); texture=0; }
@@ -114,10 +120,39 @@ namespace
     }
 
     enum Program { Transmittance,MultipleScattering,SkyView,Aerial,CloudVolume,Volume,
-        CloudNoise,CloudShadow,Environment,Filter,Blend,Brdf,SkyDraw,ProgramCount };
+        CloudNoise,CloudShadow,VisibleClouds,Environment,Filter,Blend,Brdf,SkyDraw,ProgramCount };
     enum Timing { SkyTime,LutTime,IblTime,AerialTime,FogTime,CloudTime,TimingCount };
-    struct EnvironmentSet { GLuint sky=0,lighting=0,irradiance=0,prefilter=0; };
-    struct TimerEntry { GLuint query=0; bool pending=false; unsigned kind=0; std::uint64_t frame=0; };
+    enum WorkKind { SnapshotWork,CaptureSkyWork,CaptureTileWork,MipsWork,DiffuseTileWork,GgxTileWork,PublishWork,WorkKindCount };
+    struct WorkItem { WorkKind kind; int x=0,y=0,face=0,level=0,size=0; };
+    struct EnvironmentSet
+    {
+        GLuint sky=0,lighting=0,irradiance=0,prefilter=0;
+        int cubeSize=0,irradianceSize=0,prefilterSize=0;
+    };
+    struct TimerEntry
+    {
+        GLuint query=0; bool pending=false; unsigned kind=0; std::uint64_t frame=0;
+        int work=-1; double scale=1;
+    };
+    struct EnvironmentCapture
+    {
+        bool active=false;
+        Budget budget;
+        AtmosphereGpuParameters parameters{};
+        AtmospherePalette palette;
+        EnvironmentSet output;
+        GLuint uniforms=0,transmittance=0,multiple=0,sky=0,noise=0,shadow=0,lighting=0,external=0;
+        std::uint64_t revision=0;
+        int tile=32;
+        unsigned cursor=0;
+        std::vector<WorkItem> work;
+    };
+    struct TextureAllocation
+    {
+        GLenum target=0,format=0;
+        int width=0,height=0,depth=0,levels=0;
+        std::uint64_t bytes=0;
+    };
 }
 
 struct Atmosphere::Impl
@@ -138,28 +173,35 @@ struct Atmosphere::Impl
     std::uint64_t externalRevision=0;
     bool dirty=true,programsDirty=true,ready=false,physicalPrograms=false;
     bool physicalDirty=true,multipleDirty=true,skyDirty=true,noiseDirty=true,volumesReady=false;
-    bool hasEnvironment=false,environmentBlending=false;
+    bool hasEnvironment=false,environmentBlending=false,needsCapture=true;
+    bool liveSkyReady=false,visibleCloudValid=false;
+    bool allocatedPhysical=false,allocatedClouds=false,allocatedMedia=false;
     unsigned frame=0;
     double time=0.0,environmentElapsed=0.0,blendElapsed=1.0;
     float blendDuration=0.0f,lastSkyAltitude=std::numeric_limits<float>::infinity();
-    AtmospherePalette lastBakedPalette, lastSkyPalette, displayedPalette, fromPalette, targetPalette;
+    AtmospherePalette lastBakedPalette, lastSkyPalette, lastRequestedPalette, displayedPalette, fromPalette, targetPalette;
     glm::vec3 lastBakedCamera{0};
     Budget budget;
-    AtmosphereGpuParameters gpu{},previous{},lastVolumeParameters{},lastCloudShadowParameters{};
+    AtmosphereGpuParameters gpu{},previous{},lastVolumeParameters{},lastCloudShadowParameters{},lastVisibleCloudParameters{};
     bool cloudShadowValid=false;
     std::array<GLuint,ProgramCount> programs{};
     GLuint parameters=0,vao=0;
-    GLuint transmittance=0,multiple=0,skyView=0,noise=0,cloudShadow=0;
+    GLuint transmittance=0,multiple=0,skyView=0,noise=0,cloudShadow=0,visibleClouds=0;
     GLuint physicalSource=0,physicalExtinction=0,cloudSource=0,cloudExtinction=0;
     GLuint scattering=0,transmission=0,baselineScattering=0,baselineTransmission=0;
-    GLuint lightingEnvironment=0,brdf=0;
+    GLuint brdf=0;
     // 0 snapshot of current display, 1 completed target, 2 coherent displayed set.
     std::array<EnvironmentSet,3> environments{};
+    EnvironmentCapture capture;
+    std::unordered_map<GLuint,TextureAllocation> textureSizes;
     std::array<TimerEntry,64> timers{};
     std::array<std::uint64_t,TimingCount> lastTimingFrame{};
     std::array<double,TimingCount> lastTimingValue{};
     int activeTimer=-1;
     unsigned timerCursor=0;
+    std::array<double,WorkKindCount> workMilliseconds{{.10,.60,.16,.08,.12,.14,.20}};
+    double foregroundMilliseconds=0.0;
+    std::uint64_t foregroundFrame=0;
 
     GLuint compile(const std::string& file,GLenum stage,const std::string& defines={},
         const std::string& vertex={})
@@ -243,10 +285,11 @@ struct Atmosphere::Impl
         bool physical=std::filesystem::exists("../Asset/Shader/Atmosphere/volume.C.glsl");
         if(physical)
         {
-            const std::array<std::pair<Program,const char*>,8> jobs{{
+            const std::array<std::pair<Program,const char*>,9> jobs{{
                 {Transmittance,"transmittance.C.glsl"},{MultipleScattering,"multiscatter.C.glsl"},
                 {SkyView,"skyview.C.glsl"},{Aerial,"aerial.C.glsl"},{CloudVolume,"cloud_volume.C.glsl"},
-                {Volume,"volume.C.glsl"},{CloudNoise,"cloud_noise.C.glsl"},{CloudShadow,"cloud_shadow.C.glsl"}}};
+                {Volume,"volume.C.glsl"},{CloudNoise,"cloud_noise.C.glsl"},{CloudShadow,"cloud_shadow.C.glsl"},
+                {VisibleClouds,"visible_clouds.C.glsl"}}};
             for(const auto& job:jobs) next[job.first]=build(job.second,GL_COMPUTE_SHADER);
         }
         next[Environment]=build("environment.C.glsl",GL_COMPUTE_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"");
@@ -263,67 +306,166 @@ struct Atmosphere::Impl
             return false;
         }
         releasePrograms(); programs=next; physicalPrograms=physical; failure.clear();
-        programsDirty=false; volumesReady=false; cloudShadowValid=false; physicalDirty=multipleDirty=skyDirty=noiseDirty=dirty=true;
+        programsDirty=false; volumesReady=false; cloudShadowValid=false; visibleCloudValid=false;
+        physicalDirty=multipleDirty=skyDirty=noiseDirty=dirty=true;
         return true;
     }
 
+    bool cloudsEnabled() const
+    { return config.clouds && config.cloudCoverage>0.0f && config.cloudDensity>0.0f; }
+    bool mediumEnabled() const
+    { return config.physicalAtmosphere || cloudsEnabled() || (config.localFog && (config.fogDensity>0 || !gameFogPath.empty())); }
+    GLuint createTexture(GLenum target,GLenum format,int width,int height,int depth=1,int levels=1)
+    {
+        const GLuint texture=makeTexture(target,format,width,height,depth,levels);
+        const int bytes=format==GL_RGBA32F?16:(format==GL_RGB32F?12:(format==GL_RGB16F?6:
+            (format==GL_R16F?2:(format==GL_RG16F || format==GL_R32F || format==GL_R11F_G11F_B10F || format==GL_RGBA8?4:8))));
+        std::uint64_t size=0;
+        for(int level=0;level<levels;++level)
+            size+=std::uint64_t(std::max(1,width>>level))*std::max(1,height>>level)*
+                (target==GL_TEXTURE_CUBE_MAP?6:(target==GL_TEXTURE_3D?std::max(1,depth>>level):1))*bytes;
+        textureSizes[texture]={target,format,width,height,depth,levels,size}; statistics.gpuTextureBytes+=size;
+        return texture;
+    }
+    void destroyTexture(GLuint& texture)
+    {
+        const auto found=textureSizes.find(texture);
+        if(found!=textureSizes.end()) { statistics.gpuTextureBytes-=found->second.bytes; textureSizes.erase(found); }
+        deleteTexture(texture);
+    }
+    void ensureTexture(GLuint& texture,GLenum target,GLenum format,int width,int height,int depth=1,int levels=1)
+    {
+        const auto found=textureSizes.find(texture);
+        if(found!=textureSizes.end())
+        {
+            const auto& old=found->second;
+            if(old.target==target && old.format==format && old.width==width && old.height==height &&
+                old.depth==depth && old.levels==levels) return;
+        }
+        const GLuint replacement=createTexture(target,format,width,height,depth,levels);
+        destroyTexture(texture); texture=replacement;
+    }
+    void releaseSet(EnvironmentSet& set)
+    {
+        destroyTexture(set.sky); destroyTexture(set.lighting);
+        destroyTexture(set.irradiance); destroyTexture(set.prefilter); set={};
+    }
+    bool matchingSet(const EnvironmentSet& set,const Budget& b) const
+    { return set.sky && set.cubeSize==b.cube && set.irradianceSize==b.irradiance && set.prefilterSize==b.prefilter; }
+    void allocateSet(EnvironmentSet& set,const Budget& b)
+    {
+        if(matchingSet(set,b)) return;
+        releaseSet(set);
+        set.cubeSize=b.cube; set.irradianceSize=b.irradiance; set.prefilterSize=b.prefilter;
+        set.sky=createTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube);
+        set.lighting=createTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube);
+        set.irradiance=createTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.irradiance,b.irradiance);
+        set.prefilter=createTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.prefilter,b.prefilter,1,std::min(5,mipCount(b.prefilter)));
+    }
+    void captureMemory()
+    {
+        statistics.captureTextureBytes=0;
+        for(GLuint texture:{capture.output.sky,capture.output.lighting,capture.output.irradiance,capture.output.prefilter,
+                            capture.transmittance,capture.multiple,capture.sky,capture.noise,capture.shadow,capture.lighting,capture.external})
+        {
+            const auto found=textureSizes.find(texture);
+            if(found!=textureSizes.end()) statistics.captureTextureBytes+=found->second.bytes;
+        }
+    }
+    void cancelCapture()
+    {
+        if(capture.active) ++statistics.environmentCapturesCancelled;
+        capture.active=false; capture.work.clear(); capture.cursor=0;
+        statistics.environmentCaptureActive=false;
+        statistics.captureWorkCompleted=statistics.captureWorkTotal=0; statistics.captureProgress=0;
+        needsCapture=true;
+    }
+    void releaseCapture()
+    {
+        cancelCapture(); releaseSet(capture.output);
+        for(GLuint* t:{&capture.transmittance,&capture.multiple,&capture.sky,&capture.noise,
+                       &capture.shadow,&capture.lighting,&capture.external}) destroyTexture(*t);
+        if(capture.uniforms) glDeleteBuffers(1,&capture.uniforms);
+        capture.uniforms=0; captureMemory();
+    }
+    void releaseLive()
+    {
+        for(GLuint* t:{&transmittance,&multiple,&skyView,&noise,&cloudShadow,&visibleClouds,
+                      &physicalSource,&physicalExtinction,&cloudSource,&cloudExtinction,
+                      &scattering,&transmission,&baselineScattering,&baselineTransmission}) destroyTexture(*t);
+        liveSkyReady=volumesReady=cloudShadowValid=visibleCloudValid=false;
+    }
     void releaseTargets()
     {
-        for(auto& set:environments)
+        releaseCapture(); releaseLive();
+        for(auto& set:environments) releaseSet(set);
+        hasEnvironment=false; environmentBlending=false; statistics.environmentReady=false;
+    }
+    void updateEffectResources(bool force=false)
+    {
+        const bool physical=config.physicalAtmosphere,clouds=cloudsEnabled(),media=mediumEnabled();
+        const auto& b=budget;
+        const float white[4]={1,1,1,1};
+        if(force || physical!=allocatedPhysical)
         {
-            deleteTexture(set.sky); deleteTexture(set.lighting); deleteTexture(set.irradiance); deleteTexture(set.prefilter);
+            for(GLuint* t:{&transmittance,&multiple,&physicalSource,&physicalExtinction}) destroyTexture(*t);
+            transmittance=createTexture(GL_TEXTURE_2D,GL_RGBA16F,physical?b.transWidth:1,physical?b.transHeight:1);
+            multiple=createTexture(GL_TEXTURE_2D,GL_RGBA16F,physical?b.multiSize:1,physical?b.multiSize:1);
+            physicalSource=createTexture(GL_TEXTURE_3D,GL_RGBA32F,physical?b.width:1,physical?b.height:1,physical?b.depth:1);
+            physicalExtinction=createTexture(GL_TEXTURE_3D,GL_RGBA32F,physical?b.width:1,physical?b.height:1,physical?b.depth:1);
+            glClearTexImage(transmittance,0,GL_RGBA,GL_FLOAT,white);
+            physicalDirty=multipleDirty=skyDirty=dirty=true; volumesReady=false;
         }
-        for(GLuint* t:{&transmittance,&multiple,&skyView,&noise,&cloudShadow,
-            &physicalSource,&physicalExtinction,&cloudSource,&cloudExtinction,
-            &scattering,&transmission,&baselineScattering,&baselineTransmission,&lightingEnvironment})
-            deleteTexture(*t);
-        hasEnvironment=false; environmentBlending=false; volumesReady=false; cloudShadowValid=false;
+        if(force || clouds!=allocatedClouds)
+        {
+            for(GLuint* t:{&noise,&cloudShadow,&visibleClouds,&cloudSource,&cloudExtinction}) destroyTexture(*t);
+            const int n=clouds?b.noise:1;
+            noise=createTexture(GL_TEXTURE_3D,GL_RGBA16F,n,n,n,mipCount(n));
+            for(GLenum parameter:{GL_TEXTURE_WRAP_S,GL_TEXTURE_WRAP_T,GL_TEXTURE_WRAP_R})
+                glTextureParameteri(noise,parameter,GL_REPEAT);
+            cloudShadow=createTexture(GL_TEXTURE_2D,GL_RG16F,clouds?b.shadow:1,clouds?b.shadow:1);
+            glClearTexImage(cloudShadow,0,GL_RG,GL_FLOAT,white);
+            visibleClouds=createTexture(GL_TEXTURE_2D,GL_RGBA16F,clouds?b.cloudViewWidth:1,clouds?b.cloudViewHeight:1);
+            cloudSource=createTexture(GL_TEXTURE_3D,GL_RGBA32F,clouds?b.width:1,clouds?b.height:1,clouds?b.depth:1);
+            cloudExtinction=createTexture(GL_TEXTURE_3D,GL_R32F,clouds?b.width:1,clouds?b.height:1,clouds?b.depth:1);
+            noiseDirty=clouds; dirty=true; volumesReady=false; cloudShadowValid=visibleCloudValid=false;
+        }
+        if(force || media!=allocatedMedia)
+        {
+            for(GLuint* t:{&scattering,&transmission,&baselineScattering,&baselineTransmission}) destroyTexture(*t);
+            scattering=createTexture(GL_TEXTURE_3D,GL_RGBA16F,media?b.width:1,media?b.height:1,media?b.depth:1);
+            transmission=createTexture(GL_TEXTURE_3D,GL_RGBA16F,media?b.width:1,media?b.height:1,media?b.depth:1);
+            baselineScattering=createTexture(GL_TEXTURE_2D,GL_RGBA16F,media?b.width:1,media?b.height:1);
+            baselineTransmission=createTexture(GL_TEXTURE_2D,GL_RGBA16F,media?b.width:1,media?b.height:1);
+            glClearTexImage(transmission,0,GL_RGBA,GL_FLOAT,white);
+            glClearTexImage(baselineTransmission,0,GL_RGBA,GL_FLOAT,white);
+            volumesReady=false;
+        }
+        allocatedPhysical=physical; allocatedClouds=clouds; allocatedMedia=media;
     }
     bool allocate(const Budget& b)
     {
-        releaseTargets(); budget=b;
-        const int prefilterLevels=std::min(5,mipCount(b.prefilter));
-        for(auto& set:environments)
-        {
-            set.sky=makeTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube);
-            set.lighting=makeTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube);
-            set.irradiance=makeTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.irradiance,b.irradiance);
-            set.prefilter=makeTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.prefilter,b.prefilter,1,prefilterLevels);
-        }
-        lightingEnvironment=makeTexture(GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube,1,mipCount(b.cube));
-        transmittance=makeTexture(GL_TEXTURE_2D,GL_RGBA16F,b.transWidth,b.transHeight);
-        multiple=makeTexture(GL_TEXTURE_2D,GL_RGBA16F,b.multiSize,b.multiSize);
-        skyView=makeTexture(GL_TEXTURE_2D,GL_RGBA16F,b.skyWidth,b.skyHeight);
+        // In-flight work is disposable; all three published sets stay alive.
+        // A quality change is exposed only when its new capture is complete.
+        releaseCapture(); releaseLive(); budget=b;
+        skyView=createTexture(GL_TEXTURE_2D,GL_RGBA16F,b.skyWidth,b.skyHeight);
         glTextureParameteri(skyView,GL_TEXTURE_WRAP_S,GL_REPEAT);
-        noise=makeTexture(GL_TEXTURE_3D,GL_RGBA16F,b.noise,b.noise,b.noise,mipCount(b.noise));
-        for(GLenum parameter:{GL_TEXTURE_WRAP_S,GL_TEXTURE_WRAP_T,GL_TEXTURE_WRAP_R})
-            glTextureParameteri(noise,parameter,GL_REPEAT);
-        cloudShadow=makeTexture(GL_TEXTURE_2D,GL_RG16F,b.shadow,b.shadow);
-        physicalSource=makeTexture(GL_TEXTURE_3D,GL_RGBA32F,b.width,b.height,b.depth);
-        physicalExtinction=makeTexture(GL_TEXTURE_3D,GL_RGBA32F,b.width,b.height,b.depth);
-        cloudSource=makeTexture(GL_TEXTURE_3D,GL_RGBA32F,b.width,b.height,b.depth);
-        cloudExtinction=makeTexture(GL_TEXTURE_3D,GL_RGBA32F,b.width,b.height,b.depth);
-        scattering=makeTexture(GL_TEXTURE_3D,GL_RGBA16F,b.width,b.height,b.depth);
-        transmission=makeTexture(GL_TEXTURE_3D,GL_RGBA16F,b.width,b.height,b.depth);
-        baselineScattering=makeTexture(GL_TEXTURE_2D,GL_RGBA16F,b.width,b.height);
-        baselineTransmission=makeTexture(GL_TEXTURE_2D,GL_RGBA16F,b.width,b.height);
-        const float white[4]={1,1,1,1};
-        glClearTexImage(transmission,0,GL_RGBA,GL_FLOAT,white);
-        glClearTexImage(baselineTransmission,0,GL_RGBA,GL_FLOAT,white);
-        glClearTexImage(transmittance,0,GL_RGBA,GL_FLOAT,white);
-        glClearTexImage(cloudShadow,0,GL_RG,GL_FLOAT,white);
+        updateEffectResources(true);
         if(!parameters) glCreateBuffers(1,&parameters);
         glNamedBufferData(parameters,sizeof(gpu),&gpu,GL_DYNAMIC_DRAW);
         if(!vao) glCreateVertexArrays(1,&vao);
         if(!brdf)
         {
-            brdf=makeTexture(GL_TEXTURE_2D,GL_RG16F,128,128);
-            glUseProgram(programs[Brdf]);
-            textureImage(0,brdf,GL_RG16F,0,false); dispatch(128,128,1);
+            brdf=createTexture(GL_TEXTURE_2D,GL_RG16F,128,128);
+            glUseProgram(programs[Brdf]); textureImage(0,brdf,GL_RG16F,0,false); submit(128,128,1);
         }
         glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-        physicalDirty=multipleDirty=skyDirty=noiseDirty=dirty=true;
+        physicalDirty=multipleDirty=skyDirty=dirty=true;
         return true;
+    }
+    void submit(int x,int y,int z,int gx=8,int gy=8,int gz=1)
+    {
+        dispatch(x,y,z,gx,gy,gz); ++statistics.dispatches; ++statistics.frameDispatches;
     }
 
     void upload()
@@ -336,7 +478,7 @@ struct Atmosphere::Impl
         textureUnit(0,transmittance); textureUnit(1,multiple); textureUnit(2,skyView);
         textureUnit(3,noise); textureUnit(5,cloudShadow);
     }
-    void begin(Timing kind)
+    void begin(Timing kind,int work=-1,double scale=1.0)
     {
         if(!config.measureGpu || activeTimer!=-1) return;
         for(unsigned i=0;i<timers.size();++i)
@@ -345,7 +487,7 @@ struct Atmosphere::Impl
             auto& entry=timers[index];
             if(entry.pending) continue;
             if(!entry.query) glGenQueries(1,&entry.query);
-            entry.kind=kind; entry.frame=frame;
+            entry.kind=kind; entry.frame=frame; entry.work=work; entry.scale=scale;
             glBeginQuery(GL_TIME_ELAPSED,entry.query); activeTimer=static_cast<int>(index);
             timerCursor=(index+1)%timers.size(); return;
         }
@@ -367,10 +509,21 @@ struct Atmosphere::Impl
             if(!available) continue;
             GLuint64 ns=0; glGetQueryObjectui64v(entry.query,GL_QUERY_RESULT,&ns);
             entry.pending=false;
+            const double milliseconds=static_cast<double>(ns)*1e-6;
+            if(entry.work>=0)
+            {
+                auto& estimate=workMilliseconds[static_cast<std::size_t>(entry.work)];
+                estimate=0.7*estimate+0.3*std::clamp(milliseconds/std::max(entry.scale,.0001),.001,1000.0);
+            }
+            else if(entry.frame>=foregroundFrame)
+            {
+                if(entry.frame!=foregroundFrame) { foregroundMilliseconds=0; foregroundFrame=entry.frame; }
+                foregroundMilliseconds+=milliseconds;
+            }
             if(entry.frame<lastTimingFrame[entry.kind]) continue;
             if(entry.frame!=lastTimingFrame[entry.kind])
             { lastTimingValue[entry.kind]=0; lastTimingFrame[entry.kind]=entry.frame; }
-            lastTimingValue[entry.kind]+=static_cast<double>(ns)*1e-6;
+            lastTimingValue[entry.kind]+=milliseconds;
             statistics.gpuSamplesAvailable=true;
         }
         statistics.skyMilliseconds=lastTimingValue[SkyTime];
@@ -434,33 +587,31 @@ struct Atmosphere::Impl
             std::clamp(config.cloudCoverage,0.0f,1.0f),std::max(0.0f,config.cloudDensity)};
         gpu.cloudShape={std::max(100.0f,config.cloudScale),1.0f/std::max(.01f,config.cloudDetailScale),.28f,.65f};
         gpu.cloudWind={config.wind.x,config.wind.y,std::max(config.aerialDistance,1024.0f),0};
+        gpu.cloudWeather={std::max(100.0f,config.cloudWeatherScale),std::clamp(config.cloudWeatherStrength,0.0f,1.0f),
+            std::clamp(config.cloudWeatherContrast,.05f,8.0f),std::clamp(config.cloudProfileVariation,0.0f,1.0f)};
+        glm::vec3 profiles=glm::max(config.cloudProfileMix,glm::vec3(0));
+        const float total=profiles.x+profiles.y+profiles.z;
+        profiles=total>1e-6f?profiles/total:glm::vec3(.25f,.5f,.25f);
+        gpu.cloudProfiles={profiles,0};
         const float shadowTexel=2.0f*gpu.cloudWind.z/static_cast<float>(budget.shadow);
         gpu.shadowOrigin={std::floor(gpu.camera.x/shadowTexel)*shadowTexel,
             std::floor(gpu.camera.z/shadowTexel)*shadowTexel,0,0};
         gpu.shadow={sun?sun->getShadowIndex():-1,moon?moon->getShadowIndex():-1,0,0};
         gpu.quality={budget.skySteps,budget.transSteps,budget.multiDirections,budget.multiSteps};
         gpu.samples={budget.volumeSteps,budget.cloudLightSteps,budget.cloudShadowSteps,budget.cloudSkySteps};
-        gpu.control={config.physicalAtmosphere?1:0,config.localFog?1:0,config.clouds?1:0,config.godRays?1:0};
+        gpu.control={config.physicalAtmosphere?1:0,config.localFog?1:0,cloudsEnabled()?1:0,config.godRays?1:0};
         gpu.misc={config.cloudSeed,frame,0,0};
         gpu.view=camera->getViewMatrix(); gpu.invView=glm::inverse(gpu.view);
         gpu.invProjection=glm::inverse(camera->getProjectionMatrix());
         statistics.shadowDistance=camera->getFar();
     }
-    void filterMap(GLuint output,int size,int level,int mode,float roughness)
-    {
-        const auto p=programs[Filter]; glUseProgram(p);
-        textureUnit(0,lightingEnvironment); textureImage(0,output,GL_RGBA16F,level);
-        glUniform1i(location(p,"geFilterMode"),mode);
-        glUniform1i(location(p,"geFilterSamples"),budget.filterSamples);
-        glUniform1f(location(p,"geFilterRoughness"),roughness);
-        dispatch(size,size,6);
-    }
     void copySet(const EnvironmentSet& from,const EnvironmentSet& to)
     {
-        for(const auto pair:{std::pair<GLuint,GLuint>{from.sky,to.sky},
+        for(const auto& pair:{std::pair<GLuint,GLuint>{from.sky,to.sky},
             {from.lighting,to.lighting},{from.irradiance,to.irradiance},{from.prefilter,to.prefilter}})
         {
-            const int size=(pair.first==from.sky || pair.first==from.lighting)?budget.cube:(pair.first==from.irradiance?budget.irradiance:budget.prefilter);
+            const int size=(pair.first==from.sky || pair.first==from.lighting)?from.cubeSize:
+                (pair.first==from.irradiance?from.irradianceSize:from.prefilterSize);
             const int levels=pair.first==from.prefilter?std::min(5,mipCount(size)):1;
             for(int level=0;level<levels;++level)
                 glCopyImageSubData(pair.first,GL_TEXTURE_CUBE_MAP,level,0,0,0,
@@ -468,72 +619,217 @@ struct Atmosphere::Impl
         }
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
     }
-    void bakeEnvironment()
+    void snapshotInputs()
     {
-        begin(IblTime);
-        // Snapshot the currently displayed blend, including interrupted fades.
-        if(hasEnvironment) copySet(environments[2],environments[0]);
-        fromPalette=displayedPalette; targetPalette=transition.displayed();
-        auto& target=environments[1];
-        glUseProgram(programs[Environment]); commonTextures();
-        textureUnit(9,externalEnvironment);
-        glUniform1i(location(programs[Environment],"geUseExternalEnvironment"),externalEnvironment?1:0);
-        textureImage(0,target.sky,GL_RGBA16F); textureImage(1,lightingEnvironment,GL_RGBA16F);
-        dispatch(budget.cube,budget.cube,6);
-        // Ordinary source mipmaps only improve importance-sample footprint.
-        // GGX roughness levels are separately integrated below.
-        glGenerateTextureMipmap(lightingEnvironment);
+        // One ordered GPU snapshot freezes every texture the multi-frame job
+        // can read. The live LUTs/noise may immediately change afterwards.
+        const auto& b=capture.budget;
+        allocateSet(capture.output,b);
+        const bool physical=capture.parameters.control.x!=0,clouds=capture.parameters.control.z!=0;
+        const int tw=physical?b.transWidth:1,th=physical?b.transHeight:1,ms=physical?b.multiSize:1;
+        const int n=clouds?b.noise:1,shadowSize=clouds?b.shadow:1;
+        ensureTexture(capture.transmittance,GL_TEXTURE_2D,GL_RGBA16F,tw,th);
+        ensureTexture(capture.multiple,GL_TEXTURE_2D,GL_RGBA16F,ms,ms);
+        ensureTexture(capture.sky,GL_TEXTURE_2D,GL_RGBA16F,b.skyWidth,b.skyHeight);
+        glTextureParameteri(capture.sky,GL_TEXTURE_WRAP_S,GL_REPEAT);
+        ensureTexture(capture.noise,GL_TEXTURE_3D,GL_RGBA16F,n,n,n,mipCount(n));
+        for(GLenum parameter:{GL_TEXTURE_WRAP_S,GL_TEXTURE_WRAP_T,GL_TEXTURE_WRAP_R})
+            glTextureParameteri(capture.noise,parameter,GL_REPEAT);
+        ensureTexture(capture.shadow,GL_TEXTURE_2D,GL_RG16F,shadowSize,shadowSize);
+        ensureTexture(capture.lighting,GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube,1,mipCount(b.cube));
+        glCopyImageSubData(transmittance,GL_TEXTURE_2D,0,0,0,0,capture.transmittance,GL_TEXTURE_2D,0,0,0,0,tw,th,1);
+        glCopyImageSubData(multiple,GL_TEXTURE_2D,0,0,0,0,capture.multiple,GL_TEXTURE_2D,0,0,0,0,ms,ms,1);
+        glCopyImageSubData(cloudShadow,GL_TEXTURE_2D,0,0,0,0,capture.shadow,GL_TEXTURE_2D,0,0,0,0,shadowSize,shadowSize,1);
+        for(int level=0;level<mipCount(n);++level)
+        {
+            const int size=std::max(1,n>>level);
+            glCopyImageSubData(noise,GL_TEXTURE_3D,level,0,0,0,capture.noise,GL_TEXTURE_3D,level,0,0,0,size,size,size);
+        }
+        if(externalEnvironment && glIsTexture(externalEnvironment))
+        {
+            // These queries inspect texture metadata, never GPU image contents.
+            GLint size=0,format=GL_RGBA16F;
+            glGetTextureLevelParameteriv(externalEnvironment,0,GL_TEXTURE_WIDTH,&size);
+            glGetTextureLevelParameteriv(externalEnvironment,0,GL_TEXTURE_INTERNAL_FORMAT,&format);
+            if(size>0)
+            {
+                ensureTexture(capture.external,GL_TEXTURE_CUBE_MAP,static_cast<GLenum>(format),size,size);
+                glCopyImageSubData(externalEnvironment,GL_TEXTURE_CUBE_MAP,0,0,0,0,
+                    capture.external,GL_TEXTURE_CUBE_MAP,0,0,0,0,size,size,6);
+            }
+        }
+        else destroyTexture(capture.external);
+        if(!capture.uniforms) glCreateBuffers(1,&capture.uniforms);
+        glNamedBufferData(capture.uniforms,sizeof(capture.parameters),&capture.parameters,GL_STATIC_DRAW);
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
-        filterMap(target.irradiance,budget.irradiance,0,0,1.0f);
-        const int levels=std::min(5,mipCount(budget.prefilter));
-        for(int level=0;level<levels;++level)
-            filterMap(target.prefilter,std::max(1,budget.prefilter>>level),level,1,
-                static_cast<float>(level)/static_cast<float>(levels-1));
-        glCopyImageSubData(lightingEnvironment,GL_TEXTURE_CUBE_MAP,0,0,0,0,target.lighting,GL_TEXTURE_CUBE_MAP,0,0,0,0,budget.cube,budget.cube,6);
-        glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
-        // No sampler sees the target until ALL its faces and GGX levels exist.
+        captureMemory();
+    }
+    void captureTextures()
+    {
+        glBindBufferBase(GL_UNIFORM_BUFFER,6,capture.uniforms);
+        textureUnit(0,capture.transmittance); textureUnit(1,capture.multiple); textureUnit(2,capture.sky);
+        textureUnit(3,capture.noise); textureUnit(5,capture.shadow); textureUnit(9,capture.external);
+    }
+    void startCapture(const AtmosphereGpuParameters& candidate)
+    {
+        capture.active=true; capture.budget=budget; capture.parameters=candidate;
+        capture.palette=transition.displayed(); capture.revision=statistics.requestedEnvironmentRevision;
+        capture.tile=8*std::clamp(config.iblTileSize/8,1,8);
+        capture.cursor=0; capture.work.clear();
+        capture.work.push_back({SnapshotWork});
+        if(physicalPrograms) capture.work.push_back({CaptureSkyWork});
+        const auto tiles=[&](WorkKind kind,int size,int level=0)
+        {
+            for(int face=0;face<6;++face)
+                for(int y=0;y<size;y+=capture.tile)
+                    for(int x=0;x<size;x+=capture.tile) capture.work.push_back({kind,x,y,face,level,size});
+        };
+        tiles(CaptureTileWork,budget.cube);
+        capture.work.push_back({MipsWork});
+        tiles(DiffuseTileWork,budget.irradiance);
+        for(int level=0;level<std::min(5,mipCount(budget.prefilter));++level)
+            tiles(GgxTileWork,std::max(1,budget.prefilter>>level),level);
+        capture.work.push_back({PublishWork});
+        ++statistics.environmentCapturesStarted;
+        statistics.captureRevision=capture.revision; statistics.environmentCaptureActive=true;
+        statistics.captureWorkTotal=static_cast<unsigned>(capture.work.size());
+        statistics.captureWorkCompleted=0; statistics.captureProgress=0;
+        needsCapture=false; environmentElapsed=0;
+        lastBakedCamera=glm::vec3(candidate.camera); lastBakedPalette=capture.palette;
+    }
+    void publishCapture()
+    {
+        // Move the completed work set into the target slot. An unfinished job
+        // never aliases the source/target/display of an already running blend.
+        fromPalette=displayedPalette; targetPalette=capture.palette;
         if(!hasEnvironment)
         {
-            copySet(target,environments[0]); copySet(target,environments[2]);
-            hasEnvironment=true; environmentBlending=false; blendElapsed=1.0; blendDuration=0;
+            std::swap(environments[1],capture.output);
+            allocateSet(environments[0],capture.budget); allocateSet(environments[2],capture.budget);
+            copySet(environments[1],environments[0]); copySet(environments[1],environments[2]);
+            hasEnvironment=true; environmentBlending=false;
             displayedPalette=fromPalette=targetPalette;
         }
         else
         {
-            blendElapsed=0.0; blendDuration=std::max(0.0f,config.environmentBlendSeconds);
-            environmentBlending=blendDuration>0.0f;
-            if(blendDuration==0.0f)
-            {
-                copySet(target,environments[2]); displayedPalette=targetPalette; blendElapsed=1.0;
-            }
+            // Preserve exactly the image already displayed, including an
+            // interrupted fade. Old and new resolutions may differ: blend's
+            // directional sampling performs the resolution conversion.
+            std::swap(environments[0],environments[2]);
+            allocateSet(environments[2],capture.budget);
+            std::swap(environments[1],capture.output);
+            blendElapsed=0; blendDuration=std::max(0.0f,config.environmentBlendSeconds);
+            environmentBlending=true; blendEnvironment(false);
         }
         ++statistics.environmentUpdates;
-        lastBakedPalette=transition.displayed(); if(!physicalPrograms) lastSkyPalette=lastBakedPalette; lastBakedCamera=glm::vec3(gpu.camera); environmentElapsed=0.0; dirty=false;
-        end();
+        statistics.publishedEnvironmentRevision=capture.revision;
+        statistics.environmentReady=true; statistics.environmentCaptureActive=false;
+        capture.active=false; captureMemory();
     }
-    void blendEnvironment()
+    double workScale(const WorkItem& item) const
+    {
+        const auto& b=capture.budget;
+        if(item.kind==CaptureSkyWork)
+            return std::max(.01,double(b.skyWidth)*b.skyHeight*b.skySteps/(320.0*160.0*64.0));
+        if(item.kind==CaptureTileWork || item.kind==DiffuseTileWork || item.kind==GgxTileWork)
+        {
+            double scale=double(std::min(capture.tile,item.size-item.x))*std::min(capture.tile,item.size-item.y)/1024.0;
+            if(item.kind==CaptureTileWork) scale*=std::max(.25,b.cloudSkySteps/40.0);
+            else scale*=b.filterSamples/128.0;
+            return std::max(.0001,scale);
+        }
+        return 1.0;
+    }
+    void executeWork(const WorkItem& item)
+    {
+        const auto& b=capture.budget;
+        if(item.kind==SnapshotWork) { snapshotInputs(); return; }
+        if(item.kind==PublishWork) { publishCapture(); return; }
+        captureTextures();
+        if(item.kind==CaptureSkyWork)
+        {
+            glUseProgram(programs[SkyView]); textureImage(0,capture.sky,GL_RGBA16F,0,false);
+            submit(b.skyWidth,b.skyHeight,1); return;
+        }
+        if(item.kind==MipsWork)
+        {
+            // This ordinary mip chain is input footprint filtering. Every GGX
+            // roughness level below is still computed explicitly.
+            glGenerateTextureMipmap(capture.lighting);
+            glCopyImageSubData(capture.lighting,GL_TEXTURE_CUBE_MAP,0,0,0,0,
+                capture.output.lighting,GL_TEXTURE_CUBE_MAP,0,0,0,0,b.cube,b.cube,6);
+            glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT); return;
+        }
+        const bool sky=item.kind==CaptureTileWork;
+        const GLuint program=programs[sky?Environment:Filter];
+        glUseProgram(program);
+        glUniform3i(location(program,"geDispatchOffset"),item.x,item.y,item.face);
+        if(sky)
+        {
+            glUniform1i(location(program,"geUseExternalEnvironment"),capture.external?1:0);
+            textureImage(0,capture.output.sky,GL_RGBA16F); textureImage(1,capture.lighting,GL_RGBA16F);
+        }
+        else
+        {
+            textureUnit(0,capture.lighting);
+            const bool diffuse=item.kind==DiffuseTileWork;
+            textureImage(0,diffuse?capture.output.irradiance:capture.output.prefilter,GL_RGBA16F,item.level);
+            glUniform1i(location(program,"geFilterMode"),diffuse?0:1);
+            glUniform1i(location(program,"geFilterSamples"),b.filterSamples);
+            glUniform1f(location(program,"geFilterRoughness"),diffuse?1.0f:
+                float(item.level)/float(std::min(5,mipCount(b.prefilter))-1));
+        }
+        submit(std::min(capture.tile,item.size-item.x),std::min(capture.tile,item.size-item.y),1);
+    }
+    void serviceEnvironment(const AtmosphereGpuParameters& candidate)
+    {
+        if(!capture.active && needsCapture && (!hasEnvironment || environmentElapsed>=std::max(0.0f,config.environmentInterval)))
+            startCapture(candidate);
+        if(!capture.active) return;
+        const int limit=std::clamp(config.iblMaxWorkUnitsPerFrame,1,64);
+        const double available=std::max(0.0,double(std::max(.01f,config.targetGpuMilliseconds))-foregroundMilliseconds);
+        double submitted=0;
+        while(capture.active && statistics.iblWorkUnitsThisFrame<static_cast<unsigned>(limit))
+        {
+            const auto item=capture.work[capture.cursor];
+            const double scale=workScale(item),cost=workMilliseconds[item.kind]*scale;
+            // One unit is always admitted to prevent starvation when foreground
+            // work already exceeds the soft target. No GPU wait or preemption.
+            if(statistics.iblWorkUnitsThisFrame>0 && submitted+cost>available) break;
+            begin(IblTime,item.kind,scale); executeWork(item); end();
+            submitted+=cost; ++statistics.iblWorkUnitsThisFrame; ++capture.cursor;
+            statistics.captureWorkCompleted=capture.cursor;
+            statistics.captureProgress=float(capture.cursor)/float(capture.work.size());
+        }
+        statistics.iblSubmittedMilliseconds=submitted;
+        statistics.iblEstimatedMilliseconds=0;
+        for(std::size_t i=capture.cursor;i<capture.work.size();++i)
+            statistics.iblEstimatedMilliseconds+=workMilliseconds[capture.work[i].kind]*workScale(capture.work[i]);
+    }
+    void blendEnvironment(bool record=true)
     {
         if(!hasEnvironment || !environmentBlending) return;
-        begin(IblTime);
+        if(record) begin(IblTime);
         const float t=blendDuration>0.0f?std::clamp(static_cast<float>(blendElapsed/blendDuration),0.0f,1.0f):1.0f;
         const auto p=programs[Blend]; glUseProgram(p);
         glUniform1f(location(p,"geBlendFactor"),t);
         for(int kind=0;kind<4;++kind)
         {
             const auto texture=[&](const EnvironmentSet& set){return kind==0?set.sky:(kind==1?set.lighting:(kind==2?set.irradiance:set.prefilter));};
-            const int size=kind<2?budget.cube:(kind==2?budget.irradiance:budget.prefilter);
+            const auto& displayed=environments[2];
+            const int size=kind<2?displayed.cubeSize:(kind==2?displayed.irradianceSize:displayed.prefilterSize);
             const int levels=kind==3?std::min(5,mipCount(size)):1;
             textureUnit(0,texture(environments[0])); textureUnit(1,texture(environments[1]));
             for(int level=0;level<levels;++level)
             {
                 textureImage(0,texture(environments[2]),GL_RGBA16F,level);
                 glUniform1f(location(p,"geBlendLevel"),static_cast<float>(level));
-                dispatch(std::max(1,size>>level),std::max(1,size>>level),6);
+                submit(std::max(1,size>>level),std::max(1,size>>level),6);
             }
         }
         displayedPalette=mixAtmospherePalette(fromPalette,targetPalette,t);
         if(t>=1.0f) environmentBlending=false;
-        end();
+        if(record) end();
     }
 };
 
@@ -544,7 +840,7 @@ AtmosphereSettings& Atmosphere::settings() { return m->config; }
 const AtmosphereSettings& Atmosphere::settings() const { return m->config; }
 const AtmosphereStats& Atmosphere::stats() const { return m->statistics; }
 const std::string& Atmosphere::error() const { return m->failure; }
-bool Atmosphere::active() const { return m->config.enabled && m->ready && m->hasEnvironment; }
+bool Atmosphere::active() const { return m->config.enabled && m->ready && (m->hasEnvironment || m->liveSkyReady); }
 const AtmospherePalette& Atmosphere::displayedPalette() const { return m->hasEnvironment?m->displayedPalette:m->transition.displayed(); }
 void Atmosphere::setPaletteTarget(const AtmospherePalette& value,bool force)
 {
@@ -608,18 +904,26 @@ void Atmosphere::prepareShadows()
 
 void Atmosphere::prepare(Camera* camera,double deltaSeconds)
 {
-    if(!m->config.enabled || !camera || !m->pc || !m->pc->lightManager) return;
+    if(!m->config.enabled)
+    {
+        if(m->capture.active) m->cancelCapture();
+        return;
+    }
+    if(!camera || !m->pc || !m->pc->lightManager) return;
     ++m->frame; m->pollTimers();
+    m->statistics.frameDispatches=0; m->statistics.iblWorkUnitsThisFrame=0;
+    m->statistics.iblSubmittedMilliseconds=0;
     const double dt=std::isfinite(deltaSeconds)?std::max(deltaSeconds,0.0):0.0;
     m->time+=dt; m->environmentElapsed+=dt; m->blendElapsed+=dt;
     if(!m->transition.initialized()) m->transition.target(AtmospherePalette{},0,0);
     m->transition.advance(dt);
     if(m->programsDirty)
     {
+        m->cancelCapture();
         if(!m->buildPrograms())
         {
-            // Retain a previously complete environment when a hook reload fails.
-            // Explicit reload/setting change retries; never compile every frame.
+            // Failed reloads leave every previously published texture/program
+            // valid. A later explicit reload retries, never a per-frame loop.
             m->programsDirty=false; return;
         }
     }
@@ -630,101 +934,110 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
         if(!m->allocate(nextBudget)) return;
         m->ready=true;
     }
-    // Finish the elapsed portion of the previous publication before a new
-    // snapshot can restart its clock. This also progresses at low frame rates.
+    else m->updateEffectResources();
     m->blendEnvironment();
     m->fillParameters(camera);
-    // Dependencies deliberately exclude camera XZ, view rotation and palette
-    // from the invariant transmittance / multiple-scattering LUTs.
-    if(m->gpu.radii.x!=m->previous.radii.x || m->gpu.radii.y!=m->previous.radii.y ||
-        m->gpu.rayleigh!=m->previous.rayleigh || m->gpu.mie!=m->previous.mie ||
-        m->gpu.absorption!=m->previous.absorption || m->gpu.medium.x!=m->previous.medium.x ||
-        m->gpu.medium.z!=m->previous.medium.z || m->gpu.control.x!=m->previous.control.x)
-        m->physicalDirty=m->multipleDirty=true;
-    // Ground reflectance and phase anisotropy affect MS, not optical depth.
-    if(m->gpu.art.w!=m->previous.art.w || m->gpu.medium.y!=m->previous.medium.y)
-        m->multipleDirty=true;
-    if(m->gpu.radii.z!=m->previous.radii.z || m->gpu.sunDirection!=m->previous.sunDirection ||
-        m->gpu.sunRadiance!=m->previous.sunRadiance || m->gpu.moonDirection!=m->previous.moonDirection ||
-        m->gpu.moonRadiance!=m->previous.moonRadiance)
+    const auto& old=m->previous;
+    if(m->gpu.radii.x!=old.radii.x || m->gpu.radii.y!=old.radii.y ||
+        m->gpu.rayleigh!=old.rayleigh || m->gpu.mie!=old.mie || m->gpu.absorption!=old.absorption ||
+        m->gpu.medium.x!=old.medium.x || m->gpu.medium.z!=old.medium.z || m->gpu.control.x!=old.control.x)
+        m->physicalDirty=m->multipleDirty=m->skyDirty=m->dirty=true;
+    if(m->gpu.art.w!=old.art.w || m->gpu.medium.y!=old.medium.y)
+        m->multipleDirty=m->skyDirty=m->dirty=true;
+    if(m->gpu.radii.z!=old.radii.z || m->gpu.sunDirection!=old.sunDirection || m->gpu.sunRadiance!=old.sunRadiance ||
+        m->gpu.moonDirection!=old.moonDirection || m->gpu.moonRadiance!=old.moonRadiance)
         m->skyDirty=m->dirty=true;
-    if(m->gpu.sunDisk!=m->previous.sunDisk || m->gpu.moonDisk!=m->previous.moonDisk) m->dirty=true;
-    if(std::abs(m->gpu.camera.y-m->lastSkyAltitude)>=std::max(.01f,m->config.altitudeUpdateThreshold))
-        m->skyDirty=m->dirty=true;
-    if(atmospherePaletteDifference(m->transition.displayed(),m->lastSkyPalette)>=std::max(0.000001f,m->config.environmentThreshold))
-        m->skyDirty=m->dirty=true;
-    if(m->gpu.misc.x!=m->previous.misc.x) m->noiseDirty=true;
-    if(std::memcmp(&m->gpu.cloudLayer,&m->previous.cloudLayer,3*sizeof(glm::vec4))!=0 ||
-        m->gpu.control.z!=m->previous.control.z) m->dirty=true;
-    // Cloud parallax follows camera XZ even if wind is zero and the biome is uniform.
+    if(m->gpu.sunDisk!=old.sunDisk || m->gpu.moonDisk!=old.moonDisk) m->dirty=true;
+    if(std::abs(m->gpu.camera.y-m->lastSkyAltitude)>=std::max(.01f,m->config.altitudeUpdateThreshold)) m->skyDirty=true;
     const glm::vec2 cloudMotion(m->gpu.camera.x-m->lastBakedCamera.x,m->gpu.camera.z-m->lastBakedCamera.z);
-    if(m->config.clouds && glm::dot(cloudMotion,cloudMotion)>=std::pow(std::max(.01f,m->config.movementThreshold),2.0f))
+    if(std::abs(m->gpu.camera.y-m->lastBakedCamera.y)>=std::max(.01f,m->config.altitudeUpdateThreshold) ||
+       (m->cloudsEnabled() && glm::dot(cloudMotion,cloudMotion)>=std::pow(std::max(.01f,m->config.movementThreshold),2.0f)))
+    { m->dirty=true; m->lastBakedCamera=glm::vec3(m->gpu.camera); }
+    if(atmospherePaletteDifference(m->transition.displayed(),m->lastRequestedPalette)>=std::max(.000001f,m->config.environmentThreshold))
+    { m->dirty=true; m->lastRequestedPalette=m->transition.displayed(); }
+    if(m->gpu.misc.x!=old.misc.x) m->noiseDirty=m->dirty=true;
+    if(std::memcmp(&m->gpu.cloudLayer,&old.cloudLayer,3*sizeof(glm::vec4))!=0 ||
+        m->gpu.cloudWeather!=old.cloudWeather || m->gpu.cloudProfiles!=old.cloudProfiles || m->gpu.control.z!=old.control.z)
         m->dirty=true;
-    const bool animatedClouds=m->config.clouds && m->config.cloudCoverage>0 && m->config.cloudDensity>0 && glm::length(m->config.wind)>0;
+    const bool animatedClouds=m->cloudsEnabled() && glm::length(m->config.wind)>0;
     m->upload();
     if(m->physicalPrograms)
     {
-        if(m->noiseDirty && m->config.clouds)
+        if(m->noiseDirty && m->cloudsEnabled())
         {
             m->begin(CloudTime); glUseProgram(m->programs[CloudNoise]);
-            textureImage(0,m->noise,GL_RGBA16F); dispatch(m->budget.noise,m->budget.noise,m->budget.noise,4,4,4);
+            textureImage(0,m->noise,GL_RGBA16F); m->submit(m->budget.noise,m->budget.noise,m->budget.noise,4,4,4);
             glGenerateTextureMipmap(m->noise);
             glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
             m->noiseDirty=false; m->dirty=true; m->end();
         }
-        if(m->physicalDirty)
+        if(m->physicalDirty && m->config.physicalAtmosphere)
         {
             m->begin(LutTime); glUseProgram(m->programs[Transmittance]);
-            textureImage(0,m->transmittance,GL_RGBA16F,0,false); dispatch(m->budget.transWidth,m->budget.transHeight,1);
-            ++m->statistics.transmittanceUpdates;
-            m->physicalDirty=false; m->multipleDirty=m->skyDirty=m->dirty=true; m->end();
+            textureImage(0,m->transmittance,GL_RGBA16F,0,false); m->submit(m->budget.transWidth,m->budget.transHeight,1);
+            ++m->statistics.transmittanceUpdates; m->multipleDirty=m->skyDirty=true; m->end();
         }
-        if(m->multipleDirty)
+        m->physicalDirty=false;
+        if(m->multipleDirty && m->config.physicalAtmosphere)
         {
-            m->begin(LutTime);
-            m->commonTextures(); glUseProgram(m->programs[MultipleScattering]);
-            textureImage(0,m->multiple,GL_RGBA16F,0,false); dispatch(m->budget.multiSize,m->budget.multiSize,1);
-            ++m->statistics.multiscatterUpdates;
-            m->multipleDirty=false; m->skyDirty=m->dirty=true; m->end();
+            m->begin(LutTime); m->commonTextures(); glUseProgram(m->programs[MultipleScattering]);
+            textureImage(0,m->multiple,GL_RGBA16F,0,false); m->submit(m->budget.multiSize,m->budget.multiSize,1);
+            ++m->statistics.multiscatterUpdates; m->skyDirty=true; m->end();
         }
-        // A cloud-only refresh must not move the palette's acceptance baseline.
-        // If it captures a new interpolated palette, its SkyView must match it.
-        const bool willBake=!m->hasEnvironment || ((m->dirty || animatedClouds) &&
-            m->environmentElapsed>=std::max(0.0f,m->config.environmentInterval));
-        if(willBake && atmospherePaletteDifference(m->transition.displayed(),m->lastSkyPalette)>0.000001f)
-            m->skyDirty=true;
-        if(m->skyDirty && (!m->hasEnvironment || m->environmentElapsed>=std::max(0.0f,m->config.environmentInterval)))
-        {
-            m->begin(SkyTime); m->commonTextures(); glUseProgram(m->programs[SkyView]);
-            textureImage(0,m->skyView,GL_RGBA16F,0,false); dispatch(m->budget.skyWidth,m->budget.skyHeight,1);
-            ++m->statistics.skyUpdates;
-            m->lastSkyAltitude=m->gpu.camera.y; m->lastSkyPalette=m->transition.displayed(); m->skyDirty=false; m->end();
-        }
-        // Cloud shadow animation is independent of climate invalidation. A
-        // static layer retains its map until its world footprint/source changes.
+        m->multipleDirty=false;
         const auto& oldShadow=m->lastCloudShadowParameters;
         const bool cloudShadowChanged=!m->cloudShadowValid || animatedClouds ||
             m->gpu.sunDirection!=oldShadow.sunDirection || m->gpu.moonDirection!=oldShadow.moonDirection ||
-            m->gpu.misc.x!=oldShadow.misc.x || m->gpu.control.z!=oldShadow.control.z ||
+            m->gpu.misc.x!=oldShadow.misc.x || m->gpu.cloudWeather!=oldShadow.cloudWeather ||
+            m->gpu.cloudProfiles!=oldShadow.cloudProfiles ||
             std::memcmp(&m->gpu.cloudLayer,&oldShadow.cloudLayer,4*sizeof(glm::vec4))!=0;
-        if(cloudShadowChanged)
+        if(m->cloudsEnabled() && cloudShadowChanged)
         {
             m->begin(CloudTime); m->commonTextures(); glUseProgram(m->programs[CloudShadow]);
-            textureImage(0,m->cloudShadow,GL_RG16F,0,false); dispatch(m->budget.shadow,m->budget.shadow,1);
+            textureImage(0,m->cloudShadow,GL_RG16F,0,false); m->submit(m->budget.shadow,m->budget.shadow,1);
+            ++m->statistics.cloudShadowDispatches;
             m->lastCloudShadowParameters=m->gpu; m->cloudShadowValid=true; m->end();
         }
     }
-    if(!m->hasEnvironment || ((m->dirty || animatedClouds) &&
-        m->environmentElapsed>=std::max(0.0f,m->config.environmentInterval))) m->bakeEnvironment();
-    m->previous=m->gpu;
-    // Use the same published artistic state for the visible environment, IBL
-    // and aerial scattering, including an interrupted environment blend.
-    const auto& displayed=m->displayedPalette;
+    // Coalesce newer input while a job runs; never restart on camera motion or
+    // wind. A complete older capture is published, then the latest is queued.
+    if((animatedClouds || !m->radiancePath.empty()) && !m->capture.active &&
+        m->environmentElapsed>=std::max(0.0f,m->config.environmentInterval)) m->dirty=true;
+    if(m->dirty)
+    {
+        ++m->statistics.requestedEnvironmentRevision; m->needsCapture=true; m->dirty=false;
+    }
+    const auto candidate=m->gpu;
+    m->serviceEnvironment(candidate);
+    m->previous=candidate;
+    // The current camera view is independent of the IBL capture clock. Only
+    // its artistic state follows the actually published palette/blend.
+    const auto& displayed=m->hasEnvironment?m->displayedPalette:m->transition.displayed();
     m->gpu.horizon={displayed.horizon,displayed.strength};
     m->gpu.middle={displayed.middle,displayed.middleElevation};
-    m->gpu.zenith={displayed.zenith,displayed.gradientPower};
-    m->gpu.art.x=displayed.exposure;
+    m->gpu.zenith={displayed.zenith,displayed.gradientPower}; m->gpu.art.x=displayed.exposure;
     m->upload();
+    if(m->physicalPrograms)
+    {
+        const bool changedPalette=atmospherePaletteDifference(displayed,m->lastSkyPalette)>.000001f;
+        if(!m->liveSkyReady || m->skyDirty || changedPalette || !m->radiancePath.empty())
+        {
+            m->begin(SkyTime); m->commonTextures(); glUseProgram(m->programs[SkyView]);
+            textureImage(0,m->skyView,GL_RGBA16F,0,false); m->submit(m->budget.skyWidth,m->budget.skyHeight,1);
+            ++m->statistics.skyUpdates; m->lastSkyAltitude=m->gpu.camera.y;
+            m->lastSkyPalette=displayed; m->skyDirty=false; m->liveSkyReady=true; m->visibleCloudValid=false; m->end();
+        }
+        auto viewKey=m->gpu;
+        viewKey.misc.y=0;
+        if(!animatedClouds && m->radiancePath.empty()) viewKey.camera.w=0;
+        if(m->cloudsEnabled() && (!m->visibleCloudValid || std::memcmp(&viewKey,&m->lastVisibleCloudParameters,sizeof(viewKey))!=0))
+        {
+            m->begin(CloudTime); m->commonTextures(); glUseProgram(m->programs[VisibleClouds]);
+            textureImage(0,m->visibleClouds,GL_RGBA16F,0,false); m->submit(m->budget.cloudViewWidth,m->budget.cloudViewHeight,1);
+            ++m->statistics.visibleCloudDispatches;
+            m->lastVisibleCloudParameters=viewKey; m->visibleCloudValid=true; m->end();
+        }
+    }
     glBindVertexArray(0);
 }
 
@@ -733,8 +1046,14 @@ void Atmosphere::renderSky(unsigned int)
     if(!active()) return;
     m->begin(SkyTime);
     glBindBufferBase(GL_UNIFORM_BUFFER,6,m->parameters);
-    glUseProgram(m->programs[SkyDraw]); textureUnit(0,m->environments[2].lighting);
-    textureUnit(3,m->noise); textureUnit(14,m->cloudShadow); textureUnit(15,m->transmittance);
+    glUseProgram(m->programs[SkyDraw]);
+    // The caller's external cube is already a complete resource. It can be
+    // displayed while the first private IBL transaction is still in progress.
+    textureUnit(0,m->hasEnvironment?m->environments[2].lighting:m->externalEnvironment);
+    textureUnit(1,m->visibleClouds); textureUnit(2,m->skyView); textureUnit(3,m->noise);
+    textureUnit(11,m->multiple); textureUnit(14,m->cloudShadow); textureUnit(15,m->transmittance);
+    glUniform1i(location(m->programs[SkyDraw],"geCurrentCloudView"),!m->externalEnvironment && m->liveSkyReady);
+    glUniform1i(location(m->programs[SkyDraw],"geRawExternalEnvironment"),m->externalEnvironment && !m->hasEnvironment);
     glDisable(GL_CULL_FACE); glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE);
     glBindVertexArray(m->vao); glDrawArrays(GL_TRIANGLES,0,3);
     glDepthMask(GL_TRUE); glEnable(GL_DEPTH_TEST);
@@ -749,29 +1068,40 @@ void Atmosphere::computeVolumes(Camera* camera)
     m->gpu.shadow.z=static_cast<int>(lights->getFrameShadowBuffer().size());
     auto volumeKey=m->gpu;
     volumeKey.camera.w=0; volumeKey.misc.y=0;
+    if(!m->mediumEnabled())
+    {
+        // The one-voxel identities allocated on the toggle need no compute.
+        m->lastVolumeParameters=volumeKey; m->volumesReady=true; return;
+    }
     const bool dynamicShadows=m->config.godRays && (m->gpu.shadow.x>=0 || m->gpu.shadow.y>=0);
-    const bool animatedClouds=m->config.clouds && m->config.cloudCoverage>0 && m->config.cloudDensity>0 && glm::length(m->config.wind)>0;
+    const bool animatedClouds=m->cloudsEnabled() && glm::length(m->config.wind)>0;
     // A game hook may animate independently or replace its world atlas, and
     // moving shadow casters have no scene revision counter: conservatively update.
-    const bool unknownGameMedium=m->config.localFog && bool(m->bindGameFog);
+    const bool unknownGameMedium=m->config.localFog && (!m->gameFogPath.empty() || bool(m->bindGameFog));
     if(m->volumesReady && !dynamicShadows && !animatedClouds && !unknownGameMedium && m->radiancePath.empty() &&
         std::memcmp(&volumeKey,&m->lastVolumeParameters,sizeof(volumeKey))==0) return;
     m->upload(); m->commonTextures(); textureUnit(4,shadowTexture);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,lights->getSsboShadow());
     const auto& b=m->budget;
-    m->begin(AerialTime); glUseProgram(m->programs[Aerial]);
-    textureImage(0,m->physicalSource,GL_RGBA32F); textureImage(1,m->physicalExtinction,GL_RGBA32F);
-    dispatch(b.width,b.height,b.depth,4,4,4); m->end();
-    m->begin(CloudTime); glUseProgram(m->programs[CloudVolume]);
-    textureImage(0,m->cloudSource,GL_RGBA32F); textureImage(1,m->cloudExtinction,GL_RGBA32F);
-    dispatch(b.width,b.height,b.depth,4,4,4); m->end();
+    if(m->config.physicalAtmosphere)
+    {
+        m->begin(AerialTime); glUseProgram(m->programs[Aerial]);
+        textureImage(0,m->physicalSource,GL_RGBA32F); textureImage(1,m->physicalExtinction,GL_RGBA32F);
+        m->submit(b.width,b.height,b.depth,4,4,4); ++m->statistics.aerialDispatches; m->end();
+    }
+    if(m->cloudsEnabled())
+    {
+        m->begin(CloudTime); glUseProgram(m->programs[CloudVolume]);
+        textureImage(0,m->cloudSource,GL_RGBA32F); textureImage(1,m->cloudExtinction,GL_R32F);
+        m->submit(b.width,b.height,b.depth,4,4,4); ++m->statistics.cloudVolumeDispatches; m->end();
+    }
     m->begin(FogTime); glUseProgram(m->programs[Volume]);
-    if(m->bindGameFog) m->bindGameFog(m->programs[Volume]);
+    if(m->config.localFog && m->bindGameFog) m->bindGameFog(m->programs[Volume]);
     textureUnit(9,m->physicalSource); textureUnit(10,m->physicalExtinction);
     textureUnit(11,m->cloudSource); textureUnit(12,m->cloudExtinction);
     textureImage(0,m->scattering,GL_RGBA16F); textureImage(1,m->transmission,GL_RGBA16F);
     textureImage(2,m->baselineScattering,GL_RGBA16F,0,false); textureImage(3,m->baselineTransmission,GL_RGBA16F,0,false);
-    dispatch(b.width,b.height,1); m->end();
+    m->submit(b.width,b.height,1); ++m->statistics.fogDispatches; m->end();
     m->lastVolumeParameters=volumeKey; m->volumesReady=true; ++m->statistics.volumeUpdates;
 }
 
@@ -779,10 +1109,16 @@ void Atmosphere::bindLighting(unsigned int program,bool)
 {
     const bool on=active();
     glProgramUniform1i(program,location(program,"uAtmosphereActive"),on && m->volumesReady);
-    glProgramUniform1i(program,location(program,"uAtmosphereIblActive"),on);
+    glProgramUniform1i(program,location(program,"uAtmosphereIblActive"),on && m->hasEnvironment);
     if(!on) return;
     glBindBufferBase(GL_UNIFORM_BUFFER,6,m->parameters);
-    textureUnit(6,m->environments[2].irradiance); textureUnit(7,m->environments[2].prefilter); textureUnit(8,m->brdf);
+    // Materials may still sample the engine's existing environment while the
+    // initial transaction is incomplete. Do not replace that complete set with
+    // unallocated handles merely because the current sky is already visible.
+    if(m->hasEnvironment)
+    {
+        textureUnit(6,m->environments[2].irradiance); textureUnit(7,m->environments[2].prefilter); textureUnit(8,m->brdf);
+    }
     textureUnit(9,m->baselineScattering); textureUnit(10,m->baselineTransmission); textureUnit(11,m->multiple);
     textureUnit(12,m->scattering); textureUnit(13,m->transmission); textureUnit(14,m->cloudShadow); textureUnit(15,m->transmittance);
     glProgramUniform1f(program,location(program,"uAtmosphereIblSaturation"),std::max(0.0f,m->config.iblSaturation));
@@ -802,7 +1138,7 @@ void Atmosphere::release()
             if(std::find(m->pc->lightManager->getLights().begin(),m->pc->lightManager->getLights().end(),entry.first)!=m->pc->lightManager->getLights().end())
                 entry.first->setShadowCasterMargin(entry.second);
     m->managedShadowMargins.clear();
-    m->releaseTargets(); m->releasePrograms(); deleteTexture(m->brdf);
+    m->releaseTargets(); m->releasePrograms(); m->destroyTexture(m->brdf);
     if(m->parameters) glDeleteBuffers(1,&m->parameters);
     if(m->vao) glDeleteVertexArrays(1,&m->vao);
     for(auto& entry:m->timers) if(entry.query) glDeleteQueries(1,&entry.query);

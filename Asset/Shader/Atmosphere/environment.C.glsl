@@ -9,6 +9,7 @@ layout(rgba16f,binding=0) writeonly uniform imageCube geEnvironment;
 layout(rgba16f,binding=1) writeonly uniform imageCube geLightingEnvironment;
 layout(binding=9) uniform samplerCube geExternalEnvironment;
 uniform int geUseExternalEnvironment;
+uniform ivec3 geDispatchOffset; // tile XY and face; zero also supports a complete dispatch
 
 vec3 geFallbackDisk(vec3 d,vec4 direction,vec4 disk)
 {
@@ -17,7 +18,7 @@ vec3 geFallbackDisk(vec3 d,vec4 direction,vec4 disk)
 }
 void main()
 {
-    ivec3 p=ivec3(gl_GlobalInvocationID);
+    ivec3 p=ivec3(gl_GlobalInvocationID)+geDispatchOffset;
     ivec2 size=imageSize(geEnvironment);
     if(any(greaterThanEqual(p.xy,size))||p.z>=6) return;
     vec3 d=geCubeDirection(p,size);
@@ -25,8 +26,14 @@ void main()
     if(geUseExternalEnvironment!=0)
     {
         lighting=geAtmArtistic(textureLod(geExternalEnvironment,d,0.0).rgb,d);
+#ifdef GE_PHYSICAL_SKY
+        // Match the analytic visible disks even for a caller-owned source:
+        // transmittance, clouds and artistic correction have identical rules.
+        visible=lighting+geSkyDisks(d);
+#else
         visible=lighting+geFallbackDisk(d,geAtmSunDirection,geAtmSunDisk)
             +geFallbackDisk(d,geAtmMoonDirection,geAtmMoonDisk);
+#endif
     }
     else
     {

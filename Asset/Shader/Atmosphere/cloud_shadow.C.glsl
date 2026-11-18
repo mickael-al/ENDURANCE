@@ -8,16 +8,19 @@ void main()
     if(any(greaterThanEqual(p,size))) return;
     vec2 uv=(vec2(p)+0.5)/vec2(size);
     vec2 xz=geAtmShadowOrigin.xy+(uv*2.0-1.0)*max(geAtmCloudWind.z,1.0);
-    vec3 position=vec3(xz.x,geAtmCloudLayer.x+0.1,xz.y);
     vec2 transmission=vec2(1.0);
-    if(geAtmControl.z!=0)
+    if(geAtmHasClouds())
     {
         if(geAtmSunDirection.w>0.5)
-            transmission.x=geAtmSunDirection.y>0.001
-                ? geAtmCloudLightRay(position,normalize(geAtmSunDirection.xyz),geAtmSamples.z) : 0.0;
+        {
+            vec3 light=normalize(geAtmSunDirection.xyz);
+            transmission.x=geAtmCloudLightRay(vec3(xz.x,geAtmCloudShadowHeight(light),xz.y),light,geAtmSamples.z);
+        }
         if(geAtmMoonDirection.w>0.5)
-            transmission.y=geAtmMoonDirection.y>0.001
-                ? geAtmCloudLightRay(position,normalize(geAtmMoonDirection.xyz),geAtmSamples.z) : 0.0;
+        {
+            vec3 light=normalize(geAtmMoonDirection.xyz);
+            transmission.y=geAtmCloudLightRay(vec3(xz.x,geAtmCloudShadowHeight(light),xz.y),light,geAtmSamples.z);
+        }
     }
     imageStore(geAtmShadowOutput,p,vec4(transmission,0.0,1.0));
 }

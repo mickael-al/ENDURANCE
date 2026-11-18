@@ -23,9 +23,11 @@ namespace
     V(altitudeUpdateThreshold) V(shadowCasterMargin) V(fogDensity) V(fogBaseHeight) \
     V(fogScaleHeight) V(fogAnisotropy) V(cloudCoverage) V(cloudDensity) \
     V(cloudBaseHeight) V(cloudThickness) V(cloudScale) V(cloudDetailScale) V(cloudSeed) \
+    V(cloudWeatherScale) V(cloudWeatherStrength) V(cloudWeatherContrast) V(cloudProfileVariation) \
     V(cubemapSize) V(irradianceSize) V(prefilterSize) V(iblSamples) V(skySteps) \
-    V(cloudLightSteps) V(volumeWidth) V(volumeHeight) V(volumeDepth) V(targetGpuMilliseconds)
-#define GE_ATMOSPHERE_VEC3(V) V(rayleighScattering) V(ozoneAbsorption) V(groundAlbedo) V(sunDiskColor) V(moonDiskColor) V(fogAlbedo)
+    V(cloudLightSteps) V(volumeWidth) V(volumeHeight) V(volumeDepth) V(targetGpuMilliseconds) \
+    V(cloudViewWidth) V(cloudViewHeight) V(iblMaxWorkUnitsPerFrame) V(iblTileSize)
+#define GE_ATMOSPHERE_VEC3(V) V(rayleighScattering) V(ozoneAbsorption) V(groundAlbedo) V(sunDiskColor) V(moonDiskColor) V(fogAlbedo) V(cloudProfileMix)
     template<class T> bool finiteSetting(T value)
     {
         if constexpr(std::is_floating_point_v<T>) return std::isfinite(value);
@@ -34,7 +36,7 @@ namespace
 }
 std::string Atmosphere::serializeSettings() const
 {
-    const auto& s=settings(); Json j; j["version"]=1; j["quality"]=static_cast<int>(s.quality);
+    const auto& s=settings(); Json j; j["version"]=2; j["quality"]=static_cast<int>(s.quality);
 #define SAVE(name) j[#name]=s.name;
     GE_ATMOSPHERE_VALUES(SAVE)
 #undef SAVE
@@ -77,6 +79,16 @@ bool Atmosphere::loadSettings(const std::string& text)
         s.moonAngularRadius=std::clamp(s.moonAngularRadius,.001f,10.0f);
         s.cloudCoverage=std::clamp(s.cloudCoverage,0.0f,1.0f);
         s.cloudDensity=std::clamp(s.cloudDensity,0.0f,.1f);
+        s.cloudWeatherScale=std::clamp(s.cloudWeatherScale,100.0f,10000000.0f);
+        s.cloudWeatherStrength=std::clamp(s.cloudWeatherStrength,0.0f,1.0f);
+        s.cloudWeatherContrast=std::clamp(s.cloudWeatherContrast,.05f,8.0f);
+        s.cloudProfileVariation=std::clamp(s.cloudProfileVariation,0.0f,1.0f);
+        s.cloudProfileMix=glm::clamp(s.cloudProfileMix,glm::vec3(0),glm::vec3(100));
+        s.cloudViewWidth=std::clamp(s.cloudViewWidth,0,1280);
+        s.cloudViewHeight=std::clamp(s.cloudViewHeight,0,720);
+        s.iblMaxWorkUnitsPerFrame=std::clamp(s.iblMaxWorkUnitsPerFrame,1,64);
+        s.iblTileSize=8*std::clamp(s.iblTileSize/8,1,8);
+        s.targetGpuMilliseconds=std::clamp(s.targetGpuMilliseconds,.01f,1000.0f);
         s.fogDensity=std::clamp(s.fogDensity,0.0f,.1f);
         s.shadowCasterMargin=std::clamp(s.shadowCasterMargin,0.0f,200000.0f);
         s.wind=glm::clamp(s.wind,glm::vec2(-1000),glm::vec2(1000));
@@ -160,6 +172,11 @@ void Atmosphere::onGUI()
         ImGui::DragFloat("Cloud thickness (m)",&s.cloudThickness,10,1,30000);
         ImGui::DragFloat("Cloud shape scale (m)",&s.cloudScale,10,100,100000);
         ImGui::DragFloat("Cloud detail scale",&s.cloudDetailScale,.01f,.01f,4);
+        ImGui::DragFloat("Weather region scale (m)",&s.cloudWeatherScale,100,100,10000000);
+        ImGui::SliderFloat("Regional coverage strength",&s.cloudWeatherStrength,0,1);
+        ImGui::SliderFloat("Regional coverage contrast",&s.cloudWeatherContrast,.05f,8);
+        ImGui::SliderFloat("Cloud profile variation",&s.cloudProfileVariation,0,1);
+        ImGui::DragFloat3("Stratus / cumulus / tower weights",&s.cloudProfileMix.x,.01f,0,1);
         ImGui::DragFloat2("Wind XZ (m/s)",&s.wind.x,.1f,-1000,1000);
         ImGui::InputScalar("Cloud noise seed",ImGuiDataType_U32,&s.cloudSeed);
         ImGui::TreePop();
@@ -176,7 +193,12 @@ void Atmosphere::onGUI()
         ImGui::DragInt("Volume width",&s.volumeWidth,8,0,320);
         ImGui::DragInt("Volume height",&s.volumeHeight,4,0,180);
         ImGui::DragInt("Volume depth",&s.volumeDepth,8,0,192);
-        ImGui::DragFloat("GPU target (ms)",&s.targetGpuMilliseconds,.1f,.1f,100);
+        ImGui::DragInt("Visible cloud width",&s.cloudViewWidth,8,0,1280);
+        ImGui::DragInt("Visible cloud height",&s.cloudViewHeight,8,0,720);
+        ImGui::DragInt("IBL maximum work units/frame",&s.iblMaxWorkUnitsPerFrame,1,1,64);
+        ImGui::DragInt("IBL tile size (multiples of 8)",&s.iblTileSize,8,8,64);
+        ImGui::DragFloat("Atmosphere GPU target (ms)",&s.targetGpuMilliseconds,.1f,.01f,1000);
+        ImGui::TextWrapped("Soft submission budget: delayed GPU timings estimate IBL work. Already submitted GPU work cannot be interrupted. At least one work unit progresses; the work-unit cap is strict. Visible clouds update independently of IBL captures.");
         ImGui::Checkbox("Measure GPU phases",&s.measureGpu);
         if(metrics.gpuSamplesAvailable)
         {
@@ -187,6 +209,15 @@ void Atmosphere::onGUI()
         ImGui::Text("Updates: transmittance %llu / multiple scattering %llu / sky %llu / IBL %llu",
             static_cast<unsigned long long>(metrics.transmittanceUpdates),static_cast<unsigned long long>(metrics.multiscatterUpdates),
             static_cast<unsigned long long>(metrics.skyUpdates),static_cast<unsigned long long>(metrics.environmentUpdates));
+        ImGui::Text("IBL capture: %s, %u / %u units (%.1f%%)",metrics.environmentCaptureActive?"working":"idle",
+            metrics.captureWorkCompleted,metrics.captureWorkTotal,100.0f*metrics.captureProgress);
+        ImGui::Text("Submitted: %u units, %.3f ms estimated; remaining %.3f ms",metrics.iblWorkUnitsThisFrame,
+            metrics.iblSubmittedMilliseconds,metrics.iblEstimatedMilliseconds);
+        ImGui::Text("Revision: requested %llu / capture %llu / published %llu",
+            static_cast<unsigned long long>(metrics.requestedEnvironmentRevision),
+            static_cast<unsigned long long>(metrics.captureRevision),static_cast<unsigned long long>(metrics.publishedEnvironmentRevision));
+        ImGui::Text("Dispatches this frame: %u; texture storage estimate %.2f MiB (capture %.2f MiB)",
+            metrics.frameDispatches,metrics.gpuTextureBytes/1048576.0,metrics.captureTextureBytes/1048576.0);
         ImGui::TreePop();
     }
     if(!error().empty()) ImGui::TextWrapped("Atmosphere: %s",error().c_str());

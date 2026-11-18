@@ -1,5 +1,9 @@
 # Validation du ciel et de l'atmosphère
 
+La passe de correction du 18 novembre 2026 passe les **12 groupes** de la
+suite consolidee. Le harnais C++ du service comprend **14 groupes internes**,
+en plus du test du vrai composant ENDURANCE.
+
 ## Tests reproductibles
 
 Depuis la racine du dépôt :
@@ -20,6 +24,8 @@ python3 Tests/Atmosphere/check_volumes.py
 python3 Tests/Atmosphere/check_sampling.py
 python3 Tests/Atmosphere/check_sky.py
 python3 Tests/Atmosphere/check_game_climate.py
+python3 Tests/Atmosphere/check_game_component.py
+python3 Tests/Atmosphere/check_revision.py
 python3 Tests/Atmosphere/check_runtime.py
 ```
 
@@ -49,19 +55,40 @@ exclusivement aux assertions des tests, jamais au chemin de rendu du jeu.
 | Test | Ce qu'il vérifie |
 | --- | --- |
 | `check_cpu.py` | Fondu interrompu depuis la couleur affichée ; convergence sans nouvel événement caméra ; référence du seuil conservée après les petits écarts ; changements de paramètres du gradient ; forçage et durée nulle ; valeurs HDR ; indépendance aux subdivisions du temps ; rejet des delta-times négatifs, infinis et NaN. |
-| `check_shaders.py` | Compilation et liaison des 14 programmes/variantes de production présents dans `Asset/Shader/Atmosphere`, avec leurs dépendances réelles, et des sept associations matériaux/vertex : deferred, forward, transparence, eau, géométrie skinned et cloth. |
+| `check_shaders.py` | Compilation et liaison des 15 programmes/variantes de production présents dans `Asset/Shader/Atmosphere`, avec leurs dépendances réelles, et des sept associations matériaux/vertex : deferred, forward, transparence, eau, géométrie skinned et cloth. |
 | `check_common.py` | Intégration homogène comparée à une solution analytique indépendante ; transmittance de Beer-Lambert ; limite sans extinction ; densités décroissant avec l'altitude ; radiance HDR ; conservation de l'obscurité par la correction artistique ; aller-retour de la projection du ciel ; masque du disque fini au centre, au bord et à l'extérieur, même avec un rayon de 1e-5 radian. |
 | `check_luts.py` | LUT intégralement écrites ; transmittance RGB dans `[0,1]` ; variation avec l'altitude, y compris depuis l'extérieur de l'atmosphère ; extinction doublée donnant `T²` ; vide donnant `T=1` ; absence de source donnant un ciel noir fini ; lune seule ; linéarité de l'irradiance ; SkyView affectée par l'altitude et indépendante de la rotation de la vue. |
 | `check_ibl.py` | Invariance d'une radiance constante HDR sous convolution diffuse et GGX ; six faces et tous les mips écrits ; élargissement d'une source angulaire par la rugosité ; fondu HDR exact ; disque visible exclu de la source IBL ; LUT BRDF bornée ; ciel HDR non modifié dans le G-buffer avant la composition finale. |
-| `check_volumes.py` | Volumes de coefficients RGBA32F et résultats RGBA16F écrits et finis ; intégration monotone ; vraie lecture d'une texture d'ombres de terrain, même sans nuages ; brouillard absorbant comparé à la solution analytique ; modes absent et bruité ; nuages déterministes selon la seed ; couverture nulle ; ombres de nuages ; vent continu à caméra immobile ; aucune source. |
+| `check_volumes.py` | Coefficients colores RGBA32F, extinction nuageuse R32F et resultats RGBA16F écrits et finis ; intégration monotone ; vraie lecture d'une texture d'ombres de terrain, même sans nuages ; brouillard absorbant comparé à la solution analytique ; modes generiques absent et lisse ; nuages deterministes selon la seed ; couverture nulle ; ombres de nuages ; vent continu à caméra immobile ; aucune source. |
 | `check_sampling.py` | Fonction de composition commune au deferred et aux transparents : profondeur propre du fragment, identité à distance nulle, borne au dernier plan du volume, composition du brouillard devant le ciel et désactivation complète. Saturation appliquée au ciel après composition de tous les milieux ; sur les objets, seule la diffusion est modifiée, sans changer la réflectance ni la transmittance spectrale. |
 | `check_sky.py` | Variante physique complète de génération des cubemaps : HDR, disque solaire, nuages visibles avec une couverture de 0,42, identité à couverture nulle, animation sans déplacement, IBL sans énergie directe du disque et absence de sources. |
 | `check_game_climate.py` | 26 palettes forcées, concordance des poids avec le terrain à des positions/seed connues, brouillard de jeu absent/lisse/bruité, altitude et ancrage de l'atlas dans le monde. |
-| `check_runtime.py` | Exécution du C++ de production : allocations, formats d'images, tailles de dispatch, six faces et cinq mips publiés, bindings matériaux sans programme courant, dessin HDR, invalidation séparée des LUT, fondu à faible framerate avec rebakes continus, parallaxe des nuages sans vent, sources optionnelles, désactivation/réactivation, timers asynchrones, destruction et redémarrage. Sérialisation JSON exacte avec HDR/vecteurs, rejet atomique des entrées invalides, personnalisation de radiance cohérente entre IBL et diffusion, conservation de l'état complet après échec de compilation, brouillard de jeu ajouté au milieu générique. |
+| `check_game_component.py` | Execute le vrai composant ENDURANCE et son hook : vent XYZ persistant, bruit anime a camera fixe avec atlas inchange, invariance 4 s / 4 × 1 s, changement de vent sans saut, vitesse nulle, deltas invalides et reprise apres reconstruction du terrain. Aucun mode GLSL artificiel. |
+| `check_revision.py` | Ombres de terrain sur les nuages jusque dans le ciel compose, reference non occultee et extinction inchangees ; milieu nuageux absent neutre aux angles rasants ; continuite du rayon et de sa carte autour de l’horizon ; meteo regionale, ouvertures et profils verticaux ; vrai dessin du ciel courant independant d’une cubemap figee. |
+| `check_runtime.py` | Exécution du C++ de production : allocations, formats d'images, tailles de dispatch, six faces et cinq mips publiés, bindings matériaux sans programme courant, dessin HDR, invalidation séparée des LUT, fondu à faible framerate avec rebakes continus, parallaxe des nuages sans vent, sources optionnelles, désactivation/réactivation, timers asynchrones, destruction et redémarrage. Sérialisation JSON exacte avec HDR/vecteurs, rejet atomique des entrées invalides, personnalisation de radiance cohérente entre IBL et diffusion, conservation de l'état complet après échec de compilation, brouillard de jeu ajoute au milieu generique. Ordonnanceur multi-images : limites de travail, gel des LUT/bruit/cubemap externe, revisions regroupees sans famine, publication complete, resize/reload avec ancienne IBL conservee, allocation R32F et absence de dispatchs pour les effets coupes. Source externe visible des la premiere image et hook de brouillard anime sans callback. |
 
 Les tests utilisent de petites résolutions et des budgets réduits pour vérifier
 les invariants. Ils ne remplacent pas les préréglages de qualité du moteur,
 dont la valeur initiale est **Ultra**.
+
+## Regressions de la passe de correction
+
+`check_revision.py` execute la composition finale, et non seulement la source
+nuageuse intermediaire. Son milieu isole donne un assombrissement maximal de
+4,8008 en radiance HDR lorsque la shadow map du terrain occulte le soleil ;
+la reference non occultee et la transmittance restent identiques.
+
+Dans le milieu homogene de controle au ras de l’horizon, la carte et le ray
+marching sont compares a `exp(-1e-6 × 64000) = 0,938005`, avec une tolerance
+de 0,002. Les cas densite nulle, couverture nulle et nuages desactives donnent
+une visibilite de 1. Le helper de materiau ne requiert aucun sampler de bruit
+supplementaire. Le test de meteo controle les ouvertures, les trois profils
+et l’advection, puis le vrai `sky.fs.glsl` est confronte au ray marching
+courant en conservant la cubemap d’eclairage figee.
+
+L’ancien test qui injectait un mode generique de brouillard GLSL 2, non expose
+par le C++, a ete retire avec ce chemin inutilise. L’animation du brouillard
+est maintenant verifiee par les deux vrais chemins de jeu, shader et composant.
 
 ## Exécution dans l'environnement de développement
 
@@ -123,7 +150,18 @@ l'éditeur. Ne pas déduire son succès des tests de compilation.
 8. Réduire la résolution des volumes ; observer les crêtes de montagnes et
    objets minces en rotation et translation rapides. L'absence d'historique
    temporel ne dispense pas de contrôler la stabilité spatiale.
-9. Mesurer séparément LUT, ciel, IBL, perspective aérienne, brouillard et
+9. Conserver une capture IBL volontairement lente : se deplacer et tourner
+   pendant sa construction. Les nuages visibles doivent suivre immediatement
+   la camera ; surveiller la progression de capture et la publication complete.
+   Modifier soleil/seed/profil/qualite pendant la capture, puis verifier la
+   convergence de la revision publiee.
+10. Regler densite ou couverture des nuages a zero avec un soleil rasant, puis
+    restaurer les nuages et traverser doucement l’horizon solaire. Observer
+    les ombres du terrain sur les nuages, pas seulement sur les surfaces.
+11. Modifier le vent du brouillard, le mettre a zero, puis recharger la scene.
+    La nappe climatique doit rester au meme endroit et le bruit ne doit pas
+    sauter lors du changement de vitesse.
+12. Mesurer séparément LUT, ciel, IBL, perspective aérienne, brouillard et
    nuages avec les compteurs ImGui, après compilation et réchauffement.
    Relever résolution d'écran, matériel, préréglage et budgets personnalisés.
 

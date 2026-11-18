@@ -7,6 +7,9 @@
 #include "sky_evaluate.glsl"
 #endif
 layout(binding=0) uniform samplerCube geDisplayedEnvironment;
+layout(binding=1) uniform sampler2D geAtmVisibleClouds;
+uniform bool geCurrentCloudView;
+uniform bool geRawExternalEnvironment;
 in vec2 geSkyUV;
 layout(location=0) out vec4 gPosition;
 layout(location=1) out vec3 gNormal;
@@ -16,9 +19,16 @@ void main()
 {
     vec3 direction=geAtmViewDirection(geSkyUV);
     vec3 color=textureLod(geDisplayedEnvironment,direction,0).rgb;
+    // A caller-owned complete source can be displayed while its first IBL
+    // transaction is pending. Published environments already carry this tint.
+    if(geRawExternalEnvironment) color=geAtmArtistic(color,direction);
     #ifdef GE_PHYSICAL_SKY
+    if(geCurrentCloudView)
+        color=max(textureLod(geAtmSkyView,geAtmSkyUV(direction),0.0).rgb
+            +textureLod(geAtmVisibleClouds,geSkyUV,0.0).rgb,vec3(0.0));
     // Resolve sub-texel angular disks analytically at display resolution. The
-    // complete public cubemap still contains them; this companion is disk-free.
+    // complete public cubemap still contains them. Visible clouds use the
+    // current camera view; the independent IBL transaction may be older.
     color+=geSkyDisks(direction);
 #else
     for(int body=0;body<2;++body)

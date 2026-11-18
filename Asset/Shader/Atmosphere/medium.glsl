@@ -12,12 +12,6 @@ vec4 geAtmLocalFog(vec3 worldPosition)
 {
     if(geAtmControl.y==0) return vec4(0.0);
     float density=max(geAtmVolume.z,0.0)*exp(-max(worldPosition.y-geAtmVolume.w,0.0)/max(geAtmFog.w,1.0));
-    if(geAtmControl.y==2)
-    {
-        vec3 p=(worldPosition-vec3(geAtmFogNoise.z,0.0,geAtmFogNoise.w)*geAtmCamera.w)/max(geAtmFogNoise.x,1.0);
-        float structure=textureLod(geAtmCloudNoise,p,0.0).a;
-        density*=mix(1.0,smoothstep(0.2,0.8,structure)*2.0,clamp(geAtmFogNoise.y,0.0,1.0));
-    }
     vec4 medium=vec4(clamp(geAtmFog.rgb,vec3(0.0),vec3(1.0))*density,density);
 #ifdef GE_GAME_FOG
     // The generic scene fog is an optional additional medium. ENDURANCE's

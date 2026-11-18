@@ -69,13 +69,23 @@ namespace Ge
         float cloudThickness=1800.0f;
         float cloudScale=6000.0f;
         float cloudDetailScale=0.35f;
+        float cloudWeatherScale=48000.0f;
+        float cloudWeatherStrength=0.65f;
+        float cloudWeatherContrast=1.4f;
+        float cloudProfileVariation=0.7f;
+        glm::vec3 cloudProfileMix{0.25f,0.5f,0.25f}; // stratus, cumulus, towers
         glm::vec2 wind{12.0f,4.0f};
         std::uint32_t cloudSeed=1337;
         // Zero selects the preset. Explicit overrides are clamped on upload.
         int cubemapSize=0, irradianceSize=0, prefilterSize=0;
         int iblSamples=0, skySteps=0, cloudLightSteps=0;
         int volumeWidth=0, volumeHeight=0, volumeDepth=0;
-        float targetGpuMilliseconds=8.0f; // telemetry target; never a blocking timer query
+        int cloudViewWidth=0, cloudViewHeight=0;
+        int iblMaxWorkUnitsPerFrame=16;
+        int iblTileSize=32;
+        // Soft submission budget using delayed GPU estimates. Already queued
+        // work cannot be preempted; the work-unit limit is a separate hard cap.
+        float targetGpuMilliseconds=8.0f;
     };
 
     struct AtmosphereStats
@@ -84,6 +94,18 @@ namespace Ge
         double aerialMilliseconds=0.0, fogMilliseconds=0.0, cloudMilliseconds=0.0;
         std::uint64_t transmittanceUpdates=0, multiscatterUpdates=0, skyUpdates=0;
         std::uint64_t environmentUpdates=0, volumeUpdates=0, droppedTimingSamples=0;
+        std::uint64_t environmentCapturesStarted=0, environmentCapturesCancelled=0;
+        std::uint64_t requestedEnvironmentRevision=0, captureRevision=0, publishedEnvironmentRevision=0;
+        std::uint64_t dispatches=0, aerialDispatches=0, cloudVolumeDispatches=0;
+        std::uint64_t cloudShadowDispatches=0, visibleCloudDispatches=0, fogDispatches=0;
+        // CPU accounting of owned texel storage; excludes driver allocation
+        // overhead and includes retained published/capture resources.
+        std::uint64_t gpuTextureBytes=0, captureTextureBytes=0;
+        unsigned frameDispatches=0, iblWorkUnitsThisFrame=0;
+        unsigned captureWorkCompleted=0, captureWorkTotal=0;
+        double iblEstimatedMilliseconds=0, iblSubmittedMilliseconds=0;
+        float captureProgress=0;
+        bool environmentReady=false, environmentCaptureActive=false;
         bool gpuSamplesAvailable=false;
         bool hasSun=false, hasMoon=false;
         float shadowDistance=0.0f;

@@ -25,7 +25,7 @@ layout(std140, binding=6) uniform GeAtmosphereParameters
     vec4 geAtmCamera;         // world XYZ, continuously advancing time seconds
     vec4 geAtmVolume;         // max camera volume distance, fog phase g, generic fog density, fog base height
     vec4 geAtmFog;            // generic fog scattering albedo RGB, height scale
-    vec4 geAtmFogNoise;       // noise scale metres, strength, wind X, wind Z (metres/sec)
+    vec4 geAtmFogNoise;       // reserved; structured game fog is provided by geGameFog
     vec4 geAtmCloudLayer;     // bottom altitude, thickness, coverage, extinction density
     vec4 geAtmCloudShape;     // shape scale metres, detail frequency multiplier, erosion, phase g
     vec4 geAtmCloudWind;      // wind X, wind Z, shadow map half extent, reserved
@@ -33,8 +33,10 @@ layout(std140, binding=6) uniform GeAtmosphereParameters
     ivec4 geAtmShadow;        // sun shadow first layer, moon first layer, total shadow layers, reserved
     ivec4 geAtmQuality;       // sky steps, transmittance steps, multiple-scatter directions, MS steps
     ivec4 geAtmSamples;       // volume steps/slice, cloud light steps, shadow steps, cloud sky steps
-    ivec4 geAtmControl;       // physical atmosphere enabled, fog mode (0 absent/1 smooth/2 noise), clouds, terrain shadows
+    ivec4 geAtmControl;       // physical atmosphere, local fog, clouds, terrain shadows (0/1)
     uvec4 geAtmMisc;          // procedural seed, frame index, reserved, reserved
+    vec4 geAtmCloudWeather;  // regional scale metres, coverage variation, contrast, profile variation
+    vec4 geAtmCloudProfiles; // stratus, cumulus and tower weights, reserved
     mat4 geAtmInvView;
     mat4 geAtmInvProjection;
     mat4 geAtmView;

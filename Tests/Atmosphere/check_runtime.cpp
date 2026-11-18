@@ -9,7 +9,9 @@
 #include "ShaderCompilation.hpp"
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <stdexcept>
@@ -54,6 +56,19 @@ namespace
         for(std::size_t i=0;i<values.size();++i) if(i%4!=3) maximum=std::max(maximum,values[i]);
         return maximum;
     }
+    void closeTextures(const std::vector<float>& a,const std::vector<float>& b,float tolerance,const std::string& message)
+    {
+        require(a.size()==b.size(),message+": dimensions changed");
+        for(std::size_t i=0;i<a.size();++i)
+            require(std::abs(a[i]-b[i])<=tolerance,message+": texel "+std::to_string(i));
+    }
+    void constantCube(GLuint texture,const glm::vec3& expected)
+    {
+        const auto pixels=readTexture(texture,GL_TEXTURE_CUBE_MAP);
+        for(std::size_t i=0;i<pixels.size();++i)
+            require(std::abs(pixels[i]-(i%4==3?1.f:expected[static_cast<int>(i%4)]))<.012f,
+                    "Multi-frame environment mixed source revisions between faces");
+    }
     struct Targets
     {
         GLuint fbo=0;
@@ -95,12 +110,20 @@ namespace
         original.settings().sunDiskColor={12.f,3.5f,.25f};
         original.settings().environmentBlendSeconds=.75f;
         original.settings().volumeWidth=144;
+        original.settings().cloudWeatherScale=70000;
+        original.settings().cloudWeatherStrength=.4f;
+        original.settings().cloudProfileMix={.1f,.2f,.7f};
+        original.settings().cloudViewWidth=224;
+        original.settings().iblMaxWorkUnitsPerFrame=9;
+        original.settings().iblTileSize=24;
         const auto saved=original.serializeSettings();
         require(restored.loadSettings(saved),"Settings did not accept their own serialization");
         require(restored.serializeSettings()==saved,"Settings round trip lost scalar, vector or HDR values");
         for(const std::string invalid:{"{","[]","{\"cloudCoverage\":\"bad\"}",
                                       "{\"wind\":[1,2,3]}","{\"sunDiskColor\":[1,2]}",
                                       "{\"cloudDensity\":1e400}",
+                                      "{\"cloudProfileMix\":[0,1e400,0]}",
+                                      "{\"cloudWeatherStrength\":\"bad\"}",
                                       "{\"enabled\":false,\"wind\":[1,\"bad\"]}"})
         {
             require(!restored.loadSettings(invalid),"Invalid settings were accepted: "+invalid);
@@ -120,6 +143,11 @@ namespace
         atmosphere.bindLighting(material);
         checkGL("binding atmosphere to non-current material");
         require(uniform(material,"uAtmosphereActive")==1,"Completed volume not enabled for material");
+        if(!atmosphere.stats().environmentReady)
+        {
+            require(uniform(material,"uAtmosphereIblActive")==0,"Partially computed IBL was exposed to a material");
+            return;
+        }
         require(uniform(material,"uAtmosphereIblActive")==1,"Completed IBL not enabled for material");
         readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP);
         const auto prefilter=textureAt(7,GL_TEXTURE_BINDING_CUBE_MAP);
@@ -154,7 +182,8 @@ namespace
         config.iblSamples=8; config.skySteps=8; config.cloudLightSteps=2;
         config.volumeWidth=16; config.volumeHeight=9; config.volumeDepth=16;
         config.clouds=false; config.localFog=false; config.godRays=false;
-        config.environmentInterval=.05f; config.environmentBlendSeconds=.08f;
+        config.environmentInterval=0; config.environmentBlendSeconds=.08f;
+        config.targetGpuMilliseconds=1000;
         Targets targets;
         const auto frame=[&](double dt)
         {
@@ -163,10 +192,34 @@ namespace
             require(atmosphere.active(),"Runtime atmosphere inactive: "+atmosphere.error());
             checkGL("prepare atmosphere");
             atmosphere.renderSky(0); checkGL("runtime sky draw");
+            const auto cloudDispatches=atmosphere.stats().cloudVolumeDispatches;
             atmosphere.computeVolumes(&camera); checkGL("runtime volume dispatch");
+            if(atmosphere.stats().cloudVolumeDispatches>cloudDispatches)
+            {
+                GLint format=0;
+                glGetTextureLevelParameteriv(textureAt(12,GL_TEXTURE_BINDING_3D),0,GL_TEXTURE_INTERNAL_FORMAT,&format);
+                require(format==GL_R32F,"Cloud extinction still uses four float channels");
+            }
             validatePublished(atmosphere,material);
+            require(atmosphere.stats().iblWorkUnitsThisFrame<=static_cast<unsigned>(std::clamp(config.iblMaxWorkUnitsPerFrame,1,64)),
+                    "IBL scheduler exceeded its hard per-frame work-unit limit");
+        };
+        const auto settle=[&](double dt=.1)
+        {
+            for(int i=0;i<300;++i)
+            {
+                frame(dt);
+                const auto& state=atmosphere.stats();
+                if(state.environmentReady && !state.environmentCaptureActive &&
+                    state.publishedEnvironmentRevision==state.requestedEnvironmentRevision)
+                { frame(.1); return; }
+            }
+            throw std::runtime_error("Environment scheduler failed to publish the latest stable revision");
         };
         frame(.016);
+        require(!atmosphere.stats().environmentReady && atmosphere.stats().environmentCaptureActive,
+                "Startup capture did not remain private across multiple frames");
+        settle(0);
         require(atmosphere.stats().hasSun && !atmosphere.stats().hasMoon,"Directional fallback assignment failed");
         require(atmosphere.stats().transmittanceUpdates==1 && atmosphere.stats().multiscatterUpdates==1,"Startup LUT build count incorrect");
         const GLuint brdf=textureAt(8,GL_TEXTURE_BINDING_2D);
@@ -202,26 +255,26 @@ namespace
         config.transitionSeconds=.5f; config.clouds=true; config.cloudCoverage=.6f;
         const auto before=atmosphere.displayedPalette();
         atmosphere.setPaletteTarget(target,true);
-        for(int i=0;i<8;++i) frame(.2);
+        for(int i=0;i<160 && Ge::atmospherePaletteDifference(atmosphere.displayedPalette(),target)>=.01f;++i) frame(.2);
         require(Ge::atmospherePaletteDifference(atmosphere.displayedPalette(),before)>.05f,
                 "Repeated environment updates starved the displayed palette blend");
         require(Ge::atmospherePaletteDifference(atmosphere.displayedPalette(),target)<.01f,
                 "Runtime palette did not converge while camera remained fixed");
         require(textureAt(8,GL_TEXTURE_BINDING_2D)==brdf,"Palette/cloud change rebuilt BRDF LUT");
-        config.wind={0,0}; frame(.1);
+        config.wind={0,0}; settle();
         const auto beforeCloudMove=atmosphere.stats().environmentUpdates;
-        camera.position.x+=50; frame(.1);
+        camera.position.x+=50; settle();
         require(atmosphere.stats().environmentUpdates>beforeCloudMove,
                 "Moving through static clouds failed to update their parallax");
         std::cout<<"PASS runtime transition: repeated cloudy rebakes do not starve the displayed blend, stationary convergence\n"<<std::flush;
 
         config.clouds=false; config.environmentBlendSeconds=0;
-        for(int i=0;i<2;++i) frame(.1);
+        settle();
         const auto unmodifiedIbl=maximumRGB(readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP));
         const auto unmodifiedScattering=maximumRGB(readTexture(textureAt(12,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D));
         require(unmodifiedIbl>0 && unmodifiedScattering>0,"Hook fixture has no lighting");
         atmosphere.setRadianceShader("../Tests/Atmosphere/runtime_custom_radiance.glsl");
-        frame(.1);
+        settle();
         const auto customIbl=maximumRGB(readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP));
         const auto customScattering=maximumRGB(readTexture(textureAt(12,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D));
         require(std::abs(customIbl/unmodifiedIbl-.5f)<.015f &&
@@ -232,18 +285,18 @@ namespace
         frame(.1);
         require(!atmosphere.error().empty() && textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP)==validIrradiance,
                 "Invalid hook discarded the previously complete environment");
-        atmosphere.setRadianceShader(""); frame(.1);
+        atmosphere.setRadianceShader(""); settle();
         require(atmosphere.error().empty(),"Valid shader reload did not recover from an invalid hook");
         std::cout<<"PASS runtime radiance hook: same correction in IBL/aerial scattering, complete-state retention on failure and reload recovery\n"<<std::flush;
 
         lights.lights.clear();
-        for(int i=0;i<3;++i) frame(.1);
+        settle();
         require(!atmosphere.stats().hasSun && !atmosphere.stats().hasMoon,"Removed source remained assigned");
         require(maximumRGB(readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP))==0,
                 "Runtime retained phantom source after lights were removed");
         config.fallbackToFirstDirectional=false;
         lights.lights={&moon}; atmosphere.setMoon(&moon);
-        for(int i=0;i<3;++i) frame(.1);
+        settle();
         require(!atmosphere.stats().hasSun && atmosphere.stats().hasMoon,"Moon-only assignment failed");
         require(maximumRGB(readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP))>0,"Moon-only runtime has no IBL");
         std::cout<<"PASS runtime optional sources: source removal, empty scene and moon-only lighting\n"<<std::flush;
@@ -270,6 +323,164 @@ namespace
         config.physicalAtmosphere=true; config.localFog=false; frame(.1);
         std::cout<<"PASS runtime game fog hook: caller binding, additive media and analytic pure absorption\n"<<std::flush;
 
+        // Freeze the full physical/cloud input snapshot, then replace the
+        // live LUTs and noise with their one-texel disabled resources. The
+        // unfinished capture must still reproduce the preceding static sky.
+        lights.lights={&sun}; sun.colors={1,1,1}; atmosphere.setSun(&sun); atmosphere.setMoon(nullptr);
+        config.fallbackToFirstDirectional=true; config.clouds=true; config.cloudCoverage=.65f;
+        config.wind={0,0}; config.iblMaxWorkUnitsPerFrame=16; config.environmentBlendSeconds=0;
+        settle(0);
+        const auto frozenReference=readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP);
+        const auto restoredConfig=config; const auto restoredCamera=camera.position;
+        config.iblMaxWorkUnitsPerFrame=1; config.iblTileSize=8;
+        atmosphere.invalidate();
+        const auto frozenPublication=atmosphere.stats().environmentUpdates;
+        frame(0);
+        require(atmosphere.stats().captureWorkCompleted==1 && atmosphere.stats().environmentCaptureActive,
+                "Capture did not atomically snapshot inputs as its first work unit");
+        const auto frozenRevision=atmosphere.stats().captureRevision;
+        config.physicalAtmosphere=false; config.clouds=false; config.cloudSeed+=817;
+        config.rayleighScattering*=3; config.cloudWeatherStrength=.91f; config.cloudProfileMix={1,0,0};
+        sun.colors={.2f,1,.1f}; camera.position.y+=10000;
+        for(int i=0;i<250 && atmosphere.stats().environmentUpdates==frozenPublication;++i)
+        {
+            camera.position.y+=2; // Keep requesting newer revisions: no starvation.
+            frame(0);
+            if(atmosphere.stats().environmentUpdates==frozenPublication)
+                closeTextures(readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP),
+                              frozenReference,0,"A partial capture altered published IBL");
+        }
+        require(atmosphere.stats().environmentUpdates==frozenPublication+1 &&
+                atmosphere.stats().publishedEnvironmentRevision==frozenRevision,
+                "Continuous camera/settings revisions prevented completion of the frozen job");
+        closeTextures(readTexture(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),GL_TEXTURE_CUBE_MAP),
+                      frozenReference,.003f,"Capture read live LUT/noise/source parameters after its snapshot");
+        config=restoredConfig; camera.position=restoredCamera; sun.colors={1,1,1}; settle(0);
+        require(atmosphere.stats().gpuTextureBytes>atmosphere.stats().captureTextureBytes && atmosphere.stats().captureTextureBytes>0,
+                "Texture accounting omitted the private capture or published resources");
+        std::cout<<"PASS scheduler freeze: UBO, LUTs and noise survive live replacement; continuous revisions cannot starve completion; partial work stays private\n"<<std::flush;
+
+        // A caller may rewrite a cube in place immediately after incrementing
+        // its revision. Copying only its handle would give different face ages.
+        GLuint external=0; glCreateTextures(GL_TEXTURE_CUBE_MAP,1,&external);
+        glTextureStorage2D(external,1,GL_RGB32F,16,16);
+        glTextureParameteri(external,GL_TEXTURE_MIN_FILTER,GL_LINEAR);
+        glTextureParameteri(external,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        const float firstExternal[4]={2,4,8,1},secondExternal[4]={10,6,2,1};
+        glClearTexImage(external,0,GL_RGBA,GL_FLOAT,firstExternal);
+        lights.lights.clear(); config.fallbackToFirstDirectional=false;
+        config.physicalAtmosphere=false; config.clouds=false; config.localFog=false;
+        config.iblMaxWorkUnitsPerFrame=1; config.transitionSeconds=0;
+        Ge::AtmospherePalette neutral; neutral.strength=0; neutral.exposure=1;
+        atmosphere.setPaletteTarget(neutral,true); atmosphere.setExternalEnvironment(external,1);
+        const auto externalPublication=atmosphere.stats().environmentUpdates;
+        frame(0);
+        require(atmosphere.stats().captureWorkCompleted==1,"External cube was not snapped before slicing its faces");
+        glClearTexImage(external,0,GL_RGBA,GL_FLOAT,secondExternal);
+        atmosphere.setExternalEnvironment(external,2); neutral.exposure=.5f; atmosphere.setPaletteTarget(neutral,true);
+        for(int i=0;i<250 && atmosphere.stats().environmentUpdates==externalPublication;++i) frame(0);
+        require(atmosphere.stats().environmentUpdates==externalPublication+1,"External snapshot never published");
+        constantCube(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),{2,4,8});
+        settle(0);
+        constantCube(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),{5,3,1});
+        std::cout<<"PASS scheduler external snapshot: in-place HDR cube revision and artistic retarget never mix six face ages\n"<<std::flush;
+
+        // Resize and shader reload cancel only private work, preserving the
+        // complete visible/lighting set until the replacement is finished.
+        atmosphere.invalidate(); frame(0);
+        const auto retained=textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP);
+        const auto retainedValues=readTexture(retained,GL_TEXTURE_CUBE_MAP);
+        const auto cancelled=atmosphere.stats().environmentCapturesCancelled;
+        config.cubemapSize=32; config.prefilterSize=32; config.iblTileSize=16; frame(0);
+        require(atmosphere.stats().environmentCapturesCancelled>cancelled && glIsTexture(retained) &&
+                textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP)==retained,"Resize exposed or destroyed an incomplete environment");
+        closeTextures(readTexture(retained,GL_TEXTURE_CUBE_MAP),retainedValues,0,"Resize modified the completed IBL");
+        const auto afterResize=atmosphere.stats().environmentCapturesCancelled;
+        atmosphere.reloadShaders(); frame(0);
+        require(atmosphere.stats().environmentCapturesCancelled>afterResize && glIsTexture(retained),
+                "Reload did not safely cancel the private capture");
+        settle(0); constantCube(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP),{5,3,1});
+        std::cout<<"PASS scheduler cancellation: reload and resolution change retain the complete environment, then publish a complete replacement\n"<<std::flush;
+
+        // The millisecond target influences submissions independently from the
+        // absolute work-unit cap. No blocking query is needed to choose a batch.
+        config.iblMaxWorkUnitsPerFrame=8; config.targetGpuMilliseconds=.01f;
+        atmosphere.invalidate(); frame(0);
+        require(atmosphere.stats().iblWorkUnitsThisFrame==1,"Tiny soft budget did not reduce submission to the progress floor");
+        config.targetGpuMilliseconds=1000; frame(0);
+        require(atmosphere.stats().iblWorkUnitsThisFrame>1 && atmosphere.stats().iblWorkUnitsThisFrame<=8,
+                "GPU target does not influence the submitted work batch");
+        settle(0);
+        const auto disabledDispatches=atmosphere.stats();
+        for(int i=0;i<3;++i) frame(.1);
+        require(atmosphere.stats().aerialDispatches==disabledDispatches.aerialDispatches &&
+                atmosphere.stats().cloudVolumeDispatches==disabledDispatches.cloudVolumeDispatches &&
+                atmosphere.stats().cloudShadowDispatches==disabledDispatches.cloudShadowDispatches &&
+                atmosphere.stats().visibleCloudDispatches==disabledDispatches.visibleCloudDispatches &&
+                atmosphere.stats().fogDispatches==disabledDispatches.fogDispatches,
+                "Disabled media still dispatched atmosphere/cloud/fog work");
+        GLint neutralWidth=0;
+        glGetTextureLevelParameteriv(textureAt(13,GL_TEXTURE_BINDING_3D),0,GL_TEXTURE_WIDTH,&neutralWidth);
+        require(neutralWidth==1,"Absent media retained full-sized integration volumes");
+        require(maximumRGB(readTexture(textureAt(12,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D))==0,
+                "Disabled media did not restore zero scattering");
+        for(float v:readTexture(textureAt(13,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D)) require(v==1,"Disabled media lost identity transmission");
+        config.clouds=true; config.cloudCoverage=0; frame(.1);
+        require(atmosphere.stats().cloudVolumeDispatches==disabledDispatches.cloudVolumeDispatches,
+                "Zero cloud coverage dispatched a cloud coefficient volume");
+        config.cloudCoverage=1; frame(.1);
+        require(atmosphere.stats().cloudVolumeDispatches>disabledDispatches.cloudVolumeDispatches,
+                "Enabling a previously empty cloud layer did not rebuild its coefficients");
+        config.clouds=false; frame(.1);
+        glGetTextureLevelParameteriv(textureAt(13,GL_TEXTURE_BINDING_3D),0,GL_TEXTURE_WIDTH,&neutralWidth);
+        require(neutralWidth==1,"Disabling clouds did not restore small identity resources");
+        std::cout<<"PASS scheduler budget/disabled effects: bounded submissions, active soft target, R32F cloud extinction, skipped passes and neutral one-voxel resources\n"<<std::flush;
+
+        {
+            Ge::Atmosphere startup;
+            const auto priorIrradiance=textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP);
+            const auto priorPrefilter=textureAt(7,GL_TEXTURE_BINDING_CUBE_MAP);
+            startup.initialize(&pc,&graphics); startup.settings()=config;
+            startup.settings().iblMaxWorkUnitsPerFrame=1;
+            Ge::AtmospherePalette startupPalette; startupPalette.strength=0; startupPalette.exposure=.25f;
+            startup.setPaletteTarget(startupPalette,true); startup.setExternalEnvironment(external,1);
+            startup.prepare(&camera,0); startup.renderSky(0); startup.computeVolumes(&camera);
+            require(startup.active() && !startup.stats().environmentReady && startup.stats().captureWorkCompleted==1,
+                    "External startup fixture did not pause before its first complete IBL");
+            const auto initialSky=readTexture(targets.colors[2],GL_TEXTURE_2D);
+            for(std::size_t i=0;i<initialSky.size();++i)
+                require(std::abs(initialSky[i]-(i%4==3?1.f:glm::vec3(2.5f,1.5f,.5f)[static_cast<int>(i%4)]))<.005f,
+                        "A preassigned external sky was black or lacked its artistic correction during startup");
+            startup.bindLighting(material);
+            require(uniform(material,"uAtmosphereIblActive")==0,"External startup exposed incomplete IBL");
+            require(textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP)==priorIrradiance &&
+                    textureAt(7,GL_TEXTURE_BINDING_CUBE_MAP)==priorPrefilter,
+                    "Initial atmosphere capture replaced the engine's existing complete IBL with empty handles");
+            startup.release(); require(glIsTexture(external),"Startup release deleted caller-owned environment");
+        }
+        frame(0);
+        std::cout<<"PASS external startup: complete caller sky renders with artistic correction while initial IBL remains private\n"<<std::flush;
+
+        const auto animatedHook=std::filesystem::path(std::getenv("ENDURANCE_SHADER_CACHE_DIR")).parent_path()/"animated_game_fog.glsl";
+        {
+            std::ofstream file(animatedHook);
+            file<<"vec4 geGameFog(vec3 p) { return vec4(vec3(0.0),1e-6*(1.0+geAtmCamera.w)); }\n";
+        }
+        config.localFog=true; config.fogDensity=0; config.aerialDistance=10000;
+        atmosphere.setGameFogBinding({}); atmosphere.setGameFogShader(animatedHook.string());
+        frame(.1);
+        require(atmosphere.error().empty(),"Animated fog fixture did not compile: "+atmosphere.error());
+        const auto animatedBefore=readTexture(textureAt(13,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D);
+        const auto animationUpdates=atmosphere.stats().volumeUpdates;
+        frame(5);
+        require(atmosphere.stats().volumeUpdates==animationUpdates+1,
+                "A time-dependent game fog shader without a binding callback was incorrectly cached");
+        const auto animatedAfter=readTexture(textureAt(13,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D);
+        require(animatedAfter[animatedAfter.size()-4]<animatedBefore[animatedBefore.size()-4]-.005f,
+                "A game fog shader without a callback did not animate at a stationary camera");
+        atmosphere.setGameFogShader(""); config.localFog=false; frame(0);
+        std::cout<<"PASS generic fog shader: time-dependent medium animates without a texture-binding callback\n"<<std::flush;
+
         config.enabled=false;
         atmosphere.prepare(&camera,.1); atmosphere.bindLighting(material);
         require(!atmosphere.active() && uniform(material,"uAtmosphereActive")==0 && uniform(material,"uAtmosphereIblActive")==0,
@@ -285,7 +496,9 @@ namespace
         const auto ownedTexture=textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP);
         atmosphere.release(); checkGL("runtime release");
         require(!atmosphere.active() && !glIsTexture(ownedTexture) && !glIsTexture(brdf),"Release leaked published resources");
-        atmosphere.initialize(&pc,&graphics); frame(.1); atmosphere.release();
+        require(glIsTexture(external) && atmosphere.stats().gpuTextureBytes==0,"Release deleted caller texture or leaked tracked textures");
+        atmosphere.initialize(&pc,&graphics); settle(0); atmosphere.release();
+        glDeleteTextures(1,&external);
         glDeleteProgram(material); checkGL("runtime restart/release");
         std::cout<<"PASS runtime lifecycle: disabled material state, re-enable, delayed timer collection, release and restart\n"<<std::flush;
     }

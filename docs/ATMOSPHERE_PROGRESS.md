@@ -2,7 +2,7 @@
 
 ## État actuel
 
-Les cinq paliers fonctionnels sont implémentés. La branche d'intégration est
+Les cinq paliers fonctionnels et les sept points de la passe de correction sont implémentés. La branche d'intégration est
 `feature/atmosphere-biome-sky`, issue de `feature/terrain-noise-library`
 (commit GitHub de base `2ab58174c1a33f8b1b795b466075fd618424e933`, arbre
 `bc47314734e8bfd1b3f915e53b6a08b4e9d99238`). Ne pas repartir de l'ancien `master`.
@@ -36,8 +36,7 @@ calculés ; les captures animées des nuages ne réinitialisent pas le seuil de
 SkyView. Les publications font progresser l'ancien fondu avant de capturer une
 nouvelle cible. Le dépassement de la durée du fondu publie bien sa dernière image.
 
-Les extinctions et sources sont additionnées avant l'intégration. Les quatre
-volumes de coefficients sont en RGBA32F ; les sorties intégrées, les cubemaps et
+Les extinctions et sources sont additionnées avant l'intégration. Les coefficients colores sont en RGBA32F, l’extinction nuageuse en R32F ; les sorties intégrées, les cubemaps et
 l'IBL sont en HDR. L'éclairage direct et l'IBL ne comptent pas deux fois les disques.
 La saturation de l'atmosphère visible est appliquée après la composition ; celle
 de l'IBL est indépendante. Les ombres utilisent la profondeur des vraies cascades,
@@ -45,8 +44,9 @@ jamais une estimation à partir de la profondeur écran.
 
 ## Validation et prochaine action
 
-Les tests CPU, shaders OpenGL et service C++ de production fonctionnent sur
-EGL/Mesa llvmpipe. Commande consolidée :
+Les douze groupes de tests CPU, shaders OpenGL, service C++ de production
+et composant ENDURANCE passent sur EGL/Mesa llvmpipe. La passe de correction
+a aussi verifie les trois unites C++ modifiees avec les vrais en-tetes. Commande consolidée :
 
 ```bash
 python3 Tests/Atmosphere/run_all.py
@@ -62,3 +62,14 @@ montagnes hors écran mais générées, reflets et transparents, sauvegarde/rech
 dans l'éditeur, et coût Ultra sur la carte graphique cible. Les tests logiciels ne
 remplacent pas cette validation visuelle et de performance. Le détail des budgets
 et des limites se trouve dans `ATMOSPHERE_VALIDATION.md`.
+
+## Passe de correction de la PR #4
+
+Les sept points de l’audit sont suivis dans `ATMOSPHERE_REVISION.md` :
+reference nuageuse sans ombres terrain, soleil rasant, vent du vrai brouillard
+ENDURANCE, nuages visibles a la camera courante, IBL par transactions et
+tuiles, ressources conditionnelles/R32F, couverture regionale et profils.
+La suite consolidee des douze groupes passe. Les regressions du ciel compose,
+du soleil rasant, du brouillard reel, des snapshots, des budgets et des
+ressources conditionnelles sont couvertes. Conserver les snapshots GPU d’une capture et ne jamais
+reutiliser son set de travail pendant un fondu public.

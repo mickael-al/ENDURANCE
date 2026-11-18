@@ -6,10 +6,11 @@ layout(rgba16f,binding=0) writeonly uniform imageCube geFilterOutput;
 uniform int geFilterMode; // 0 cosine convolution E/pi; 1 importance sampled GGX
 uniform int geFilterSamples;
 uniform float geFilterRoughness;
+uniform ivec3 geDispatchOffset;
 const float GE_FILTER_PI=3.141592653589793;
 void main()
 {
-    ivec3 p=ivec3(gl_GlobalInvocationID);
+    ivec3 p=ivec3(gl_GlobalInvocationID)+geDispatchOffset;
     ivec2 size=imageSize(geFilterOutput);
     if(any(greaterThanEqual(p.xy,size))||p.z>=6) return;
     vec3 n=geCubeDirection(p,size);

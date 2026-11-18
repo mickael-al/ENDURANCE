@@ -148,13 +148,12 @@ namespace
             for(int attempt=0;attempt<300;++attempt)
             {
                 prepare(0);
-                if(atmosphere.active() && atmosphere.stats().environmentUpdates>0) return;
+                if(atmosphere.active() && atmosphere.stats().environmentReady) return;
             }
             throw std::runtime_error("Game atmosphere did not publish an environment within 300 frames: "+atmosphere.error());
         };
-        const auto frame=[&](float dt)
+        const auto sampleVolume=[&]()
         {
-            prepare(dt);
             require(atmosphere.active(),"Game atmosphere inactive: "+atmosphere.error());
             atmosphere.computeVolumes(&camera);
             checkGL("game component + atmosphere volume dispatch");
@@ -169,6 +168,11 @@ namespace
             glGetIntegeri_v(GL_IMAGE_BINDING_NAME,1,&transmission);
             result.transmission=readTexture(static_cast<GLuint>(transmission));
             return result;
+        };
+        const auto frame=[&](float dt)
+        {
+            prepare(dt);
+            return sampleVolume();
         };
 
         awaitEnvironment();
@@ -221,6 +225,27 @@ namespace
         component.fogWind={{std::numeric_limits<float>::quiet_NaN(),500,-500}};
         expectOffset(frame(.25f),{{82.5f,39.125f,-42}},"sanitized and bounded wind axes");
         std::cout<<"PASS game fog robustness: invalid delta rejection, disabled/rebuild continuity, finite bounded wind\n"<<std::flush;
+
+        // Isolate the game callback from all engine cache keys. No engine
+        // prepare occurs between these integrations, so the current camera,
+        // atmosphere UBO, lights and cloud settings remain identical. The
+        // caller-owned animated medium must still force a fresh integration.
+        component.fogWind={{20,0,-10}};
+        const auto cachedBaseline=frame(0);
+        const auto beforeGameOnlyUpdate=atmosphere.stats().volumeUpdates;
+        clock.delta=4; component.prepareRenderer();
+        const auto gameOnlyUpdate=sampleVolume();
+        require(atmosphere.stats().volumeUpdates==beforeGameOnlyUpdate+1,
+                "Engine incorrectly reused a cached volume despite an animated game fog callback");
+        expectOffset(gameOnlyUpdate,{{cachedBaseline.offset[0]+80,cachedBaseline.offset[1],cachedBaseline.offset[2]-40}},
+                     "game-only wind advancement");
+        require(gameOnlyUpdate.mediumTexture==cachedBaseline.mediumTexture &&
+                gameOnlyUpdate.shapeTexture==cachedBaseline.shapeTexture &&
+                gameOnlyUpdate.medium==cachedBaseline.medium && gameOnlyUpdate.shape==cachedBaseline.shape,
+                "Game-only wind advancement changed the stationary climate atlas");
+        require(difference(gameOnlyUpdate.transmission,cachedBaseline.transmission)>1e-5f,
+                "Unchanged engine parameters froze the actual game fog animation");
+        std::cout<<"PASS game fog cache contract: animated caller medium reintegrates with unchanged engine parameters\n"<<std::flush;
 
         component.stop(); component.stop();
         require(pipeline.getCustomRenderer().size()==1,"Game component stop leaked its renderer callback");

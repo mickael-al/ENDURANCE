@@ -22,8 +22,14 @@ void main()
     for(int z=1;z<size.z;++z)
     {
         float begin=geAtmSliceDistance(z-1,size.z),end=geAtmSliceDistance(z,size.z);
-        vec3 source=texelFetch(geAtmPhysicalSourceVolume,ivec3(p,z),0).rgb;
-        vec3 extinction=texelFetch(geAtmPhysicalExtinctionVolume,ivec3(p,z),0).rgb;
+        // Disabled media use tiny neutral allocations; never fetch them with
+        // coordinates belonging to the full camera volume.
+        vec3 source=vec3(0.0),extinction=vec3(0.0);
+        if(geAtmControl.x!=0)
+        {
+            source=texelFetch(geAtmPhysicalSourceVolume,ivec3(p,z),0).rgb;
+            extinction=texelFetch(geAtmPhysicalExtinctionVolume,ivec3(p,z),0).rgb;
+        }
         // The cubemap contains an unoccluded physical sky. Separate this
         // baseline from the terrain-shadowed source used in the view volume.
         float center=(begin+end)*0.5;
@@ -32,9 +38,32 @@ void main()
             direction,vec2(1.0),unusedExtinction);
         if(geAtmControl.z!=0)
         {
-            source+=texelFetch(geAtmCloudSourceVolume,ivec3(p,z),0).rgb;
-            baselineSource+=texelFetch(geAtmCloudSourceVolume,ivec3(p,z),0).rgb;
-            extinction+=texelFetch(geAtmCloudExtinctionVolume,ivec3(p,z),0).rgb;
+            vec3 cloudSource=texelFetch(geAtmCloudSourceVolume,ivec3(p,z),0).rgb;
+            float cloudExtinction=texelFetch(geAtmCloudExtinctionVolume,ivec3(p,z),0).r;
+            source+=cloudSource;
+            vec3 unoccludedCloudSource=cloudSource;
+            if(cloudExtinction>0.0 && geAtmControl.w!=0)
+            {
+                vec3 world=geAtmCamera.xyz+direction*center;
+                vec2 terrain=vec2(1.0);
+                if(geAtmSunDirection.w>0.5) terrain.x=geAtmTerrainVisibility(world,geAtmShadow.x);
+                if(geAtmMoonDirection.w>0.5) terrain.y=geAtmTerrainVisibility(world,geAtmShadow.y);
+                if(any(lessThan(terrain,vec2(1.0))))
+                {
+                    // The captured/current background includes cloud self-shadow,
+                    // but no terrain shadow. Subtract precisely that reference,
+                    // otherwise the terrain's darkening cancels from the sky.
+                    vec2 cloudVisibility=vec2(1.0);
+                    if(geAtmSunDirection.w>0.5)
+                        cloudVisibility.x=geAtmCloudLightRay(world,normalize(geAtmSunDirection.xyz),geAtmSamples.y);
+                    if(geAtmMoonDirection.w>0.5)
+                        cloudVisibility.y=geAtmCloudLightRay(world,normalize(geAtmMoonDirection.xyz),geAtmSamples.y);
+                    unoccludedCloudSource=geAtmMediumLight(world,geAtmOrigin()+direction*center,direction,
+                        vec3(cloudExtinction*0.98),geAtmCloudShape.w,cloudVisibility);
+                }
+            }
+            baselineSource+=unoccludedCloudSource;
+            extinction+=vec3(cloudExtinction);
         }
         geAtmIntegrate(baselineS,baselineT,baselineSource,extinction,end-begin);
         float stepLength=(end-begin)/float(steps);

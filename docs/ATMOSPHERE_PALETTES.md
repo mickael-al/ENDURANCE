@@ -68,6 +68,11 @@ La configuration initiale se trouve dans `ENDURANCE/Ressources/Atmosphere/biome_
 
 La palette au XZ de la camera est evaluee dans un petit compute shader. Trois emplacements de resultat permettent de recueillir un resultat seulement apres signalement de sa fence GPU ; aucune attente n’est faite sur un resultat en vol. Les compteurs montrent les requetes, resultats et latences pour mesurer ce choix. Le seuil de deplacement se compare a la derniere position soumise, donc les petites translations s’accumulent. Les transitions de couleur et leur seuil sont geres par le moteur.
 
-Le brouillard evalue le climat sur un atlas en **coordonnees du monde**, avec la meme fonction exacte aux noeuds. Entre les noeuds, ses proprietes sont interpolees : c’est une reduction de resolution volontaire du brouillard, pas un changement de la recette du terrain. Les cellules restent ancrees dans le monde pendant les deplacements. Une camera en region claire voit donc la nappe du biome voisin. La frequence d’actualisation depend d’un changement de la seed/des reglages/des palettes ou du franchissement de la zone de garde de l’atlas. Son etendue doit couvrir la distance du ray marching ; l’interface expose l’etendue et la resolution.
+Le brouillard evalue le climat sur un atlas en **coordonnees du monde**, avec la meme fonction exacte aux noeuds. Entre les noeuds, ses proprietes sont interpolees : c’est une reduction de resolution volontaire du brouillard, pas un changement de la recette du terrain. Les cellules restent ancrees dans le monde pendant les deplacements. Une camera en region claire voit donc la nappe du biome voisin. La frequence d’actualisation de l’atlas depend d’un changement de la seed/des reglages/des palettes ou du franchissement de la zone de garde de l’atlas. Son etendue doit couvrir la distance du ray marching ; l’interface expose l’etendue et la resolution.
 
 L’altitude Y de la camera ne selectionne jamais le biome ; elle reste disponible pour les LUT atmospheriques et l’integration du brouillard.
+
+Le vent de brouillard global du composant, `fogWind` XYZ (metres/seconde),
+anime seulement la structure 3D a l’interieur de ces regions. Il est distinct
+du vent des nuages. Le climat, les frontieres du brouillard et son profil
+d’altitude restent fixes ; changer le vent ne reconstruit pas l’atlas.

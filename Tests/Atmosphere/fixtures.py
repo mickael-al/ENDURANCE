@@ -8,7 +8,7 @@ FIELDS = """
 Radii Rayleigh Mie Absorption Medium SunDirection SunRadiance SunDisk
 MoonDirection MoonRadiance MoonDisk Horizon Middle Zenith Art Camera Volume Fog
 FogNoise CloudLayer CloudShape CloudWind ShadowOrigin Shadow Quality Samples
-Control Misc
+Control Misc CloudWeather CloudProfiles
 """.split()
 IDENTITY = [1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1., 0., 0., 0., 0., 1.]
 
@@ -42,6 +42,8 @@ class Parameters:
         self.set("Samples", 2, 4, 4, 12)
         self.set("Control", 1, 0, 0, 0)
         self.set("Misc", 1337, 0, 0, 0)
+        self.set("CloudWeather", 48000., .65, 1.4, .7)
+        self.set("CloudProfiles", .25, .5, .25, 0.)
 
     def set(self, name, *values):
         assert name in self.values and len(values) == 4
@@ -55,7 +57,7 @@ class Parameters:
             data.extend(struct.pack("<4" + scalar, *self.values[name]))
         for name in ("InvView", "InvProjection", "View"):
             data.extend(struct.pack("<16f", *self.matrices[name]))
-        assert len(data) == 640
+        assert len(data) == 672
         return bytes(data)
 
     def upload(self, gl, buffer=None):

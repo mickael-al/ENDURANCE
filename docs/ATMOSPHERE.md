@@ -35,20 +35,27 @@ et l’atlas de brouillard. Les ressources GPU ne sont jamais serialisees.
 | Deplacement climatique | 0,1 m | Compare le XZ actuel a la derniere position soumise au calcul climatique. |
 | Seuil de palette | 0,01 | Ecart maximal d’un canal ou d’un parametre par rapport a la derniere cible acceptee. |
 | Fondu de palette | 1 s | Interpolation depuis l’etat actuellement affiche, mise a jour au temps de rendu. |
-| Intervalle d’environnement | 0,20 s | Cadence de reconstruction du ciel cubique et de son IBL lorsqu’une actualisation est necessaire. |
+| Intervalle d’environnement | 0,20 s | Delai minimal entre transactions IBL ; une transaction peut occuper plusieurs images. |
 | Fondu d’environnement | 0,20 s | Transition entre ensembles complets de ressources. |
 | Distance atmospherique | 32 768 m | Profondeur couverte par le volume de perspective aerienne et les milieux locaux. |
 | Atlas de brouillard | 128 × 128 en Ultra | Echantillonnage climatique spatial ; ses proprietes sont interpolees entre les noeuds. |
 | Etendue demandee de l’atlas | 81 920 m | Le composant impose aussi un minimum de 2,5 fois la distance atmospherique. |
 | Correction artistique | 0,38 | Controle initial par biome ; 0 conserve la radiance physique. |
+| Nuages visibles en Ultra | 320 × 180 | Contribution nuageuse courante reconstruite sous le ciel et les disques a pleine resolution. |
+| Travail IBL par image | 16 unites maximum | Tuiles initiales de 32 × 32 pixels ; plafond distinct du budget temporel estime. |
+| Echelle meteorologique | 48 000 m | Modulation regionale de la couverture, distincte des formes nuageuses de 6 000 m. |
 
 La scene Terrain affecte explicitement sa lumiere directionnelle d’index 0 au
 soleil et porte la distance atmospherique a **49 152 m** pour couvrir sa
 distance de terrain existante de **40 096 m**. Son atlas agrandit donc
 automatiquement son domaine a 122 880 m. Ces valeurs sont des reglages
 initiaux, pas un benchmark de performance.
-`targetGpuMilliseconds` est une cible affichee pour la mesure : elle ne garantit
-pas une duree et n’effectue aucune attente GPU pour forcer cette duree.
+`targetGpuMilliseconds` pilote un budget de soumission souple : les mesures GPU
+differees estiment le travail IBL admissible apres les autres phases. Le plafond
+`iblMaxWorkUnitsPerFrame` borne separement le nombre d’unites soumises. Une unite
+minimale assure la progression. Le GPU ne pouvant pas interrompre une commande
+deja soumise, la valeur en millisecondes ne constitue pas une garantie de temps
+d’image ; aucune attente GPU n’est ajoutee pour l’imposer.
 
 ## Responsabilites
 
@@ -151,7 +158,8 @@ Les dependances physiques sont distinctes des changements de palette :
 | Transmittance | Rayons de la planete/atmosphere, coefficients et profils de Rayleigh/Mie/ozone. |
 | Diffusion multiple | Atmosphere et albedo du sol ; indexee par altitude et angle solaire. |
 | SkyView | Altitude camera, directions/couleurs des sources, parametres physiques et correction artistique. La rotation de la camera ne change pas un ciel couvrant toutes les directions. |
-| Environnement HDR et IBL | Ciel, palette affichee, sources, nuages/vent, source externe et sa revision. |
+| Environnement HDR et IBL | Ciel, palette, sources, nuages/vent/meteo, source externe et sa revision ; etat fige pour toute la transaction. |
+| Nuages visibles | Camera et matrices courantes, temps/vent, sources, meteo et palette affichee ; cadence independante de l’IBL. |
 | Volumes vus par la camera | Matrices de vue/projection, altitude/position, distance, ombres courantes, atmosphere et milieux locaux. |
 | Bruit volumetrique des nuages | Seed et configuration de la texture procedurale. Le vent deplace l’echantillonnage, pas la texture generee. |
 | Ombres des nuages | Couche nuageuse, couverture/densite, vent/temps, sources et domaine spatial. |
@@ -168,10 +176,14 @@ indirect distincte, sans les disques directs du soleil et de la lune. Cette
 separation evite d’ajouter leur energie directe une seconde fois par l’IBL.
 Le halo atmospherique autour des sources reste dans l’environnement lumineux.
 L’intensite visuelle d’un disque et celle de la lumiere directionnelle sont
-des controles differents. Le rendu visible dispose aussi d’une version du
-ciel sans disque : le disque est evalue analytiquement a la resolution
-d’affichage pour conserver sa taille angulaire aux petites resolutions de
-cubemap, sans ajouter une seconde copie de son energie.
+des controles differents. Le rendu visible emploie sa propre vue des nuages depuis la camera actuelle.
+Une passe reduite stocke la difference signee entre ciel nuageux et ciel clair.
+Le dessin du ciel ajoute cette contribution au SkyView courant ; le disque
+est evalue analytiquement a la resolution d’affichage. Le gradient clair et
+la taille angulaire des disques ne dependent donc pas de la resolution de la
+passe nuageuse. Le fondu entre captures IBL ne superpose plus deux positions
+anciennes des nuages visibles. Une cubemap externe reste une source fournie
+par l’appelant, avec son propre contenu.
 
 L’irradiance diffuse et les reflections speculaires sont conservees, meme avec
 un gradient doux. La convolution diffuse utilise un echantillonnage du
@@ -185,8 +197,20 @@ reconstruite lorsque la camera change de biome. Les environnements sont
 construits dans des ressources intermediaires ; leurs six faces, irradiance
 et niveaux speculaires doivent etre completes avant publication. Le fondu
 concerne un ensemble coherent de ces ressources, avec les memes coefficients.
-La palette artistique publiee suit ce meme melange pour la diffusion dans les
-volumes ; une nouvelle transition repart de cet etat reellement affiche.
+La palette artistique publiee suit ce meme melange pour le ciel courant et
+la diffusion dans les volumes ; une nouvelle transition repart de cet etat
+reellement affiche. Le vent, la position et l’orientation de la camera ne
+sont pas retardes par le fondu de l’IBL.
+
+Un quatrieme ensemble est reserve au travail en cours. Les captures et les
+filtres parcourent les faces par tuiles ; la generation des mipmaps ordinaires
+precede les convolutions. Chaque transaction conserve une copie GPU de ses
+LUT, de son bruit et de sa source externe ainsi que ses parametres et son
+instant de capture. Une modification continue est retenue pour la transaction
+suivante, sans recommencer sans cesse celle qui est en cours. Les anciennes
+ressources completes restent disponibles pendant une reconstruction. Les
+compteurs exposent progression, revisions, unites soumises, cout estime et
+empreinte des textures.
 
 Le domaine reste lineaire et HDR jusqu’aux passes bloom et tone mapping.
 Deux reglages de saturation permettent d’ajuster separement l’atmosphere
@@ -216,7 +240,10 @@ L’atmosphere, le brouillard local et les nuages contribuent aux coefficients
 d’extinction et de diffusion **avant** l’integration de chaque segment. Il ne
 s’agit pas de trois voiles appliques successivement a l’image. Le ciel utilise
 une reference atmospherique pour ajouter les effets locaux et les occultations
-sans compter de nouveau l’air deja present dans sa cubemap.
+sans compter de nouveau l’air deja present dans le ciel courant. Cette
+reference conserve l’auto-ombrage des nuages mais exclut les ombres du terrain.
+La contribution finale les conserve : leur soustraction ne peut donc plus
+annuler l’ombre d’une montagne sur un nuage.
 
 La composition opaque dispose de la position/profondeur de la surface.
 Les materiaux transparents utilisent leur **propre** position de fragment
@@ -244,7 +271,13 @@ L’atlas contient les coefficients de diffusion/extinction et les controles de
 hauteur et de bruit. Les controles sont ponderes par la densite : un voisin
 sans brouillard ne deplace pas artificiellement l’altitude d’une nappe humide.
 Le calcul final applique une decroissance exponentielle verticale et,
-facultativement, un bruit 3D de la bibliotheque du projet.
+facultativement, un bruit 3D de la bibliotheque du projet. Le vent de
+brouillard `fogWind` XYZ, initialement `(4, 0, 1)` m/s, deplace uniquement ce
+bruit. Le composant integre sa vitesse au temps rendu, meme camera immobile.
+Changer la vitesse conserve la position courante de la structure ; regler les
+trois axes a zero l’immobilise. L’atlas climatique et le profil d’altitude
+restent fixes. Le vent est modifiable dans ImGui et sauvegarde avec le
+composant, sans provoquer une regeneration de l’atlas.
 
 Une camera dans un desert peut donc voir la nappe d’un marais voisin. La nappe
 ne suit pas le biome choisi pour le ciel ni la position de la camera. L’origine
@@ -277,16 +310,52 @@ ete generes : la distance de streaming du terrain reste a dimensionner avec
 celle du rendu et des ombres.
 
 Les nuages utilisent une texture 3D procedurale combinant Perlin et Worley,
-avec erosion des details, profil vertical et deplacement du domaine par le
+avec erosion des details, profils verticaux et deplacement du domaine par le
 vent. Les fonctions de bruit deja presentes dans le projet sont reutilisees.
 Les controles comprennent couverture, densite, base de couche, epaisseur,
 echelle des grandes formes, details, seed et vent. L’extinction solaire des
 nuages influence aussi l’eclairage direct des objets et les rayons lumineux.
 La lumiere a l’interieur des nuages utilise un ray marching vers la source.
+Un milieu nuageux absent fournit toujours une transmission de 1. Les rayons
+rasants sont bornes depuis leur origine, et la projection de leur carte
+d’ombre est regularisee et fondue aux bords de son domaine. Il n’existe plus
+de seuil d’elevation qui eteint brutalement le soleil. La carte reste une
+approximation spatiale : le ray marching explicite eclaire l’interieur des nuages.
+
+La carte meteorologique regionale est une tranche 2D du bruit pregenere,
+echantillonnee a une echelle independante. Cela reutilise son stockage, sa
+seed et ses mipmaps. `cloudWeatherScale`, `cloudWeatherStrength` et
+`cloudWeatherContrast` reglent les grandes ouvertures. La couverture globale
+0 reste entierement vide et la couverture 1 ne produit pas d’ouvertures
+regionales. `cloudProfileMix` melange stratus, cumulus et tours ;
+`cloudProfileVariation` permet de faire varier ce melange dans le monde.
+Les controles sont exposes dans ImGui et serialises avec les reglages moteur.
+
+La vue courante ajoute du travail par image : en Ultra, 320 × 180 pixels,
+40 pas primaires et 8 pas vers une source representent jusqu’a 18,4 millions
+d’evaluations de densite sur les rayons lumineux, par source, avant les
+echantillons primaires. Les zones vides et la terminaison par extinction
+reduisent ce pire cas. La resolution de vue et les pas lumineux sont donc
+des budgets utiles a mesurer sur la carte cible ; etaler l’IBL ne borne pas
+a lui seul le cout de ce rendu courant.
 
 Le modele est une couche procedurale configurable. Il ne simule pas encore une
-meteorologie dynamique, des types de nuages multiples independants ou un
+simulation meteorologique dynamique, des couches nuageuses independantes superposees ou un
 transport spectral complet de diffusion multiple dans les gouttelettes.
+
+## Allocation et passes conditionnelles
+
+Les coefficients physiques et nuageux inactifs utilisent des textures neutres
+1 × 1 × 1 ; les shaders ne les lisent pas avec les coordonnees d’un volume
+complet. Les passes correspondantes sont ignorees. L’extinction nuageuse,
+identique sur RGB, utilise R32F. Les coefficients colores gardent RGBA32F
+pour ne pas perdre les faibles valeurs en metres inverses.
+
+Pour les six volumes 3D principaux, en Ultra 160 × 90 × 96 avec tous les
+milieux actifs, le stockage theorique des texels passe de **105,47 Mio a 89,65 Mio**, soit
+**15,82 Mio de moins**. Ce chiffre exclut les cubemaps, les LUT et les copies
+privees des captures ; les compteurs de textures permettent de suivre leur
+cout total. Il ne constitue pas une mesure de gain de temps GPU.
 
 ## Validation et limites de la livraison
 
@@ -296,14 +365,17 @@ specifiques au jeu se lancent avec :
 
 ```bash
 python3 Tests/Atmosphere/check_game_climate.py
+python3 Tests/Atmosphere/check_game_component.py
+python3 Tests/Atmosphere/check_revision.py
 ```
 
 Ils executent les shaders de production et verifient les 26 palettes forcees,
 la correspondance des poids avec le classificateur terrain, les regions
 voisines, l’attenuation avec la hauteur, les modes absent/lisse/bruite et le
 recentrage de l’atlas. Le fichier de palettes a aussi ete charge et reserialise
-avec le vrai parseur JSON C++ du moteur. La persistance des proprietes du
-composant a ete verifiee dans le code ; un cycle complet sauvegarde/rechargement
+avec le vrai parseur JSON C++ du moteur. La persistance et le vent des proprietes du
+composant sont verifies en executant le vrai C++ avec son mecanisme REGISTER ;
+un cycle complet sauvegarde/rechargement
 depuis l’editeur reste a valider manuellement.
 
 La validation realisee ici utilise un contexte EGL Mesa/llvmpipe. Elle prouve
