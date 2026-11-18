@@ -15,6 +15,7 @@ namespace Ge
 	{
 	public:
 		PPSetting* getPPSetting();
+		void setAtmosphereActive(bool active) { m_atmosphereActive = active; }
 		void onGui(PPSetting*target);
 		std::vector<ModulePP*> & getModules();
 		void addExternalModule(ModulePP * modulePP);
@@ -29,6 +30,7 @@ namespace Ge
 		void resize(int width, int height);
 	private:
 		bool ensurePostTargets(int width, int height);
+		bool m_atmosphereActive = false;
 		GraphicsDataMisc* m_gdm = nullptr;
 		std::vector<ModulePP*> m_modules;
 		std::vector<ModulePP*> m_externalModules;

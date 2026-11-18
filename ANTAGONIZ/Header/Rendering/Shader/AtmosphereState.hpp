@@ -48,7 +48,8 @@ namespace Ge
     class AtmosphereTransition
     {
     public:
-        bool target(const AtmospherePalette& p, float threshold, float seconds, bool force=false)
+        bool target(const AtmospherePalette& p, float threshold, float seconds, bool force=false,
+            const AtmospherePalette* displayedOverride=nullptr)
         {
             if (m_initialized && !force && atmospherePaletteDifference(p,m_target) < std::max(0.0f,threshold))
                 return false;
@@ -59,6 +60,7 @@ namespace Ge
                 m_elapsed=m_duration=0.0;
                 return true;
             }
+            if (displayedOverride) m_displayed=*displayedOverride;
             m_from=m_displayed;
             m_target=p;
             m_elapsed=0.0;

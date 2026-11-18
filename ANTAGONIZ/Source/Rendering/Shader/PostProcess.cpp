@@ -5,6 +5,7 @@
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
 #include "Fog.hpp"
+#include "VolumetricFog.hpp"
 #include "DepthOfField.hpp"
 #include "ColorTint.hpp"
 #include "GraphicsDataMisc.hpp"
@@ -68,6 +69,11 @@ namespace Ge
 		}
 		for (int i = 0; i < m_modules.size(); i++)
 		{
+			if (m_atmosphereActive && dynamic_cast<Fog*>(m_modules[i]))
+			{
+				ImGui::TextUnformatted("Fog is controlled by the scene atmosphere.");
+				continue;
+			}
 			m_modules[i]->onGui(t, m_setting);
 		}
 	}
@@ -90,12 +96,14 @@ namespace Ge
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);//fix ghost triangle bug !!!
 		for (unsigned int i = 0; i < m_externalModules.size(); ++i)
 		{
+			if (m_atmosphereActive && (dynamic_cast<Fog*>(m_externalModules[i]) || dynamic_cast<VolumetricFog*>(m_externalModules[i]))) continue;
 			m_externalModules[i]->compute(frameBuffer, texture, depthTexture, sb, m_setting);
 		}
 		for (unsigned int i = 0; i < m_modules.size(); ++i)
 		{
 			if (m_modules[i] == m_depthOfField || m_modules[i] == m_colorTint)
 				continue;
+			if (m_atmosphereActive && (dynamic_cast<Fog*>(m_modules[i]) || dynamic_cast<VolumetricFog*>(m_modules[i]))) continue;
 			m_modules[i]->compute(frameBuffer, texture, depthTexture, sb, m_setting);
 		}
 		if (useDof)

@@ -31,6 +31,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 #include "Skybox.hpp"
+#include "Atmosphere.hpp"
 #include "SkinnedTransformManager.hpp"
 
 namespace
@@ -119,12 +120,14 @@ namespace Ge
 		m_lightManager = new LightManager();
 		m_shaderDataMisc = new ShaderDataMisc();		
 		m_skybox = new Skybox();
+		m_atmosphere = new Atmosphere();
 		m_skinnedTransformManager = new SkinnedTransformManager();
     }
 
 	RenderingEngine::~RenderingEngine()
 	{
 		delete m_skinnedTransformManager;
+		delete m_atmosphere;
 		delete m_skybox;
 		delete m_postProcess;
 		delete m_frameBuffer;
@@ -312,6 +315,7 @@ namespace Ge
 			Debug::INITFAILED("PostProcess");
 			return false;
 		}
+		m_atmosphere->initialize(m_ptrClass, m_graphicsDataMisc);
 		if (!m_skybox->initialize(m_graphicsDataMisc))
 		{
 			Debug::INITFAILED("Skybox");
@@ -330,6 +334,7 @@ namespace Ge
     void RenderingEngine::release()
     {        	
 		RenderingEngine::m_skinnedTransformManager->release();
+		m_atmosphere->release();
 		RenderingEngine::m_skybox->release();
 		RenderingEngine::m_postProcess->release();
 		RenderingEngine::m_shaderDataMisc->release();
@@ -350,6 +355,11 @@ namespace Ge
 	FrameBuffer* RenderingEngine::getFrameBuffer() const
 	{
 		return m_frameBuffer;
+	}
+
+	Atmosphere* RenderingEngine::getAtmosphere() const
+	{
+		return m_atmosphere;
 	}
 
 	Window* RenderingEngine::getWindow() const
@@ -427,12 +437,15 @@ namespace Ge
 		}
         endPhase(timings.animationMilliseconds);
 		m_cameraManager->updateFlyCam();
+		m_atmosphere->prepareShadows();
         endPhase(timings.cameraMilliseconds);
 		const auto& customRenderers = m_graphiquePipelineManager->getCustomRenderer();
 		for (CustomRenderer* renderer : customRenderers)
 		{
 			if (renderer != nullptr) renderer->prepareRenderer();
 		}
+		m_atmosphere->prepare(m_cameraManager->getCurrentCamera(),
+			m_ptrClass->time ? m_ptrClass->time->getDeltaTime() : 0.0);
         endPhase(timings.prepareMilliseconds);
 		m_shaderDataMisc->update(m_cameraManager->getCurrentCamera());
 		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFrameBuffer());
@@ -440,7 +453,8 @@ namespace Ge
 		const glm::vec4 & clear = m_ptrClass->settingManager->getClearColor();
 		glClearColor(clear.x, clear.y, clear.z, clear.w);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		m_skybox->render(m_cameraManager->getSSBO());
+		if (m_atmosphere->active()) m_atmosphere->renderSky(m_cameraManager->getSSBO());
+		else m_skybox->render(m_cameraManager->getSSBO());
 		glEnable(GL_CULL_FACE);
 		glEnable(GL_DEPTH_TEST);//!!! DO NOT DELETE THIS LINE !!! : total destruction of the application and end of the universe and the parallel universe
 		glDepthMask(GL_TRUE);
@@ -637,6 +651,8 @@ namespace Ge
 		glCullFace(GL_BACK);
 		/*  Shadow  */
 		
+		m_atmosphere->computeVolumes(m_cameraManager->getCurrentCamera());
+
 		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFowardFrameBuffer());		
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_cameraManager->getSSBO());
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_lightManager->getSSBO());
@@ -662,6 +678,7 @@ namespace Ge
 		glBindTexture(GL_TEXTURE_CUBE_MAP, m_skybox->getPrefilterMap());
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, m_skybox->getBrdfLUTTexture());
+		m_atmosphere->bindLighting(m_graphicsDataMisc->str_default_pipeline_forward->getProgram());
 		glUseProgram(m_graphicsDataMisc->str_default_pipeline_forward->getProgram());
 		glViewport(0, 0, m_graphicsDataMisc->str_width, m_graphicsDataMisc->str_height);
 
@@ -687,7 +704,7 @@ namespace Ge
 
 			glm::vec2 invRes(1.0f / m_graphicsDataMisc->str_width, 1.0f / m_graphicsDataMisc->str_height);
 			
-			for (int i = matlist.size() - 1; i > 0; --i)
+			for (int i = static_cast<int>(matlist.size()) - 1; i >= 0; --i)
 			{
 				Materials* mat = matlist[i];
 				if (mat == nullptr || !mat->getDraw() || mat->getColor().a == 0.0f)
@@ -696,6 +713,7 @@ namespace Ge
 				}
 				currentPipeline = mat->getPipeline();
 				unsigned int program = currentPipeline->getProgram();
+				m_atmosphere->bindLighting(program, true);
 				glUseProgram(program);
 				ShaderPair* sp = currentPipeline->getShaderPair();
 				if (!sp->transparency)
@@ -761,6 +779,7 @@ namespace Ge
 		}
 
 		// Tone mapping/bloom, then optional depth of field and tint. HUD stays sharp.
+		m_postProcess->setAtmosphereActive(m_atmosphere->active());
 		m_postProcess->compute(m_frameBuffer->getFowardFrameBuffer(), m_frameBuffer->getColorFoward(), m_frameBuffer->getDepth(), m_modelManager->getDefferedQuad());
 		
 		m_hud->render();		

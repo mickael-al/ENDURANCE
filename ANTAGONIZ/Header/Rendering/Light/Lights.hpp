@@ -36,6 +36,10 @@ namespace Ge
 		void mapMemoryShadow();
 		void setshadow(bool state);
 		bool getshadow() const;
+		// Extend directional caster depth without diluting cascade XY resolution.
+		// Includes off-screen mountains lying towards the light from the receivers.
+		void setShadowCasterMargin(float metres);
+		float getShadowCasterMargin() const { return m_shadowCasterMargin; }
 		int addHiddenPlane(
 			const glm::vec3& position,
 			const glm::vec3& axisX,
@@ -69,6 +73,7 @@ namespace Ge
 		bool m_active = true;
 		//shadow Dir
 		float cascadeSplitLambda = 0.96f;
+		float m_shadowCasterMargin = 0.0f;
 		glm::vec3 frustumCorners[8];
 	};
 }

@@ -20,10 +20,10 @@ namespace Ge
     {
         bool enabled=false;
         AtmosphereQuality quality=AtmosphereQuality::Ultra;
-        bool physicalAtmosphere=true;
-        bool localFog=true;
-        bool godRays=true;
-        bool clouds=true;
+        bool physicalAtmosphere=false;
+        bool localFog=false;
+        bool godRays=false;
+        bool clouds=false;
         bool measureGpu=true;
         bool fallbackToFirstDirectional=true;
         float movementThreshold=0.1f;
@@ -108,6 +108,7 @@ namespace Ge
         void setPaletteTarget(const AtmospherePalette& palette, bool force=false);
         const AtmospherePalette& displayedPalette() const;
         void invalidate();
+        void reloadShaders();
         void setSun(Lights* sun);
         void setMoon(Lights* moon);
         // Optional caller-owned HDR source, excluding directional-source disks.
@@ -120,6 +121,7 @@ namespace Ge
         void setGameFogShader(const std::string& path);
         void setGameFogBinding(std::function<void(unsigned int)> bind);
         void prepare(Camera* camera, double deltaSeconds);
+        void prepareShadows();
         void renderSky(unsigned int cameraSSBO);
         void computeVolumes(Camera* camera);
         // Deferred and forward materials share the same completed IBL/volume set.

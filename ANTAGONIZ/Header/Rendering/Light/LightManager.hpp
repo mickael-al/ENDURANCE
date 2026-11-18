@@ -13,6 +13,7 @@ namespace Ge
 	class PointLight;
 	class SpotLight;
 	class DirectionalLight;
+	class Atmosphere;
 }
 
 namespace Ge
@@ -21,6 +22,7 @@ namespace Ge
     {
 	protected:
 		friend class RenderingEngine;
+		friend class Atmosphere;
 		bool initialize(GraphicsDataMisc * gdm);
 		void release();
 		unsigned int getSsboShadow() const;
@@ -44,6 +46,7 @@ namespace Ge
 		void getShadowMatrix(std::vector<glm::mat4> * mats);
 		// Same packed index as the shadow SSBO and framebuffer layer; CPU data only.
 		bool getShadowMatrix(unsigned int shadowIndex, glm::mat4& matrix) const;
+		const std::vector<Lights*>& getLights() const { return m_lights; }
     private:
 		GraphicsDataMisc * m_gdm;
 		std::vector<Lights *> m_lights;		

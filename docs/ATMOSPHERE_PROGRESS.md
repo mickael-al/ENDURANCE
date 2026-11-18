@@ -10,7 +10,7 @@
 ## Étapes
 
 1. **Palettes et interfaces** : matrice des 25 biomes et fond marin, données JSON linéaires, interface moteur sans noms de biomes, transition indépendante du framerate. Implémenté.
-2. **Ciel et IBL** : cubemaps HDR cohérentes, irradiance, préfiltrage GGX, BRDF partagée, source solaire explicite. En cours.
+2. **Ciel et IBL** : cubemaps HDR cohérentes, irradiance, préfiltrage GGX, BRDF partagée, sources explicites et état affiché commun. Implémenté ; ce palier affiche le gradient artistique, avec les milieux physiques désactivés par défaut.
 3. **Atmosphère** : LUT de transmittance et diffusion multiple, SkyView, perspective aérienne à la profondeur des fragments. À intégrer.
 4. **Brouillard et rayons** : propriétés spatiales GPU, ombres terrain, extinction et diffusion composées ensemble. À intégrer.
 5. **Nuages et optimisation** : bruit Perlin–Worley, lumière atténuée, profils qualité Ultra par défaut, temps GPU séparés, validation. À intégrer.
@@ -24,5 +24,8 @@
 - Pas d'accumulation temporelle dans cette première version : pas d'historique à réinitialiser lors des téléportations, des changements de seed ou des occultations.
 
 ## Validation à compléter
+
+Palier 2 : transitions C++, classification climatique, HDR et filtrage IBL vérifiés par les tests dédiés. Les fonctions de support GLSL sont déjà présentes car le chargeur développe les includes avant le préprocesseur ; les passes physiques seront activées au palier suivant.
+
 
 Tests OpenGL réels possibles avec EGL/llvmpipe dans cet environnement. Les temps de ce rendu logiciel ne doivent pas être présentés comme des performances sur une carte graphique de jeu. Compilation C++ et essais visuels de la scène Windows restent à distinguer des tests isolés des shaders.

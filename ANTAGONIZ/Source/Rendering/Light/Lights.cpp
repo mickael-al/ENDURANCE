@@ -19,6 +19,14 @@
 
 namespace Ge
 {
+    void Lights::setShadowCasterMargin(float metres)
+    {
+        const float next=std::isfinite(metres)?glm::clamp(metres,0.0f,200000.0f):0.0f;
+        if(next==m_shadowCasterMargin) return;
+        m_shadowCasterMargin=next;
+        if(m_active && m_shadow && m_ubl.status==0) mapMemoryShadow();
+    }
+
 	Lights::Lights(unsigned int index, GraphicsDataMisc *gdm) : GObject()
 	{
 		m_gdm = gdm;
@@ -170,9 +178,9 @@ namespace Ge
 				glm::vec3 maxExtents = glm::vec3(radius);
 				glm::vec3 minExtents = -maxExtents;
 
-				m_shadowMatrix[i].pos = frustumCenter - lightDirection * -minExtents.z;
+				m_shadowMatrix[i].pos = frustumCenter - lightDirection * (-minExtents.z + m_shadowCasterMargin);
 				glm::mat4 lightViewMatrix = glm::lookAt(m_shadowMatrix[i].pos, frustumCenter, lightUp);
-				glm::mat4 lightOrthoMatrix = glm::ortho(minExtents.x, maxExtents.x, maxExtents.y, minExtents.y, 0.0f, maxExtents.z - minExtents.z);
+				glm::mat4 lightOrthoMatrix = glm::ortho(minExtents.x, maxExtents.x, maxExtents.y, minExtents.y, 0.0f, maxExtents.z - minExtents.z + m_shadowCasterMargin);
 
 				m_shadowMatrix[i].splitDepth = (nearClip + splitDist * clipRange) * -1.0f;
 				m_shadowMatrix[i].projview = lightOrthoMatrix * lightViewMatrix;				
