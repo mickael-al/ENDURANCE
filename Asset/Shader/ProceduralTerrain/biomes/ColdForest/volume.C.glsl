@@ -1,26 +1,48 @@
 #version 450 core
-// Biome 8: ColdForest. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 8: excavate only. The former alcoves/balconies are removed.
 #define FIELD_BIOME_ID 8u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-42,9,116,.40);
-const vec4 FIELD_SHAPE = vec4(.30,.40,.30,.15);
-const vec4 FIELD_STYLE = vec4(.70,.20,.45,.40);
+#include "../../biome_landforms_3d.glsl"
+#include "pits.glsl"
+#include "pit_porosity.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if (!landVolumeEnabled(column)) return 0.0;
+    float localY = p.y - column.terrain.x;
+    // No excavation reaches above this fade, even in a mixed biome column.
+    if (localY >= 64.0) return 0.0;
+    float weight = fieldSurfaceWeight(column, FIELD_BIOME_ID);
+    if (weight <= 0.0) return 0.0;
+    vec2 pits;
+    if (weight >= 1.0)
+    {
+        // Only pure columns can decode the two cached values independently.
+        pits = vec2(max(0.0, 0.5 * column.terrain.w - COLD_FOREST_PIT_BAND_MARGIN
+            - abs(column.blend.y)), column.blend.w);
+    }
+    else
+    {
+        pits = coldForestPitFields(p.xz);
+        pits.x *= weight;
+    }
+    vec2 envelope = fieldVolumeEnvelope(column);
+    pits.x = min(pits.x, max(0.0, column.terrain.x - envelope.x
+        - COLD_FOREST_PIT_BAND_MARGIN));
+    if (pits.x <= 0.0 || pits.y <= 0.0) return 0.0;
+    float outside = max(localY, -pits.x - localY);
+    if (outside >= 64.0) return 0.0;
+    float base = -localY;
+    // A shared world-XZ noise frame prevents seed jumps at overlap boundaries.
+    float pore = coldForestPoreField(vec3(p.x, localY, p.z),
+        uSeed ^ 0xc084b9d3u, pits.y) * 160.0;
+    float cut = max(-(localY + pits.x), pore);
+    float target = min(base, cut);
+    float margin = min(p.y - envelope.x, envelope.y - p.y);
+    float influence = smoothstep(8.0, 40.0, margin)
+        * (1.0 - smoothstep(32.0, 64.0, outside));
+    return (target - base) * influence;
 }
 
 #include "../../field_volume_accumulate.glsl"

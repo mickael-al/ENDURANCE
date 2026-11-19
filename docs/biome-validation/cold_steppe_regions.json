@@ -1,0 +1,105 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": {
+    "Asset/Shader/ProceduralTerrain/biomes/FrozenTundra/regions.glsl": "95fc2067cad8b0bec5beadc14a380d599ae3ce662361f7b4a621dc003cf63006",
+    "Asset/Shader/ProceduralTerrain/biomes/FrozenTundra/chain.glsl": "1cb5b35874b34f99f4418f5d73de7615500df6d28b40ec58e2d5a0dcd235b619",
+    "Asset/Shader/ProceduralTerrain/biomes/FrozenTundra/caves.glsl": "ae40a38a9dca2b812c4241da176a08a228a19aff1c3fc83b74ad7915764e3e71",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdSteppe/regions.glsl": "813a33cf823ea81f5cd900f93e5a560fc2d93f4b31ed6928912043ab5626eb1b",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdSteppe/chain.glsl": "fd6dddca044b46e4dc38086ad1d6436e5d724cd0db4c9520df6b239954afcffc",
+    "Asset/Shader/ProceduralTerrain/biomes/ColdSteppe/caves.glsl": "424ad63c0fd3db5b5735290c8403851a8363fe59715a9a4c11756c3a0262ee09"
+  },
+  "threshold": 0.14784,
+  "calibrated_threshold": 0.14784270524978638,
+  "samples_per_seed": 263169,
+  "world_span_km": 1024,
+  "records": [
+    {
+      "seed": 1337,
+      "baseline_dominant_coverage": 0.4878044146537016,
+      "steppe_dominant_coverage": 0.3903005293176628,
+      "coverage_ratio": 0.8001168451801364,
+      "baseline_mean_presence": 0.48808470368385315,
+      "steppe_mean_presence": 0.3933887779712677,
+      "full_height_coverage": 0.21703544110438538,
+      "plain_coverage": 0.3999103237843363
+    },
+    {
+      "seed": 17,
+      "baseline_dominant_coverage": 0.4831990090018201,
+      "steppe_dominant_coverage": 0.38492375621748764,
+      "coverage_ratio": 0.796615367677705,
+      "baseline_mean_presence": 0.48371583223342896,
+      "steppe_mean_presence": 0.3883421719074249,
+      "full_height_coverage": 0.21293541412552391,
+      "plain_coverage": 0.4044245332846954
+    },
+    {
+      "seed": 41,
+      "baseline_dominant_coverage": 0.48512552770273093,
+      "steppe_dominant_coverage": 0.3864284927176073,
+      "coverage_ratio": 0.7965536147881257,
+      "baseline_mean_presence": 0.4855497479438782,
+      "steppe_mean_presence": 0.39009717106819153,
+      "full_height_coverage": 0.21500632673301187,
+      "plain_coverage": 0.4031705862012623
+    },
+    {
+      "seed": 12345,
+      "baseline_dominant_coverage": 0.48572970220656686,
+      "steppe_dominant_coverage": 0.3904183243467126,
+      "coverage_ratio": 0.8037769207300378,
+      "baseline_mean_presence": 0.4863569438457489,
+      "steppe_mean_presence": 0.39388662576675415,
+      "full_height_coverage": 0.21857057632167923,
+      "plain_coverage": 0.4001915119181971
+    },
+    {
+      "seed": 99991,
+      "baseline_dominant_coverage": 0.48913055869042327,
+      "steppe_dominant_coverage": 0.39036512659165784,
+      "coverage_ratio": 0.7980796121935304,
+      "baseline_mean_presence": 0.4892796576023102,
+      "steppe_mean_presence": 0.39383816719055176,
+      "full_height_coverage": 0.21609688071163397,
+      "plain_coverage": 0.39812439915035586
+    },
+    {
+      "seed": 73,
+      "baseline_dominant_coverage": 0.489689135118498,
+      "steppe_dominant_coverage": 0.39340499830907133,
+      "coverage_ratio": 0.803377020431284,
+      "baseline_mean_presence": 0.48997339606285095,
+      "steppe_mean_presence": 0.3968026041984558,
+      "full_height_coverage": 0.21987392132052028,
+      "plain_coverage": 0.3973796305795895
+    },
+    {
+      "seed": 5641,
+      "baseline_dominant_coverage": 0.4806151180420186,
+      "steppe_dominant_coverage": 0.3843613799497661,
+      "coverage_ratio": 0.799728026691334,
+      "baseline_mean_presence": 0.4808345139026642,
+      "steppe_mean_presence": 0.3878307640552521,
+      "full_height_coverage": 0.21124068564306586,
+      "plain_coverage": 0.4059406693037554
+    },
+    {
+      "seed": 18263,
+      "baseline_dominant_coverage": 0.48379178398671574,
+      "steppe_dominant_coverage": 0.38788003146267225,
+      "coverage_ratio": 0.8017499352021301,
+      "baseline_mean_presence": 0.48430174589157104,
+      "steppe_mean_presence": 0.3911300301551819,
+      "full_height_coverage": 0.21583469177600706,
+      "plain_coverage": 0.40170764793725705
+    }
+  ],
+  "aggregate_coverage_ratio": 0.8000037166213174,
+  "reduction_percent": 19.99962833786826,
+  "maximum_mask_step_at_250m": 0.1800837516784668,
+  "copied_geometry": {
+    "chain.glsl": "identical after identifier renaming",
+    "caves.glsl": "identical after identifier renaming"
+  },
+  "note": "Dominant mountain area means presence >= 0.5. A fixed threshold gives an approximate statistical reduction, not exactly 20% in every local map. Plain details, transition formulation, mountain geometry and caves are copied unchanged."
+}

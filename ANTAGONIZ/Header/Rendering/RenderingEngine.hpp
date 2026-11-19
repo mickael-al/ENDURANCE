@@ -24,6 +24,7 @@ namespace Ge
 	class SSAOBuffer;
 	class PostProcess;
 	class Skybox;
+	class Atmosphere;
 	class SkinnedTransformManager;
 }
 
@@ -67,6 +68,7 @@ namespace Ge
         const FrameTimings& getPeakFrameTimings() const noexcept;
 		FrameBuffer* getFrameBuffer() const;
 		Window* getWindow() const;
+		Atmosphere* getAtmosphere() const;
 		void addCallback(void* owner, std::function<void(int)> func);
 		void addTransparencyCallback(void* owner, std::function<void(bool*)> func);
 		void removeCallback(void* owner);
@@ -93,6 +95,7 @@ namespace Ge
 		ShaderDataMisc * m_shaderDataMisc;
 		PostProcess* m_postProcess;
 		Skybox* m_skybox;
+		Atmosphere* m_atmosphere;
 		SkinnedTransformManager* m_skinnedTransformManager;
     };
 }

@@ -9,10 +9,10 @@
 
 vec4 fieldRelief(vec2 p)
 {
-    float shelf = fieldSurfaceTerrace(fieldNoise2(p * 0.0007, 350u) * 85.0, 42.0, 0.80);
+    float shelf = noiseTerrace(noisePerlin2D(p * 0.0007, uSeed ^ (350u)) * 85.0, 42.0, 0.80);
     float canyon = 1.0 - smoothstep(0.035, 0.20,
-        abs(fieldNoise2(p * vec2(0.0005, 0.0017), 351u)));
-    float seamount = fieldSurfaceLandmark(p, 768.0, 352u, 0.0, 0.22, 0.0, 0.50);
+        abs(noisePerlin2D(p * vec2(0.0005, 0.0017), uSeed ^ (351u))));
+    float seamount = noiseLandmark2D01(p, 768.0, uSeed ^ (352u), NOISE_EUCLIDEAN, 0.22, 0.0, 0.50);
     float h = -235.0 + shelf - canyon * 145.0 + seamount * 275.0;
     return vec4(h, 486.0, -96.0, seamount);
 }

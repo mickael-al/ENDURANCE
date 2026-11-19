@@ -1,0 +1,201 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "acd48a84b63702c227c364f6598d40419e1ce436ed42b484c481fae5def7dd0a",
+  "records": [
+    {
+      "seed": 1337,
+      "regions": {
+        "plain_fraction": 0.36190925957159725,
+        "mountain_fraction": 0.29248102546803845,
+        "transition_fraction": 0.3456097149603643,
+        "maximum_mask_step": 0.19898629188537598,
+        "plain_height_range_m": [
+          -24.422290802001953,
+          49.60081100463867
+        ],
+        "terrain_height_range_m": [
+          -24.422290802001953,
+          1988.9635009765625
+        ],
+        "largest_plain": {
+          "area_km2": 1316.0625,
+          "span_x_km": 46.5,
+          "span_z_km": 72.5
+        },
+        "largest_mountain": {
+          "area_km2": 1568.4375,
+          "span_x_km": 72.5,
+          "span_z_km": 83.0
+        },
+        "nonzero_band_fraction": 0.007137797267667397,
+        "continuity": {
+          "boundaries_tested": 16,
+          "largest_finest_height_difference_m": 0.24444580078125
+        }
+      },
+      "cave_population": {
+        "cells_sampled": 1681,
+        "active_candidates": 176,
+        "full_region_candidates": 73,
+        "strong_mountain_candidates": 32,
+        "candidate_fraction": 0.10469958358120167,
+        "eligible_fraction": 0.01903628792385485
+      },
+      "caves": [
+        {
+          "center": [
+            -2690.921630859375,
+            -8588.734375
+          ],
+          "removed_samples": 7321,
+          "roof_and_floor_samples": 7070,
+          "roofed_samples_connected_to_surface": 7069,
+          "connected_roofed_fraction": 0.9998585572842998,
+          "removed_volume_m3": 14298828.125,
+          "sampled_maximum_roofed_clearance_m": 137.5,
+          "removed_fraction_of_solid": 0.00617008222281405,
+          "horizontal_spacing_m": 12.5,
+          "vertical_spacing_m": 12.5,
+          "pipeline": {
+            "anchor": [
+              -2730,
+              274,
+              -8790
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331,
+            "excavated_wall_reference_density": -0.00128173828125
+          }
+        },
+        {
+          "center": [
+            -21854.814453125,
+            -15618.607421875
+          ],
+          "removed_samples": 11238,
+          "roof_and_floor_samples": 10774,
+          "roofed_samples_connected_to_surface": 10772,
+          "connected_roofed_fraction": 0.999814367922777,
+          "removed_volume_m3": 21949218.75,
+          "sampled_maximum_roofed_clearance_m": 187.5,
+          "removed_fraction_of_solid": 0.008827757397704689,
+          "horizontal_spacing_m": 12.5,
+          "vertical_spacing_m": 12.5
+        },
+        {
+          "center": [
+            32452.654296875,
+            20973.3671875
+          ],
+          "removed_samples": 8923,
+          "roof_and_floor_samples": 8493,
+          "roofed_samples_connected_to_surface": 8493,
+          "connected_roofed_fraction": 1.0,
+          "removed_volume_m3": 17427734.375,
+          "sampled_maximum_roofed_clearance_m": 162.5,
+          "removed_fraction_of_solid": 0.007463753993062381,
+          "horizontal_spacing_m": 12.5,
+          "vertical_spacing_m": 12.5
+        }
+      ]
+    },
+    {
+      "seed": 17,
+      "regions": {
+        "plain_fraction": 0.3322111654579187,
+        "mountain_fraction": 0.3045167819193793,
+        "transition_fraction": 0.36327205262270196,
+        "maximum_mask_step": 0.18745572865009308,
+        "plain_height_range_m": [
+          -22.61229133605957,
+          50.444190979003906
+        ],
+        "terrain_height_range_m": [
+          -22.612289428710938,
+          2114.77587890625
+        ],
+        "largest_plain": {
+          "area_km2": 697.625,
+          "span_x_km": 41.0,
+          "span_z_km": 45.0
+        },
+        "largest_mountain": {
+          "area_km2": 2129.9375,
+          "span_x_km": 77.0,
+          "span_z_km": 93.25
+        },
+        "nonzero_band_fraction": 0.005943666722887502,
+        "continuity": {
+          "boundaries_tested": 16,
+          "largest_finest_height_difference_m": 0.16192626953125
+        }
+      },
+      "cave_population": {
+        "cells_sampled": 1681,
+        "active_candidates": 171,
+        "full_region_candidates": 53,
+        "strong_mountain_candidates": 16,
+        "candidate_fraction": 0.10172516359309934,
+        "eligible_fraction": 0.009518143961927425
+      },
+      "caves": [
+        {
+          "center": [
+            8249.5927734375,
+            -14295.2802734375
+          ],
+          "removed_samples": 5584,
+          "roof_and_floor_samples": 5231,
+          "roofed_samples_connected_to_surface": 5231,
+          "connected_roofed_fraction": 1.0,
+          "removed_volume_m3": 10906250.0,
+          "sampled_maximum_roofed_clearance_m": 175.0,
+          "removed_fraction_of_solid": 0.004914515246086606,
+          "horizontal_spacing_m": 12.5,
+          "vertical_spacing_m": 12.5,
+          "pipeline": {
+            "anchor": [
+              8124,
+              174,
+              -14446
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331,
+            "excavated_wall_reference_density": -0.0013427734375
+          }
+        },
+        {
+          "center": [
+            -21845.69140625,
+            -14294.28125
+          ],
+          "removed_samples": 11844,
+          "roof_and_floor_samples": 11402,
+          "roofed_samples_connected_to_surface": 11390,
+          "connected_roofed_fraction": 0.9989475530608665,
+          "removed_volume_m3": 23132812.5,
+          "sampled_maximum_roofed_clearance_m": 175.0,
+          "removed_fraction_of_solid": 0.00949568789620485,
+          "horizontal_spacing_m": 12.5,
+          "vertical_spacing_m": 12.5
+        },
+        {
+          "center": [
+            50552.94921875,
+            -8577.09765625
+          ],
+          "removed_samples": 7929,
+          "roof_and_floor_samples": 7589,
+          "roofed_samples_connected_to_surface": 7555,
+          "connected_roofed_fraction": 0.9955198313348267,
+          "removed_volume_m3": 15486328.125,
+          "sampled_maximum_roofed_clearance_m": 137.5,
+          "removed_fraction_of_solid": 0.0059361554465667404,
+          "horizontal_spacing_m": 12.5,
+          "vertical_spacing_m": 12.5
+        }
+      ]
+    }
+  ],
+  "note": "Regions, plains and six nearest fully eligible cave candidates use actual production GLSL. Cave tests compare identical columns with excavation disabled, require roof/floor and >95% roofed air connected to above-surface air, and compare production accumulation/LOD. The regional mask has no sampled finite jump; gradient normalization gives an approximate transition distance, not an exact signed-distance solution. This is not a Windows GPU performance or collision certification."
+}

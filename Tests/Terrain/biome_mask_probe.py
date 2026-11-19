@@ -113,7 +113,7 @@ def check_volume_noise_budget(gl):
     """Inspect one default helper's noise calls, not the whole accumulated field."""
     source = (shader_source(SHADERS / "field_common.glsl")
               + shader_source(SHADERS / "biome_volume_common.glsl"))
-    match = re.search(r"float\s+fieldNoise3\s*\([^)]*\)\s*\{", source)
+    match = re.search(r"float\s+noisePerlin3D\s*\([^)]*\)\s*\{", source)
     assert match
     source = source[:match.end()] + "\n++noiseCalls;\n" + source[match.end():]
     probe = r"""

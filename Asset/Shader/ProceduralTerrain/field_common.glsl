@@ -2,6 +2,8 @@
 #ifndef ENDURANCE_FIELD_COMMON_GLSL
 #define ENDURANCE_FIELD_COMMON_GLSL
 
+#include "field_limits.glsl"
+
 uniform uint uCells;
 #ifdef FIELD_BATCHED
 // Each invocation selects a GPU job before evaluating any world-space noise.
@@ -19,7 +21,6 @@ uniform uint uFieldMode;
 uniform float uBaseHeight;
 uniform float uHeightAmplitude;
 uniform float uHeightFrequency;
-uniform float uClimateFrequency;
 uniform float uBandOffset;
 uniform float uBandOffsetVariation;
 uniform float uDetailScale;
@@ -40,7 +41,7 @@ struct FieldColumn
                   // .w holds macro-height bits in scratch and is reserved after decode
 };
 
-#include "field_noise_common.glsl"
+#include "../Noise/noise_common.glsl"
 #include "biome_mapping.glsl"
 #include "field_storage.glsl"
 
@@ -57,7 +58,8 @@ PackedFieldColumn fieldPackColumn(FieldColumn column,float unscaledThickness)
     uint cell=(column.detail.x>>20u)&63u;
     stored.detail=uvec2((column.detail.y&0x3fffffffu)|((column.detail.z&3u)<<30u),
         ((column.detail.z>>2u)&255u)|(control<<8u)|(cell<<24u)
-        |(uint(column.terrain.w>0.0002)<<30u));
+        |(uint(column.terrain.w>0.0002)<<30u)
+        |(uint(unscaledThickness>FIELD_LEGACY_VOLUME_THICKNESS)<<31u));
     return stored;
 }
 

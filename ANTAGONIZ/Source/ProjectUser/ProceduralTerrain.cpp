@@ -16,7 +16,7 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     viewDistance, lodDistanceFactor, maxChunksPerFrame, maxInFlight,
     columnCacheEntries, densityCacheEntries, measureGenerationTimings,
     vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, baseHeight,
-    heightAmplitude, heightFrequency, climateFrequency, bandOffset, bandOffsetVariation, detailScale,
+    heightAmplitude, heightFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
     microDetailStrength, microDetailScale, debugLod, collisionEnabled, collisionRadius);
 
@@ -57,7 +57,6 @@ void ProceduralTerrainComponent::start()
     config.field.baseHeight = baseHeight;
     config.field.heightAmplitude = heightAmplitude;
     config.field.heightFrequency = heightFrequency;
-    config.field.climateFrequency = climateFrequency;
     config.field.bandOffset = bandOffset;
     config.field.bandOffsetVariation = bandOffsetVariation;
     config.field.detailScale = detailScale;
@@ -170,8 +169,23 @@ void ProceduralTerrainComponent::onGUI()
         stats.visibleChunks, stats.selectedChunks, stats.residentChunks);
     ImGui::Text("Camera: %u drawn / %u culled", stats.cameraDrawChunks, stats.cameraCulledChunks);
     ImGui::Text("Shadow passes: %u drawn / %u culled", stats.shadowDrawChunks, stats.shadowCulledChunks);
-    ImGui::Text("Queue: %u / GPU jobs: %u / LOD groups: %u",
+    ImGui::Text("Queue (current group): %u / GPU jobs: %u / LOD groups: %u",
         stats.queuedChunks, stats.pendingJobs, stats.pendingLodGroups);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Queue counts unsent chunks in the current group, not all remaining terrain.\n"
+            "GPU jobs counts submitted chunks awaiting completion, not hardware GPU occupancy.");
+    ImGui::Text("CPU plan: %s / next group: %s",
+        stats.cpuPlanning ? "working" : "idle",
+        stats.lookaheadReady ? "ready" : "not ready");
+    ImGui::Text("Planning waits: %llu frames / immediate handoffs: %llu",
+        static_cast<unsigned long long>(stats.planningWaitFrames),
+        static_cast<unsigned long long>(stats.sameFrameHandoffs));
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Planning waits count updates with no terrain GPU job while a CPU plan is pending.\n"
+            "Immediate handoffs submit the next group in the update that publishes the previous one.\n"
+            "These are scheduling counters, not GPU timing measurements.");
+    if (stats.plannerWaiting)
+        ImGui::TextUnformatted("Terrain generation is waiting for CPU planning.");
     ImGui::Text("LOD selections: %llu / published groups: %llu",
         static_cast<unsigned long long>(stats.lodSelections),
         static_cast<unsigned long long>(stats.publishedLodGroups));
@@ -237,6 +251,8 @@ std::string ProceduralTerrainComponent::serialize()
 
 void ProceduralTerrainComponent::load(std::string data)
 {
+    // ParseContext skips removed properties by default, including the old
+    // climateFrequency setting; older scenes use the fixed shader recipe.
     JS::ParseContext context(data);
     if (context.parseTo(*this) != JS::Error::NoError)
         Ge::Debug::Warn("Invalid ProceduralTerrainComponent parameters; check scene script JSON.");

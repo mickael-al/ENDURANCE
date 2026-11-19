@@ -28,7 +28,7 @@ public:
         bool measureGenerationTimings = true;
         std::uint32_t vertexBudgetMiB = 256;
         std::uint32_t maxResidentChunks = 2048;
-        std::uint32_t maxSelectedChunks = 1024;
+        std::uint32_t maxSelectedChunks = 2048;
         ProceduralTerrain::FieldParameters field;
         float microDetailStrength = 0.15f;
         float microDetailScale = 2.0f;
@@ -61,6 +61,10 @@ public:
         std::uint64_t failedJobs = 0;
         std::uint64_t lodSelections = 0;
         std::uint64_t publishedLodGroups = 0;
+        std::uint64_t lookaheadPlansUsed = 0;
+        std::uint64_t sameFrameHandoffs = 0;
+        std::uint64_t stalePlansDiscarded = 0;
+        std::uint64_t planningWaitFrames = 0;
         std::uint64_t cameraCullUpdates = 0;
         std::uint64_t shadowCullUpdates = 0;
         std::uint64_t drawListUploads = 0;
@@ -73,6 +77,11 @@ public:
         double coverageMilliseconds = 0.0;
         bool rebuilding = false;
         bool resourceLimited = false;
+        // Outstanding CPU request/result, retained successor, and lack of an
+        // active GPU transaction specifically because CPU planning is pending.
+        bool cpuPlanning = false;
+        bool lookaheadReady = false;
+        bool plannerWaiting = false;
     };
 
     // The scene is borrowed and must outlive this generator.
@@ -88,6 +97,9 @@ public:
     void prepareRenderer() override;
     void drawRenderer() override;
     void drawShadowRenderer(unsigned int shadowIndex) override;
+    std::uint64_t shadowCasterBoundsRevision() const override;
+    std::uint64_t shadowContentRevision() const override;
+    void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const override;
     bool isInitialized() const noexcept;
     const Stats& getStats() const noexcept;
     const std::string& getLastError() const noexcept;

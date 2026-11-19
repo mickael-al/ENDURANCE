@@ -1,0 +1,1574 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "scene": "ENDURANCE/Scene/Terrain.scene",
+  "seed": 1337,
+  "source_sha256": {
+    "Asset/Shader/ProceduralTerrain/field_batch_classify.C.glsl": "2d9df3776f08a6058128c8b595a79810008f28799f6023b5fe3e975d84ac1517",
+    "Asset/Shader/Noise/climate_2d.glsl": "5c54ac1a20cf53854a3c6e1feb33eef308862f9a2ec76fe7ce2315bee1f6b886",
+    "Asset/Shader/ProceduralTerrain/biome_landforms_common.glsl": "39789ba24f732721f1d6ec014d316627ed8d66cd2c6a4eb582f5ca8f3e28ec0a",
+    "ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainBiomes.hpp": "83118d3952bb873631de3b59615b225f37479e40b051bd8b7be55cb142cb7273"
+  },
+  "coordinate_adapter_exact_samples": 3,
+  "scene_settings": {
+    "seed": 1337,
+    "cellSize": 1.0,
+    "maxLod": 6,
+    "viewDistance": 40096.0,
+    "lodDistanceFactor": 1.25,
+    "maxChunksPerFrame": 16,
+    "maxInFlight": 3,
+    "vertexBudgetMiB": 1024,
+    "maxResidentChunks": 4096,
+    "maxSelectedChunks": 2048,
+    "baseHeight": 0.0,
+    "heightAmplitude": 1000.0,
+    "heightFrequency": 1.5e-05,
+    "climateFrequency": 1e-07,
+    "bandOffset": 0.0,
+    "bandOffsetVariation": 0.0,
+    "detailScale": 0.35,
+    "microDetailStrength": 0.15,
+    "microDetailScale": 2.0,
+    "debugLod": false,
+    "collisionEnabled": false,
+    "collisionRadius": 128.0,
+    "seaLevel": -100.0,
+    "seaBlendWidth": 64.0,
+    "biomeOverride": -1
+  },
+  "center_xz_m": [
+    80.0,
+    120.0
+  ],
+  "radius_m": 40096.0,
+  "grid_spacing_m": 100.0,
+  "grid_side": 804,
+  "sampled_disk_area_km2": 5050.71,
+  "analytic_disk_area_km2": 5050.704630241134,
+  "notes": [
+    "Plan-view area estimates on a regular grid; not triangulated ground surface area.",
+    "Four-neighbor connectivity; sub-grid corridors, islands and contacts may be missed.",
+    "Site anchors are production landSite outputs at the scene seed, weighted by the actual unforced classifier.",
+    "An active anchor is not proof of a passable cave or intact visible sculpture after blending.",
+    "World generation is unbounded; disk is the saved camera selection radius, not the total planet.",
+    "Scene climateFrequency is legacy; climate_2d.glsl defines production climate frequencies."
+  ],
+  "records": [
+    {
+      "id": 0,
+      "name": "PolarIce",
+      "dominant_area_km2": 205.39,
+      "weighted_area_km2": 192.90051899198878,
+      "strong_weight_0_8_area_km2": 160.67,
+      "dominant_components": {
+        "count": 84,
+        "largest_area_km2": 72.87,
+        "largest_bounds_km": [
+          7.7,
+          19.3
+        ],
+        "median_area_km2": 0.07
+      },
+      "sites": {
+        "placement_cell_m": 2400.0,
+        "occupancy": 0.7,
+        "active_anchors_in_disk": 611,
+        "anchors_in_own_dominant_biome": 31,
+        "anchors_with_own_weight_at_least_0_8": 25,
+        "anchors_with_own_weight_at_least_0_2": 32,
+        "strong_anchor_variants": [
+          0.39055150747299194,
+          0.44599199295043945,
+          0.04599744454026222,
+          0.7356154918670654,
+          0.5586328506469727,
+          0.09767211973667145,
+          0.426662802696228,
+          0.5613242983818054,
+          0.3878360390663147,
+          0.37202247977256775,
+          0.33392491936683655,
+          0.8616983294487,
+          0.5467299818992615,
+          0.9565660953521729,
+          0.23591861128807068,
+          0.854292631149292,
+          0.7348857522010803,
+          0.2801928222179413,
+          0.6685076355934143,
+          0.31847503781318665,
+          0.9088996052742004,
+          0.692682683467865,
+          0.9466322064399719,
+          0.5796120166778564,
+          0.3842080235481262
+        ],
+        "median_radius_m": 576.7639770507812,
+        "strong_site_examples": [
+          {
+            "x": -37540.38671875,
+            "z": -12994.2294921875,
+            "radius_m": 554.9859008789062,
+            "variant": 0.39055150747299194,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -34576.8125,
+            "z": -10723.0234375,
+            "radius_m": 565.6304321289062,
+            "variant": 0.44599199295043945,
+            "biome_weight": 1.0
+          },
+          {
+            "x": 15838.857421875,
+            "z": -10895.1171875,
+            "radius_m": 488.8315124511719,
+            "variant": 0.04599744454026222,
+            "biome_weight": 0.9763609170913696
+          }
+        ]
+      }
+    },
+    {
+      "id": 1,
+      "name": "FrozenTundra",
+      "dominant_area_km2": 290.56,
+      "weighted_area_km2": 262.1096308290213,
+      "strong_weight_0_8_area_km2": 187.14,
+      "dominant_components": {
+        "count": 205,
+        "largest_area_km2": 57.79,
+        "largest_bounds_km": [
+          12.3,
+          28.7
+        ],
+        "median_area_km2": 0.06
+      },
+      "sites": {
+        "placement_cell_m": 2200.0,
+        "occupancy": 0.62,
+        "active_anchors_in_disk": 646,
+        "anchors_in_own_dominant_biome": 33,
+        "anchors_with_own_weight_at_least_0_8": 22,
+        "anchors_with_own_weight_at_least_0_2": 39,
+        "strong_anchor_variants": [
+          0.17327477037906647,
+          0.13635285198688507,
+          0.6655852794647217,
+          0.1256500631570816,
+          0.11380387842655182,
+          0.16521306335926056,
+          0.20220252871513367,
+          0.4819180369377136,
+          0.21122869849205017,
+          0.13610906898975372,
+          0.151430144906044,
+          0.8637707233428955,
+          0.062362559139728546,
+          0.5371060967445374,
+          0.15966357290744781,
+          0.2071026861667633,
+          0.4516708254814148,
+          0.9211503863334656,
+          0.1506209522485733,
+          0.34946176409721375,
+          0.938602864742279,
+          0.29779836535453796
+        ],
+        "median_radius_m": 528.9488525390625,
+        "strong_site_examples": [
+          {
+            "x": 9783.4873046875,
+            "z": -38362.06640625,
+            "radius_m": 470.4963684082031,
+            "variant": 0.17327477037906647,
+            "biome_weight": 0.9983599185943604
+          },
+          {
+            "x": -36283.13671875,
+            "z": -14573.732421875,
+            "radius_m": 463.99810791015625,
+            "variant": 0.13635285198688507,
+            "biome_weight": 0.9147830605506897
+          },
+          {
+            "x": -36359.359375,
+            "z": -12371.556640625,
+            "radius_m": 557.1430053710938,
+            "variant": 0.6655852794647217,
+            "biome_weight": 0.9899105429649353
+          }
+        ]
+      }
+    },
+    {
+      "id": 2,
+      "name": "Tundra",
+      "dominant_area_km2": 252.42,
+      "weighted_area_km2": 223.88851229974603,
+      "strong_weight_0_8_area_km2": 150.96,
+      "dominant_components": {
+        "count": 243,
+        "largest_area_km2": 45.05,
+        "largest_bounds_km": [
+          15.7,
+          9.0
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 2600.0,
+        "occupancy": 0.58,
+        "active_anchors_in_disk": 437,
+        "anchors_in_own_dominant_biome": 12,
+        "anchors_with_own_weight_at_least_0_8": 8,
+        "anchors_with_own_weight_at_least_0_2": 16,
+        "strong_anchor_variants": [
+          0.34417763352394104,
+          0.8933168649673462,
+          0.6205533742904663,
+          0.11156614124774933,
+          0.8991268873214722,
+          0.052370913326740265,
+          0.0501176193356514,
+          0.4463256597518921
+        ],
+        "median_radius_m": 617.85693359375,
+        "strong_site_examples": [
+          {
+            "x": 9222.9580078125,
+            "z": -32555.802734375,
+            "radius_m": 591.5889892578125,
+            "variant": 0.34417763352394104,
+            "biome_weight": 1.0
+          },
+          {
+            "x": 9427.9697265625,
+            "z": 1240.5958251953125,
+            "radius_m": 705.8099365234375,
+            "variant": 0.8933168649673462,
+            "biome_weight": 1.0
+          },
+          {
+            "x": 37499.75,
+            "z": 6675.57470703125,
+            "radius_m": 649.0751342773438,
+            "variant": 0.6205533742904663,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 3,
+      "name": "Taiga",
+      "dominant_area_km2": 83.4,
+      "weighted_area_km2": 76.49421217253945,
+      "strong_weight_0_8_area_km2": 52.85,
+      "dominant_components": {
+        "count": 161,
+        "largest_area_km2": 9.06,
+        "largest_bounds_km": [
+          5.0,
+          8.9
+        ],
+        "median_area_km2": 0.03
+      },
+      "sites": {
+        "placement_cell_m": 2800.0,
+        "occupancy": 0.65,
+        "active_anchors_in_disk": 412,
+        "anchors_in_own_dominant_biome": 4,
+        "anchors_with_own_weight_at_least_0_8": 2,
+        "anchors_with_own_weight_at_least_0_2": 6,
+        "strong_anchor_variants": [
+          0.05234021693468094,
+          0.7578194737434387
+        ],
+        "median_radius_m": 674.595458984375,
+        "strong_site_examples": [
+          {
+            "x": 6892.56494140625,
+            "z": 4075.753173828125,
+            "radius_m": 571.7241821289062,
+            "variant": 0.05234021693468094,
+            "biome_weight": 0.917526125907898
+          },
+          {
+            "x": 26983.298828125,
+            "z": 14956.791015625,
+            "radius_m": 729.7515258789062,
+            "variant": 0.7578194737434387,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 4,
+      "name": "BorealBog",
+      "dominant_area_km2": 159.68,
+      "weighted_area_km2": 132.50431597503106,
+      "strong_weight_0_8_area_km2": 88.55,
+      "dominant_components": {
+        "count": 71,
+        "largest_area_km2": 96.66,
+        "largest_bounds_km": [
+          21.6,
+          14.7
+        ],
+        "median_area_km2": 0.06
+      },
+      "sites": {
+        "placement_cell_m": 2500.0,
+        "occupancy": 0.55,
+        "active_anchors_in_disk": 445,
+        "anchors_in_own_dominant_biome": 11,
+        "anchors_with_own_weight_at_least_0_8": 4,
+        "anchors_with_own_weight_at_least_0_2": 11,
+        "strong_anchor_variants": [
+          0.6968010663986206,
+          0.02751493826508522,
+          0.7352995872497559,
+          0.0017752053681761026
+        ],
+        "median_radius_m": 595.4113159179688,
+        "strong_site_examples": [
+          {
+            "x": -3990.35107421875,
+            "z": 3896.427490234375,
+            "radius_m": 639.3602294921875,
+            "variant": 0.6968010663986206,
+            "biome_weight": 0.9890508651733398
+          },
+          {
+            "x": -965.6712646484375,
+            "z": 6184.70947265625,
+            "radius_m": 505.5030212402344,
+            "variant": 0.02751493826508522,
+            "biome_weight": 0.999886155128479
+          },
+          {
+            "x": 23355.03515625,
+            "z": 21007.19140625,
+            "radius_m": 647.0598754882812,
+            "variant": 0.7352995872497559,
+            "biome_weight": 0.987932562828064
+          }
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "name": "RockyTundra",
+      "dominant_area_km2": 72.82,
+      "weighted_area_km2": 87.77357290229497,
+      "strong_weight_0_8_area_km2": 57.09,
+      "dominant_components": {
+        "count": 170,
+        "largest_area_km2": 6.76,
+        "largest_bounds_km": [
+          4.8,
+          3.3
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 2100.0,
+        "occupancy": 0.66,
+        "active_anchors_in_disk": 756,
+        "anchors_in_own_dominant_biome": 4,
+        "anchors_with_own_weight_at_least_0_8": 3,
+        "anchors_with_own_weight_at_least_0_2": 9,
+        "strong_anchor_variants": [
+          0.9954960346221924,
+          0.5205978751182556,
+          0.2013241946697235
+        ],
+        "median_radius_m": 502.77587890625,
+        "strong_site_examples": [
+          {
+            "x": 30419.462890625,
+            "z": -24190.00390625,
+            "radius_m": 587.2433471679688,
+            "variant": 0.9954960346221924,
+            "biome_weight": 0.9273821711540222
+          },
+          {
+            "x": -30784.630859375,
+            "z": 9701.7998046875,
+            "radius_m": 507.46044921875,
+            "variant": 0.5205978751182556,
+            "biome_weight": 0.9999560713768005
+          },
+          {
+            "x": -19707.025390625,
+            "z": 17824.0859375,
+            "radius_m": 453.8224792480469,
+            "variant": 0.2013241946697235,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 6,
+      "name": "ColdSteppe",
+      "dominant_area_km2": 205.33,
+      "weighted_area_km2": 238.13230718156075,
+      "strong_weight_0_8_area_km2": 165.75,
+      "dominant_components": {
+        "count": 349,
+        "largest_area_km2": 19.44,
+        "largest_bounds_km": [
+          9.6,
+          13.0
+        ],
+        "median_area_km2": 0.05
+      },
+      "sites": {
+        "placement_cell_m": 2700.0,
+        "occupancy": 0.52,
+        "active_anchors_in_disk": 349,
+        "anchors_in_own_dominant_biome": 8,
+        "anchors_with_own_weight_at_least_0_8": 7,
+        "anchors_with_own_weight_at_least_0_2": 17,
+        "strong_anchor_variants": [
+          0.12482918798923492,
+          0.4181538224220276,
+          0.8642169237136841,
+          0.287079781293869,
+          0.648894727230072,
+          0.2612665593624115,
+          0.09720458090305328
+        ],
+        "median_radius_m": 649.192138671875,
+        "strong_site_examples": [
+          {
+            "x": -25744.830078125,
+            "z": 9544.6611328125,
+            "radius_m": 566.963134765625,
+            "variant": 0.12482918798923492,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -9879.6171875,
+            "z": 9561.744140625,
+            "radius_m": 630.3212280273438,
+            "variant": 0.4181538224220276,
+            "biome_weight": 0.9509246945381165
+          },
+          {
+            "x": -6625.2646484375,
+            "z": 12523.939453125,
+            "radius_m": 726.6708374023438,
+            "variant": 0.8642169237136841,
+            "biome_weight": 0.8568945527076721
+          }
+        ]
+      }
+    },
+    {
+      "id": 7,
+      "name": "BorealForest",
+      "dominant_area_km2": 205.12,
+      "weighted_area_km2": 237.8839305781751,
+      "strong_weight_0_8_area_km2": 165.39,
+      "dominant_components": {
+        "count": 407,
+        "largest_area_km2": 15.96,
+        "largest_bounds_km": [
+          9.1,
+          6.7
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 1850.0,
+        "occupancy": 0.7,
+        "active_anchors_in_disk": 1083,
+        "anchors_in_own_dominant_biome": 50,
+        "anchors_with_own_weight_at_least_0_8": 40,
+        "anchors_with_own_weight_at_least_0_2": 71,
+        "strong_anchor_variants": [
+          0.2230425775051117,
+          0.8295092582702637,
+          0.3259715735912323,
+          0.09776408970355988,
+          0.6619600057601929,
+          0.4763266444206238,
+          0.6266764402389526,
+          0.7721812725067139,
+          0.49483370780944824,
+          0.6109206080436707,
+          0.028033021837472916,
+          0.7632811665534973,
+          0.27340713143348694,
+          0.22602298855781555,
+          0.6686973571777344,
+          0.30601850152015686,
+          0.13001830875873566,
+          0.39017820358276367,
+          0.6354905962944031,
+          0.8916745781898499,
+          0.43943727016448975,
+          0.8211431503295898,
+          0.36079010367393494,
+          0.977356493473053,
+          0.3500511944293976,
+          0.38187307119369507,
+          0.09916312992572784,
+          0.27505186200141907,
+          0.7017508745193481,
+          0.3618406355381012,
+          0.6985042691230774,
+          0.7565074563026428,
+          0.307710736989975,
+          0.659920871257782,
+          0.7422541379928589,
+          0.29873451590538025,
+          0.7379419803619385,
+          0.7201879024505615,
+          0.8074396848678589,
+          0.5887168049812317
+        ],
+        "median_radius_m": 442.6102600097656,
+        "strong_site_examples": [
+          {
+            "x": 2485.96240234375,
+            "z": -34436.65234375,
+            "radius_m": 403.01031494140625,
+            "variant": 0.2230425775051117,
+            "biome_weight": 0.9139021039009094
+          },
+          {
+            "x": 1107.3902587890625,
+            "z": -26556.189453125,
+            "radius_m": 492.7673645019531,
+            "variant": 0.8295092582702637,
+            "biome_weight": 0.927494466304779
+          },
+          {
+            "x": 27012.1328125,
+            "z": -23020.716796875,
+            "radius_m": 418.2438049316406,
+            "variant": 0.3259715735912323,
+            "biome_weight": 0.966500461101532
+          }
+        ]
+      }
+    },
+    {
+      "id": 8,
+      "name": "ColdForest",
+      "dominant_area_km2": 51.45,
+      "weighted_area_km2": 60.79734663141021,
+      "strong_weight_0_8_area_km2": 38.4,
+      "dominant_components": {
+        "count": 250,
+        "largest_area_km2": 2.32,
+        "largest_bounds_km": [
+          2.7,
+          2.3
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 2400.0,
+        "occupancy": 0.63,
+        "active_anchors_in_disk": 545,
+        "anchors_in_own_dominant_biome": 5,
+        "anchors_with_own_weight_at_least_0_8": 3,
+        "anchors_with_own_weight_at_least_0_2": 7,
+        "strong_anchor_variants": [
+          0.41380035877227783,
+          0.2608603537082672,
+          0.13990212976932526
+        ],
+        "median_radius_m": 573.1488037109375,
+        "strong_site_examples": [
+          {
+            "x": 862.6384887695312,
+            "z": 1485.2294921875,
+            "radius_m": 559.4496459960938,
+            "variant": 0.41380035877227783,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -36911.24609375,
+            "z": 5921.26123046875,
+            "radius_m": 530.085205078125,
+            "variant": 0.2608603537082672,
+            "biome_weight": 0.9512391090393066
+          },
+          {
+            "x": 12841.1376953125,
+            "z": 10545.443359375,
+            "radius_m": 506.8612365722656,
+            "variant": 0.13990212976932526,
+            "biome_weight": 0.9008330702781677
+          }
+        ]
+      }
+    },
+    {
+      "id": 9,
+      "name": "ColdMarsh",
+      "dominant_area_km2": 54.32,
+      "weighted_area_km2": 81.00096004559384,
+      "strong_weight_0_8_area_km2": 43.85,
+      "dominant_components": {
+        "count": 116,
+        "largest_area_km2": 10.06,
+        "largest_bounds_km": [
+          6.4,
+          5.4
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 2300.0,
+        "occupancy": 0.58,
+        "active_anchors_in_disk": 549,
+        "anchors_in_own_dominant_biome": 8,
+        "anchors_with_own_weight_at_least_0_8": 6,
+        "anchors_with_own_weight_at_least_0_2": 15,
+        "strong_anchor_variants": [
+          0.5329882502555847,
+          0.643566370010376,
+          0.7805961966514587,
+          0.9254536032676697,
+          0.724714457988739,
+          0.6178239583969116
+        ],
+        "median_radius_m": 551.8264770507812,
+        "strong_site_examples": [
+          {
+            "x": 7959.40185546875,
+            "z": -38182.03125,
+            "radius_m": 558.06982421875,
+            "variant": 0.5329882502555847,
+            "biome_weight": 0.9890698194503784
+          },
+          {
+            "x": 19768.673828125,
+            "z": 3102.53662109375,
+            "radius_m": 578.416259765625,
+            "variant": 0.643566370010376,
+            "biome_weight": 0.9421957731246948
+          },
+          {
+            "x": -33315.37109375,
+            "z": 5858.8427734375,
+            "radius_m": 603.6296997070312,
+            "variant": 0.7805961966514587,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 10,
+      "name": "DryPlain",
+      "dominant_area_km2": 134.58,
+      "weighted_area_km2": 133.06566610044808,
+      "strong_weight_0_8_area_km2": 122.36,
+      "dominant_components": {
+        "count": 127,
+        "largest_area_km2": 19.71,
+        "largest_bounds_km": [
+          6.8,
+          5.8
+        ],
+        "median_area_km2": 0.08
+      },
+      "sites": {
+        "placement_cell_m": 2600.0,
+        "occupancy": 0.6,
+        "active_anchors_in_disk": 435,
+        "anchors_in_own_dominant_biome": 13,
+        "anchors_with_own_weight_at_least_0_8": 9,
+        "anchors_with_own_weight_at_least_0_2": 13,
+        "strong_anchor_variants": [
+          0.5278862714767456,
+          0.007284701801836491,
+          0.31203755736351013,
+          0.027252499014139175,
+          0.7084041833877563,
+          0.34755268692970276,
+          0.2380731999874115,
+          0.7895307540893555,
+          0.7929888963699341
+        ],
+        "median_radius_m": 629.8003540039062,
+        "strong_site_examples": [
+          {
+            "x": -1640.230712890625,
+            "z": -24335.146484375,
+            "radius_m": 629.8003540039062,
+            "variant": 0.5278862714767456,
+            "biome_weight": 0.9847254753112793
+          },
+          {
+            "x": 19677.853515625,
+            "z": -11403.9677734375,
+            "radius_m": 521.5151977539062,
+            "variant": 0.007284701801836491,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -32469.45703125,
+            "z": -9026.1103515625,
+            "radius_m": 584.90380859375,
+            "variant": 0.31203755736351013,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 11,
+      "name": "Meadow",
+      "dominant_area_km2": 234.98,
+      "weighted_area_km2": 232.54073388369858,
+      "strong_weight_0_8_area_km2": 207.17,
+      "dominant_components": {
+        "count": 412,
+        "largest_area_km2": 16.57,
+        "largest_bounds_km": [
+          7.2,
+          5.7
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 2400.0,
+        "occupancy": 0.55,
+        "active_anchors_in_disk": 510,
+        "anchors_in_own_dominant_biome": 21,
+        "anchors_with_own_weight_at_least_0_8": 18,
+        "anchors_with_own_weight_at_least_0_2": 24,
+        "strong_anchor_variants": [
+          0.7460722923278809,
+          0.4384232759475708,
+          0.6682122945785522,
+          0.6484495401382446,
+          0.9967763423919678,
+          0.14155305922031403,
+          0.23499074578285217,
+          0.02671981230378151,
+          0.8723231554031372,
+          0.741972029209137,
+          0.12880177795886993,
+          0.0756945088505745,
+          0.42624497413635254,
+          0.32668164372444153,
+          0.8571004271507263,
+          0.5101096034049988,
+          0.756996750831604,
+          0.37830621004104614
+        ],
+        "median_radius_m": 574.85693359375,
+        "strong_site_examples": [
+          {
+            "x": -5979.4130859375,
+            "z": -37074.9765625,
+            "radius_m": 623.2459106445312,
+            "variant": 0.7460722923278809,
+            "biome_weight": 0.9807273149490356
+          },
+          {
+            "x": 22638.2734375,
+            "z": -25314.3828125,
+            "radius_m": 564.17724609375,
+            "variant": 0.4384232759475708,
+            "biome_weight": 0.990247368812561
+          },
+          {
+            "x": 23157.736328125,
+            "z": -23062.876953125,
+            "radius_m": 608.2967529296875,
+            "variant": 0.6682122945785522,
+            "biome_weight": 0.9636185765266418
+          }
+        ]
+      }
+    },
+    {
+      "id": 12,
+      "name": "TemperateForest",
+      "dominant_area_km2": 223.3,
+      "weighted_area_km2": 221.7020307832317,
+      "strong_weight_0_8_area_km2": 198.97,
+      "dominant_components": {
+        "count": 353,
+        "largest_area_km2": 16.28,
+        "largest_bounds_km": [
+          6.6,
+          6.5
+        ],
+        "median_area_km2": 0.06
+      },
+      "sites": {
+        "placement_cell_m": 2050.0,
+        "occupancy": 0.67,
+        "active_anchors_in_disk": 796,
+        "anchors_in_own_dominant_biome": 35,
+        "anchors_with_own_weight_at_least_0_8": 31,
+        "anchors_with_own_weight_at_least_0_2": 39,
+        "strong_anchor_variants": [
+          0.3921283483505249,
+          0.8264685869216919,
+          0.3505302369594574,
+          0.39011865854263306,
+          0.4282865524291992,
+          0.18112166225910187,
+          0.49062246084213257,
+          0.25908127427101135,
+          0.657471239566803,
+          0.4924572706222534,
+          0.9902281165122986,
+          0.6787934899330139,
+          0.03131842985749245,
+          0.4101408123970032,
+          0.4645112156867981,
+          0.17826826870441437,
+          0.6728480458259583,
+          0.36333969235420227,
+          0.34105584025382996,
+          0.428223192691803,
+          0.30267009139060974,
+          0.5326794981956482,
+          0.6573172807693481,
+          0.5400301218032837,
+          0.46931225061416626,
+          0.05564749985933304,
+          0.5563801527023315,
+          0.6787310242652893,
+          0.640545129776001,
+          0.14478518068790436,
+          0.43712717294692993
+        ],
+        "median_radius_m": 492.426025390625,
+        "strong_site_examples": [
+          {
+            "x": 2772.01611328125,
+            "z": -31804.849609375,
+            "radius_m": 474.3090515136719,
+            "variant": 0.3921283483505249,
+            "biome_weight": 0.9847254753112793
+          },
+          {
+            "x": 7010.904296875,
+            "z": -31534.564453125,
+            "radius_m": 545.5408325195312,
+            "variant": 0.8264685869216919,
+            "biome_weight": 0.9847254753112793
+          },
+          {
+            "x": 25387.265625,
+            "z": -29907.822265625,
+            "radius_m": 467.4869689941406,
+            "variant": 0.3505302369594574,
+            "biome_weight": 0.993489146232605
+          }
+        ]
+      }
+    },
+    {
+      "id": 13,
+      "name": "TemperateRainforest",
+      "dominant_area_km2": 63.37,
+      "weighted_area_km2": 63.97266733138054,
+      "strong_weight_0_8_area_km2": 52.59,
+      "dominant_components": {
+        "count": 246,
+        "largest_area_km2": 11.05,
+        "largest_bounds_km": [
+          9.1,
+          6.8
+        ],
+        "median_area_km2": 0.05
+      },
+      "sites": {
+        "placement_cell_m": 2200.0,
+        "occupancy": 0.72,
+        "active_anchors_in_disk": 758,
+        "anchors_in_own_dominant_biome": 14,
+        "anchors_with_own_weight_at_least_0_8": 13,
+        "anchors_with_own_weight_at_least_0_2": 14,
+        "strong_anchor_variants": [
+          0.6063762307167053,
+          0.5084412097930908,
+          0.7127296924591064,
+          0.4712309241294861,
+          0.42601925134658813,
+          0.9207751154899597,
+          0.029012564569711685,
+          0.3653336465358734,
+          0.9420997500419617,
+          0.2629936635494232,
+          0.395285427570343,
+          0.3634430468082428,
+          0.6146775484085083
+        ],
+        "median_radius_m": 529.8973388671875,
+        "strong_site_examples": [
+          {
+            "x": -38306.1015625,
+            "z": 1377.7362060546875,
+            "radius_m": 546.7222290039062,
+            "variant": 0.6063762307167053,
+            "biome_weight": 0.9998952150344849
+          },
+          {
+            "x": -35974.63671875,
+            "z": 1347.2642822265625,
+            "radius_m": 529.4856567382812,
+            "variant": 0.5084412097930908,
+            "biome_weight": 0.8466711640357971
+          },
+          {
+            "x": 1430.2750244140625,
+            "z": 916.934326171875,
+            "radius_m": 565.4404296875,
+            "variant": 0.7127296924591064,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 14,
+      "name": "TemperateMarsh",
+      "dominant_area_km2": 79.32,
+      "weighted_area_km2": 78.05667007984508,
+      "strong_weight_0_8_area_km2": 69.68,
+      "dominant_components": {
+        "count": 138,
+        "largest_area_km2": 11.04,
+        "largest_bounds_km": [
+          6.0,
+          4.9
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 2500.0,
+        "occupancy": 0.58,
+        "active_anchors_in_disk": 466,
+        "anchors_in_own_dominant_biome": 4,
+        "anchors_with_own_weight_at_least_0_8": 3,
+        "anchors_with_own_weight_at_least_0_2": 5,
+        "strong_anchor_variants": [
+          0.555343747138977,
+          0.9031922221183777,
+          0.9963173270225525
+        ],
+        "median_radius_m": 595.9854125976562,
+        "strong_site_examples": [
+          {
+            "x": -6293.35888671875,
+            "z": 3544.01953125,
+            "radius_m": 611.0687255859375,
+            "variant": 0.555343747138977,
+            "biome_weight": 0.9847254753112793
+          },
+          {
+            "x": -11033.431640625,
+            "z": 6581.1181640625,
+            "radius_m": 680.638427734375,
+            "variant": 0.9031922221183777,
+            "biome_weight": 0.9890698194503784
+          },
+          {
+            "x": -8371.6748046875,
+            "z": 5969.46337890625,
+            "radius_m": 699.263427734375,
+            "variant": 0.9963173270225525,
+            "biome_weight": 0.9738955497741699
+          }
+        ]
+      }
+    },
+    {
+      "id": 15,
+      "name": "RockDesert",
+      "dominant_area_km2": 51.74,
+      "weighted_area_km2": 55.35751416132505,
+      "strong_weight_0_8_area_km2": 44.78,
+      "dominant_components": {
+        "count": 114,
+        "largest_area_km2": 16.49,
+        "largest_bounds_km": [
+          8.2,
+          11.6
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 2100.0,
+        "occupancy": 0.64,
+        "active_anchors_in_disk": 696,
+        "anchors_in_own_dominant_biome": 7,
+        "anchors_with_own_weight_at_least_0_8": 7,
+        "anchors_with_own_weight_at_least_0_2": 7,
+        "strong_anchor_variants": [
+          0.8494929671287537,
+          0.8399816155433655,
+          0.16510118544101715,
+          0.5892269015312195,
+          0.7377469539642334,
+          0.6896604895591736,
+          0.962310254573822
+        ],
+        "median_radius_m": 502.88385009765625,
+        "strong_site_examples": [
+          {
+            "x": 969.2869262695312,
+            "z": -36518.4375,
+            "radius_m": 562.71484375,
+            "variant": 0.8494929671287537,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -3255.197509765625,
+            "z": -28162.072265625,
+            "radius_m": 561.116943359375,
+            "variant": 0.8399816155433655,
+            "biome_weight": 0.92036372423172
+          },
+          {
+            "x": 19996.232421875,
+            "z": -952.73193359375,
+            "radius_m": 447.73699951171875,
+            "variant": 0.16510118544101715,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 16,
+      "name": "DrySavanna",
+      "dominant_area_km2": 67.06,
+      "weighted_area_km2": 70.12946011009608,
+      "strong_weight_0_8_area_km2": 55.88,
+      "dominant_components": {
+        "count": 264,
+        "largest_area_km2": 5.63,
+        "largest_bounds_km": [
+          3.3,
+          3.6
+        ],
+        "median_area_km2": 0.04
+      },
+      "sites": {
+        "placement_cell_m": 1800.0,
+        "occupancy": 0.6,
+        "active_anchors_in_disk": 912,
+        "anchors_in_own_dominant_biome": 14,
+        "anchors_with_own_weight_at_least_0_8": 12,
+        "anchors_with_own_weight_at_least_0_2": 16,
+        "strong_anchor_variants": [
+          0.20822444558143616,
+          0.959372878074646,
+          0.4112244248390198,
+          0.6541725993156433,
+          0.9579945206642151,
+          0.955734133720398,
+          0.7002717852592468,
+          0.4129369854927063,
+          0.4343799948692322,
+          0.11284662783145905,
+          0.6925446391105652,
+          0.6129205226898193
+        ],
+        "median_radius_m": 434.0619812011719,
+        "strong_site_examples": [
+          {
+            "x": 4784.53369140625,
+            "z": -29455.43359375,
+            "radius_m": 389.98431396484375,
+            "variant": 0.20822444558143616,
+            "biome_weight": 0.9159486889839172
+          },
+          {
+            "x": 7963.712890625,
+            "z": -29626.556640625,
+            "radius_m": 498.1496887207031,
+            "variant": 0.959372878074646,
+            "biome_weight": 0.9998092651367188
+          },
+          {
+            "x": -34827.51953125,
+            "z": -15362.0087890625,
+            "radius_m": 419.21630859375,
+            "variant": 0.4112244248390198,
+            "biome_weight": 0.9951960444450378
+          }
+        ]
+      }
+    },
+    {
+      "id": 17,
+      "name": "Savanna",
+      "dominant_area_km2": 69.9,
+      "weighted_area_km2": 73.81805667412823,
+      "strong_weight_0_8_area_km2": 57.78,
+      "dominant_components": {
+        "count": 301,
+        "largest_area_km2": 4.32,
+        "largest_bounds_km": [
+          2.4,
+          8.7
+        ],
+        "median_area_km2": 0.05
+      },
+      "sites": {
+        "placement_cell_m": 2800.0,
+        "occupancy": 0.62,
+        "active_anchors_in_disk": 397,
+        "anchors_in_own_dominant_biome": 4,
+        "anchors_with_own_weight_at_least_0_8": 4,
+        "anchors_with_own_weight_at_least_0_2": 4,
+        "strong_anchor_variants": [
+          0.5854038000106812,
+          0.7890989184379578,
+          0.5425500273704529,
+          0.6804047226905823
+        ],
+        "median_radius_m": 675.678955078125,
+        "strong_site_examples": [
+          {
+            "x": 26842.66796875,
+            "z": -4158.37060546875,
+            "radius_m": 691.1304931640625,
+            "variant": 0.5854038000106812,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -35117.4765625,
+            "z": 7100.60302734375,
+            "radius_m": 736.7581787109375,
+            "variant": 0.7890989184379578,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -3789.895263671875,
+            "z": 20779.966796875,
+            "radius_m": 681.5311889648438,
+            "variant": 0.5425500273704529,
+            "biome_weight": 1.0
+          }
+        ]
+      }
+    },
+    {
+      "id": 18,
+      "name": "DryJungle",
+      "dominant_area_km2": 25.21,
+      "weighted_area_km2": 27.20362343852243,
+      "strong_weight_0_8_area_km2": 19.48,
+      "dominant_components": {
+        "count": 175,
+        "largest_area_km2": 0.91,
+        "largest_bounds_km": [
+          2.5,
+          1.0
+        ],
+        "median_area_km2": 0.06
+      },
+      "sites": {
+        "placement_cell_m": 2200.0,
+        "occupancy": 0.65,
+        "active_anchors_in_disk": 659,
+        "anchors_in_own_dominant_biome": 3,
+        "anchors_with_own_weight_at_least_0_8": 3,
+        "anchors_with_own_weight_at_least_0_2": 3,
+        "strong_anchor_variants": [
+          0.9683574438095093,
+          0.6418516635894775,
+          0.08787322789430618
+        ],
+        "median_radius_m": 525.40771484375,
+        "strong_site_examples": [
+          {
+            "x": 25479.41796875,
+            "z": 5533.97509765625,
+            "radius_m": 610.430908203125,
+            "variant": 0.9683574438095093,
+            "biome_weight": 0.9313161969184875
+          },
+          {
+            "x": -34371.3984375,
+            "z": 7368.205078125,
+            "radius_m": 552.9658813476562,
+            "variant": 0.6418516635894775,
+            "biome_weight": 0.9625524282455444
+          },
+          {
+            "x": -9637.748046875,
+            "z": 14399.3486328125,
+            "radius_m": 455.4656982421875,
+            "variant": 0.08787322789430618,
+            "biome_weight": 0.9939197897911072
+          }
+        ]
+      }
+    },
+    {
+      "id": 19,
+      "name": "TropicalJungle",
+      "dominant_area_km2": 28.23,
+      "weighted_area_km2": 29.954927001682282,
+      "strong_weight_0_8_area_km2": 22.84,
+      "dominant_components": {
+        "count": 109,
+        "largest_area_km2": 4.35,
+        "largest_bounds_km": [
+          4.3,
+          3.1
+        ],
+        "median_area_km2": 0.05
+      },
+      "sites": {
+        "placement_cell_m": 1600.0,
+        "occupancy": 0.68,
+        "active_anchors_in_disk": 1374,
+        "anchors_in_own_dominant_biome": 9,
+        "anchors_with_own_weight_at_least_0_8": 6,
+        "anchors_with_own_weight_at_least_0_2": 11,
+        "strong_anchor_variants": [
+          0.14807076752185822,
+          0.562782883644104,
+          0.6320037245750427,
+          0.8062805533409119,
+          0.9874346852302551,
+          0.8428224325180054
+        ],
+        "median_radius_m": 383.3074035644531,
+        "strong_site_examples": [
+          {
+            "x": 29641.33984375,
+            "z": -4077.037841796875,
+            "radius_m": 338.95306396484375,
+            "variant": 0.14807076752185822,
+            "biome_weight": 0.9661532640457153
+          },
+          {
+            "x": -39194.078125,
+            "z": -871.9061889648438,
+            "radius_m": 392.03619384765625,
+            "variant": 0.562782883644104,
+            "biome_weight": 0.9890698194503784
+          },
+          {
+            "x": -37744.87109375,
+            "z": -623.4559936523438,
+            "radius_m": 400.8964538574219,
+            "variant": 0.6320037245750427,
+            "biome_weight": 0.9434325695037842
+          }
+        ]
+      }
+    },
+    {
+      "id": 20,
+      "name": "VolcanicDesert",
+      "dominant_area_km2": 94.89,
+      "weighted_area_km2": 91.45778556238885,
+      "strong_weight_0_8_area_km2": 85.7,
+      "dominant_components": {
+        "count": 55,
+        "largest_area_km2": 18.79,
+        "largest_bounds_km": [
+          5.4,
+          7.5
+        ],
+        "median_area_km2": 0.06
+      },
+      "sites": {
+        "placement_cell_m": 2600.0,
+        "occupancy": 0.64,
+        "active_anchors_in_disk": 480,
+        "anchors_in_own_dominant_biome": 12,
+        "anchors_with_own_weight_at_least_0_8": 11,
+        "anchors_with_own_weight_at_least_0_2": 14,
+        "strong_anchor_variants": [
+          0.3005857765674591,
+          0.27041855454444885,
+          0.43296074867248535,
+          0.4718973636627197,
+          0.2394414246082306,
+          0.35454991459846497,
+          0.7823944687843323,
+          0.829079806804657,
+          0.9880037307739258,
+          0.1425982266664505,
+          0.6081858277320862
+        ],
+        "median_radius_m": 625.5374755859375,
+        "strong_site_examples": [
+          {
+            "x": -1644.304931640625,
+            "z": -37370.01171875,
+            "radius_m": 582.5218505859375,
+            "variant": 0.3005857765674591,
+            "biome_weight": 0.9399077892303467
+          },
+          {
+            "x": 1084.774658203125,
+            "z": -37620.9921875,
+            "radius_m": 576.2470703125,
+            "variant": 0.27041855454444885,
+            "biome_weight": 1.0
+          },
+          {
+            "x": -1287.79638671875,
+            "z": -34765.98046875,
+            "radius_m": 610.0558471679688,
+            "variant": 0.43296074867248535,
+            "biome_weight": 0.9378296136856079
+          }
+        ]
+      }
+    },
+    {
+      "id": 21,
+      "name": "RedDesert",
+      "dominant_area_km2": 100.86,
+      "weighted_area_km2": 97.87868613428003,
+      "strong_weight_0_8_area_km2": 88.07,
+      "dominant_components": {
+        "count": 142,
+        "largest_area_km2": 17.23,
+        "largest_bounds_km": [
+          7.4,
+          7.6
+        ],
+        "median_area_km2": 0.045
+      },
+      "sites": {
+        "placement_cell_m": 2900.0,
+        "occupancy": 0.55,
+        "active_anchors_in_disk": 360,
+        "anchors_in_own_dominant_biome": 7,
+        "anchors_with_own_weight_at_least_0_8": 6,
+        "anchors_with_own_weight_at_least_0_2": 8,
+        "strong_anchor_variants": [
+          0.5414134860038757,
+          0.8821633458137512,
+          0.7484276294708252,
+          0.1842125803232193,
+          0.3032197654247284,
+          0.35250768065452576
+        ],
+        "median_radius_m": 696.3974609375,
+        "strong_site_examples": [
+          {
+            "x": 24781.0390625,
+            "z": -21577.080078125,
+            "radius_m": 705.60791015625,
+            "variant": 0.5414134860038757,
+            "biome_weight": 0.9813864827156067
+          },
+          {
+            "x": 22089.400390625,
+            "z": 1101.1610107421875,
+            "radius_m": 784.6619262695312,
+            "variant": 0.8821633458137512,
+            "biome_weight": 0.9004946351051331
+          },
+          {
+            "x": 30664.177734375,
+            "z": 1081.602294921875,
+            "radius_m": 753.63525390625,
+            "variant": 0.7484276294708252,
+            "biome_weight": 0.9399077892303467
+          }
+        ]
+      }
+    },
+    {
+      "id": 22,
+      "name": "AridPlateau",
+      "dominant_area_km2": 107.47,
+      "weighted_area_km2": 103.75678072492506,
+      "strong_weight_0_8_area_km2": 97.39,
+      "dominant_components": {
+        "count": 170,
+        "largest_area_km2": 26.65,
+        "largest_bounds_km": [
+          11.8,
+          9.8
+        ],
+        "median_area_km2": 0.03
+      },
+      "sites": {
+        "placement_cell_m": 2700.0,
+        "occupancy": 0.6,
+        "active_anchors_in_disk": 413,
+        "anchors_in_own_dominant_biome": 6,
+        "anchors_with_own_weight_at_least_0_8": 5,
+        "anchors_with_own_weight_at_least_0_2": 6,
+        "strong_anchor_variants": [
+          0.9110708832740784,
+          0.33486607670783997,
+          0.16471411287784576,
+          0.6966791749000549,
+          0.9299327731132507
+        ],
+        "median_radius_m": 662.2378540039062,
+        "strong_site_examples": [
+          {
+            "x": 22659.19140625,
+            "z": -12142.9580078125,
+            "radius_m": 736.7913208007812,
+            "variant": 0.9110708832740784,
+            "biome_weight": 0.9155055284500122
+          },
+          {
+            "x": 25799.41015625,
+            "z": -9777.2275390625,
+            "radius_m": 612.3311157226562,
+            "variant": 0.33486607670783997,
+            "biome_weight": 0.9399077892303467
+          },
+          {
+            "x": 28078.064453125,
+            "z": 1757.987060546875,
+            "radius_m": 575.5782470703125,
+            "variant": 0.16471411287784576,
+            "biome_weight": 0.9399077892303467
+          }
+        ]
+      }
+    },
+    {
+      "id": 23,
+      "name": "BurningJungle",
+      "dominant_area_km2": 41.52,
+      "weighted_area_km2": 40.72558966287103,
+      "strong_weight_0_8_area_km2": 35.1,
+      "dominant_components": {
+        "count": 104,
+        "largest_area_km2": 6.28,
+        "largest_bounds_km": [
+          4.8,
+          4.5
+        ],
+        "median_area_km2": 0.05
+      },
+      "sites": {
+        "placement_cell_m": 2500.0,
+        "occupancy": 0.67,
+        "active_anchors_in_disk": 560,
+        "anchors_in_own_dominant_biome": 4,
+        "anchors_with_own_weight_at_least_0_8": 4,
+        "anchors_with_own_weight_at_least_0_2": 5,
+        "strong_anchor_variants": [
+          0.0822339728474617,
+          0.46265119314193726,
+          0.9064853191375732,
+          0.9802502989768982
+        ],
+        "median_radius_m": 595.059326171875,
+        "strong_site_examples": [
+          {
+            "x": 23405.091796875,
+            "z": -11357.353515625,
+            "radius_m": 516.44677734375,
+            "variant": 0.0822339728474617,
+            "biome_weight": 0.8946934342384338
+          },
+          {
+            "x": 26044.201171875,
+            "z": -8491.048828125,
+            "radius_m": 592.5302124023438,
+            "variant": 0.46265119314193726,
+            "biome_weight": 0.8987037539482117
+          },
+          {
+            "x": 26580.0859375,
+            "z": -6070.98583984375,
+            "radius_m": 681.2970581054688,
+            "variant": 0.9064853191375732,
+            "biome_weight": 0.9399077892303467
+          }
+        ]
+      }
+    },
+    {
+      "id": 24,
+      "name": "TropicalMangrove",
+      "dominant_area_km2": 59.57,
+      "weighted_area_km2": 57.35758211898291,
+      "strong_weight_0_8_area_km2": 54.59,
+      "dominant_components": {
+        "count": 52,
+        "largest_area_km2": 26.29,
+        "largest_bounds_km": [
+          5.0,
+          11.7
+        ],
+        "median_area_km2": 0.065
+      },
+      "sites": {
+        "placement_cell_m": 2600.0,
+        "occupancy": 0.48,
+        "active_anchors_in_disk": 347,
+        "anchors_in_own_dominant_biome": 6,
+        "anchors_with_own_weight_at_least_0_8": 5,
+        "anchors_with_own_weight_at_least_0_2": 6,
+        "strong_anchor_variants": [
+          0.6682427525520325,
+          0.1487494260072708,
+          0.576498806476593,
+          0.30500808358192444,
+          0.6226924061775208
+        ],
+        "median_radius_m": 621.4708251953125,
+        "strong_site_examples": [
+          {
+            "x": 27363.69921875,
+            "z": -6741.875,
+            "radius_m": 658.9945068359375,
+            "variant": 0.6682427525520325,
+            "biome_weight": 0.9217647314071655
+          },
+          {
+            "x": -37534.19140625,
+            "z": 3503.25634765625,
+            "radius_m": 550.9398803710938,
+            "variant": 0.1487494260072708,
+            "biome_weight": 1.0
+          },
+          {
+            "x": 21971.640625,
+            "z": 3810.7744140625,
+            "radius_m": 639.9117431640625,
+            "variant": 0.576498806476593,
+            "biome_weight": 0.9890698194503784
+          }
+        ]
+      }
+    },
+    {
+      "id": 25,
+      "name": "Marine",
+      "dominant_area_km2": 2088.22,
+      "weighted_area_km2": 2080.2469113999605,
+      "strong_weight_0_8_area_km2": 2011.67,
+      "dominant_components": {
+        "count": 20,
+        "largest_area_km2": 1645.22,
+        "largest_bounds_km": [
+          71.8,
+          50.8
+        ],
+        "median_area_km2": 0.01
+      }
+    }
+  ]
+}

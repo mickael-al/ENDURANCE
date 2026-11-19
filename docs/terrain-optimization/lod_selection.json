@@ -1,0 +1,35 @@
+{
+  "fixture": "Six cameras, 4096/40096-m radii, current shared field bounds",
+  "compiler": "c++",
+  "flags": "-std=c++17 -O3 -ffast-math",
+  "reference_ref": "30082ee50564d92a8ac1ddbf0563ee97ac608cd5",
+  "reference_note": "Compiled retained baseline source matching this remote revision; source SHA-256 below identifies the exact input.",
+  "source_before_sha256": "791e6039343a044bfd78e1d898eda693c454b981ad6e8106e36eebed145a81ed",
+  "source_after_sha256": "22f6cc8e20ba4027ce3bdffcb20c9016cb583b8603a2e3ea2f41c474a9bd9fe3",
+  "selections_per_run": 96,
+  "selected_leaves_per_run": 183632,
+  "runs_ms": {
+    "before": [
+      308.153989,
+      279.379006,
+      310.63502,
+      299.428126,
+      284.067857
+    ],
+    "after": [
+      174.521401,
+      163.593232,
+      165.729225,
+      184.948655,
+      172.295862
+    ]
+  },
+  "median_ms": {
+    "before": 299.428126,
+    "after": 172.295862
+  },
+  "selection_cpu_time_reduction_percent": 42.45835743566722,
+  "exact_snapshot_bytes": 3673024,
+  "exact_snapshot_sha256": "f0ce0311694e3e297af2caf2dfe200294038c0c7efffc07e9b6382ad2dc40dc1",
+  "limitation": "CPU selector timing on this host; not full generation or game FPS."
+}

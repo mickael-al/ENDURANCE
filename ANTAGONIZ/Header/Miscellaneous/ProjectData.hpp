@@ -246,8 +246,11 @@ struct LightData : public GObjectData
 	float spotAngle;
 	bool shadow;
 	int status;
+	// Missing fields in older scenes retain these per-light defaults.
+	float shadowDepthBias = 0.5f;
+	float shadowNormalBias = 1.5f;
 
-	JS_OBJ(name, position, rotation, scale, color, range, spotAngle, shadow, status, idParent, scripts, collisions, tags);
+	JS_OBJ(name, position, rotation, scale, color, range, spotAngle, shadow, status, idParent, scripts, collisions, tags, shadowDepthBias, shadowNormalBias);
 };
 
 struct SoundBufferData

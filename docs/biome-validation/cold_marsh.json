@@ -1,0 +1,174 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "53fc355a6d5f6304a70bb83521ca5fa3840caced6e7fecc5317cbea28876b5ff",
+  "height": [
+    {
+      "seed": 1337,
+      "samples": 65536,
+      "maximum_height_error_raw": 0.0
+    },
+    {
+      "seed": 97,
+      "samples": 65536,
+      "maximum_height_error_raw": 0.0
+    },
+    {
+      "seed": 98765,
+      "samples": 65536,
+      "maximum_height_error_raw": 0.0
+    }
+  ],
+  "placement": [
+    {
+      "seed": 1337,
+      "candidates": 289,
+      "cell_size_m": 10000.0,
+      "minimum_center_spacing_m": 5095.977420900588,
+      "anchor_storage_error_max_m": 0.0697784423828125
+    },
+    {
+      "seed": 97,
+      "candidates": 289,
+      "cell_size_m": 10000.0,
+      "minimum_center_spacing_m": 5577.621136559392,
+      "anchor_storage_error_max_m": 0.0698699951171875
+    }
+  ],
+  "envelope": {
+    "diameter_m": 2000.0,
+    "bottom_relative_anchor_m": -500.0,
+    "top_relative_anchor_m": 1500.0,
+    "buried_height_fraction": 0.25,
+    "boundary_samples": 8192,
+    "maximum_envelope_error_m": 0.00494384765625
+  },
+  "porosity": {
+    "sites": 16,
+    "samples": 65536,
+    "measured_stone_fraction": 0.5130462646484375,
+    "detail_density_amplitude_max_m": 19.36150360107422,
+    "detail_density_std_m": 5.968682289123535,
+    "warped_domain_displacement_max_cells": 0.7104918956756592,
+    "site_stone_fraction_min": 0.43994140625,
+    "site_stone_fraction_max": 0.5869140625,
+    "note": "Empirical volume proportions before union with soil; no exact percentage was requested."
+  },
+  "cell_seams": {
+    "samples": 84,
+    "maximum_delta": 0.0
+  },
+  "world": [
+    {
+      "detail_scale": 0.2,
+      "samples": 12288,
+      "above_ground_stone_samples": 5175,
+      "above_ground_pore_samples": 5088,
+      "band_density_error_max": 0.0,
+      "world_band_max_m": 3276.800048828125,
+      "original_ground_preserved": true
+    },
+    {
+      "detail_scale": 0.35,
+      "samples": 12288,
+      "above_ground_stone_samples": 5175,
+      "above_ground_pore_samples": 5092,
+      "band_density_error_max": 0.0,
+      "world_band_max_m": 3296.2626953125,
+      "original_ground_preserved": true
+    },
+    {
+      "detail_scale": 1.0,
+      "samples": 12288,
+      "above_ground_stone_samples": 5197,
+      "above_ground_pore_samples": 5134,
+      "band_density_error_max": 0.0,
+      "world_band_max_m": 3358.55126953125,
+      "original_ground_preserved": true
+    }
+  ],
+  "targeted_pipeline": {
+    "anchor": [
+      55482,
+      572,
+      -15510
+    ],
+    "shared_exact_lod_samples": 125,
+    "production_density_samples": 1331
+  },
+  "mixed": [
+    {
+      "detail_scale": 0.2,
+      "weight": 0.23516923189163208,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.2,
+      "weight": 0.5,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.2,
+      "weight": 0.7648307681083679,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.35,
+      "weight": 0.23516923189163208,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.35,
+      "weight": 0.5,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 0.35,
+      "weight": 0.7648307681083679,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 1.0,
+      "weight": 0.23516923189163208,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 1.0,
+      "weight": 0.5,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    },
+    {
+      "detail_scale": 1.0,
+      "weight": 0.7648307681083679,
+      "samples": 6144,
+      "pilot_independent": true,
+      "maximum_band_density_error": 0.0
+    }
+  ],
+  "figure": {
+    "seed": 1337,
+    "center_xz_m": [
+      -4551.36572265625,
+      -2920.34228515625
+    ],
+    "anchor_height_m": -237.05152893066406,
+    "spacing_m": 20.0,
+    "horizontal_samples": 121,
+    "vertical_samples": 93
+  }
+}

@@ -1,19 +1,30 @@
 #version 450 core
-// Biome 15: RockDesert. The caller clamps and accumulates this 2D result.
-// x: relative height; y: total 3D band thickness; z: band offset; w: rock mask.
-// XYZ are in metres before detailScale; w is in [0,1].
+// Biome 15: RockDesert. World-space XZ is in metres; vertical recipe values
+// are multiplied by detailScale. Keep site arguments identical in both stages.
 #define FIELD_BIOME_ID 15u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_relief_common.glsl"
+#include "../../biome_landforms_2d.glsl"
 
+// Wind-aligned yardangs: long lee slopes, steep noses and an open stony floor.
+// The three-octave ridge field only breaks the fins; it is not the mountain shape.
 vec4 fieldRelief(vec2 p)
 {
-    float floorWaves = fieldSurfaceDune(p, vec2(0.8, 0.6), 420.0, 250u) * 62.0;
-    float mesa = fieldSurfaceLandmark(p, 640.0, 251u, 0.0, 0.22, 0.58, 0.64);
-    float layers = fieldSurfaceTerrace(mesa * 570.0, 54.0, 0.42);
-    float h = floorWaves + layers + fieldNoise2(p * 0.002, 252u) * 8.0;
-    return vec4(h, 506.0, -90.0, mesa);
+    LandSite s=landSite(p,2100.0,1501u,0.64);
+    float h=18.0*landFbm(p/1900.0,1502u)+5.0*landFbm(p/420.0,1503u);
+    if(s.mask>0.0)
+    {
+        vec2 q=landWarp(s.q,420.0,28.0,1504u)/s.radius;
+        float along=1.0-smoothstep(0.28,0.86,abs(q.y));
+        float nose=mix(0.72,1.0,smoothstep(-0.65,0.18,q.y));
+        float finA=1.0-smoothstep(0.018,0.16,abs(q.x+0.20));
+        float finB=1.0-smoothstep(0.025,0.20,abs(q.x-0.20));
+        float fins=max(finA,finB*0.76)*along*nose;
+        float ridge=landRidges(p/145.0,1505u);
+        float rock=landTerrace(fins*(330.0+75.0*ridge),26.0,0.72);
+        h+=s.mask*rock;
+    }
+    return vec4(h,s.variant>0.34 ? landBand(s,560.0) : 0.0,0.0,s.mask);
 }
 
 #include "../../field_surface_accumulate.glsl"

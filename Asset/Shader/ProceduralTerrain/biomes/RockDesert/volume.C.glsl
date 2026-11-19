@@ -1,26 +1,34 @@
 #version 450 core
-// Biome 15: RockDesert. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 15: RockDesert. World-space XZ is in metres; vertical recipe values
+// are multiplied by detailScale. Keep site arguments identical in both stages.
 #define FIELD_BIOME_ID 15u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
+#include "../../biome_landforms_3d.glsl"
 
-const vec4 FIELD_VOLUME = vec4(-44,14,160,.30);
-const vec4 FIELD_SHAPE = vec4(.40,.40,.20,.19);
-const vec4 FIELD_STYLE = vec4(.45,.65,.35,.80);
-
-float fieldVolume(vec3 p, FieldColumn column)
+// A leaning, tapered wind-carved blade and a rare large side opening.
+float fieldVolume(vec3 p,FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if(!landVolumeEnabled(column)) return 0.0;
+    LandSite s=landSite(p.xz,2100.0,1501u,0.64);
+    if(s.mask<=0.0) return 0.0;
+    vec3 q=landVolumeLocal(p,column,s);
+    float base=column.terrain.x-p.y;
+    float target=base;
+    if(s.variant>0.34)
+    {
+        vec3 blade=q-vec3(-0.20*s.radius,75.0,0.0);
+        blade.x-=0.0024*max(q.y,0.0)*max(q.y,0.0);
+        float wall=landEllipsoid(blade,vec3(32.0,150.0,0.54*s.radius));
+        target=landUnion(base,-wall*uDetailScale,5.0*uDetailScale);
+        if(s.variant>0.70)
+        {
+            vec3 aperture=q-vec3(-0.20*s.radius+10.0,24.0,-0.05*s.radius);
+            float opening=landEllipsoid(aperture,vec3(100.0,36.0,48.0));
+            target=min(target,opening*uDetailScale);
+        }
+    }
+    return landDelta(p,column,target,s.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

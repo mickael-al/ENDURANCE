@@ -15,6 +15,20 @@
 using namespace ProceduralTerrain;
 namespace
 {
+bool observeSubmissions=false;
+unsigned submissionFlushes=0,submissionFinishes=0,blockingFenceWaits=0;
+}
+// GL1 entry points are direct symbols rather than GLEW function pointers.
+// check_backend.py wraps only references from this test/production library;
+// calls are still forwarded to the real driver.
+extern "C" void GLAPIENTRY __real_glFlush();
+extern "C" void GLAPIENTRY __real_glFinish();
+extern "C" void GLAPIENTRY __wrap_glFlush()
+{ if(observeSubmissions) ++submissionFlushes; __real_glFlush(); }
+extern "C" void GLAPIENTRY __wrap_glFinish()
+{ if(observeSubmissions) ++submissionFinishes; __real_glFinish(); }
+namespace
+{
 void require(bool condition,const std::string& message)
 {
     if (!condition) throw std::runtime_error(message);
@@ -260,7 +274,7 @@ void checkBatching(GpuMesher& mesher,GpuConfig config)
     config.cells=8;config.maxInFlight=4;config.maxResidentChunks=4;config.vertexBudgetMiB=1;
     config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
     config.field.heightAmplitude=2.0f;config.field.heightFrequency=.1f;
-    config.field.climateFrequency=.04f;config.field.detailScale=.01f;
+    config.field.detailScale=.01f;
     config.field.biomeOverride=11;
     std::string error;
     require(mesher.initialize(config,error),error);
@@ -374,7 +388,7 @@ void checkFieldReuse(GpuMesher& mesher,GpuConfig config)
     config.columnCacheEntries=0;config.densityCacheEntries=0;
     config.field.mode=FieldMode::Terrain;config.field.baseHeight=3.25f;
     config.field.heightAmplitude=.5f;config.field.heightFrequency=.05f;
-    config.field.climateFrequency=.04f;config.field.detailScale=.03f;
+    config.field.detailScale=.03f;
     config.field.biomeOverride=11;
     const std::array<ChunkRequest,9> requests{{
         {{{0,0,0}},0,0,1337}, {{{0,0,0}},0,21,1337},
@@ -544,6 +558,65 @@ void checkIdleControls(GpuMesher& mesher,GpuConfig config)
     std::cout<<"PASS idle controls: cache invalidation rejects pending work, preserves published meshes and forces rebuild; disabled timing issues zero GL queries\n";
 }
 
+PFNGLCLIENTWAITSYNCPROC originalClientWaitSync=nullptr;
+GLenum GLAPIENTRY observeClientWaitSync(GLsync fence,GLbitfield flags,GLuint64 timeout)
+{
+    if(timeout!=0 || flags!=0) ++blockingFenceWaits;
+    return originalClientWaitSync(fence,flags,timeout);
+}
+struct SubmissionObserver
+{
+    SubmissionObserver()
+    {
+        submissionFlushes=submissionFinishes=blockingFenceWaits=0;
+        originalClientWaitSync=__glewClientWaitSync;
+        __glewClientWaitSync=observeClientWaitSync;
+        observeSubmissions=true;
+    }
+    ~SubmissionObserver()
+    {
+        observeSubmissions=false;
+        __glewClientWaitSync=originalClientWaitSync;
+    }
+};
+void checkEmissionSubmission(GpuMesher& mesher,GpuConfig config)
+{
+    config.cells=8;config.maxInFlight=2;config.maxResidentChunks=2;config.vertexBudgetMiB=1;
+    config.measureGenerationTimings=false;
+    config.field.mode=FieldMode::Plane;config.field.baseHeight=3.25f;
+    std::string error;
+    require(mesher.initialize(config,error),error);
+    ChunkRequest first,second;second.origin[0]=8;
+    require(mesher.submit(first,1700) && mesher.submit(second,1701),mesher.lastError());
+    mesher.dispatchQueued();
+    // Test setup only: both count fences must be signaled so the next poll
+    // deterministically starts two emissions, with no newly submitted chunk.
+    glFinish();
+    {
+        SubmissionObserver observer;
+        std::vector<Completion> completed;
+        mesher.poll(completed);
+        require(completed.empty() && mesher.stats().pendingJobs==2 &&
+            mesher.stats().allocatedBytes>0,"Submission fixture did not enter emission");
+        require(submissionFlushes==1,
+            "poll did not flush both new emissions before returning without new submissions");
+        completed=finish(mesher,2);
+        require(completed[0].status==CompletionStatus::Ready &&
+            completed[1].status==CompletionStatus::Ready,"Submitted emissions did not complete");
+        std::vector<Completion> ignored;
+        for(unsigned i=0;i<64;++i) { mesher.poll(ignored); mesher.dispatchQueued(); }
+        require(ignored.empty() && submissionFlushes==1,
+            "Idle polling/dispatch issued redundant flushes");
+        for(const auto& result:completed) mesher.release(result.mesh);
+        collectRetired(mesher);
+        require(submissionFlushes==2,"Retirement fences were not flushed as one batch");
+        require(submissionFinishes==0 && blockingFenceWaits==0,
+            "Generation/retirement performed a blocking GPU wait");
+    }
+    mesher.shutdown();
+    std::cout<<"PASS emission submission: poll flushes two emissions once without new jobs; zero idle flushes and zero blocking waits\n";
+}
+
 }
 
 extern "C" int terrain_backend_tests(const char* shaderDirectory)
@@ -561,6 +634,7 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         GpuConfig config;
         config.cells=8;config.maxInFlight=2;config.maxResidentChunks=2;config.vertexBudgetMiB=1;
         config.shaderDirectory=shaderDirectory;config.field.mode=FieldMode::Plane;config.field.baseHeight=3.25f;
+        checkEmissionSubmission(mesher,config);
         std::string error;
         require(mesher.initialize(config,error),error);
         ChunkRequest a,b,c;

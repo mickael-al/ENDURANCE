@@ -1,0 +1,486 @@
+{
+  "seed": 1337,
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "note": "Targeted diagnostic sites selected among 36 cells per feature, not frequency estimates. RKM = inverse nominal cell spacing, not guaranteed path encounters. Heights at detailScale=.35; forced biomes; no gameplay certification.",
+  "records": [
+    {
+      "biome": 0,
+      "name": "PolarIce",
+      "feature": "ice_massif",
+      "rkm": 0.25,
+      "nominal_cell_spacing_m": 4000.0,
+      "anchor": [
+        -1362.357421875,
+        2379.201904296875
+      ],
+      "height_m": 626.7298583984375,
+      "reference_height_m": 129.02474975585938,
+      "height_change_m": 497.7051086425781,
+      "expected_isolated_change_m": [
+        400.0,
+        610.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "e812edf2c44561caca53d18a1371d3b6651b06571825cc71f4730353929a5773",
+      "pipeline": {
+        "anchor": [
+          -1368,
+          622,
+          2374
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 0,
+      "name": "PolarIce",
+      "feature": "ice_rift",
+      "rkm": 0.5,
+      "nominal_cell_spacing_m": 2000.0,
+      "anchor": [
+        851.6019897460938,
+        -827.3040161132812
+      ],
+      "height_m": -346.7644958496094,
+      "reference_height_m": -108.10151672363281,
+      "height_change_m": -238.66297912597656,
+      "expected_isolated_change_m": [
+        -350.0,
+        -200.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "e812edf2c44561caca53d18a1371d3b6651b06571825cc71f4730353929a5773",
+      "volume": {
+        "solid_added_samples": 4007,
+        "solid_removed_samples": 3268,
+        "open_air_under_roof_samples": 3328,
+        "sampled_roof_clearance_lower_bound_m": 14.979875842730204,
+        "columns_with_open_roof_clearance_at_least_1_8m": 602,
+        "maximum_positive_delta_m": 47.20314586162567,
+        "maximum_negative_delta_m": -28.026885986328125,
+        "outside_band_maximum_delta_m": 3.147125244140625e-05,
+        "density_min": -335.8765869140625,
+        "density_max": 330.8765869140625,
+        "density_grid": [
+          97,
+          193,
+          97
+        ],
+        "horizontal_sampling_m": 1.875,
+        "vertical_sampling_m": 2.139982263247172,
+        "chamber_centre_density": -7.832271575927734
+      },
+      "pipeline": {
+        "anchor": [
+          942,
+          -24,
+          -884
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 1,
+      "name": "FrozenTundra",
+      "feature": "frozen_mountain",
+      "rkm": 0.5,
+      "nominal_cell_spacing_m": 2000.0,
+      "anchor": [
+        -747.2335205078125,
+        -717.3345336914062
+      ],
+      "height_m": 386.0376892089844,
+      "reference_height_m": -70.23196411132812,
+      "height_change_m": 456.2696533203125,
+      "expected_isolated_change_m": [
+        400.0,
+        580.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "7426834e40936aa8e96250e1129323a4a9d14f12b35002f2c461bc13408905a3",
+      "pipeline": {
+        "anchor": [
+          -752,
+          382,
+          -722
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 1,
+      "name": "FrozenTundra",
+      "feature": "underground_cave",
+      "rkm": 2.0,
+      "nominal_cell_spacing_m": 500.0,
+      "anchor": [
+        173.8025665283203,
+        252.0247039794922
+      ],
+      "height_m": 31.064611434936523,
+      "reference_height_m": 31.064611434936523,
+      "height_change_m": 0.0,
+      "expected_isolated_change_m": null,
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "7426834e40936aa8e96250e1129323a4a9d14f12b35002f2c461bc13408905a3",
+      "volume": {
+        "solid_added_samples": 0,
+        "solid_removed_samples": 6956,
+        "open_air_under_roof_samples": 7188,
+        "sampled_roof_clearance_lower_bound_m": 16.194991171360016,
+        "columns_with_open_roof_clearance_at_least_1_8m": 560,
+        "maximum_positive_delta_m": 1.0738770185980684e-05,
+        "maximum_negative_delta_m": -23.887704600890473,
+        "outside_band_maximum_delta_m": 1.1444091796875e-05,
+        "density_min": -97.74658203125,
+        "density_max": 92.74657440185547,
+        "density_grid": [
+          97,
+          193,
+          97
+        ],
+        "horizontal_sampling_m": 1.5625,
+        "vertical_sampling_m": 0.8997217317422231,
+        "chamber_centre_density": -6.67888069152832
+      },
+      "pipeline": {
+        "anchor": [
+          172,
+          4,
+          252
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 2,
+      "name": "Tundra",
+      "feature": "tundra_peak",
+      "rkm": 1.0,
+      "nominal_cell_spacing_m": 1000.0,
+      "anchor": [
+        503.8622131347656,
+        -342.02117919921875
+      ],
+      "height_m": 737.4976196289062,
+      "reference_height_m": -62.50243377685547,
+      "height_change_m": 800.0000534057617,
+      "expected_isolated_change_m": [
+        795.0,
+        805.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "1b717aa234e229f23a038d677a3bd7c21fe3acd38eaf1ccc03f9f79ec7d0b072",
+      "pipeline": {
+        "anchor": [
+          498,
+          732,
+          -348
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 2,
+      "name": "Tundra",
+      "feature": "twenty_metre_rock",
+      "rkm": 0.5,
+      "nominal_cell_spacing_m": 2000.0,
+      "anchor": [
+        -889.4766235351562,
+        -1049.2823486328125
+      ],
+      "height_m": -82.28244018554688,
+      "reference_height_m": -82.28244018554688,
+      "height_change_m": 0.0,
+      "expected_isolated_change_m": null,
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "1b717aa234e229f23a038d677a3bd7c21fe3acd38eaf1ccc03f9f79ec7d0b072",
+      "volume": {
+        "solid_added_samples": 11979,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 634,
+        "sampled_roof_clearance_lower_bound_m": 8.430479367574057,
+        "columns_with_open_roof_clearance_at_least_1_8m": 82,
+        "maximum_positive_delta_m": 23.88549915949504,
+        "maximum_negative_delta_m": -6.3578287665677635e-06,
+        "outside_band_maximum_delta_m": 6.67572021484375e-06,
+        "density_min": -86.86520385742188,
+        "density_max": 81.86520385742188,
+        "density_grid": [
+          97,
+          193,
+          97
+        ],
+        "horizontal_sampling_m": 0.9375,
+        "vertical_sampling_m": 0.8430479367574056,
+        "maximum_height_above_relief_m": 19.69138749440512
+      },
+      "pipeline": {
+        "anchor": [
+          -888,
+          -58,
+          -1054
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 3,
+      "name": "Taiga",
+      "feature": "taiga_peak",
+      "rkm": 0.5,
+      "nominal_cell_spacing_m": 2000.0,
+      "anchor": [
+        -1035.646484375,
+        -801.4576416015625
+      ],
+      "height_m": 645.6396484375,
+      "reference_height_m": -54.36033630371094,
+      "height_change_m": 699.9999847412109,
+      "expected_isolated_change_m": [
+        695.0,
+        705.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "1c027469e76243ad31834f49d5bc86556b90b1c8be807a7419d89e41c2ced700",
+      "pipeline": {
+        "anchor": [
+          -1040,
+          640,
+          -806
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 3,
+      "name": "Taiga",
+      "feature": "ancient_river",
+      "rkm": 1.0,
+      "nominal_cell_spacing_m": 1000.0,
+      "anchor": [
+        -431.17974853515625,
+        383.5875549316406
+      ],
+      "height_m": 69.79859924316406,
+      "reference_height_m": 104.28437805175781,
+      "height_change_m": -34.48577880859375,
+      "expected_isolated_change_m": [
+        -80.0,
+        -20.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "1c027469e76243ad31834f49d5bc86556b90b1c8be807a7419d89e41c2ced700",
+      "pipeline": {
+        "anchor": [
+          -436,
+          64,
+          378
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 4,
+      "name": "BorealBog",
+      "feature": "lake_basin",
+      "rkm": 1.0,
+      "nominal_cell_spacing_m": 1000.0,
+      "anchor": [
+        554.8890380859375,
+        464.0146484375
+      ],
+      "height_m": 19.838542938232422,
+      "reference_height_m": 35.38098907470703,
+      "height_change_m": -15.54244613647461,
+      "expected_isolated_change_m": [
+        -18.0,
+        -5.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "61a26b95485adc1be474ffdca0fffbb593f4e4d84f82a8de3c1f2cd92d722ac9",
+      "pipeline": {
+        "anchor": [
+          550,
+          14,
+          460
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 4,
+      "name": "BorealBog",
+      "feature": "bog_hole",
+      "rkm": 0.25,
+      "nominal_cell_spacing_m": 4000.0,
+      "anchor": [
+        1718.628662109375,
+        -1955.6561279296875
+      ],
+      "height_m": -107.94097900390625,
+      "reference_height_m": -105.23316955566406,
+      "height_change_m": -2.7078094482421875,
+      "expected_isolated_change_m": null,
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "61a26b95485adc1be474ffdca0fffbb593f4e4d84f82a8de3c1f2cd92d722ac9",
+      "volume": {
+        "solid_added_samples": 0,
+        "solid_removed_samples": 36675,
+        "open_air_under_roof_samples": 32105,
+        "sampled_roof_clearance_lower_bound_m": 32.27003653844197,
+        "columns_with_open_roof_clearance_at_least_1_8m": 1583,
+        "maximum_positive_delta_m": 7.788340241177139e-06,
+        "maximum_negative_delta_m": -35.945785999298096,
+        "outside_band_maximum_delta_m": 1.049041748046875e-05,
+        "density_min": -102.02420043945312,
+        "density_max": 97.02420043945312,
+        "density_grid": [
+          97,
+          193,
+          97
+        ],
+        "horizontal_sampling_m": 2.5,
+        "vertical_sampling_m": 0.922001043955485,
+        "chamber_centre_density": -14.799896240234375
+      },
+      "pipeline": {
+        "anchor": [
+          1700,
+          -136,
+          -1958
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 5,
+      "name": "RockyTundra",
+      "feature": "rocky_hole",
+      "rkm": 0.25,
+      "nominal_cell_spacing_m": 4000.0,
+      "anchor": [
+        -1407.5546875,
+        1576.27099609375
+      ],
+      "height_m": 105.9061050415039,
+      "reference_height_m": 109.18037414550781,
+      "height_change_m": -3.2742691040039062,
+      "expected_isolated_change_m": null,
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "7b0cc85e9e87f33254cbd79dbc89417d06a35512ce118e12e51f0638168a0d76",
+      "volume": {
+        "solid_added_samples": 0,
+        "solid_removed_samples": 13714,
+        "open_air_under_roof_samples": 10055,
+        "sampled_roof_clearance_lower_bound_m": 27.782817681630455,
+        "columns_with_open_roof_clearance_at_least_1_8m": 1085,
+        "maximum_positive_delta_m": 4.553794860839844e-05,
+        "maximum_negative_delta_m": -30.97002879778544,
+        "outside_band_maximum_delta_m": 4.553794860839844e-05,
+        "density_min": -306.021484375,
+        "density_max": 301.021484375,
+        "density_grid": [
+          97,
+          193,
+          97
+        ],
+        "horizontal_sampling_m": 2.9166666666666665,
+        "vertical_sampling_m": 1.984486977259318,
+        "chamber_centre_density": -14.262935638427734
+      },
+      "pipeline": {
+        "anchor": [
+          -1444,
+          58,
+          1594
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 6,
+      "name": "ColdSteppe",
+      "feature": "terraced_mountain",
+      "rkm": 0.5,
+      "nominal_cell_spacing_m": 2000.0,
+      "anchor": [
+        856.6619873046875,
+        -867.4364013671875
+      ],
+      "height_m": 512.1056518554688,
+      "reference_height_m": -107.89431762695312,
+      "height_change_m": 619.9999694824219,
+      "expected_isolated_change_m": [
+        615.0,
+        625.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "d880669ef131d0b3b4ab016c9d6a5bc5852d623e0e1f3672c8bf201271e82f44",
+      "pipeline": {
+        "anchor": [
+          852,
+          508,
+          -872
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    },
+    {
+      "biome": 6,
+      "name": "ColdSteppe",
+      "feature": "deep_chasm",
+      "rkm": 0.25,
+      "nominal_cell_spacing_m": 4000.0,
+      "anchor": [
+        1472.102783203125,
+        2137.7998046875
+      ],
+      "height_m": -615.7047729492188,
+      "reference_height_m": 184.2952423095703,
+      "height_change_m": -800.0000152587891,
+      "expected_isolated_change_m": [
+        -805.0,
+        -795.0
+      ],
+      "placement_cells_probed": 36,
+      "selection": "nearest anchor with isolated target contribution (when reference supplied)",
+      "source_sha256": "d880669ef131d0b3b4ab016c9d6a5bc5852d623e0e1f3672c8bf201271e82f44",
+      "pipeline": {
+        "anchor": [
+          1468,
+          -620,
+          2132
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      }
+    }
+  ],
+  "reference_commit": "c28bd3111002640dcb0d672744f411a2df45941f"
+}

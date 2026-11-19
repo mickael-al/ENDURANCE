@@ -24,7 +24,6 @@ namespace ProceduralTerrain
         float baseHeight = 0.0f;
         float heightAmplitude = 320.0f;
         float heightFrequency = 0.00015f;
-        float climateFrequency = 0.0005f;
         float bandOffset = 0.0f;
         float bandOffsetVariation = 0.0f;
         float detailScale = 0.35f;
@@ -43,7 +42,13 @@ namespace ProceduralTerrain
     };
 
     // Analytic conservative bounds, not extrema estimated from chunk corners.
-    // Biome height is clamped to [-640,640], total biome thickness to [0,576],
+    // Mirror FIELD_MAX_RELIEF_HEIGHT in field_limits.glsl. FP32 height does not
+    // use the packed 16-bit width/offset representation.
+    constexpr float maximumBiomeReliefHeight = 10240.0f;
+    constexpr float maximumBiomeVolumeThickness = 16384.0f;
+
+    // Biome height is clamped to [-10240,10240], total biome thickness to [0,16384],
+    // with the legacy packed precision retained for widths <=576,
     // and the combined recipe offset to [-160,160], before detailScale.
     inline FieldHeightBounds fieldHeightBounds(const FieldParameters& p) noexcept
     {
@@ -52,9 +57,9 @@ namespace ProceduralTerrain
         if (p.mode == FieldMode::Sphere)
             return {p.sphereCenter[1] - p.sphereRadius, p.sphereCenter[1] + p.sphereRadius};
 
-        const float minimumHeight = p.baseHeight - p.heightAmplitude - 640.0f * p.detailScale;
-        const float maximumHeight = p.baseHeight + p.heightAmplitude + 640.0f * p.detailScale;
-        const float halfThickness = 0.5f * (576.0f * p.detailScale);
+        const float minimumHeight = p.baseHeight - p.heightAmplitude - maximumBiomeReliefHeight * p.detailScale;
+        const float maximumHeight = p.baseHeight + p.heightAmplitude + maximumBiomeReliefHeight * p.detailScale;
+        const float halfThickness = 0.5f * (maximumBiomeVolumeThickness * p.detailScale);
         return {
             minimumHeight + (std::min)(0.0f, p.bandOffset - p.bandOffsetVariation - 160.0f * p.detailScale - halfThickness),
             maximumHeight + (std::max)(0.0f, p.bandOffset + p.bandOffsetVariation + 160.0f * p.detailScale + halfThickness)
@@ -88,13 +93,13 @@ namespace ProceduralTerrain
         // height differences by a half-thickness no smaller than 1e-4.
         constexpr float maximumMagnitude = 0x1p60f;
         const float values[] = {p.baseHeight, p.heightAmplitude, p.heightFrequency,
-            p.climateFrequency, p.bandOffset,
+            p.bandOffset,
             p.bandOffsetVariation, p.detailScale, p.seaLevel, p.seaBlendWidth, p.sphereCenter[0], p.sphereCenter[1],
             p.sphereCenter[2], p.sphereRadius};
         for (float v : values)
             if (!finiteFieldValue(v) || v < -maximumMagnitude || v > maximumMagnitude) return false;
         if (static_cast<std::uint32_t>(p.mode) > 2 || p.heightAmplitude < 0.0f ||
-            p.heightFrequency < 0.0f || p.climateFrequency < 0.0f ||
+            p.heightFrequency < 0.0f ||
             p.bandOffsetVariation < 0.0f || p.detailScale < 0.0f || p.sphereRadius <= 0.0f ||
             p.seaBlendWidth < 0.001f || p.biomeOverride < -1 || p.biomeOverride > 25)
             return false;
@@ -113,13 +118,18 @@ namespace ProceduralTerrain
             return false;
         if (p.mode != FieldMode::Terrain) return true;
 
-        // 0.25 conservatively bounds every fixed biome noise frequency and
-        // coordinate transform in the shared recipes. The two
-        // configurable frequencies must obey the same range. 2^30 leaves a
-        // large margin for float rounding and the +/-1 noise-cell neighbours
-        // before every GLSL float-to-int conversion.
-        const double maximumFrequency = (std::max)(0.25,
-            (std::max)(static_cast<double>(p.heightFrequency), static_cast<double>(p.climateFrequency)));
+        // 0.25 bounds fixed biome coordinate transforms and the fixed climate.
+        // Its highest octave is .0005*.1*2^7=.0064; multiplying by 4 covers
+        // Simplex skew and the sum of its two cell coordinates (.0256 < .25).
+        // If ENDURANCE_CLIMATE_ defines increase that rate beyond this envelope,
+        // update it here too. Height remains the only configurable frequency.
+        // 2^30 leaves room for rounding and +/-1 noise-cell neighbours.
+        constexpr double fixedNoiseCoordinateRate = 0.25;
+        // Macro height uses five Simplex octaves in field_batch_classify.
+        // Include the same conservative skew/cell-sum factor.
+        constexpr double heightNoiseCoordinateScale = 16.0 * 4.0;
+        const double maximumFrequency = (std::max)(fixedNoiseCoordinateRate,
+            static_cast<double>(p.heightFrequency) * heightNoiseCoordinateScale);
         return maximumAbsoluteWorldCoordinate * maximumFrequency <= 0x1p30;
     }
 }

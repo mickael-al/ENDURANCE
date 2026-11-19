@@ -1,4 +1,8 @@
 #version 450
+#include "Geometry/gbuffer_position.glsl"
+#include "Atmosphere/lighting.glsl"
+#include "Shadow/spot_surface.glsl"
+#include "Geometry/gbuffer_geometry.glsl"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
@@ -24,6 +28,8 @@ struct StructUBL
 	int shadowID;
 	int minPlaneID;//default -1
 	int maxPlaneID;//default -1
+	float shadowDepthBias; // texels; occupies existing std430 padding
+	float shadowNormalBias; // texels; light stride remains 80 bytes
 };
 
 layout(std430, binding = 1) buffer UniformBufferLight
@@ -55,7 +61,7 @@ layout(std430, binding = 3) buffer UniformBufferShadow
 
 layout(std430, binding = 4) buffer UniformBufferSSAO
 {
-	vec3 samples[];
+	vec4 samples[];
 } ubssao;
 
 struct PlaneLightHidden
@@ -146,7 +152,8 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
-	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+	// Normalized dot products can round slightly above one (camera at light).
+	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
@@ -209,46 +216,43 @@ float filterPCF(vec4 sc, uint cascadeIndex, float bias)
 
 in vec2 v_UV;
 
-float SSAO(vec3 viewPos, vec3 normal)
-{
-	ivec2 ts = textureSize(gPosition,0);
-	vec3 randomVec = normalize(texture(texNoise, v_UV * vec2(float(ts.x) / 4.0, float(ts.y) / 4.0)).xyz);
-
-	vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
-	vec3 bitangent = cross(normal, tangent);
-	mat3 TBN = mat3(tangent, bitangent, normal);
-	float occlusion = 0.0;
-	float radius = 0.5;	
-	float bias = 0.025;
-
-	for (int i = 0; i < 64; ++i)
-	{
-		vec3 samplePos = TBN * ubssao.samples[i];
-		samplePos = viewPos + samplePos * radius;
-		vec4 offset = vec4(samplePos, 1.0);
-		offset = ubc.proj * offset;    // from view to clip-space		
-		offset.xyz /= offset.w;               // perspective divide
-		offset.xyz = offset.xyz * 0.5 + 0.5;
-		float sampleDepth = texture(gPosition, offset.xy).z;
-		occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0);
-		float rangeCheck = smoothstep(0.0, 1.0, radius / abs(viewPos.z - sampleDepth));
-		occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck;
-	}
-	return 1.0 - (occlusion / 64);
-}
+#include "SSAO/evaluate.glsl"
 
 out vec3 o_FragColor;
 
 void main()
 {	
-	vec4 viewPos = texture(gPosition, v_UV).rgba;
+	vec4 viewPos = geGBufferReadPosition(gPosition, ivec2(gl_FragCoord.xy), ubc.proj);
 	vec3 normal = texture(gNormal, v_UV).rgb;
 	vec4 col = texture(gColor, v_UV).rgba;
 	vec3 other = texture(gOther, v_UV).rgb;//metallic roughness ao emit
 
+	// Evaluate geometry derivatives before sky/material/light/cascade branches.
+	// Differentiate in view space before adding a potentially large world origin.
+	vec3 worldPos = (ubc.invView * vec4(viewPos.xyz, 1)).xyz;
+	vec3 shadowWorldDx = mat3(ubc.invView) * dFdx(viewPos.xyz);
+	vec3 shadowWorldDy = mat3(ubc.invView) * dFdy(viewPos.xyz);
+	vec3 shadowGeometricNormal, viewGeometricNormal;
+	if (geGBufferGeometricNormal(viewPos.a, viewGeometricNormal))
+		shadowGeometricNormal = mat3(ubc.invView) * viewGeometricNormal;
+	else
+		shadowGeometricNormal = geDirectionalSurfaceNormal(shadowWorldDx, shadowWorldDy);
+	// Bound float storage/reconstruction error at the receiver distance.
+	vec3 shadowPositionError = 4.0 * 1.1920928955078125e-7 * max(
+		abs(ubc.invView[0].xyz) * abs(viewPos.x) + abs(ubc.invView[1].xyz) * abs(viewPos.y)
+		+ abs(ubc.invView[2].xyz) * abs(viewPos.z), abs(worldPos));
+
+	// The engine fullscreen triangle carries legacy repeat UVs (Y in [-1,0]).
+	// Atmospheric volumes require normalized screen coordinates at this pixel.
+	vec2 atmosphereUV = gl_FragCoord.xy * uAtmosphereInvResolution;
+
+	if (viewPos.a == -2.0)
+	{
+		o_FragColor = geAtmCompositeSky(col.rgb, atmosphereUV);
+		return;
+	}
 	vec3 color = col.rgb;
 	color = pow(color, vec3(ubd.gamma));
-	vec3 worldPos = (ubc.invView * vec4(viewPos.xyz, 1)).xyz;
 
 	vec3 V = normalize(ubc.camPos - worldPos);
 
@@ -304,10 +308,26 @@ void main()
 						}
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(worldPos, 1.0);
-					float bias = calculateBias(shadowCoord, normal.rgb, L);
-					shadow = filterPCF(shadowCoord, ubl.ubl[i].shadowID + cascadeIndex, bias);
+					shadow = geDirectionalSurfaceShadowFromNormal(shadowDepth, shadowCoord,
+						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
+						shadowGeometricNormal, shadowPositionError,
+						vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+					if (cascadeIndex + 1 < SHADOW_MAP_CASCADE_COUNT)
+					{
+						uint layer = ubl.ubl[i].shadowID + cascadeIndex;
+						float previousSplit = cascadeIndex > 0 ? ubs.s[layer - 1].splitDepth : 0.0;
+						float blend = geShadowCascadeBlend(viewPos.z, previousSplit, ubs.s[layer].splitDepth);
+						if (blend > 0.0)
+						{
+							vec4 nextCoord = (biasMat * ubs.s[layer + 1].projview) * vec4(worldPos, 1.0);
+							float nextShadow = geDirectionalSurfaceShadowFromNormal(shadowDepth, nextCoord,
+								int(layer + 1), ubs.s[layer + 1].projview, shadowGeometricNormal, shadowPositionError,
+								vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+							shadow = mix(shadow, nextShadow, blend);
+						}
+					}
 				}
-				Lo += ((kD * color / PI + specular) * ubl.ubl[i].color * (ubl.ubl[i].range / 10.0) * NdotL) * mix(ubd.ambiant, 1.0, shadow);
+				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, worldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}
 			else if (ubl.ubl[i].status == 1) // PointLight
 			{
@@ -330,7 +350,14 @@ void main()
 
 				if (spotEffect > cos(spotAngle / 2.0))
 				{
-					float transitionAngle = radians(4.0);
+					if (ubl.ubl[i].shadowID >= 0)
+					{
+						shadow = geSpotSurfaceShadow(shadowDepth, ubs.s[ubl.ubl[i].shadowID].projview,
+							ubl.ubl[i].shadowID, worldPos, ubl.ubl[i].position,
+							shadowGeometricNormal, shadowPositionError,
+							vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+					}
+					float transitionAngle = min(radians(4.0), spotAngle * 0.5);
 					float edge0 = cos(spotAngle / 2.0 - transitionAngle);
 					float edge1 = cos(spotAngle / 2.0);
 					float smoothFactor = smoothstep(edge1, edge0, spotEffect);
@@ -347,25 +374,29 @@ void main()
 		vec3 kD = 1.0 - kS;
 		kD *= 1.0 - other.x;
 
-		vec3 irradiance = texture(irradianceMap, normal.rgb).rgb;
+		vec3 irradiance = geAtmosphereIbl(texture(irradianceMap, normal.rgb).rgb);
 		vec3 diffuse = vec3(ubd.ambiant) * irradiance * color;
 
 		// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
 		const float MAX_REFLECTION_LOD = 4.0;
-		vec3 prefilteredColor = textureLod(prefilterMap, R, other.y * MAX_REFLECTION_LOD).rgb;
+		vec3 prefilteredColor = geAtmosphereIbl(textureLod(prefilterMap, R, other.y * MAX_REFLECTION_LOD).rgb);
 		vec2 brdf = texture(brdfLUT, vec2(max(dot(normal.rgb, V), 0.0), other.y)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 		//IBL PBR
 
 		vec3 ambient = (kD * diffuse + specular) * other.z;
 		Lo = max(vec3(0), Lo);
-		color = ambient + Lo * other.z * SSAO(viewPos.xyz, normal.rgb);
-		//color = ambient + Lo * SSAO(viewPos.xyz, normal.rgb);
+		// AO attenuates indirect light; direct light already uses shadow maps.
+		// Preserve the material normal (including smoothing/normal maps), in
+		// the VIEW space used by the sample hemisphere. Primitive normals
+		// remain reserved for shadow bias, to avoid faceting the SSAO.
+		vec3 aoNormal = mat3(ubc.view) * normal;
+		color = ambient * geSsaoEvaluate(viewPos.xyz, aoNormal, ivec2(gl_FragCoord.xy)) + Lo;
 	}
 	else
 	{
 		color = viewPos.a * color;
 	}
 
-	o_FragColor = color;
+	o_FragColor = geAtmComposite(color, worldPos, atmosphereUV);
 }

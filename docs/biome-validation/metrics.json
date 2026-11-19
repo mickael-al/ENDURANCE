@@ -1,0 +1,4231 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "note": "Samples of actual GLSL fields. Height-grid slopes/connectivity are proxies; do not certify gameplay, collisions or GPU hardware performance.",
+  "records": [
+    {
+      "id": 0,
+      "name": "PolarIce",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2400.0,
+        "occupancy": 0.7,
+        "active_cells": 100,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            974.2637329101562,
+            -3944.182373046875
+          ],
+          "radius": 656.8844604492188,
+          "variant": 0.9212730526924133
+        },
+        {
+          "center": [
+            -1289.974365234375,
+            -3725.5634765625
+          ],
+          "radius": 482.506591796875,
+          "variant": 0.013055028393864632
+        },
+        {
+          "center": [
+            -3537.22119140625,
+            872.3798217773438
+          ],
+          "radius": 576.7639770507812,
+          "variant": 0.5039791464805603
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 7570,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 1544,
+        "sampled_roof_clearance_lower_bound_m": 17.529836297035217,
+        "columns_with_open_roof_clearance_at_least_1_8m": 357,
+        "maximum_positive_delta_m": 50.67938530445099,
+        "maximum_negative_delta_m": -3.123283386230469e-05,
+        "outside_band_maximum_delta_m": 2.944469451904297e-05,
+        "density_min": -292.7626953125,
+        "density_max": 302.1790771484375,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 16.42211151123047,
+        "vertical_sampling_m": 3.5059672594070435
+      },
+      "production_pipeline": {
+        "anchor": [
+          1022,
+          -208,
+          -4142
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.005859375,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.997716483384412,
+        "slope_p50_degrees": 6.34824275970459,
+        "slope_p95_degrees": 18.0994815826416,
+        "largest_gentle_component_fraction": 0.997716483384412,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -392.7456359863281,
+        "height_max_m": -95.34751892089844
+      },
+      "source_sha256": "bfc548977d2baa737fe03be0185771c37ba8b6c2604c5819819a1656543f6724",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -1289.974365234375,
+              -3725.5634765625
+            ],
+            "radius": 482.506591796875,
+            "variant": 0.013055028393864632
+          },
+          "site_geometry": {
+            "solid_added_samples": 1135,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 170,
+            "sampled_roof_clearance_lower_bound_m": 20.211753129959106,
+            "columns_with_open_roof_clearance_at_least_1_8m": 60,
+            "maximum_positive_delta_m": 51.03486371040344,
+            "maximum_negative_delta_m": -3.0040740966796875e-05,
+            "outside_band_maximum_delta_m": 3.0040740966796875e-05,
+            "density_min": -276.68621826171875,
+            "density_max": 278.4297180175781,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 24.12532958984375,
+            "vertical_sampling_m": 6.737251043319702
+          },
+          "maximum_site_edge_height_jump_m": 0.0038299560546875,
+          "production_pipeline": {
+            "anchor": [
+              -1412,
+              -200,
+              -3630
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -3537.22119140625,
+              872.3798217773438
+            ],
+            "radius": 576.7639770507812,
+            "variant": 0.5039791464805603
+          },
+          "site_geometry": {
+            "solid_added_samples": 1130,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 194,
+            "sampled_roof_clearance_lower_bound_m": 19.98431897163391,
+            "columns_with_open_roof_clearance_at_least_1_8m": 70,
+            "maximum_positive_delta_m": 50.54244542121887,
+            "maximum_negative_delta_m": -3.62396240234375e-05,
+            "outside_band_maximum_delta_m": 3.62396240234375e-05,
+            "density_min": -275.28863525390625,
+            "density_max": 281.2720031738281,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 28.838198852539062,
+            "vertical_sampling_m": 6.661439657211304
+          },
+          "maximum_site_edge_height_jump_m": 0.0036897659301757812,
+          "production_pipeline": {
+            "anchor": [
+              -3480,
+              44,
+              1044
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 1,
+      "name": "FrozenTundra",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2200.0,
+        "occupancy": 0.62,
+        "active_cells": 89,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -1006.3284912109375,
+            -1092.411376953125
+          ],
+          "radius": 615.3375854492188,
+          "variant": 0.9962363839149475
+        },
+        {
+          "center": [
+            -11885.09375,
+            -3040.988525390625
+          ],
+          "radius": 441.3435974121094,
+          "variant": 0.00763398502022028
+        },
+        {
+          "center": [
+            763.8565063476562,
+            -1325.8349609375
+          ],
+          "radius": 528.8062744140625,
+          "variant": 0.504581093788147
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 10205,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 1750,
+        "sampled_roof_clearance_lower_bound_m": 19.877151131629944,
+        "columns_with_open_roof_clearance_at_least_1_8m": 385,
+        "maximum_positive_delta_m": 48.35635560750961,
+        "maximum_negative_delta_m": -3.7789344787597656e-05,
+        "outside_band_maximum_delta_m": 3.7789344787597656e-05,
+        "density_min": -287.53314208984375,
+        "density_max": 270.8459777832031,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 15.383439636230468,
+        "vertical_sampling_m": 3.312858521938324
+      },
+      "production_pipeline": {
+        "anchor": [
+          -868,
+          24,
+          -1216
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.002899169921875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9951925965987621,
+        "slope_p50_degrees": 6.023317337036133,
+        "slope_p95_degrees": 20.078954696655273,
+        "largest_gentle_component_fraction": 0.9951925965987621,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -297.2047119140625,
+        "height_max_m": 128.74305725097656
+      },
+      "source_sha256": "994d17842542068cfebcccd84bb55b1a4d3fff42def4f9a80cb5447d659f5aff",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -11885.09375,
+              -3040.988525390625
+            ],
+            "radius": 441.3435974121094,
+            "variant": 0.00763398502022028
+          },
+          "site_geometry": {
+            "solid_added_samples": 1481,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 232,
+            "sampled_roof_clearance_lower_bound_m": 17.462777495384216,
+            "columns_with_open_roof_clearance_at_least_1_8m": 74,
+            "maximum_positive_delta_m": 46.62925398349762,
+            "maximum_negative_delta_m": -2.086162567138672e-05,
+            "outside_band_maximum_delta_m": 2.09808349609375e-05,
+            "density_min": -234.54940795898438,
+            "density_max": 219.3391571044922,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 22.067179870605468,
+            "vertical_sampling_m": 5.820925831794739
+          },
+          "maximum_site_edge_height_jump_m": 0.00640869140625,
+          "production_pipeline": {
+            "anchor": [
+              -11864,
+              -174,
+              -2954
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              763.8565063476562,
+              -1325.8349609375
+            ],
+            "radius": 528.8062744140625,
+            "variant": 0.504581093788147
+          },
+          "site_geometry": {
+            "solid_added_samples": 1340,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 216,
+            "sampled_roof_clearance_lower_bound_m": 18.93628478050232,
+            "columns_with_open_roof_clearance_at_least_1_8m": 74,
+            "maximum_positive_delta_m": 47.43911957740784,
+            "maximum_negative_delta_m": -1.8835067749023438e-05,
+            "outside_band_maximum_delta_m": 3.409385681152344e-05,
+            "density_min": -257.9732666015625,
+            "density_max": 260.9273376464844,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 26.440313720703124,
+            "vertical_sampling_m": 6.3120949268341064
+          },
+          "maximum_site_edge_height_jump_m": 0.00360107421875,
+          "production_pipeline": {
+            "anchor": [
+              604,
+              -30,
+              -1326
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "Tundra",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2600.0,
+        "occupancy": 0.58,
+        "active_cells": 90,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1374.71533203125,
+            -1601.5078125
+          ],
+          "radius": 689.405029296875,
+          "variant": 0.8144476413726807
+        },
+        {
+          "center": [
+            -6152.326171875,
+            -3947.883056640625
+          ],
+          "radius": 520.1344604492188,
+          "variant": 0.0006464720354415476
+        },
+        {
+          "center": [
+            1044.697265625,
+            -11327.0283203125
+          ],
+          "radius": 624.0677490234375,
+          "variant": 0.5003257393836975
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 6215,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 1658,
+        "sampled_roof_clearance_lower_bound_m": 21.31607699394226,
+        "columns_with_open_roof_clearance_at_least_1_8m": 319,
+        "maximum_positive_delta_m": 49.69959735870361,
+        "maximum_negative_delta_m": -2.765655517578125e-05,
+        "outside_band_maximum_delta_m": 2.765655517578125e-05,
+        "density_min": -274.14300537109375,
+        "density_max": 278.7336120605469,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 17.235125732421874,
+        "vertical_sampling_m": 3.045153856277466
+      },
+      "production_pipeline": {
+        "anchor": [
+          1132,
+          -44,
+          -1568
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00311279296875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 5.890763759613037,
+        "slope_p95_degrees": 11.992463111877441,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -317.3988952636719,
+        "height_max_m": 110.14642333984375
+      },
+      "source_sha256": "7ec0583157d100ebfacfb96a1a7b08bf7d41425d5b929b4cfe96bf87dbc9e462",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -6152.326171875,
+              -3947.883056640625
+            ],
+            "radius": 520.1344604492188,
+            "variant": 0.0006464720354415476
+          },
+          "site_geometry": {
+            "solid_added_samples": 828,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 235,
+            "sampled_roof_clearance_lower_bound_m": 16.85420572757721,
+            "columns_with_open_roof_clearance_at_least_1_8m": 74,
+            "maximum_positive_delta_m": 49.57475483417511,
+            "maximum_negative_delta_m": -2.5272369384765625e-05,
+            "outside_band_maximum_delta_m": 2.1457672119140625e-05,
+            "density_min": -219.52218627929688,
+            "density_max": 211.95657348632812,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 26.00672302246094,
+            "vertical_sampling_m": 5.61806857585907
+          },
+          "maximum_site_edge_height_jump_m": 0.0013580322265625,
+          "production_pipeline": {
+            "anchor": [
+              -6206,
+              -148,
+              -4182
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              1044.697265625,
+              -11327.0283203125
+            ],
+            "radius": 624.0677490234375,
+            "variant": 0.5003257393836975
+          },
+          "site_geometry": {
+            "solid_added_samples": 812,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 223,
+            "sampled_roof_clearance_lower_bound_m": 17.379105806350708,
+            "columns_with_open_roof_clearance_at_least_1_8m": 75,
+            "maximum_positive_delta_m": 49.71168875694275,
+            "maximum_negative_delta_m": -3.0994415283203125e-05,
+            "outside_band_maximum_delta_m": 3.0279159545898438e-05,
+            "density_min": -224.55990600585938,
+            "density_max": 237.531494140625,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 31.203387451171874,
+            "vertical_sampling_m": 5.793035268783569
+          },
+          "maximum_site_edge_height_jump_m": 0.0020751953125,
+          "production_pipeline": {
+            "anchor": [
+              1200,
+              -334,
+              -11140
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "Taiga",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2800.0,
+        "occupancy": 0.65,
+        "active_cells": 99,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -1451.238037109375,
+            -4046.493896484375
+          ],
+          "radius": 745.9635620117188,
+          "variant": 0.8301945328712463
+        },
+        {
+          "center": [
+            9990.8681640625,
+            -6598.71240234375
+          ],
+          "radius": 568.7731323242188,
+          "variant": 0.039165619760751724
+        },
+        {
+          "center": [
+            -15538.6708984375,
+            -4044.92041015625
+          ],
+          "radius": 671.1906127929688,
+          "variant": 0.49638664722442627
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 3625,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 595,
+        "sampled_roof_clearance_lower_bound_m": 19.924681663513184,
+        "columns_with_open_roof_clearance_at_least_1_8m": 129,
+        "maximum_positive_delta_m": 41.98006010055542,
+        "maximum_negative_delta_m": -2.574920654296875e-05,
+        "outside_band_maximum_delta_m": 2.574920654296875e-05,
+        "density_min": -281.90521240234375,
+        "density_max": 271.8597717285156,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 18.649089050292968,
+        "vertical_sampling_m": 3.3207802772521973
+      },
+      "production_pipeline": {
+        "anchor": [
+          -1228,
+          -192,
+          -4010
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0017547607421875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9913466738777718,
+        "slope_p50_degrees": 5.130608558654785,
+        "slope_p95_degrees": 22.77482795715332,
+        "largest_gentle_component_fraction": 0.9913466738777718,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -438.1402587890625,
+        "height_max_m": -131.9916229248047
+      },
+      "source_sha256": "755934afa5257a16394825cfe87ecdbecbff9cd37ecb22302d2fd488779dce5d",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              9990.8681640625,
+              -6598.71240234375
+            ],
+            "radius": 568.7731323242188,
+            "variant": 0.039165619760751724
+          },
+          "site_geometry": {
+            "solid_added_samples": 465,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 74,
+            "sampled_roof_clearance_lower_bound_m": 13.745029926300049,
+            "columns_with_open_roof_clearance_at_least_1_8m": 27,
+            "maximum_positive_delta_m": 41.894909381866455,
+            "maximum_negative_delta_m": -2.8371810913085938e-05,
+            "outside_band_maximum_delta_m": 4.363059997558594e-05,
+            "density_min": -308.7781982421875,
+            "density_max": 286.64105224609375,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 28.438656616210938,
+            "vertical_sampling_m": 6.872514963150024
+          },
+          "maximum_site_edge_height_jump_m": 0.00734710693359375,
+          "production_pipeline": {
+            "anchor": [
+              10104,
+              26,
+              -6458
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -15538.6708984375,
+              -4044.92041015625
+            ],
+            "radius": 671.1906127929688,
+            "variant": 0.49638664722442627
+          },
+          "site_geometry": {
+            "solid_added_samples": 441,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 69,
+            "sampled_roof_clearance_lower_bound_m": 13.735158681869507,
+            "columns_with_open_roof_clearance_at_least_1_8m": 28,
+            "maximum_positive_delta_m": 41.98770225048065,
+            "maximum_negative_delta_m": -3.218650817871094e-05,
+            "outside_band_maximum_delta_m": 3.1113624572753906e-05,
+            "density_min": -295.9421691894531,
+            "density_max": 287.1320495605469,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 33.559530639648436,
+            "vertical_sampling_m": 6.867579340934753
+          },
+          "maximum_site_edge_height_jump_m": 0.01202392578125,
+          "production_pipeline": {
+            "anchor": [
+              -15606,
+              -154,
+              -4248
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "name": "BorealBog",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2500.0,
+        "occupancy": 0.55,
+        "active_cells": 83,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1229.669921875,
+            6367.72705078125
+          ],
+          "radius": 663.7633666992188,
+          "variant": 0.8188167810440063
+        },
+        {
+          "center": [
+            -13957.408203125,
+            1517.9111328125
+          ],
+          "radius": 501.6222839355469,
+          "variant": 0.00811153743416071
+        },
+        {
+          "center": [
+            9115.7509765625,
+            1137.07177734375
+          ],
+          "radius": 600.1694946289062,
+          "variant": 0.500847578048706
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 7727,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 723,
+        "sampled_roof_clearance_lower_bound_m": 12.160329818725586,
+        "columns_with_open_roof_clearance_at_least_1_8m": 178,
+        "maximum_positive_delta_m": 27.300020217895508,
+        "maximum_negative_delta_m": -2.288818359375e-05,
+        "outside_band_maximum_delta_m": 2.09808349609375e-05,
+        "density_min": -188.85421752929688,
+        "density_max": 189.9501953125,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 16.594084167480467,
+        "vertical_sampling_m": 2.432065963745117
+      },
+      "production_pipeline": {
+        "anchor": [
+          1228,
+          430,
+          6366
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.003387451171875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 3.3081090450286865,
+        "slope_p95_degrees": 7.4506635665893555,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": 290.146728515625,
+        "height_max_m": 486.7074279785156
+      },
+      "source_sha256": "9070ba0fc244ac989b7f1cf1bc5863b2008de24531774832fc8248509c10474e",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -13957.408203125,
+              1517.9111328125
+            ],
+            "radius": 501.6222839355469,
+            "variant": 0.00811153743416071
+          },
+          "site_geometry": {
+            "solid_added_samples": 981,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 93,
+            "sampled_roof_clearance_lower_bound_m": 13.496903657913208,
+            "columns_with_open_roof_clearance_at_least_1_8m": 32,
+            "maximum_positive_delta_m": 27.299996376037598,
+            "maximum_negative_delta_m": -3.0994415283203125e-05,
+            "outside_band_maximum_delta_m": 3.0994415283203125e-05,
+            "density_min": -157.2152099609375,
+            "density_max": 162.21292114257812,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 25.081114196777342,
+            "vertical_sampling_m": 4.498967885971069
+          },
+          "maximum_site_edge_height_jump_m": 0.002777099609375,
+          "production_pipeline": {
+            "anchor": [
+              -13958,
+              -306,
+              1516
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              9115.7509765625,
+              1137.07177734375
+            ],
+            "radius": 600.1694946289062,
+            "variant": 0.500847578048706
+          },
+          "site_geometry": {
+            "solid_added_samples": 941,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 85,
+            "sampled_roof_clearance_lower_bound_m": 9.377741813659668,
+            "columns_with_open_roof_clearance_at_least_1_8m": 29,
+            "maximum_positive_delta_m": 27.300018787384033,
+            "maximum_negative_delta_m": -1.811981201171875e-05,
+            "outside_band_maximum_delta_m": 1.9550323486328125e-05,
+            "density_min": -171.73583984375,
+            "density_max": 169.28713989257812,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 30.00847473144531,
+            "vertical_sampling_m": 4.688870906829834
+          },
+          "maximum_site_edge_height_jump_m": 0.0006866455078125,
+          "production_pipeline": {
+            "anchor": [
+              9114,
+              268,
+              1136
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "name": "RockyTundra",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2100.0,
+        "occupancy": 0.66,
+        "active_cells": 98,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            942.9129028320312,
+            -803.5433959960938
+          ],
+          "radius": 584.5892944335938,
+          "variant": 0.9796983003616333
+        },
+        {
+          "center": [
+            -720.781494140625,
+            -7183.40625
+          ],
+          "radius": 421.055419921875,
+          "variant": 0.006282092072069645
+        },
+        {
+          "center": [
+            1376.318115234375,
+            7137.99169921875
+          ],
+          "radius": 503.33404541015625,
+          "variant": 0.4960361123085022
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 3591,
+        "solid_removed_samples": 107,
+        "open_air_under_roof_samples": 611,
+        "sampled_roof_clearance_lower_bound_m": 37.40910530090332,
+        "columns_with_open_roof_clearance_at_least_1_8m": 128,
+        "maximum_positive_delta_m": 51.23697471618652,
+        "maximum_negative_delta_m": -7.346887588500977,
+        "outside_band_maximum_delta_m": 3.24249267578125e-05,
+        "density_min": -324.32086181640625,
+        "density_max": 344.4969177246094,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 14.614732360839843,
+        "vertical_sampling_m": 3.740910530090332
+      },
+      "production_pipeline": {
+        "anchor": [
+          942,
+          -32,
+          -864
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00293731689453125,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9394267171444024,
+        "slope_p50_degrees": 9.459207534790039,
+        "slope_p95_degrees": 32.13334274291992,
+        "largest_gentle_component_fraction": 0.933537647977886,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -272.22662353515625,
+        "height_max_m": 216.93359375
+      },
+      "source_sha256": "3d1ef639fa7500ec5942a377abe370b0b60d7371fc2ca8f0970ad55bc3d34a89",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -720.781494140625,
+              -7183.40625
+            ],
+            "radius": 421.055419921875,
+            "variant": 0.006282092072069645
+          },
+          "site_geometry": {
+            "solid_added_samples": 297,
+            "solid_removed_samples": 20,
+            "open_air_under_roof_samples": 123,
+            "sampled_roof_clearance_lower_bound_m": 35.866533517837524,
+            "columns_with_open_roof_clearance_at_least_1_8m": 34,
+            "maximum_positive_delta_m": 51.20846652984619,
+            "maximum_negative_delta_m": -7.337533473968506,
+            "outside_band_maximum_delta_m": 2.8371810913085938e-05,
+            "density_min": -302.3247985839844,
+            "density_max": 300.2912292480469,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 21.05277099609375,
+            "vertical_sampling_m": 7.173306703567505
+          },
+          "maximum_site_edge_height_jump_m": 0.031097412109375,
+          "production_pipeline": {
+            "anchor": [
+              -764,
+              -310,
+              -7206
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              1376.318115234375,
+              7137.99169921875
+            ],
+            "radius": 503.33404541015625,
+            "variant": 0.4960361123085022
+          },
+          "site_geometry": {
+            "solid_added_samples": 468,
+            "solid_removed_samples": 15,
+            "open_air_under_roof_samples": 73,
+            "sampled_roof_clearance_lower_bound_m": 21.059480667114258,
+            "columns_with_open_roof_clearance_at_least_1_8m": 25,
+            "maximum_positive_delta_m": 51.183502197265625,
+            "maximum_negative_delta_m": -7.349489212036133,
+            "outside_band_maximum_delta_m": 4.1961669921875e-05,
+            "density_min": -293.78448486328125,
+            "density_max": 295.97149658203125,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 25.166702270507812,
+            "vertical_sampling_m": 7.019826889038086
+          },
+          "maximum_site_edge_height_jump_m": 0.029296875,
+          "production_pipeline": {
+            "anchor": [
+              1324,
+              472,
+              7136
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "name": "ColdSteppe",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2700.0,
+        "occupancy": 0.52,
+        "active_cells": 82,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            6435.91845703125,
+            -4291.94970703125
+          ],
+          "radius": 752.6074829101562,
+          "variant": 0.9842938184738159
+        },
+        {
+          "center": [
+            -14784.3525390625,
+            -4392.4326171875
+          ],
+          "radius": 540.5376586914062,
+          "variant": 0.002489090198650956
+        },
+        {
+          "center": [
+            9530.734375,
+            -12168.140625
+          ],
+          "radius": 647.9736938476562,
+          "variant": 0.49987804889678955
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 1470,
+        "solid_removed_samples": 214,
+        "open_air_under_roof_samples": 493,
+        "sampled_roof_clearance_lower_bound_m": 18.29856240749359,
+        "columns_with_open_roof_clearance_at_least_1_8m": 90,
+        "maximum_positive_delta_m": 28.92428034543991,
+        "maximum_negative_delta_m": -8.395176112651825,
+        "outside_band_maximum_delta_m": 3.6656856536865234e-05,
+        "density_min": -290.30645751953125,
+        "density_max": 269.3697814941406,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 18.815187072753908,
+        "vertical_sampling_m": 3.049760401248932
+      },
+      "production_pipeline": {
+        "anchor": [
+          6492,
+          -6,
+          -4218
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00170135498046875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 4.4815168380737305,
+        "slope_p95_degrees": 9.520747184753418,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -291.967529296875,
+        "height_max_m": 88.6018295288086
+      },
+      "source_sha256": "29ab2b9fc86945bf3ab4242cdc2cd788eacebfb5da954e7b3e157224b677bcf0",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -14784.3525390625,
+              -4392.4326171875
+            ],
+            "radius": 540.5376586914062,
+            "variant": 0.002489090198650956
+          },
+          "site_geometry": {
+            "solid_added_samples": 237,
+            "solid_removed_samples": 35,
+            "open_air_under_roof_samples": 77,
+            "sampled_roof_clearance_lower_bound_m": 19.43324565887451,
+            "columns_with_open_roof_clearance_at_least_1_8m": 21,
+            "maximum_positive_delta_m": 28.876707315444946,
+            "maximum_negative_delta_m": -8.378154516220093,
+            "outside_band_maximum_delta_m": 2.8848648071289062e-05,
+            "density_min": -196.39608764648438,
+            "density_max": 189.93218994140625,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 27.026882934570313,
+            "vertical_sampling_m": 4.858311414718628
+          },
+          "maximum_site_edge_height_jump_m": 0.001251220703125,
+          "production_pipeline": {
+            "anchor": [
+              -14866,
+              -198,
+              -4340
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              9530.734375,
+              -12168.140625
+            ],
+            "radius": 647.9736938476562,
+            "variant": 0.49987804889678955
+          },
+          "site_geometry": {
+            "solid_added_samples": 229,
+            "solid_removed_samples": 33,
+            "open_air_under_roof_samples": 75,
+            "sampled_roof_clearance_lower_bound_m": 20.01572036743164,
+            "columns_with_open_roof_clearance_at_least_1_8m": 21,
+            "maximum_positive_delta_m": 28.86116123199463,
+            "maximum_negative_delta_m": -8.381200790405273,
+            "outside_band_maximum_delta_m": 1.9073486328125e-05,
+            "density_min": -200.69659423828125,
+            "density_max": 199.25181579589844,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 32.398684692382815,
+            "vertical_sampling_m": 5.00393009185791
+          },
+          "maximum_site_edge_height_jump_m": 0.001617431640625,
+          "production_pipeline": {
+            "anchor": [
+              9498,
+              -176,
+              -12072
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "name": "BorealForest",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 1850.0,
+        "occupancy": 0.7,
+        "active_cells": 103,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -2870.414794921875,
+            2901.770263671875
+          ],
+          "radius": 497.25433349609375,
+          "variant": 0.8598266839981079
+        },
+        {
+          "center": [
+            -739.0193481445312,
+            1121.87060546875
+          ],
+          "radius": 371.8827209472656,
+          "variant": 0.012721182778477669
+        },
+        {
+          "center": [
+            -2767.357177734375,
+            -734.6609497070312
+          ],
+          "radius": 442.3050842285156,
+          "variant": 0.4885479211807251
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 4269,
+        "solid_removed_samples": 177,
+        "open_air_under_roof_samples": 398,
+        "sampled_roof_clearance_lower_bound_m": 23.30364954471588,
+        "columns_with_open_roof_clearance_at_least_1_8m": 77,
+        "maximum_positive_delta_m": 46.198152124881744,
+        "maximum_negative_delta_m": -11.185291588306427,
+        "outside_band_maximum_delta_m": 1.6748905181884766e-05,
+        "density_min": -364.87744140625,
+        "density_max": 349.5446472167969,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 12.431358337402344,
+        "vertical_sampling_m": 3.8839415907859802
+      },
+      "production_pipeline": {
+        "anchor": [
+          -2796,
+          320,
+          2914
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0037994384765625,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.979328165374677,
+        "slope_p50_degrees": 6.239560127258301,
+        "slope_p95_degrees": 19.56345558166504,
+        "largest_gentle_component_fraction": 0.979328165374677,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -90.82659912109375,
+        "height_max_m": 428.4855651855469
+      },
+      "source_sha256": "b66dbb763932fae4428c13e5ebdb76b66cc74e775ff16023eecca480e7e4a711",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -739.0193481445312,
+              1121.87060546875
+            ],
+            "radius": 371.8827209472656,
+            "variant": 0.012721182778477669
+          },
+          "site_geometry": {
+            "solid_added_samples": 701,
+            "solid_removed_samples": 19,
+            "open_air_under_roof_samples": 48,
+            "sampled_roof_clearance_lower_bound_m": 23.84404945373535,
+            "columns_with_open_roof_clearance_at_least_1_8m": 12,
+            "maximum_positive_delta_m": 48.7781548500061,
+            "maximum_negative_delta_m": -28.317374229431152,
+            "outside_band_maximum_delta_m": 2.193450927734375e-05,
+            "density_min": -243.48553466796875,
+            "density_max": 233.9049835205078,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 18.594136047363282,
+            "vertical_sampling_m": 5.961012363433838
+          },
+          "maximum_site_edge_height_jump_m": 0.00304412841796875,
+          "production_pipeline": {
+            "anchor": [
+              -722,
+              232,
+              1140
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -2767.357177734375,
+              -734.6609497070312
+            ],
+            "radius": 442.3050842285156,
+            "variant": 0.4885479211807251
+          },
+          "site_geometry": {
+            "solid_added_samples": 619,
+            "solid_removed_samples": 24,
+            "open_air_under_roof_samples": 52,
+            "sampled_roof_clearance_lower_bound_m": 20.271173000335693,
+            "columns_with_open_roof_clearance_at_least_1_8m": 15,
+            "maximum_positive_delta_m": 45.95447540283203,
+            "maximum_negative_delta_m": -13.015482902526855,
+            "outside_band_maximum_delta_m": 2.956390380859375e-05,
+            "density_min": -289.26239013671875,
+            "density_max": 284.85205078125,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 22.115254211425782,
+            "vertical_sampling_m": 6.7570576667785645
+          },
+          "maximum_site_edge_height_jump_m": 0.0019073486328125,
+          "production_pipeline": {
+            "anchor": [
+              -2768,
+              26,
+              -802
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "name": "ColdForest",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2400.0,
+        "occupancy": 0.63,
+        "active_cells": 96,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1539.708251953125,
+            5693.3720703125
+          ],
+          "radius": 646.5059204101562,
+          "variant": 0.8672181963920593
+        },
+        {
+          "center": [
+            13070.982421875,
+            1526.567626953125
+          ],
+          "radius": 483.31317138671875,
+          "variant": 0.017256082966923714
+        },
+        {
+          "center": [
+            3931.55712890625,
+            -6290.9091796875
+          ],
+          "radius": 575.9841918945312,
+          "variant": 0.4999176263809204
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 5226,
+        "solid_removed_samples": 243,
+        "open_air_under_roof_samples": 1663,
+        "sampled_roof_clearance_lower_bound_m": 30.38062858581543,
+        "columns_with_open_roof_clearance_at_least_1_8m": 310,
+        "maximum_positive_delta_m": 66.85040545463562,
+        "maximum_negative_delta_m": -8.7492094039917,
+        "outside_band_maximum_delta_m": 4.4345855712890625e-05,
+        "density_min": -358.1259765625,
+        "density_max": 327.2893981933594,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 16.162648010253907,
+        "vertical_sampling_m": 3.7975785732269287
+      },
+      "production_pipeline": {
+        "anchor": [
+          1378,
+          538,
+          5514
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00372314453125,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.938104681209062,
+        "slope_p50_degrees": 9.155795097351074,
+        "slope_p95_degrees": 31.128732681274414,
+        "largest_gentle_component_fraction": 0.9378042184964845,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": 219.2477569580078,
+        "height_max_m": 545.311279296875
+      },
+      "source_sha256": "e90e3a27b20946a75450a6093aa6496a99848cd2d1448c8b2337f9d213bd2ccd",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              13070.982421875,
+              1526.567626953125
+            ],
+            "radius": 483.31317138671875,
+            "variant": 0.017256082966923714
+          },
+          "site_geometry": {
+            "solid_added_samples": 643,
+            "solid_removed_samples": 32,
+            "open_air_under_roof_samples": 205,
+            "sampled_roof_clearance_lower_bound_m": 30.84843397140503,
+            "columns_with_open_roof_clearance_at_least_1_8m": 68,
+            "maximum_positive_delta_m": 69.07565915584564,
+            "maximum_negative_delta_m": -8.735781192779541,
+            "outside_band_maximum_delta_m": 4.088878631591797e-05,
+            "density_min": -335.04644775390625,
+            "density_max": 342.3455810546875,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 24.16565856933594,
+            "vertical_sampling_m": 7.712108492851257
+          },
+          "maximum_site_edge_height_jump_m": 0.00714111328125,
+          "production_pipeline": {
+            "anchor": [
+              13190,
+              464,
+              1404
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              3931.55712890625,
+              -6290.9091796875
+            ],
+            "radius": 575.9841918945312,
+            "variant": 0.4999176263809204
+          },
+          "site_geometry": {
+            "solid_added_samples": 650,
+            "solid_removed_samples": 34,
+            "open_air_under_roof_samples": 205,
+            "sampled_roof_clearance_lower_bound_m": 22.832931518554688,
+            "columns_with_open_roof_clearance_at_least_1_8m": 68,
+            "maximum_positive_delta_m": 67.47227478027344,
+            "maximum_negative_delta_m": -8.7376708984375,
+            "outside_band_maximum_delta_m": 3.0517578125e-05,
+            "density_min": -328.3270568847656,
+            "density_max": 328.30224609375,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 28.799209594726562,
+            "vertical_sampling_m": 7.6109771728515625
+          },
+          "maximum_site_edge_height_jump_m": 0.0117950439453125,
+          "production_pipeline": {
+            "anchor": [
+              3758,
+              -198,
+              -6148
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 9,
+      "name": "ColdMarsh",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2300.0,
+        "occupancy": 0.58,
+        "active_cells": 76,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1022.7889404296875,
+            1306.2296142578125
+          ],
+          "radius": 642.6347045898438,
+          "variant": 0.9925798773765564
+        },
+        {
+          "center": [
+            -12467.8896484375,
+            -5936.58544921875
+          ],
+          "radius": 461.474853515625,
+          "variant": 0.00801545474678278
+        },
+        {
+          "center": [
+            -5666.77001953125,
+            -3286.216064453125
+          ],
+          "radius": 558.139404296875,
+          "variant": 0.5333665013313293
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 1096,
+        "solid_removed_samples": 128,
+        "open_air_under_roof_samples": 202,
+        "sampled_roof_clearance_lower_bound_m": 7.114235937595367,
+        "columns_with_open_roof_clearance_at_least_1_8m": 66,
+        "maximum_positive_delta_m": 13.296201646327972,
+        "maximum_negative_delta_m": -4.899330198764801,
+        "outside_band_maximum_delta_m": 2.8789043426513672e-05,
+        "density_min": -210.4415740966797,
+        "density_max": 200.73995971679688,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 16.065867614746093,
+        "vertical_sampling_m": 2.371411979198456
+      },
+      "production_pipeline": {
+        "anchor": [
+          1214,
+          148,
+          1144
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.002166748046875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 5.368829727172852,
+        "slope_p95_degrees": 11.734067916870117,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -104.70077514648438,
+        "height_max_m": 310.9140625
+      },
+      "source_sha256": "1b976bcfe6bf3a2e1bab2e7e7ed71bcd2ca12c721a479256e121ca3d70521a14",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -12467.8896484375,
+              -5936.58544921875
+            ],
+            "radius": 461.474853515625,
+            "variant": 0.00801545474678278
+          },
+          "site_geometry": {
+            "solid_added_samples": 169,
+            "solid_removed_samples": 17,
+            "open_air_under_roof_samples": 27,
+            "sampled_roof_clearance_lower_bound_m": 3.881454110145569,
+            "columns_with_open_roof_clearance_at_least_1_8m": 11,
+            "maximum_positive_delta_m": 13.278359770774841,
+            "maximum_negative_delta_m": -4.898772716522217,
+            "outside_band_maximum_delta_m": 2.193450927734375e-05,
+            "density_min": -148.41864013671875,
+            "density_max": 145.61224365234375,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 23.07374267578125,
+            "vertical_sampling_m": 3.881454110145569
+          },
+          "maximum_site_edge_height_jump_m": 0.003143310546875,
+          "production_pipeline": {
+            "anchor": [
+              -12284,
+              -218,
+              -5938
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -5666.77001953125,
+              -3286.216064453125
+            ],
+            "radius": 558.139404296875,
+            "variant": 0.5333665013313293
+          },
+          "site_geometry": {
+            "solid_added_samples": 136,
+            "solid_removed_samples": 15,
+            "open_air_under_roof_samples": 21,
+            "sampled_roof_clearance_lower_bound_m": 4.787622809410095,
+            "columns_with_open_roof_clearance_at_least_1_8m": 5,
+            "maximum_positive_delta_m": 13.299704194068909,
+            "maximum_negative_delta_m": -4.893750190734863,
+            "outside_band_maximum_delta_m": 2.205371856689453e-05,
+            "density_min": -215.92678833007812,
+            "density_max": 208.361083984375,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 27.90697021484375,
+            "vertical_sampling_m": 4.787622809410095
+          },
+          "maximum_site_edge_height_jump_m": 0.0039215087890625,
+          "production_pipeline": {
+            "anchor": [
+              -5836,
+              -192,
+              -3426
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 10,
+      "name": "DryPlain",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2600.0,
+        "occupancy": 0.6,
+        "active_cells": 83,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1154.2628173828125,
+            -1288.0159912109375
+          ],
+          "radius": 698.0870361328125,
+          "variant": 0.8561877608299255
+        },
+        {
+          "center": [
+            -11493.2724609375,
+            -14161.1318359375
+          ],
+          "radius": 535.2854614257812,
+          "variant": 0.0734877660870552
+        },
+        {
+          "center": [
+            -3501.77880859375,
+            -1677.4293212890625
+          ],
+          "radius": 624.422119140625,
+          "variant": 0.5020291805267334
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 2766,
+        "solid_removed_samples": 211,
+        "open_air_under_roof_samples": 412,
+        "sampled_roof_clearance_lower_bound_m": 21.006446599960327,
+        "columns_with_open_roof_clearance_at_least_1_8m": 65,
+        "maximum_positive_delta_m": 45.76539048552513,
+        "maximum_negative_delta_m": -8.046534270048141,
+        "outside_band_maximum_delta_m": 2.6226043701171875e-05,
+        "density_min": -232.33432006835938,
+        "density_max": 242.0900421142578,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 17.452175903320313,
+        "vertical_sampling_m": 2.625805824995041
+      },
+      "production_pipeline": {
+        "anchor": [
+          1170,
+          -28,
+          -1290
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0021209716796875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 5.012645244598389,
+        "slope_p95_degrees": 7.540177345275879,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -279.6205749511719,
+        "height_max_m": 118.81103515625
+      },
+      "source_sha256": "1ec7e60f80e0a125d03ef48f42444bb6572daeae3ffe8cd7642773952b242fd8",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -11493.2724609375,
+              -14161.1318359375
+            ],
+            "radius": 535.2854614257812,
+            "variant": 0.0734877660870552
+          },
+          "site_geometry": {
+            "solid_added_samples": 481,
+            "solid_removed_samples": 27,
+            "open_air_under_roof_samples": 70,
+            "sampled_roof_clearance_lower_bound_m": 17.698022842407227,
+            "columns_with_open_roof_clearance_at_least_1_8m": 17,
+            "maximum_positive_delta_m": 33.80019521713257,
+            "maximum_negative_delta_m": -8.046820163726807,
+            "outside_band_maximum_delta_m": 2.2411346435546875e-05,
+            "density_min": -160.76568603515625,
+            "density_max": 158.48440551757812,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 26.76427307128906,
+            "vertical_sampling_m": 4.424505710601807
+          },
+          "maximum_site_edge_height_jump_m": 0.001922607421875,
+          "production_pipeline": {
+            "anchor": [
+              -11468,
+              -248,
+              -14162
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -3501.77880859375,
+              -1677.4293212890625
+            ],
+            "radius": 624.422119140625,
+            "variant": 0.5020291805267334
+          },
+          "site_geometry": {
+            "solid_added_samples": 372,
+            "solid_removed_samples": 26,
+            "open_air_under_roof_samples": 53,
+            "sampled_roof_clearance_lower_bound_m": 16.702182054519653,
+            "columns_with_open_roof_clearance_at_least_1_8m": 17,
+            "maximum_positive_delta_m": 40.11959171295166,
+            "maximum_negative_delta_m": -8.041383743286133,
+            "outside_band_maximum_delta_m": 2.765655517578125e-05,
+            "density_min": -234.9908447265625,
+            "density_max": 251.3759002685547,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 31.22110595703125,
+            "vertical_sampling_m": 5.567394018173218
+          },
+          "maximum_site_edge_height_jump_m": 0.0019683837890625,
+          "production_pipeline": {
+            "anchor": [
+              -3502,
+              -134,
+              -1678
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 11,
+      "name": "Meadow",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2400.0,
+        "occupancy": 0.55,
+        "active_cells": 87,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1385.249267578125,
+            3322.349853515625
+          ],
+          "radius": 657.3966064453125,
+          "variant": 0.9239406585693359
+        },
+        {
+          "center": [
+            -10908.251953125,
+            -1262.83154296875
+          ],
+          "radius": 482.8805236816406,
+          "variant": 0.015002669766545296
+        },
+        {
+          "center": [
+            -924.9032592773438,
+            -11045.646484375
+          ],
+          "radius": 575.8489379882812,
+          "variant": 0.49921339750289917
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 2077,
+        "solid_removed_samples": 113,
+        "open_air_under_roof_samples": 492,
+        "sampled_roof_clearance_lower_bound_m": 18.842581272125244,
+        "columns_with_open_roof_clearance_at_least_1_8m": 100,
+        "maximum_positive_delta_m": 38.86870336532593,
+        "maximum_negative_delta_m": -5.943233966827393,
+        "outside_band_maximum_delta_m": 2.956390380859375e-05,
+        "density_min": -284.99298095703125,
+        "density_max": 276.77459716796875,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 16.434915161132814,
+        "vertical_sampling_m": 3.140430212020874
+      },
+      "production_pipeline": {
+        "anchor": [
+          1548,
+          366,
+          3174
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0020751953125,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9962742623640406,
+        "slope_p50_degrees": 5.614993572235107,
+        "slope_p95_degrees": 13.219568252563477,
+        "largest_gentle_component_fraction": 0.9962742623640406,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": 102.73500061035156,
+        "height_max_m": 403.57928466796875
+      },
+      "source_sha256": "b233b9a20da84553a8142b331533416bc70547bbb95ed7345fd82453faa60c88",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -10908.251953125,
+              -1262.83154296875
+            ],
+            "radius": 482.8805236816406,
+            "variant": 0.015002669766545296
+          },
+          "site_geometry": {
+            "solid_added_samples": 355,
+            "solid_removed_samples": 19,
+            "open_air_under_roof_samples": 78,
+            "sampled_roof_clearance_lower_bound_m": 14.59734034538269,
+            "columns_with_open_roof_clearance_at_least_1_8m": 21,
+            "maximum_positive_delta_m": 24.498681783676147,
+            "maximum_negative_delta_m": -5.92460560798645,
+            "outside_band_maximum_delta_m": 2.956390380859375e-05,
+            "density_min": -195.77767944335938,
+            "density_max": 186.20956420898438,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 24.14402618408203,
+            "vertical_sampling_m": 4.8657801151275635
+          },
+          "maximum_site_edge_height_jump_m": 0.001983642578125,
+          "production_pipeline": {
+            "anchor": [
+              -11102,
+              -260,
+              -1288
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -924.9032592773438,
+              -11045.646484375
+            ],
+            "radius": 575.8489379882812,
+            "variant": 0.49921339750289917
+          },
+          "site_geometry": {
+            "solid_added_samples": 332,
+            "solid_removed_samples": 14,
+            "open_air_under_roof_samples": 70,
+            "sampled_roof_clearance_lower_bound_m": 16.11948537826538,
+            "columns_with_open_roof_clearance_at_least_1_8m": 22,
+            "maximum_positive_delta_m": 32.34483098983765,
+            "maximum_negative_delta_m": -5.936894416809082,
+            "outside_band_maximum_delta_m": 2.2411346435546875e-05,
+            "density_min": -221.91146850585938,
+            "density_max": 218.68199157714844,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 28.792446899414063,
+            "vertical_sampling_m": 5.373161792755127
+          },
+          "maximum_site_edge_height_jump_m": 0.003662109375,
+          "production_pipeline": {
+            "anchor": [
+              -782,
+              -244,
+              -11190
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 12,
+      "name": "TemperateForest",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2050.0,
+        "occupancy": 0.67,
+        "active_cells": 93,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -752.6851196289062,
+            2994.2822265625
+          ],
+          "radius": 555.686279296875,
+          "variant": 0.8883311748504639
+        },
+        {
+          "center": [
+            -11514.99609375,
+            -5236.6376953125
+          ],
+          "radius": 410.644775390625,
+          "variant": 0.003931403625756502
+        },
+        {
+          "center": [
+            -915.5177001953125,
+            9055.8984375
+          ],
+          "radius": 492.47918701171875,
+          "variant": 0.5029218792915344
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 4968,
+        "solid_removed_samples": 56,
+        "open_air_under_roof_samples": 1771,
+        "sampled_roof_clearance_lower_bound_m": 36.25876623392105,
+        "columns_with_open_roof_clearance_at_least_1_8m": 233,
+        "maximum_positive_delta_m": 47.9022741317749,
+        "maximum_negative_delta_m": -4.19660097360611,
+        "outside_band_maximum_delta_m": 2.8431415557861328e-05,
+        "density_min": -282.638427734375,
+        "density_max": 287.1449890136719,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 13.892156982421875,
+        "vertical_sampling_m": 3.2962514758110046
+      },
+      "production_pipeline": {
+        "anchor": [
+          -976,
+          298,
+          2798
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.003814697265625,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 6.36033296585083,
+        "slope_p95_degrees": 12.748456001281738,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": 5.524567604064941,
+        "height_max_m": 411.5135192871094
+      },
+      "source_sha256": "a0b952f2e3ee5a16f2c3cf495129568bef3d2a625a557cd4d50b2e11246c91fa",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -11514.99609375,
+              -5236.6376953125
+            ],
+            "radius": 410.644775390625,
+            "variant": 0.003931403625756502
+          },
+          "site_geometry": {
+            "solid_added_samples": 607,
+            "solid_removed_samples": 9,
+            "open_air_under_roof_samples": 220,
+            "sampled_roof_clearance_lower_bound_m": 27.111735343933105,
+            "columns_with_open_roof_clearance_at_least_1_8m": 58,
+            "maximum_positive_delta_m": 36.01545715332031,
+            "maximum_negative_delta_m": -4.187183380126953,
+            "outside_band_maximum_delta_m": 2.193450927734375e-05,
+            "density_min": -199.88308715820312,
+            "density_max": 205.43667602539062,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 20.53223876953125,
+            "vertical_sampling_m": 5.422347068786621
+          },
+          "maximum_site_edge_height_jump_m": 0.003021240234375,
+          "production_pipeline": {
+            "anchor": [
+              -11578,
+              -198,
+              -5052
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -915.5177001953125,
+              9055.8984375
+            ],
+            "radius": 492.47918701171875,
+            "variant": 0.5029218792915344
+          },
+          "site_geometry": {
+            "solid_added_samples": 678,
+            "solid_removed_samples": 12,
+            "open_air_under_roof_samples": 221,
+            "sampled_roof_clearance_lower_bound_m": 22.199060440063477,
+            "columns_with_open_roof_clearance_at_least_1_8m": 54,
+            "maximum_positive_delta_m": 42.64664554595947,
+            "maximum_negative_delta_m": -4.191029071807861,
+            "outside_band_maximum_delta_m": 4.291534423828125e-05,
+            "density_min": -208.83209228515625,
+            "density_max": 226.27627563476562,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 24.623959350585938,
+            "vertical_sampling_m": 5.549765110015869
+          },
+          "maximum_site_edge_height_jump_m": 0.00250244140625,
+          "production_pipeline": {
+            "anchor": [
+              -1162,
+              516,
+              9154
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 13,
+      "name": "TemperateRainforest",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2200.0,
+        "occupancy": 0.72,
+        "active_cells": 106,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            3030.036376953125,
+            -3365.256591796875
+          ],
+          "radius": 613.6798095703125,
+          "variant": 0.9868170022964478
+        },
+        {
+          "center": [
+            5158.88037109375,
+            -5563.7158203125
+          ],
+          "radius": 440.2481689453125,
+          "variant": 0.0014100671978667378
+        },
+        {
+          "center": [
+            11889.2021484375,
+            5535.75634765625
+          ],
+          "radius": 528.289306640625,
+          "variant": 0.50164395570755
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 7424,
+        "solid_removed_samples": 122,
+        "open_air_under_roof_samples": 2938,
+        "sampled_roof_clearance_lower_bound_m": 47.39681696891785,
+        "columns_with_open_roof_clearance_at_least_1_8m": 364,
+        "maximum_positive_delta_m": 65.59042102098465,
+        "maximum_negative_delta_m": -5.249871492385864,
+        "outside_band_maximum_delta_m": 3.68952751159668e-05,
+        "density_min": -350.25469970703125,
+        "density_max": 350.88201904296875,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 15.341995239257812,
+        "vertical_sampling_m": 3.9497347474098206
+      },
+      "production_pipeline": {
+        "anchor": [
+          3030,
+          -114,
+          -3428
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0023040771484375,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9923682471005348,
+        "slope_p50_degrees": 5.944258689880371,
+        "slope_p95_degrees": 22.9859619140625,
+        "largest_gentle_component_fraction": 0.9923682471005348,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -293.9121398925781,
+        "height_max_m": 124.39242553710938
+      },
+      "source_sha256": "88508179e0fc5c958081406e6351f998659a3b7db78ac8f0370ce0c120e9904a",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              5158.88037109375,
+              -5563.7158203125
+            ],
+            "radius": 440.2481689453125,
+            "variant": 0.0014100671978667378
+          },
+          "site_geometry": {
+            "solid_added_samples": 970,
+            "solid_removed_samples": 12,
+            "open_air_under_roof_samples": 403,
+            "sampled_roof_clearance_lower_bound_m": 27.599406719207764,
+            "columns_with_open_roof_clearance_at_least_1_8m": 106,
+            "maximum_positive_delta_m": 54.697444558143616,
+            "maximum_negative_delta_m": -5.246147274971008,
+            "outside_band_maximum_delta_m": 3.3855438232421875e-05,
+            "density_min": -286.1922607421875,
+            "density_max": 294.9134216308594,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 22.012408447265624,
+            "vertical_sampling_m": 6.899851679801941
+          },
+          "maximum_site_edge_height_jump_m": 0.0049896240234375,
+          "production_pipeline": {
+            "anchor": [
+              5246,
+              -104,
+              -5520
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              11889.2021484375,
+              5535.75634765625
+            ],
+            "radius": 528.289306640625,
+            "variant": 0.50164395570755
+          },
+          "site_geometry": {
+            "solid_added_samples": 1048,
+            "solid_removed_samples": 12,
+            "open_air_under_roof_samples": 408,
+            "sampled_roof_clearance_lower_bound_m": 34.469313621520996,
+            "columns_with_open_roof_clearance_at_least_1_8m": 95,
+            "maximum_positive_delta_m": 57.510610580444336,
+            "maximum_negative_delta_m": -5.24212646484375,
+            "outside_band_maximum_delta_m": 4.100799560546875e-05,
+            "density_min": -288.4125061035156,
+            "density_max": 282.4066162109375,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 26.41446533203125,
+            "vertical_sampling_m": 6.893862724304199
+          },
+          "maximum_site_edge_height_jump_m": 0.00567626953125,
+          "production_pipeline": {
+            "anchor": [
+              11836,
+              480,
+              5562
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 14,
+      "name": "TemperateMarsh",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2500.0,
+        "occupancy": 0.58,
+        "active_cells": 83,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1154.1351318359375,
+            1564.3515625
+          ],
+          "radius": 680.6011962890625,
+          "variant": 0.9030060172080994
+        },
+        {
+          "center": [
+            13975.75390625,
+            -1058.7081298828125
+          ],
+          "radius": 500.7423095703125,
+          "variant": 0.0037114624865353107
+        },
+        {
+          "center": [
+            9003.1943359375,
+            11406.982421875
+          ],
+          "radius": 598.6067504882812,
+          "variant": 0.49303388595581055
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 2460,
+        "solid_removed_samples": 152,
+        "open_air_under_roof_samples": 770,
+        "sampled_roof_clearance_lower_bound_m": 10.480672717094421,
+        "columns_with_open_roof_clearance_at_least_1_8m": 186,
+        "maximum_positive_delta_m": 24.14996725320816,
+        "maximum_negative_delta_m": -3.500004857778549,
+        "outside_band_maximum_delta_m": 2.154707908630371e-05,
+        "density_min": -226.34271240234375,
+        "density_max": 223.43450927734375,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 17.015029907226562,
+        "vertical_sampling_m": 2.6201681792736053
+      },
+      "production_pipeline": {
+        "anchor": [
+          914,
+          220,
+          1734
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00225830078125,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 4.800245761871338,
+        "slope_p95_degrees": 8.172706604003906,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -78.14877319335938,
+        "height_max_m": 316.2109680175781
+      },
+      "source_sha256": "d7e1756f956a50e2f0ed367816b4341a01952a807414013216418f5417479550",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              13975.75390625,
+              -1058.7081298828125
+            ],
+            "radius": 500.7423095703125,
+            "variant": 0.0037114624865353107
+          },
+          "site_geometry": {
+            "solid_added_samples": 562,
+            "solid_removed_samples": 24,
+            "open_air_under_roof_samples": 165,
+            "sampled_roof_clearance_lower_bound_m": 8.649752378463745,
+            "columns_with_open_roof_clearance_at_least_1_8m": 60,
+            "maximum_positive_delta_m": 24.148370623588562,
+            "maximum_negative_delta_m": -3.5000102519989014,
+            "outside_band_maximum_delta_m": 2.181529998779297e-05,
+            "density_min": -167.99343872070312,
+            "density_max": 162.792236328125,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 25.037115478515624,
+            "vertical_sampling_m": 4.324876189231873
+          },
+          "maximum_site_edge_height_jump_m": 0.000946044921875,
+          "production_pipeline": {
+            "anchor": [
+              13850,
+              290,
+              -884
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              9003.1943359375,
+              11406.982421875
+            ],
+            "radius": 598.6067504882812,
+            "variant": 0.49303388595581055
+          },
+          "site_geometry": {
+            "solid_added_samples": 436,
+            "solid_removed_samples": 23,
+            "open_air_under_roof_samples": 131,
+            "sampled_roof_clearance_lower_bound_m": 8.586719512939453,
+            "columns_with_open_roof_clearance_at_least_1_8m": 48,
+            "maximum_positive_delta_m": 24.149614334106445,
+            "maximum_negative_delta_m": -3.499734878540039,
+            "outside_band_maximum_delta_m": 3.62396240234375e-05,
+            "density_min": -165.79791259765625,
+            "density_max": 160.77505493164062,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 29.930337524414064,
+            "vertical_sampling_m": 4.293359756469727
+          },
+          "maximum_site_edge_height_jump_m": 0.00152587890625,
+          "production_pipeline": {
+            "anchor": [
+              9212,
+              436,
+              11556
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 15,
+      "name": "RockDesert",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2100.0,
+        "occupancy": 0.64,
+        "active_cells": 78,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            721.5128784179688,
+            -4948.1572265625
+          ],
+          "radius": 584.0563354492188,
+          "variant": 0.9765260815620422
+        },
+        {
+          "center": [
+            1329.016357421875,
+            973.0166625976562
+          ],
+          "radius": 424.404052734375,
+          "variant": 0.026214543730020523
+        },
+        {
+          "center": [
+            -4990.2998046875,
+            5140.71923828125
+          ],
+          "radius": 499.6327819824219,
+          "variant": 0.47400468587875366
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 2156,
+        "solid_removed_samples": 17,
+        "open_air_under_roof_samples": 2592,
+        "sampled_roof_clearance_lower_bound_m": 68.34195590019226,
+        "columns_with_open_roof_clearance_at_least_1_8m": 238,
+        "maximum_positive_delta_m": 75.45642185211182,
+        "maximum_negative_delta_m": -4.196990251541138,
+        "outside_band_maximum_delta_m": 3.123283386230469e-05,
+        "density_min": -305.4491882324219,
+        "density_max": 304.4079895019531,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 14.601408386230469,
+        "vertical_sampling_m": 3.59694504737854
+      },
+      "production_pipeline": {
+        "anchor": [
+          706,
+          -256,
+          -4890
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.001068115234375,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9720569677303047,
+        "slope_p50_degrees": 2.607339382171631,
+        "slope_p95_degrees": 10.817055702209473,
+        "largest_gentle_component_fraction": 0.9696532660296857,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -399.1368103027344,
+        "height_max_m": -140.7582244873047
+      },
+      "source_sha256": "6742c19abe715347e6f3b3f4cd72b41fcf14db86bd9cc7406da2bac24d453455",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              1329.016357421875,
+              973.0166625976562
+            ],
+            "radius": 424.404052734375,
+            "variant": 0.026214543730020523
+          },
+          "site_geometry": {
+            "solid_added_samples": 0,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 0,
+            "sampled_roof_clearance_lower_bound_m": 0.0,
+            "columns_with_open_roof_clearance_at_least_1_8m": 0,
+            "maximum_positive_delta_m": 2.25752592086792e-05,
+            "maximum_negative_delta_m": -2.7894973754882812e-05,
+            "outside_band_maximum_delta_m": 2.7894973754882812e-05,
+            "density_min": -235.8817596435547,
+            "density_max": 235.88157653808594,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 21.22020263671875,
+            "vertical_sampling_m": 4.591903999447823
+          },
+          "maximum_site_edge_height_jump_m": 0.001766204833984375,
+          "production_pipeline": {
+            "anchor": [
+              1010,
+              210,
+              548
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -4990.2998046875,
+              5140.71923828125
+            ],
+            "radius": 499.6327819824219,
+            "variant": 0.47400468587875366
+          },
+          "site_geometry": {
+            "solid_added_samples": 311,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 326,
+            "sampled_roof_clearance_lower_bound_m": 60.59182262420654,
+            "columns_with_open_roof_clearance_at_least_1_8m": 57,
+            "maximum_positive_delta_m": 75.04776906967163,
+            "maximum_negative_delta_m": -2.8133392333984375e-05,
+            "outside_band_maximum_delta_m": 2.968311309814453e-05,
+            "density_min": -348.9251403808594,
+            "density_max": 328.7335205078125,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 24.981639099121093,
+            "vertical_sampling_m": 7.573977828025818
+          },
+          "maximum_site_edge_height_jump_m": 0.0023193359375,
+          "production_pipeline": {
+            "anchor": [
+              -4942,
+              226,
+              5064
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 16,
+      "name": "DrySavanna",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 1800.0,
+        "occupancy": 0.6,
+        "active_cells": 83,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -4437.94580078125,
+            -906.6546630859375
+          ],
+          "radius": 475.5903015136719,
+          "variant": 0.8027107119560242
+        },
+        {
+          "center": [
+            4724.66015625,
+            -9926.7255859375
+          ],
+          "radius": 360.919189453125,
+          "variant": 0.006383300758898258
+        },
+        {
+          "center": [
+            822.1064453125,
+            -4258.85302734375
+          ],
+          "radius": 432.4288330078125,
+          "variant": 0.5029779672622681
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 1335,
+        "solid_removed_samples": 13,
+        "open_air_under_roof_samples": 198,
+        "sampled_roof_clearance_lower_bound_m": 40.32639169692993,
+        "columns_with_open_roof_clearance_at_least_1_8m": 43,
+        "maximum_positive_delta_m": 70.34740734100342,
+        "maximum_negative_delta_m": -6.846445322036743,
+        "outside_band_maximum_delta_m": 3.528594970703125e-05,
+        "density_min": -282.1804504394531,
+        "density_max": 275.5485534667969,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 11.889757537841797,
+        "vertical_sampling_m": 3.3605326414108276
+      },
+      "production_pipeline": {
+        "anchor": [
+          -4450,
+          20,
+          -1026
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00151824951171875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9838951986058531,
+        "slope_p50_degrees": 3.3665592670440674,
+        "slope_p95_degrees": 7.7936272621154785,
+        "largest_gentle_component_fraction": 0.9831740880956673,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -289.9209289550781,
+        "height_max_m": 56.79323959350586
+      },
+      "source_sha256": "cb9f810a297c687f098d60e74a07a7b87ed237259d42da57a60f268a6e5996bb",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              4724.66015625,
+              -9926.7255859375
+            ],
+            "radius": 360.919189453125,
+            "variant": 0.006383300758898258
+          },
+          "site_geometry": {
+            "solid_added_samples": 0,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 0,
+            "sampled_roof_clearance_lower_bound_m": 0.0,
+            "columns_with_open_roof_clearance_at_least_1_8m": 0,
+            "maximum_positive_delta_m": 1.33514404296875e-05,
+            "maximum_negative_delta_m": -2.09808349609375e-05,
+            "outside_band_maximum_delta_m": 2.09808349609375e-05,
+            "density_min": -175.32330322265625,
+            "density_max": 175.32339477539062,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 18.04595947265625,
+            "vertical_sampling_m": 3.6456823348999023
+          },
+          "maximum_site_edge_height_jump_m": 0.00079345703125,
+          "production_pipeline": {
+            "anchor": [
+              4362,
+              -262,
+              -10288
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              822.1064453125,
+              -4258.85302734375
+            ],
+            "radius": 432.4288330078125,
+            "variant": 0.5029779672622681
+          },
+          "site_geometry": {
+            "solid_added_samples": 224,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 6,
+            "sampled_roof_clearance_lower_bound_m": 6.614865064620972,
+            "columns_with_open_roof_clearance_at_least_1_8m": 2,
+            "maximum_positive_delta_m": 70.19925904273987,
+            "maximum_negative_delta_m": -3.266334533691406e-05,
+            "outside_band_maximum_delta_m": 2.8848648071289062e-05,
+            "density_min": -272.00335693359375,
+            "density_max": 268.7515869140625,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 21.621441650390626,
+            "vertical_sampling_m": 6.614865064620972
+          },
+          "maximum_site_edge_height_jump_m": 0.001556396484375,
+          "production_pipeline": {
+            "anchor": [
+              692,
+              -140,
+              -4238
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 17,
+      "name": "Savanna",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2800.0,
+        "occupancy": 0.62,
+        "active_cells": 89,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            985.5142822265625,
+            -3932.024658203125
+          ],
+          "radius": 769.102294921875,
+          "variant": 0.9334924817085266
+        },
+        {
+          "center": [
+            15818.4384765625,
+            -12925.171875
+          ],
+          "radius": 565.8512573242188,
+          "variant": 0.02612150087952614
+        },
+        {
+          "center": [
+            -15622.716796875,
+            -15114.2734375
+          ],
+          "radius": 678.2188110351562,
+          "variant": 0.5277626514434814
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 608,
+        "solid_removed_samples": 11,
+        "open_air_under_roof_samples": 86,
+        "sampled_roof_clearance_lower_bound_m": 20.08159250020981,
+        "columns_with_open_roof_clearance_at_least_1_8m": 20,
+        "maximum_positive_delta_m": 69.3193850517273,
+        "maximum_negative_delta_m": -6.2841637134552,
+        "outside_band_maximum_delta_m": 4.965066909790039e-05,
+        "density_min": -365.97076416015625,
+        "density_max": 359.48907470703125,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 19.227557373046874,
+        "vertical_sampling_m": 4.016318500041962
+      },
+      "production_pipeline": {
+        "anchor": [
+          812,
+          -62,
+          -3894
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0023345947265625,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9980169460969893,
+        "slope_p50_degrees": 3.635509729385376,
+        "slope_p95_degrees": 7.1811394691467285,
+        "largest_gentle_component_fraction": 0.9980169460969893,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -358.0221862792969,
+        "height_max_m": -48.44947814941406
+      },
+      "source_sha256": "2491831a24dedbba6786ec503426450d9833dbad1e06d547b7680b5a177a279c",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              15818.4384765625,
+              -12925.171875
+            ],
+            "radius": 565.8512573242188,
+            "variant": 0.02612150087952614
+          },
+          "site_geometry": {
+            "solid_added_samples": 0,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 0,
+            "sampled_roof_clearance_lower_bound_m": 0.0,
+            "columns_with_open_roof_clearance_at_least_1_8m": 0,
+            "maximum_positive_delta_m": 2.193450927734375e-05,
+            "maximum_negative_delta_m": -2.8133392333984375e-05,
+            "outside_band_maximum_delta_m": 2.8133392333984375e-05,
+            "density_min": -267.48114013671875,
+            "density_max": 267.48114013671875,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 28.292562866210936,
+            "vertical_sampling_m": 5.0856451988220215
+          },
+          "maximum_site_edge_height_jump_m": 0.00115203857421875,
+          "production_pipeline": {
+            "anchor": [
+              15422,
+              152,
+              -13492
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -15622.716796875,
+              -15114.2734375
+            ],
+            "radius": 678.2188110351562,
+            "variant": 0.5277626514434814
+          },
+          "site_geometry": {
+            "solid_added_samples": 0,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 0,
+            "sampled_roof_clearance_lower_bound_m": 0.0,
+            "columns_with_open_roof_clearance_at_least_1_8m": 0,
+            "maximum_positive_delta_m": 1.9073486328125e-05,
+            "maximum_negative_delta_m": -2.47955322265625e-05,
+            "outside_band_maximum_delta_m": 2.47955322265625e-05,
+            "density_min": -229.39675903320312,
+            "density_max": 229.3969268798828,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 33.91094055175781,
+            "vertical_sampling_m": 4.490579605102539
+          },
+          "maximum_site_edge_height_jump_m": 0.001068115234375,
+          "production_pipeline": {
+            "anchor": [
+              -15556,
+              -300,
+              -14980
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 18,
+      "name": "DryJungle",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2200.0,
+        "occupancy": 0.65,
+        "active_cells": 99,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            927.4553833007812,
+            -1236.7589111328125
+          ],
+          "radius": 611.0653686523438,
+          "variant": 0.9719625115394592
+        },
+        {
+          "center": [
+            11993.11328125,
+            9793.951171875
+          ],
+          "radius": 440.56365966796875,
+          "variant": 0.0032025580294430256
+        },
+        {
+          "center": [
+            3606.8701171875,
+            10240.5419921875
+          ],
+          "radius": 529.3983764648438,
+          "variant": 0.50794517993927
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 1026,
+        "solid_removed_samples": 59,
+        "open_air_under_roof_samples": 155,
+        "sampled_roof_clearance_lower_bound_m": 18.104538917541504,
+        "columns_with_open_roof_clearance_at_least_1_8m": 39,
+        "maximum_positive_delta_m": 43.82969951629639,
+        "maximum_negative_delta_m": -8.047656059265137,
+        "outside_band_maximum_delta_m": 3.0517578125e-05,
+        "density_min": -325.199462890625,
+        "density_max": 308.8766174316406,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 15.276634216308594,
+        "vertical_sampling_m": 3.620907783508301
+      },
+      "production_pipeline": {
+        "anchor": [
+          1034,
+          70,
+          -1100
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00218963623046875,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9693528033171084,
+        "slope_p50_degrees": 5.092017650604248,
+        "slope_p95_degrees": 22.38790512084961,
+        "largest_gentle_component_fraction": 0.9550507781984255,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -277.4705810546875,
+        "height_max_m": 211.55279541015625
+      },
+      "source_sha256": "e085f7fa2b5187087dfa18d4cbc1d22a2401e5e331c90077d391e9728c967cca",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              11993.11328125,
+              9793.951171875
+            ],
+            "radius": 440.56365966796875,
+            "variant": 0.0032025580294430256
+          },
+          "site_geometry": {
+            "solid_added_samples": 0,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 0,
+            "sampled_roof_clearance_lower_bound_m": 0.0,
+            "columns_with_open_roof_clearance_at_least_1_8m": 0,
+            "maximum_positive_delta_m": 2.1457672119140625e-05,
+            "maximum_negative_delta_m": -2.2649765014648438e-05,
+            "outside_band_maximum_delta_m": 2.2649765014648438e-05,
+            "density_min": -171.85345458984375,
+            "density_max": 171.8533477783203,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 22.028182983398438,
+            "vertical_sampling_m": 3.591465711593628
+          },
+          "maximum_site_edge_height_jump_m": 0.00054931640625,
+          "production_pipeline": {
+            "anchor": [
+              11552,
+              460,
+              9352
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              3606.8701171875,
+              10240.5419921875
+            ],
+            "radius": 529.3983764648438,
+            "variant": 0.50794517993927
+          },
+          "site_geometry": {
+            "solid_added_samples": 184,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 3,
+            "sampled_roof_clearance_lower_bound_m": 0.0,
+            "columns_with_open_roof_clearance_at_least_1_8m": 0,
+            "maximum_positive_delta_m": 43.15632677078247,
+            "maximum_negative_delta_m": -4.5299530029296875e-05,
+            "outside_band_maximum_delta_m": 4.482269287109375e-05,
+            "density_min": -312.1184387207031,
+            "density_max": 303.7815246582031,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 26.46991882324219,
+            "vertical_sampling_m": 7.1622138023376465
+          },
+          "maximum_site_edge_height_jump_m": 0.00115966796875,
+          "production_pipeline": {
+            "anchor": [
+              3474,
+              706,
+              10186
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 19,
+      "name": "TropicalJungle",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 1600.0,
+        "occupancy": 0.68,
+        "active_cells": 101,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            2617.124267578125,
+            4190.09716796875
+          ],
+          "radius": 427.0904541015625,
+          "variant": 0.8366439938545227
+        },
+        {
+          "center": [
+            2478.056640625,
+            -2307.9130859375
+          ],
+          "radius": 323.92498779296875,
+          "variant": 0.030663970857858658
+        },
+        {
+          "center": [
+            837.1934204101562,
+            3824.3603515625
+          ],
+          "radius": 383.8468933105469,
+          "variant": 0.4988037943840027
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 1894,
+        "solid_removed_samples": 41,
+        "open_air_under_roof_samples": 363,
+        "sampled_roof_clearance_lower_bound_m": 28.26710557937622,
+        "columns_with_open_roof_clearance_at_least_1_8m": 64,
+        "maximum_positive_delta_m": 77.06914472579956,
+        "maximum_negative_delta_m": -24.018235206604004,
+        "outside_band_maximum_delta_m": 4.38690185546875e-05,
+        "density_min": -367.8873596191406,
+        "density_max": 359.4832763671875,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 10.677261352539062,
+        "vertical_sampling_m": 4.038157939910889
+      },
+      "production_pipeline": {
+        "anchor": [
+          2712,
+          590,
+          4168
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0013427734375,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9629829938104681,
+        "slope_p50_degrees": 3.588543176651001,
+        "slope_p95_degrees": 10.540063858032227,
+        "largest_gentle_component_fraction": 0.9591971636319933,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": 170.1896514892578,
+        "height_max_m": 521.2998657226562
+      },
+      "source_sha256": "6713fac1346d749717913ce19676deb099b24e6acd7eb4f01f11e058dfd0711a",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              2478.056640625,
+              -2307.9130859375
+            ],
+            "radius": 323.92498779296875,
+            "variant": 0.030663970857858658
+          },
+          "site_geometry": {
+            "solid_added_samples": 0,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 0,
+            "sampled_roof_clearance_lower_bound_m": 0.0,
+            "columns_with_open_roof_clearance_at_least_1_8m": 0,
+            "maximum_positive_delta_m": 2.574920654296875e-05,
+            "maximum_negative_delta_m": -2.47955322265625e-05,
+            "outside_band_maximum_delta_m": 2.574920654296875e-05,
+            "density_min": -274.8839111328125,
+            "density_max": 274.88397216796875,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 16.196249389648436,
+            "vertical_sampling_m": 5.2013139724731445
+          },
+          "maximum_site_edge_height_jump_m": 0.00174713134765625,
+          "production_pipeline": {
+            "anchor": [
+              2266,
+              138,
+              -2632
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              837.1934204101562,
+              3824.3603515625
+            ],
+            "radius": 383.8468933105469,
+            "variant": 0.4988037943840027
+          },
+          "site_geometry": {
+            "solid_added_samples": 344,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 7,
+            "sampled_roof_clearance_lower_bound_m": 8.017606139183044,
+            "columns_with_open_roof_clearance_at_least_1_8m": 1,
+            "maximum_positive_delta_m": 77.05077064037323,
+            "maximum_negative_delta_m": -2.8252601623535156e-05,
+            "outside_band_maximum_delta_m": 5.829334259033203e-05,
+            "density_min": -363.8602294921875,
+            "density_max": 355.7258605957031,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 19.192344665527344,
+            "vertical_sampling_m": 8.017606139183044
+          },
+          "maximum_site_edge_height_jump_m": 0.001556396484375,
+          "production_pipeline": {
+            "anchor": [
+              818,
+              526,
+              3746
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 20,
+      "name": "VolcanicDesert",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2600.0,
+        "occupancy": 0.64,
+        "active_cells": 96,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -6153.8173828125,
+            912.6196899414062
+          ],
+          "radius": 690.8823852539062,
+          "variant": 0.8215500712394714
+        },
+        {
+          "center": [
+            -11325.17578125,
+            1415.1898193359375
+          ],
+          "radius": 522.9972534179688,
+          "variant": 0.014409782364964485
+        },
+        {
+          "center": [
+            -9377.8671875,
+            3821.486083984375
+          ],
+          "radius": 623.4446411132812,
+          "variant": 0.4973299503326416
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 3550,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 387,
+        "sampled_roof_clearance_lower_bound_m": 13.77138900756836,
+        "columns_with_open_roof_clearance_at_least_1_8m": 100,
+        "maximum_positive_delta_m": 37.68728256225586,
+        "maximum_negative_delta_m": -2.86102294921875e-05,
+        "outside_band_maximum_delta_m": 3.0517578125e-05,
+        "density_min": -314.45550537109375,
+        "density_max": 304.28375244140625,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 17.272059631347656,
+        "vertical_sampling_m": 3.44284725189209
+      },
+      "production_pipeline": {
+        "anchor": [
+          -6086,
+          -64,
+          928
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00135040283203125,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9754822426536867,
+        "slope_p50_degrees": 4.239232063293457,
+        "slope_p95_degrees": 17.40311050415039,
+        "largest_gentle_component_fraction": 0.9525268914127757,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -214.67111206054688,
+        "height_max_m": 59.10370635986328
+      },
+      "source_sha256": "0cd49f09b9f9360d73a0c8138f5923a494334ff97c82b6d9796649c26c739cca",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -11325.17578125,
+              1415.1898193359375
+            ],
+            "radius": 522.9972534179688,
+            "variant": 0.014409782364964485
+          },
+          "site_geometry": {
+            "solid_added_samples": 433,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 65,
+            "sampled_roof_clearance_lower_bound_m": 13.650995016098022,
+            "columns_with_open_roof_clearance_at_least_1_8m": 28,
+            "maximum_positive_delta_m": 37.38741409778595,
+            "maximum_negative_delta_m": -3.314018249511719e-05,
+            "outside_band_maximum_delta_m": 3.314018249511719e-05,
+            "density_min": -307.9880065917969,
+            "density_max": 300.4310302734375,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 26.149862670898436,
+            "vertical_sampling_m": 6.825497508049011
+          },
+          "maximum_site_edge_height_jump_m": 0.0026702880859375,
+          "production_pipeline": {
+            "anchor": [
+              -11326,
+              -144,
+              1362
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -9377.8671875,
+              3821.486083984375
+            ],
+            "radius": 623.4446411132812,
+            "variant": 0.4973299503326416
+          },
+          "site_geometry": {
+            "solid_added_samples": 474,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 55,
+            "sampled_roof_clearance_lower_bound_m": 12.842167854309082,
+            "columns_with_open_roof_clearance_at_least_1_8m": 24,
+            "maximum_positive_delta_m": 37.46182918548584,
+            "maximum_negative_delta_m": -2.7179718017578125e-05,
+            "outside_band_maximum_delta_m": 2.7179718017578125e-05,
+            "density_min": -292.39019775390625,
+            "density_max": 274.5487060546875,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 31.17223205566406,
+            "vertical_sampling_m": 6.421083927154541
+          },
+          "maximum_site_edge_height_jump_m": 0.003154754638671875,
+          "production_pipeline": {
+            "anchor": [
+              -9316,
+              72,
+              3790
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 21,
+      "name": "RedDesert",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2900.0,
+        "occupancy": 0.55,
+        "active_cells": 91,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -1232.5994873046875,
+            1027.947509765625
+          ],
+          "radius": 809.9279174804688,
+          "variant": 0.9910686016082764
+        },
+        {
+          "center": [
+            -12825.7978515625,
+            1618.4373779296875
+          ],
+          "radius": 581.568359375,
+          "variant": 0.006760061718523502
+        },
+        {
+          "center": [
+            10474.794921875,
+            -4589.03369140625
+          ],
+          "radius": 693.7017211914062,
+          "variant": 0.4900936484336853
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 4313,
+        "solid_removed_samples": 0,
+        "open_air_under_roof_samples": 1296,
+        "sampled_roof_clearance_lower_bound_m": 35.41430950164795,
+        "columns_with_open_roof_clearance_at_least_1_8m": 176,
+        "maximum_positive_delta_m": 79.16961622238159,
+        "maximum_negative_delta_m": -3.0040740966796875e-05,
+        "outside_band_maximum_delta_m": 3.0040740966796875e-05,
+        "density_min": -332.2408752441406,
+        "density_max": 311.7480773925781,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 20.248197937011717,
+        "vertical_sampling_m": 3.541430950164795
+      },
+      "production_pipeline": {
+        "anchor": [
+          -1234,
+          196,
+          1026
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.005889892578125,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9883420467519981,
+        "slope_p50_degrees": 11.718202590942383,
+        "slope_p95_degrees": 24.184396743774414,
+        "largest_gentle_component_fraction": 0.9883420467519981,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -131.00042724609375,
+        "height_max_m": 260.6369323730469
+      },
+      "source_sha256": "d810e851ba0f58c428fae3d32c865a908b68574eef37bd3f8f5f0249ab14ebe6",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -12825.7978515625,
+              1618.4373779296875
+            ],
+            "radius": 581.568359375,
+            "variant": 0.006760061718523502
+          },
+          "site_geometry": {
+            "solid_added_samples": 386,
+            "solid_removed_samples": 1,
+            "open_air_under_roof_samples": 385,
+            "sampled_roof_clearance_lower_bound_m": 55.40366542339325,
+            "columns_with_open_roof_clearance_at_least_1_8m": 55,
+            "maximum_positive_delta_m": 78.31529581546783,
+            "maximum_negative_delta_m": -1.7211976051330566,
+            "outside_band_maximum_delta_m": 2.3365020751953125e-05,
+            "density_min": -235.7181396484375,
+            "density_max": 251.09426879882812,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 29.07841796875,
+            "vertical_sampling_m": 6.155962824821472
+          },
+          "maximum_site_edge_height_jump_m": 0.010101318359375,
+          "production_pipeline": {
+            "anchor": [
+              -12884,
+              -248,
+              1588
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              10474.794921875,
+              -4589.03369140625
+            ],
+            "radius": 693.7017211914062,
+            "variant": 0.4900936484336853
+          },
+          "site_geometry": {
+            "solid_added_samples": 322,
+            "solid_removed_samples": 2,
+            "open_air_under_roof_samples": 330,
+            "sampled_roof_clearance_lower_bound_m": 56.903337478637695,
+            "columns_with_open_roof_clearance_at_least_1_8m": 53,
+            "maximum_positive_delta_m": 78.4963538646698,
+            "maximum_negative_delta_m": -1.7191147804260254,
+            "outside_band_maximum_delta_m": 4.57763671875e-05,
+            "density_min": -327.7032775878906,
+            "density_max": 316.1332702636719,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 34.68508605957031,
+            "vertical_sampling_m": 7.112917184829712
+          },
+          "maximum_site_edge_height_jump_m": 0.00786590576171875,
+          "production_pipeline": {
+            "anchor": [
+              10474,
+              156,
+              -4590
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 22,
+      "name": "AridPlateau",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2700.0,
+        "occupancy": 0.6,
+        "active_cells": 94,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1499.9139404296875,
+            -971.2570190429688
+          ],
+          "radius": 719.91748046875,
+          "variant": 0.8329513072967529
+        },
+        {
+          "center": [
+            951.42529296875,
+            11915.1875
+          ],
+          "radius": 543.2982177734375,
+          "variant": 0.015269579365849495
+        },
+        {
+          "center": [
+            -14803.208984375,
+            4328.19873046875
+          ],
+          "radius": 648.2640991210938,
+          "variant": 0.5012227296829224
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 4276,
+        "solid_removed_samples": 40,
+        "open_air_under_roof_samples": 3336,
+        "sampled_roof_clearance_lower_bound_m": 29.454145431518555,
+        "columns_with_open_roof_clearance_at_least_1_8m": 541,
+        "maximum_positive_delta_m": 52.0444278717041,
+        "maximum_negative_delta_m": -3.1461448669433594,
+        "outside_band_maximum_delta_m": 4.38690185546875e-05,
+        "density_min": -404.9169921875,
+        "density_max": 421.239013671875,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 17.99793701171875,
+        "vertical_sampling_m": 4.207735061645508
+      },
+      "production_pipeline": {
+        "anchor": [
+          1534,
+          52,
+          -666
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.020587921142578125,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.8709212186767622,
+        "slope_p50_degrees": 7.778729438781738,
+        "slope_p95_degrees": 38.500545501708984,
+        "largest_gentle_component_fraction": 0.853013641007151,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -251.90826416015625,
+        "height_max_m": 272.19232177734375
+      },
+      "source_sha256": "fa498c54e493e150d351e4395b6ef81e76befd8070e3d018b26895ff578315b1",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              951.42529296875,
+              11915.1875
+            ],
+            "radius": 543.2982177734375,
+            "variant": 0.015269579365849495
+          },
+          "site_geometry": {
+            "solid_added_samples": 660,
+            "solid_removed_samples": 3,
+            "open_air_under_roof_samples": 488,
+            "sampled_roof_clearance_lower_bound_m": 28.369712829589844,
+            "columns_with_open_roof_clearance_at_least_1_8m": 135,
+            "maximum_positive_delta_m": 50.59027862548828,
+            "maximum_negative_delta_m": -3.1391525268554688,
+            "outside_band_maximum_delta_m": 4.38690185546875e-05,
+            "density_min": -308.6339111328125,
+            "density_max": 306.31512451171875,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 27.164910888671876,
+            "vertical_sampling_m": 7.092428207397461
+          },
+          "maximum_site_edge_height_jump_m": 0.01055908203125,
+          "production_pipeline": {
+            "anchor": [
+              1168,
+              758,
+              11942
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              -14803.208984375,
+              4328.19873046875
+            ],
+            "radius": 648.2640991210938,
+            "variant": 0.5012227296829224
+          },
+          "site_geometry": {
+            "solid_added_samples": 615,
+            "solid_removed_samples": 5,
+            "open_air_under_roof_samples": 488,
+            "sampled_roof_clearance_lower_bound_m": 28.84540319442749,
+            "columns_with_open_roof_clearance_at_least_1_8m": 133,
+            "maximum_positive_delta_m": 51.46447253227234,
+            "maximum_negative_delta_m": -3.1487520933151245,
+            "outside_band_maximum_delta_m": 3.337860107421875e-05,
+            "density_min": -318.1912841796875,
+            "density_max": 380.75335693359375,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 32.413204956054685,
+            "vertical_sampling_m": 7.211350798606873
+          },
+          "maximum_site_edge_height_jump_m": 0.0133514404296875,
+          "production_pipeline": {
+            "anchor": [
+              -15064,
+              -126,
+              4230
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 23,
+      "name": "BurningJungle",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2500.0,
+        "occupancy": 0.67,
+        "active_cells": 108,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            -1465.016845703125,
+            -863.6124267578125
+          ],
+          "radius": 692.7327880859375,
+          "variant": 0.9636637568473816
+        },
+        {
+          "center": [
+            -3964.54443359375,
+            14108.58203125
+          ],
+          "radius": 505.0719909667969,
+          "variant": 0.025359991937875748
+        },
+        {
+          "center": [
+            11275.255859375,
+            -1568.824462890625
+          ],
+          "radius": 599.00830078125,
+          "variant": 0.49504148960113525
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 903,
+        "solid_removed_samples": 5,
+        "open_air_under_roof_samples": 524,
+        "sampled_roof_clearance_lower_bound_m": 50.285693645477295,
+        "columns_with_open_roof_clearance_at_least_1_8m": 72,
+        "maximum_positive_delta_m": 77.09381651878357,
+        "maximum_negative_delta_m": -2.700378656387329,
+        "outside_band_maximum_delta_m": 3.0040740966796875e-05,
+        "density_min": -315.50390625,
+        "density_max": 300.95477294921875,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 17.318319702148436,
+        "vertical_sampling_m": 3.5918352603912354
+      },
+      "production_pipeline": {
+        "anchor": [
+          -1484,
+          16,
+          -968
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.0072021484375,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 0.9875608436992969,
+        "slope_p50_degrees": 5.407182216644287,
+        "slope_p95_degrees": 18.681549072265625,
+        "largest_gentle_component_fraction": 0.9864791779340184,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": -281.8511047363281,
+        "height_max_m": 134.17425537109375
+      },
+      "source_sha256": "7bf3e929c2116622bcb1eb93c0b65f833051c9a83f8bebc1552e59051ff74695",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -3964.54443359375,
+              14108.58203125
+            ],
+            "radius": 505.0719909667969,
+            "variant": 0.025359991937875748
+          },
+          "site_geometry": {
+            "solid_added_samples": 150,
+            "solid_removed_samples": 1,
+            "open_air_under_roof_samples": 69,
+            "sampled_roof_clearance_lower_bound_m": 53.70442485809326,
+            "columns_with_open_roof_clearance_at_least_1_8m": 14,
+            "maximum_positive_delta_m": 76.44388580322266,
+            "maximum_negative_delta_m": -22.80048942565918,
+            "outside_band_maximum_delta_m": 4.1961669921875e-05,
+            "density_min": -242.671875,
+            "density_max": 250.3350830078125,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 25.253599548339842,
+            "vertical_sampling_m": 5.967158317565918
+          },
+          "maximum_site_edge_height_jump_m": 0.001861572265625,
+          "production_pipeline": {
+            "anchor": [
+              -3940,
+              542,
+              14032
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              11275.255859375,
+              -1568.824462890625
+            ],
+            "radius": 599.00830078125,
+            "variant": 0.49504148960113525
+          },
+          "site_geometry": {
+            "solid_added_samples": 135,
+            "solid_removed_samples": 0,
+            "open_air_under_roof_samples": 66,
+            "sampled_roof_clearance_lower_bound_m": 44.2172611951828,
+            "columns_with_open_roof_clearance_at_least_1_8m": 16,
+            "maximum_positive_delta_m": 77.24912023544312,
+            "maximum_negative_delta_m": -12.725196480751038,
+            "outside_band_maximum_delta_m": 1.704692840576172e-05,
+            "density_min": -258.0519104003906,
+            "density_max": 259.388671875,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 29.9504150390625,
+            "vertical_sampling_m": 6.316751599311829
+          },
+          "maximum_site_edge_height_jump_m": 0.003997802734375,
+          "production_pipeline": {
+            "anchor": [
+              11274,
+              332,
+              -1480
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    },
+    {
+      "id": 24,
+      "name": "TropicalMangrove",
+      "seed": 1337,
+      "placement": {
+        "spacing_m": 2600.0,
+        "occupancy": 0.48,
+        "active_cells": 64,
+        "sampled_cells": 144
+      },
+      "sites": [
+        {
+          "center": [
+            1220.327392578125,
+            6435.2861328125
+          ],
+          "radius": 720.1707153320312,
+          "variant": 0.9623593091964722
+        },
+        {
+          "center": [
+            -6603.7177734375,
+            1001.701171875
+          ],
+          "radius": 521.0446166992188,
+          "variant": 0.005021989811211824
+        },
+        {
+          "center": [
+            6760.6494140625,
+            -6181.71630859375
+          ],
+          "radius": 624.931396484375,
+          "variant": 0.5044779777526855
+        }
+      ],
+      "site_geometry": {
+        "solid_added_samples": 2210,
+        "solid_removed_samples": 62,
+        "open_air_under_roof_samples": 585,
+        "sampled_roof_clearance_lower_bound_m": 9.155925512313843,
+        "columns_with_open_roof_clearance_at_least_1_8m": 147,
+        "maximum_positive_delta_m": 15.044249534606934,
+        "maximum_negative_delta_m": -2.0987768173217773,
+        "outside_band_maximum_delta_m": 2.2411346435546875e-05,
+        "density_min": -149.527587890625,
+        "density_max": 160.20758056640625,
+        "density_grid": [
+          81,
+          129,
+          81
+        ],
+        "horizontal_sampling_m": 18.00426788330078,
+        "vertical_sampling_m": 1.8311851024627686
+      },
+      "production_pipeline": {
+        "anchor": [
+          1184,
+          404,
+          6398
+        ],
+        "shared_exact_lod_samples": 125,
+        "production_density_samples": 1331
+      },
+      "maximum_site_edge_height_jump_m": 0.00146484375,
+      "scene_uniforms": {
+        "uHeightAmplitude": 1000.0,
+        "uHeightFrequency": 1.5e-05,
+        "uDetailScale": 0.35,
+        "uBaseHeight": 0.0,
+        "uSeaLevel": -100.0,
+        "uSeaBlendWidth": 64.0
+      },
+      "landscape_extent_m": 4096.0,
+      "landscape_sampling_m": 32.0,
+      "traversal_proxy": {
+        "slope_below_30deg_fraction": 1.0,
+        "slope_p50_degrees": 2.65893292427063,
+        "slope_p95_degrees": 4.335589408874512,
+        "largest_gentle_component_fraction": 1.0,
+        "largest_component_crosses_x": true,
+        "largest_component_crosses_z": true,
+        "height_min_m": 315.6882629394531,
+        "height_max_m": 505.4687805175781
+      },
+      "source_sha256": "fd1ddd73db6cb89644ae29ad22e26c3e8b8142d504ffdd8aafda2728569b5672",
+      "alternative_sites": [
+        {
+          "selection": "low",
+          "site": {
+            "center": [
+              -6603.7177734375,
+              1001.701171875
+            ],
+            "radius": 521.0446166992188,
+            "variant": 0.005021989811211824
+          },
+          "site_geometry": {
+            "solid_added_samples": 286,
+            "solid_removed_samples": 8,
+            "open_air_under_roof_samples": 67,
+            "sampled_roof_clearance_lower_bound_m": 7.214250564575195,
+            "columns_with_open_roof_clearance_at_least_1_8m": 26,
+            "maximum_positive_delta_m": 15.032490730285645,
+            "maximum_negative_delta_m": -2.097060203552246,
+            "outside_band_maximum_delta_m": 1.430511474609375e-05,
+            "density_min": -142.60549926757812,
+            "density_max": 150.1840057373047,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 26.052230834960938,
+            "vertical_sampling_m": 3.6071252822875977
+          },
+          "maximum_site_edge_height_jump_m": 0.001129150390625,
+          "production_pipeline": {
+            "anchor": [
+              -6578,
+              -56,
+              974
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        },
+        {
+          "selection": "middle",
+          "site": {
+            "center": [
+              6760.6494140625,
+              -6181.71630859375
+            ],
+            "radius": 624.931396484375,
+            "variant": 0.5044779777526855
+          },
+          "site_geometry": {
+            "solid_added_samples": 258,
+            "solid_removed_samples": 7,
+            "open_air_under_roof_samples": 62,
+            "sampled_roof_clearance_lower_bound_m": 7.921127080917358,
+            "columns_with_open_roof_clearance_at_least_1_8m": 24,
+            "maximum_positive_delta_m": 15.036028742790222,
+            "maximum_negative_delta_m": -2.0964486598968506,
+            "outside_band_maximum_delta_m": 1.6927719116210938e-05,
+            "density_min": -181.06594848632812,
+            "density_max": 166.7105712890625,
+            "density_grid": [
+              41,
+              65,
+              41
+            ],
+            "horizontal_sampling_m": 31.24656982421875,
+            "vertical_sampling_m": 3.960563540458679
+          },
+          "maximum_site_edge_height_jump_m": 0.001312255859375,
+          "production_pipeline": {
+            "anchor": [
+              6728,
+              -168,
+              -6152
+            ],
+            "shared_exact_lod_samples": 125,
+            "production_density_samples": 1331
+          }
+        }
+      ]
+    }
+  ]
+}

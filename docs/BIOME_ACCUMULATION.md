@@ -27,7 +27,7 @@ Les identifiants et noms des 26 dossiers sont déclarés dans [`ProceduralTerrai
 
 | Composante | Signification | Bornes avant `detailScale` |
 | --- | --- | --- |
-| `x` | Hauteur propre au biome, ajoutée à la hauteur macro. | −640 à +640 m |
+| `x` | Hauteur propre au biome, ajoutée à la hauteur macro. | −4096 à +4096 (avant `detailScale`) |
 | `y` | Épaisseur **totale** de la bande 3D. Zéro ferme cette bande. | 0 à 576 m |
 | `z` | Décalage de la bande utilisé par la recette volumique. | −160 à +160 m |
 | `w` | Contrôle supplémentaire dont chaque fonction 3D définit le sens. | 0 à 1 |
@@ -38,7 +38,7 @@ L’épaisseur provient entièrement des recettes 2D. Aucun minimum global ne tr
 
 Le `.w` est transmis à la fonction 3D dans `column.blend.w`. Le noyau d’accumulation et le helper volumique ne lui donnent aucune signification automatique. Les recettes de départ choisissent explicitement d’atténuer leurs amplitudes lorsque ce contrôle baisse. Une nouvelle fonction peut l’utiliser pour placer des rochers, ouvrir des cavités, choisir une densité locale ou ne pas l’utiliser. Un `.w` nul ne ferme donc la géométrie que si la fonction du biome le décide.
 
-Les primitives partagées se trouvent dans [`biome_relief_common.glsl`](../Asset/Shader/ProceduralTerrain/biome_relief_common.glsl) et [`field_noise_2d.glsl`](../Asset/Shader/ProceduralTerrain/field_noise_2d.glsl). Les constantes et calculs propres à un biome restent dans son dossier.
+Les primitives partagées se trouvent dans [`biome_relief_common.glsl`](../Asset/Shader/ProceduralTerrain/biome_relief_common.glsl) et [`Noise/noise_2d.glsl`](../Asset/Shader/Noise/noise_2d.glsl). Les constantes et calculs propres à un biome restent dans son dossier. Le catalogue 2D/3D, les compositions et les transformations scalaires sont décrits dans [NOISE_LIBRARY.md](NOISE_LIBRARY.md). Les fonctions de bruit prennent une seed explicite ; une recette transmet `uSeed ^ salt` pour conserver son motif.
 
 ## Contrat de la fonction 3D : renvoyer une contribution
 
@@ -168,8 +168,9 @@ Les clés du cache incluent les sources développées, les defines, les stages e
 | `biomes/PolarIce/relief.C.glsl` | La passe 2D de PolarIce. |
 | `biomes/PolarIce/volume.C.glsl` | La passe 3D de PolarIce. |
 | `biome_relief_common.glsl` | Les passes 2D qui utilisent ce helper. |
-| `field_noise_2d.glsl` | La classification et les passes 2D qui l’incluent. |
-| `biome_volume_common.glsl` ou `field_noise_3d.glsl` | Les passes 3D qui l’incluent. |
+| `Noise/noise_shaping.glsl` | Les programmes 2D et 3D qui utilisent la bibliothèque ; aucune fonction spatiale dans ce fichier. |
+| `Noise/noise_2d.glsl` | La classification et les passes 2D qui l’incluent. |
+| `biome_volume_common.glsl` ou `Noise/noise_3d.glsl` | Les passes 3D qui l’incluent. |
 | `field_surface_accumulate.glsl` | Les 26 passes 2D. |
 | `field_volume_accumulate.glsl` | Les 26 passes 3D. |
 | Un fichier commun de coordonnées, de poids ou de disposition | Tous les programmes qui incluent ce fichier. |

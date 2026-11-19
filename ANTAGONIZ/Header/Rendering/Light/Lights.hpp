@@ -5,11 +5,13 @@
 #include "UniformBufferLight.hpp"
 #include "UniformBufferPlaneHidden.hpp"
 #include "ShadowMatrix.hpp"
+#include <array>
+#include <vector>
 
 #define TEXTURE_DIM 2048
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
-#define SHADOW_MAP_SPOT_COUNT 4
+#define SHADOW_MAP_SPOT_COUNT 1
 
 struct GraphicsDataMisc;
 
@@ -36,6 +38,14 @@ namespace Ge
 		void mapMemoryShadow();
 		void setshadow(bool state);
 		bool getshadow() const;
+		// Extend directional caster depth without diluting cascade XY resolution.
+		// Includes off-screen mountains lying towards the light from the receivers.
+		void setShadowCasterMargin(float metres);
+		float getShadowCasterMargin() const { return m_shadowCasterMargin; }
+		const std::array<float, SHADOW_MAP_CASCADE_COUNT>& getDirectionalShadowCasterMargins() const { return m_directionalShadowCasterMargins; }
+		// Biases are measured in the world footprint of a cascade texel.
+		void setDirectionalShadowBias(float depthTexels, float normalTexels);
+		glm::vec2 getDirectionalShadowBias() const { return {m_ubl.shadowDepthBias, m_ubl.shadowNormalBias}; }
 		int addHiddenPlane(
 			const glm::vec3& position,
 			const glm::vec3& axisX,
@@ -69,7 +79,8 @@ namespace Ge
 		bool m_active = true;
 		//shadow Dir
 		float cascadeSplitLambda = 0.96f;
-		glm::vec3 frustumCorners[8];
+		float m_shadowCasterMargin = 0.0f;
+		std::array<float, SHADOW_MAP_CASCADE_COUNT> m_directionalShadowCasterMargins{};
 	};
 }
 

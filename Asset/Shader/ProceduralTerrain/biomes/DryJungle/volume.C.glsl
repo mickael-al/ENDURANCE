@@ -1,26 +1,30 @@
 #version 450 core
-// Biome 18: DryJungle. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 18: DryJungle. World-space XZ is in metres; vertical recipe values
+// are multiplied by detailScale. Keep site arguments identical in both stages.
 #define FIELD_BIOME_ID 18u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
+#include "../../biome_landforms_3d.glsl"
 
-const vec4 FIELD_VOLUME = vec4(-42,12,148,.35);
-const vec4 FIELD_SHAPE = vec4(.25,.15,.60,.17);
-const vec4 FIELD_STYLE = vec4(.65,.55,.40,.50);
-
-float fieldVolume(vec3 p, FieldColumn column)
+// One tilted shelf on a table edge; undercut mouths stay lateral and local.
+float fieldVolume(vec3 p,FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if(!landVolumeEnabled(column)) return 0.0;
+    LandSite s=landSite(p.xz,2200.0,1801u,0.65);
+    if(s.mask<=0.0 || s.variant<0.38) return 0.0;
+    vec3 q=landVolumeLocal(p,column,s)-vec3(-0.36*s.radius,0.0,0.0);
+    float base=column.terrain.x-p.y;
+    vec3 shelf=q-vec3(0.0,38.0,0.0);
+    shelf.y-=0.26*shelf.x;
+    float slab=-landBox(shelf,vec3(81.0,31.0,118.0));
+    float root=-landEllipsoid(q-vec3(47.0,-12.0,0.0),vec3(60.0,92.0,120.0));
+    float target=landUnion(base,landUnion(slab,root,15.0)*uDetailScale,5.0*uDetailScale);
+    if(s.variant>0.65)
+    {
+        float cavity=landEllipsoid(q-vec3(-42.0,4.0,22.0),vec3(66.0,27.0,54.0));
+        target=min(target,cavity*uDetailScale);
+    }
+    return landDelta(p,column,target,s.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

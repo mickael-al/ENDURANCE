@@ -70,7 +70,7 @@ namespace ProceduralTerrain
                 const auto& f=config.field;
                 const auto set=[&](const char* name,float value){ glUniform1f(glGetUniformLocation(id,name),value); };
                 set("uBaseHeight",f.baseHeight); set("uHeightAmplitude",f.heightAmplitude);
-                set("uHeightFrequency",f.heightFrequency); set("uClimateFrequency",f.climateFrequency);
+                set("uHeightFrequency",f.heightFrequency);
                 set("uBandOffset",f.bandOffset); set("uBandOffsetVariation",f.bandOffsetVariation);
                 set("uDetailScale",f.detailScale); set("uSphereRadius",f.sphereRadius);
                 set("uSeaLevel",f.seaLevel); set("uSeaBlendWidth",f.seaBlendWidth);
@@ -834,6 +834,10 @@ namespace ProceduralTerrain
             job.stage=JobStage::Free;
             --s.statistics.pendingJobs;
         }
+        // Count completions can start emissions even when every job slot is
+        // occupied. Submit them now; no new chunk or later frame must be
+        // required to flush their commands. Idle polls issue no extra flush.
+        if (s.flushPending) { glFlush(); s.flushPending=false; }
     }
 
     void GpuMesher::cancel(std::uint64_t token) noexcept

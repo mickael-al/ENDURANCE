@@ -7,19 +7,36 @@ from pathlib import Path
 from gl_headless import GL, shader_source
 
 ROOT = Path(__file__).resolve().parents[2]
-SHADER = ROOT / "Asset/Shader/ProceduralTerrain/field_noise_2d.glsl"
+SHADER = ROOT / "Asset/Shader/Noise/noise_2d.glsl"
 
 # The four-corner scalar construction is intentionally independent of the
-# vector implementation. Shared hash/gradient primitives define its reference.
+# vector implementation. Its fixed historical hash/gradient helpers are independent of the library.
 REFERENCE = r"""
+uint referenceHash(uint x)
+{
+    x ^= x >> 16u; x *= 0x7feb352du;
+    x ^= x >> 15u; x *= 0x846ca68bu;
+    return x ^ (x >> 16u);
+}
+uint referenceHash2(ivec2 p, uint salt)
+{
+    return referenceHash(uint(p.x)*0x9e3779b9u ^ uint(p.y)*0x85ebca6bu ^ uSeed ^ salt);
+}
+float referenceGradient2(uint h, vec2 p)
+{
+    uint g=h&7u;
+    if(g<4u) return ((g&1u)==0u?p.x:-p.x)+((g&2u)==0u?p.y:-p.y);
+    return g==4u?p.x:g==5u?-p.x:g==6u?p.y:-p.y;
+}
+vec2 referenceFade(vec2 f) { return f*f*f*(f*(f*6.0-15.0)+10.0); }
 float referenceNoise2(vec2 p, uint salt)
 {
     ivec2 i = ivec2(floor(p));
-    vec2 f = fract(p), u = fieldFade(f);
-    float a = fieldGradient2(fieldHash2(i, salt), f);
-    float b = fieldGradient2(fieldHash2(i + ivec2(1,0), salt), f - vec2(1,0));
-    float c = fieldGradient2(fieldHash2(i + ivec2(0,1), salt), f - vec2(0,1));
-    float d = fieldGradient2(fieldHash2(i + ivec2(1,1), salt), f - vec2(1,1));
+    vec2 f = fract(p), u = referenceFade(f);
+    float a = referenceGradient2(referenceHash2(i, salt), f);
+    float b = referenceGradient2(referenceHash2(i + ivec2(1,0), salt), f - vec2(1,0));
+    float c = referenceGradient2(referenceHash2(i + ivec2(0,1), salt), f - vec2(0,1));
+    float d = referenceGradient2(referenceHash2(i + ivec2(1,1), salt), f - vec2(1,1));
     return clamp(mix(mix(a,b,u.x), mix(c,d,u.x), u.y), -1.0, 1.0);
 }
 layout(local_size_x=64) in;
@@ -48,8 +65,9 @@ def main():
     with GL() as gl:
         print(f"OpenGL {gl.version}; renderer: {gl.renderer}", flush=True)
         programs = [gl.compile([(0x91B9, "#version 450 core\n"
-            f"#define PROBE_NOISE {function}\nuniform uint uSeed;\n" + source)],
-            function) for function in ("referenceNoise2", "fieldNoise2")]
+            f"#define PROBE_NOISE(p,salt) {expression}\nuniform uint uSeed;\n" + source)],
+            label) for label,expression in (("historical scalar", "referenceNoise2(p,salt)"),
+                ("library vector", "noisePerlin2D(p,uSeed ^ (salt))"))]
         gl.buffer(payload, 0)
         output = gl.buffer(len(points) * 4, 1)
         for seed in (0, 1, 1337, 98765, 0xffffffff):

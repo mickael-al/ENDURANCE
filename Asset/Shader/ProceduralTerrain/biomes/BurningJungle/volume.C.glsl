@@ -1,26 +1,33 @@
 #version 450 core
-// Biome 23: BurningJungle. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 23: BurningJungle. Terrain-only multiscale recipe, November 2026.
 #define FIELD_BIOME_ID 23u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-64,18,180,.30);
-const vec4 FIELD_SHAPE = vec4(.25,.30,.45,.19);
-const vec4 FIELD_STYLE = vec4(.75,.45,.70,.65);
+#include "../../biome_landforms_3d.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if(!landVolumeEnabled(column)) return 0.0;
+    LandSite s=landSite(p.xz,2500.0,2310u,.67);
+    if(s.mask<=0.0) return 0.0;
+    vec3 q=landVolumeLocal(p,column,s);
+    float base=column.terrain.x-p.y;
+    // Rotation varies with height, creating mineral buttresses whose shapes
+    // cannot be expressed by a height map. Ground outside the site stays calm.
+    float angle=.006*q.y+.8*s.variant;
+    vec2 turn=vec2(cos(angle),sin(angle));
+    vec2 xz=vec2(dot(q.xz,turn),dot(q.xz,vec2(-turn.y,turn.x)));
+    float arm=s.radius*.14;
+    vec3 a=vec3(xz.x-arm*.45-.23*q.y,q.y-62.0,xz.y);
+    vec3 b=vec3(xz.x+arm*.55+.15*q.y,q.y-48.0,xz.y-arm*.25);
+    float first=-landEllipsoid(a,vec3(arm*.74,156.0,arm*.62));
+    float second=-landEllipsoid(b,vec3(arm*.65,128.0,arm*.58));
+    float rock=landUnion(first,second,22.0);
+    float ribs=3.0*noiseSimplex3D(vec3(xz.x,q.y*.6,xz.y)/95.0,uSeed^2311u);
+    float target=max(base,(rock+ribs)*uDetailScale);
+    float gallery=landEllipsoid(q-vec3(0.0,38.0,0.0),vec3(arm*.45,44.0,arm*1.8));
+    target=min(target,gallery*uDetailScale);
+    return landDelta(p,column,target,s.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

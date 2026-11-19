@@ -1,26 +1,41 @@
 #version 450 core
-// Biome 9: ColdMarsh. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 9: porous sphere additions; the original ground is never excavated.
 #define FIELD_BIOME_ID 9u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
+#include "../../biome_landforms_3d.glsl"
+#include "spheres.glsl"
+#include "porosity.glsl"
 
-const vec4 FIELD_VOLUME = vec4(-20,2,44,.65);
-const vec4 FIELD_SHAPE = vec4(.20,.65,.15,.08);
-const vec4 FIELD_STYLE = vec4(.90,.05,.10,.25);
+float coldMarshSphereGeometry(vec3 p, ColdMarshSphereSite site, float anchor)
+{
+    vec3 q = coldMarshSphereLocal(p, site, anchor);
+    return min(-coldMarshSphereEnvelope(q), coldMarshPorousField(q, site.key));
+}
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if (!landVolumeEnabled(column)) return 0.0;
+    ColdMarshSphereSite site = coldMarshSphereSite(p.xz);
+    if (coldMarshSphereFootprint(p.xz, site) >= 64.0) return 0.0;
+    float weight = fieldSurfaceWeight(column, FIELD_BIOME_ID);
+    if (weight <= 0.0) return 0.0;
+    // Shared controls are mixed: decode only in a pure biome. Quantizing the
+    // recomputed anchor identically also avoids a centre jump at that boundary.
+    float anchor = weight >= 1.0 ? coldMarshSphereAnchorFromControl(column.blend.w)
+        : coldMarshSphereStoredAnchor(site);
+    vec3 q = coldMarshSphereLocal(p, site, anchor);
+    float envelope = coldMarshSphereEnvelope(q);
+    if (envelope >= 64.0) return 0.0;
+    float base = column.terrain.x - p.y;
+    // Bound on surviving stone; skips all pore noise where union cannot add.
+    if (-envelope <= base) return 0.0;
+    float stone = min(-envelope, coldMarshPorousField(q, site.key));
+    vec2 band = fieldVolumeEnvelope(column);
+    float margin = min(p.y - band.x, band.y - p.y);
+    float influence = (1.0 - smoothstep(0.0, 64.0, envelope))
+        * smoothstep(8.0, 40.0, margin);
+    return max(0.0, stone - base) * influence;
 }
 
 #include "../../field_volume_accumulate.glsl"

@@ -28,7 +28,8 @@ def main():
                  str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderProgramBatch.cpp"),
                  str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ParallelShaderCompiler.cpp"),
                  str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp"),
-                 str(args.glew_object.resolve()),"-pthread","-l:libGL.so.1","-l:libEGL.so.1","-o",str(library)]
+                 str(args.glew_object.resolve()),"-pthread","-l:libGL.so.1","-l:libEGL.so.1",
+                 "-Wl,--wrap=glFlush,--wrap=glFinish","-o",str(library)]
         subprocess.run(command,check=True)
         with GL() as gl:
             print(f"OpenGL {gl.version}; renderer: {gl.renderer}",flush=True)

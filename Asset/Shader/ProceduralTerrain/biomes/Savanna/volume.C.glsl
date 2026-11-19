@@ -1,26 +1,26 @@
 #version 450 core
-// Biome 17: Savanna. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 17: Savanna. World-space XZ is in metres; vertical recipe values
+// are multiplied by detailScale. Keep site arguments identical in both stages.
 #define FIELD_BIOME_ID 17u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
+#include "../../biome_landforms_3d.glsl"
 
-const vec4 FIELD_VOLUME = vec4(-40,8,105,.45);
-const vec4 FIELD_SHAPE = vec4(.55,.15,.30,.12);
-const vec4 FIELD_STYLE = vec4(.80,.20,.30,.15);
-
-float fieldVolume(vec3 p, FieldColumn column)
+// A rare asymmetric crown/alcove leaves the long ascent slopes clear.
+float fieldVolume(vec3 p,FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if(!landVolumeEnabled(column)) return 0.0;
+    LandSite s=landSite(p.xz,2800.0,1701u,0.62);
+    if(s.mask<=0.0 || s.variant<0.62) return 0.0;
+    vec3 q=landVolumeLocal(p,column,s)-vec3(-0.23*s.radius,0.0,-0.08*s.radius);
+    float base=column.terrain.x-p.y;
+    float crown=-landEllipsoid(q-vec3(22.0,57.0,0.0),vec3(95.0,132.0,70.0));
+    float buttress=-landCapsule(q,vec3(-48.0,-60.0,-12.0),vec3(11.0,80.0,-5.0),33.0);
+    float solid=landUnion(crown,buttress,18.0);
+    float target=landUnion(base,solid*uDetailScale,8.0*uDetailScale);
+    float alcove=landEllipsoid(q-vec3(78.0,17.0,23.0),vec3(68.0,35.0,39.0));
+    target=min(target,alcove*uDetailScale);
+    return landDelta(p,column,target,s.mask);
 }
 
 #include "../../field_volume_accumulate.glsl"

@@ -1,0 +1,187 @@
+{
+  "seed": 1337,
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "mountains": [
+    {
+      "biome": "PolarIce",
+      "source_sha256": "bebd2c45b6b9582a4be8aabab1a3855d35066a5081b6c72d72c88932b22da6fa",
+      "nominal_spacing_m": 20000.0,
+      "nominal_spacing_ratio": 5.0,
+      "nominal_width_ratio": 4.0,
+      "active_candidates": 76,
+      "sampled_cells": 100,
+      "nearest_neighbour_before": {
+        "minimum_m": 2947.2495415989997,
+        "median_m": 3490.9487906682043,
+        "maximum_m": 4634.4842252365115
+      },
+      "nearest_neighbour_after": {
+        "minimum_m": 11522.150111848328,
+        "median_m": 17044.763859099956,
+        "maximum_m": 24959.47610971413
+      },
+      "isolated_footprint_before": {
+        "peak_absolute_m": 563.5921020507812,
+        "area_above_tenth_peak_m2": 1527324.4041319569,
+        "equivalent_diameter_above_tenth_peak_m": 1394.507020053996
+      },
+      "isolated_footprint_after": {
+        "peak_absolute_m": 563.5916748046875,
+        "area_above_tenth_peak_m2": 23552679.363381695,
+        "equivalent_diameter_above_tenth_peak_m": 5476.148532493012
+      },
+      "measured_width_ratio": 3.9269422482225815,
+      "maximum_final_boundary_jump_m": 0.0164794921875,
+      "world_anchor": [
+        -11254.337890625,
+        -4052.742919921875
+      ],
+      "placement_anchor": [
+        -10662.642578125,
+        -12986.7890625
+      ]
+    },
+    {
+      "biome": "FrozenTundra",
+      "source_sha256": "fc3f3c9604cd7d1d0a52c43b83cd36e49e6195ad0c6eed260e919e70c85d4aac",
+      "nominal_spacing_m": 8000.0,
+      "nominal_spacing_ratio": 4.0,
+      "nominal_width_ratio": 2.5,
+      "active_candidates": 83,
+      "sampled_cells": 100,
+      "nearest_neighbour_before": {
+        "minimum_m": 1405.0101719215797,
+        "median_m": 1747.5957629429952,
+        "maximum_m": 2207.850183118914
+      },
+      "nearest_neighbour_after": {
+        "minimum_m": 3643.2968488314887,
+        "median_m": 6071.632871355533,
+        "maximum_m": 10219.252914436322
+      },
+      "isolated_footprint_before": {
+        "peak_absolute_m": 491.8476257324219,
+        "area_above_tenth_peak_m2": 418054.5090648608,
+        "equivalent_diameter_above_tenth_peak_m": 729.5776400056579
+      },
+      "isolated_footprint_after": {
+        "peak_absolute_m": 491.8478088378906,
+        "area_above_tenth_peak_m2": 2700002.6256302935,
+        "equivalent_diameter_above_tenth_peak_m": 1854.1170712339765
+      },
+      "measured_width_ratio": 2.541356765291762,
+      "maximum_final_boundary_jump_m": 0.00946044921875,
+      "world_anchor": [
+        -3486.702880859375,
+        1159.7984619140625
+      ],
+      "placement_anchor": [
+        2682.728759765625,
+        -3425.65625
+      ]
+    },
+    {
+      "biome": "Tundra",
+      "source_sha256": "36489caf9bf1cc567cefd66044dad31aaa3eddfd0ce16d729b54754e8aa55b8d",
+      "nominal_spacing_m": 6000.0,
+      "nominal_spacing_ratio": 6.0,
+      "nominal_width_ratio": 5.0,
+      "active_candidates": 82,
+      "sampled_cells": 100,
+      "nearest_neighbour_before": {
+        "minimum_m": 735.9252653058636,
+        "median_m": 871.5844650281387,
+        "maximum_m": 1062.5978682766095
+      },
+      "nearest_neighbour_after": {
+        "minimum_m": 3775.9112447116136,
+        "median_m": 5089.177793173578,
+        "maximum_m": 7549.689664388085
+      },
+      "isolated_footprint_before": {
+        "peak_absolute_m": 799.9994506835938,
+        "area_above_tenth_peak_m2": 87189.54022061129,
+        "equivalent_diameter_above_tenth_peak_m": 333.18639002240064
+      },
+      "isolated_footprint_after": {
+        "peak_absolute_m": 799.9991455078125,
+        "area_above_tenth_peak_m2": 2168455.1532514384,
+        "equivalent_diameter_above_tenth_peak_m": 1661.6145317444955
+      },
+      "measured_width_ratio": 4.9870420326375955,
+      "maximum_final_boundary_jump_m": 0.007537841796875,
+      "world_anchor": [
+        984.1658325195312,
+        -1865.611328125
+      ],
+      "placement_anchor": [
+        -2610.933349609375,
+        2758.88330078125
+      ]
+    },
+    {
+      "biome": "Taiga",
+      "source_sha256": "a3adc25daf3eda72444d8a3afd435af810427ae7fafec79d852dfad90b604483",
+      "nominal_spacing_m": 8000.0,
+      "nominal_spacing_ratio": 4.0,
+      "nominal_width_ratio": 3.0,
+      "active_candidates": 73,
+      "sampled_cells": 100,
+      "nearest_neighbour_before": {
+        "minimum_m": 1464.2712475912542,
+        "median_m": 1775.6233072556597,
+        "maximum_m": 2253.479245974553
+      },
+      "nearest_neighbour_after": {
+        "minimum_m": 4341.8128355990075,
+        "median_m": 6816.534754054889,
+        "maximum_m": 12727.571446283344
+      },
+      "isolated_footprint_before": {
+        "peak_absolute_m": 699.9998168945312,
+        "area_above_tenth_peak_m2": 427312.2636075339,
+        "equivalent_diameter_above_tenth_peak_m": 737.6115996752005
+      },
+      "isolated_footprint_after": {
+        "peak_absolute_m": 700.0,
+        "area_above_tenth_peak_m2": 3102014.407381182,
+        "equivalent_diameter_above_tenth_peak_m": 1987.3619227045515
+      },
+      "measured_width_ratio": 2.694320321941338,
+      "maximum_final_boundary_jump_m": 0.1314697265625,
+      "world_anchor": [
+        4297.62890625,
+        1500.00390625
+      ],
+      "placement_anchor": [
+        4522.0966796875,
+        -4388.04248046875
+      ]
+    }
+  ],
+  "polar_rift": {
+    "nominal_spacing_ratio": 4.0,
+    "before": {
+      "peak_absolute_m": 238.6630096435547,
+      "area_above_tenth_peak_m2": 119589.49428394785,
+      "equivalent_diameter_above_tenth_peak_m": 390.21285634535684
+    },
+    "after": {
+      "peak_absolute_m": 717.3260498046875,
+      "area_above_tenth_peak_m2": 107022.21571923204,
+      "equivalent_diameter_above_tenth_peak_m": 369.1407823837721
+    },
+    "nearest_neighbour_before": {
+      "minimum_m": 1459.884794888745,
+      "median_m": 1748.8190214388405,
+      "maximum_m": 2165.7203461729896
+    },
+    "nearest_neighbour_after": {
+      "minimum_m": 2594.1871052543947,
+      "median_m": 6634.762812994962,
+      "maximum_m": 10561.471280221538
+    },
+    "maximum_final_boundary_jump_m": 0.011260986328125
+  },
+  "note": "Nominal spacings and widths are measured in the warped placement domain. Nearest-neighbour distances and contours are real world-space probes. A walk need not encounter every candidate. Atlas is not a gameplay rendering."
+}

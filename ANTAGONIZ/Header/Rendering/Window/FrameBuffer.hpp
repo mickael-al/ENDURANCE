@@ -10,6 +10,8 @@ namespace Ge
 	public:		
 		bool initialize(GraphicsDataMisc* gdm);		
 		unsigned int getFrameBuffer() const;
+		// RG32F: signed view depth (R), emission/sky/geometric-normal tag (G).
+		// Decode with Asset/Shader/Geometry/gbuffer_position.glsl.
 		unsigned int getPosition() const;
 		unsigned int getNormal() const;
 		unsigned int getColor() const;

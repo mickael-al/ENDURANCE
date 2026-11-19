@@ -1,4 +1,6 @@
 #version 450
+#include "Geometry/gbuffer_position.glsl"
+#include "Geometry/gbuffer_geometry.glsl"
 
 layout(std430, binding = 0) buffer UniformBufferCamera
 {
@@ -58,13 +60,15 @@ layout(location = 2) in vec3 ViewPos;
 layout(location = 3) in mat3 TBN;
 layout(location = 6) flat in int imaterial;
 
-layout(location = 0) out vec4 gPosition;
+layout(location = 0) out vec2 gPosition;
 layout(location = 1) out vec3 gNormal;
 layout(location = 2) out vec4 gColor;
 layout(location = 3) out vec3 gOther;
 
 void main(void)
 {   
+	// Preserve the primitive plane before alpha discard or material branches.
+	float geometryTag = geGBufferGeometryTag(dFdx(ViewPos), dFdy(ViewPos));
 	vec4 col = texture(albedoTexture, fragTexCoord);
 	if (col.a < 0.5)
 	{
@@ -80,5 +84,6 @@ void main(void)
 	gOther.g = ubm.ubm[imaterial].roughness * texture(roughnessTexture, fragTexCoord).r;
 	vec2 aoe = texture(oclusionTexture, fragTexCoord).rg;
 	gOther.b = ubm.ubm[imaterial].ao * aoe.x;
-	gPosition = vec4(ViewPos, ubm.ubm[imaterial].emit * aoe.y);	
+	float emission = ubm.ubm[imaterial].emit * aoe.y;
+	gPosition = geGBufferPackPosition(ViewPos, emission > 0.0 ? emission : geometryTag);
 }

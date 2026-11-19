@@ -1,4 +1,6 @@
 #version 450
+#include "Atmosphere/lighting.glsl"
+#include "Shadow/spot_surface.glsl"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
@@ -51,6 +53,8 @@ struct StructUBL
 	int shadowID;
 	int minPlaneID;//default -1
 	int maxPlaneID;//default -1
+	float shadowDepthBias; // texels; occupies existing std430 padding
+	float shadowNormalBias; // texels; light stride remains 80 bytes
 };
 
 layout(std430, binding = 4) buffer UniformBufferLight
@@ -107,7 +111,8 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
-	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+	// Normalized dot products can round slightly above one (camera at light).
+	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
@@ -178,6 +183,12 @@ out vec4 o_FragColor;
 
 void main()
 {	
+	// Surface geometry, before any material/light/cascade branch or normal mapping.
+	vec3 shadowWorldDx = dFdx(WorldPos);
+	vec3 shadowWorldDy = dFdy(WorldPos);
+	// WorldPos is interpolated directly; no G-buffer view-position reconstruction.
+	vec3 shadowPositionError = 4.0 * 1.1920928955078125e-7 * abs(WorldPos);
+
 	vec4 col = texture(albedoTexture, fragTexCoord) * ubm.ubm[imaterial].albedo * vec4(Color, 1.0);
 	vec3 norm = texture(normalTexture, fragTexCoord).rgb;
 	norm = mix(vec3(0.5, 0.5, 1.0), norm, ubm.ubm[imaterial].normal);
@@ -243,10 +254,26 @@ void main()
 						}
 					}
 					vec4 shadowCoord = (biasMat * ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview) * vec4(WorldPos, 1.0);
-					float bias = calculateBias(shadowCoord, normal.rgb, L);
-					shadow = filterPCF(shadowCoord, ubl.ubl[i].shadowID + cascadeIndex, bias);
+					shadow = geDirectionalSurfaceShadow(shadowDepth, shadowCoord,
+						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
+						shadowWorldDx, shadowWorldDy, shadowPositionError,
+						vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+					if (cascadeIndex + 1 < SHADOW_MAP_CASCADE_COUNT)
+					{
+						uint layer = ubl.ubl[i].shadowID + cascadeIndex;
+						float previousSplit = cascadeIndex > 0 ? ubs.s[layer - 1].splitDepth : 0.0;
+						float blend = geShadowCascadeBlend(viewPos.z, previousSplit, ubs.s[layer].splitDepth);
+						if (blend > 0.0)
+						{
+							vec4 nextCoord = (biasMat * ubs.s[layer + 1].projview) * vec4(WorldPos, 1.0);
+							float nextShadow = geDirectionalSurfaceShadowFromNormal(shadowDepth, nextCoord,
+								int(layer + 1), ubs.s[layer + 1].projview, geDirectionalSurfaceNormal(shadowWorldDx, shadowWorldDy), shadowPositionError,
+								vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+							shadow = mix(shadow, nextShadow, blend);
+						}
+					}
 				}
-				Lo += ((kD * color / PI + specular) * ubl.ubl[i].color * (ubl.ubl[i].range / 10.0) * NdotL) * mix(ubd.ambiant, 1.0, shadow);
+				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, WorldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}
 			else if (ubl.ubl[i].status == 1) // PointLight
 			{
@@ -269,7 +296,14 @@ void main()
 
 				if (spotEffect > cos(spotAngle / 2.0))
 				{
-					float transitionAngle = radians(4.0);
+					if (ubl.ubl[i].shadowID >= 0)
+					{
+						shadow = geSpotSurfaceShadow(shadowDepth, ubs.s[ubl.ubl[i].shadowID].projview,
+							ubl.ubl[i].shadowID, WorldPos, ubl.ubl[i].position,
+							geDirectionalSurfaceNormal(shadowWorldDx, shadowWorldDy), shadowPositionError,
+							vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+					}
+					float transitionAngle = min(radians(4.0), spotAngle * 0.5);
 					float edge0 = cos(spotAngle / 2.0 - transitionAngle);
 					float edge1 = cos(spotAngle / 2.0);
 					float smoothFactor = smoothstep(edge1, edge0, spotEffect);
@@ -286,12 +320,12 @@ void main()
 		vec3 kD = 1.0 - kS;
 		kD *= 1.0 - other.x;
 
-		vec3 irradiance = texture(irradianceMap, normal.rgb).rgb;
+		vec3 irradiance = geAtmosphereIbl(texture(irradianceMap, normal.rgb).rgb);
 		vec3 diffuse = vec3(ubd.ambiant) * irradiance * color;
 
 		// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
 		const float MAX_REFLECTION_LOD = 4.0;
-		vec3 prefilteredColor = textureLod(prefilterMap, R, other.y * MAX_REFLECTION_LOD).rgb;
+		vec3 prefilteredColor = geAtmosphereIbl(textureLod(prefilterMap, R, other.y * MAX_REFLECTION_LOD).rgb);
 		vec2 brdf = texture(brdfLUT, vec2(max(dot(normal.rgb, V), 0.0), other.y)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 		//IBL PBR
@@ -305,5 +339,5 @@ void main()
 		color = normal.a * color;
 	}
 	
-	o_FragColor = vec4(color,col.a);
+	o_FragColor = vec4(geAtmComposite(color, WorldPos, gl_FragCoord.xy * uAtmosphereInvResolution),col.a);
 }

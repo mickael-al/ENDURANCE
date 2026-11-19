@@ -42,8 +42,9 @@ namespace ProceduralTerrain
     // Pure CPU planning. One split/merge, or up to sixteen direct fills, plus affected
     // transition neighbours,
     // with at most 32 new meshes. Freeze this transaction until all nextIndices
-    // are ready, then atomically replace previousIndices. Replan from the
-    // published result and the latest desired selection after that commit.
+    // are ready, then atomically replace previousIndices. A caller may prepare
+    // one successor from immutable next coverage in advance, but must validate
+    // that coverage's publication revision before activating the successor.
     //
     // Out-of-range retirement is free housekeeping (no new meshes), then GPU
     // priorities are Fill fine->coarse, Refine coarse->fine, Coarsen fine->coarse.

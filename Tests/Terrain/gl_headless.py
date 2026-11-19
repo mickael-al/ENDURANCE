@@ -10,17 +10,36 @@ import ctypes as C
 import os
 from pathlib import Path
 import re
+import shutil
 
 
 class GLUnavailable(RuntimeError):
     pass
 
 
+def copy_terrain_shaders(source: Path, destination: Path) -> None:
+    """Copy editable terrain fixtures together with their shared noise library.
+
+    Legacy reference checkouts may keep noise inside ProceduralTerrain; current
+    shaders resolve ../Noise relative to this directory, just like the engine.
+    """
+    source, destination = Path(source), Path(destination)
+    shutil.copytree(source, destination)
+    noise = source.parent / "Noise"
+    target = destination.parent / "Noise"
+    if noise.is_dir() and noise.resolve() != target.resolve():
+        shutil.copytree(noise, target, dirs_exist_ok=True)
+
+
 def shader_source(path: Path, defines: str = "", stack: tuple[Path, ...] = ()) -> str:
     path = path.resolve()
     if path in stack:
         raise RuntimeError(f"Recursive shader include: {path}")
-    source = path.read_text(encoding="utf-8")
+    try:
+        source = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        # Windows-edited shader comments may still be CP1252. Preserve files.
+        source = path.read_text(encoding="cp1252")
     source = re.sub(
         r'^\s*#include\s+"([^"]+)"\s*$',
         lambda match: shader_source(path.parent / match.group(1), stack=stack + (path,)),
@@ -174,6 +193,13 @@ class GL:
         if binding is not None:
             self.bind(buffer.value, binding)
         return buffer.value
+
+    def resize(self, buffer: int, payload: bytes | int) -> None:
+        self.glBindBuffer(self.SHADER_STORAGE_BUFFER, buffer)
+        if isinstance(payload, int):
+            self.glBufferData(self.SHADER_STORAGE_BUFFER, payload, None, 0x88EA)
+        else:
+            self.glBufferData(self.SHADER_STORAGE_BUFFER, len(payload), C.c_char_p(payload), 0x88EA)
 
     def bind(self, buffer: int, binding: int) -> None:
         self.glBindBufferBase(self.SHADER_STORAGE_BUFFER, binding, buffer)

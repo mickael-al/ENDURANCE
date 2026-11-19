@@ -1,26 +1,37 @@
 #version 450 core
-// Biome 7: BorealForest. This is its independently editable 3D function.
-// Return a signed DELTA in metres. The pipeline adds the common base once, then
-// adds localWeight * delta. Do not add the base density or another biome here.
+// Biome 7: Voronoi cavities restricted to the added mountain stack.
 #define FIELD_BIOME_ID 7u
 #include "../../field_batch_common.glsl"
 #include "../../field_weights.glsl"
-#include "../../biome_volume_common.glsl"
-
-const vec4 FIELD_VOLUME = vec4(-36,7,92,.40);
-const vec4 FIELD_SHAPE = vec4(.45,.15,.40,.13);
-const vec4 FIELD_STYLE = vec4(.80,.25,.35,.15);
+#include "../../biome_landforms_3d.glsl"
+#include "height.glsl"
+#include "cavities.glsl"
 
 float fieldVolume(vec3 p, FieldColumn column)
 {
-    // This biome owns the meaning of the extra 2D control (relief.w).
-    // Replace these amplitude factors with local rock placement, cavities or
-    // another construction here; the accumulation kernel does not interpret it.
-    vec4 volume=FIELD_VOLUME;
-    volume.yz*=uDetailScale;
-    volume.y*=mix(0.55,1.0,column.blend.w);
-    volume.z*=mix(0.85,1.0,column.blend.w);
-    return fieldVolumeRecipeDelta(p,column,volume,FIELD_SHAPE,FIELD_STYLE);
+    if (!landVolumeEnabled(column)) return 0.0;
+    float weight = fieldSurfaceWeight(column, FIELD_BIOME_ID);
+    if (weight <= 0.0) return 0.0;
+    // Decode the transmitted mountain in pure columns. At a climate boundary
+    // the shared pilot also contains neighbours' controls: recompute our own
+    // four layers there instead of mistaking a neighbour's pilot for a mountain.
+    float mountain = weight >= 1.0 ? borealMountainFromControl(column.blend.w)
+        : borealMountainHeight(p.xz);
+    float thickness = mountain * uDetailScale * weight;
+    if (thickness <= 0.0) return 0.0;
+    float top = column.terrain.x;
+    float ground = top - thickness;
+    if (p.y <= ground - 64.0 || p.y >= top + 64.0) return 0.0;
+    float base = top - p.y;
+    // One gradient across the entire stack, not a restart at each 600-m layer.
+    float height01 = clamp((p.y - ground) / thickness, 0.0, 1.0);
+    float stone = borealCavityField(p, uSeed, height01);
+    // Intersect the added stack with porous rock, then union the original
+    // ground back in. Only mountains become air; the soil stays solid.
+    float target = max(ground - p.y, min(base, stone));
+    float outside = max(ground - p.y, p.y - top);
+    float influence = 1.0 - smoothstep(32.0, 64.0, outside);
+    return (target - base) * influence;
 }
 
 #include "../../field_volume_accumulate.glsl"

@@ -6,14 +6,13 @@ import argparse
 import math
 from pathlib import Path
 import re
-import shutil
 import struct
 import tempfile
 
 from biome_mask_probe import replace_body
 from check_gpu import FieldRunner, LegacyFieldRunner, MeshRunner, SHADERS, lattice_values, finite_columns
 from field_batch_runner import BIOMES, BatchFieldRunner, MAX_JOBS
-from gl_headless import GL, shader_source
+from gl_headless import GL, shader_source, copy_terrain_shaders
 
 
 def f32(value):
@@ -31,7 +30,7 @@ def check_pipeline(gl):
         dict(cells=8,origin=(-8,-8,-8),seed=1337),
         dict(cells=8,origin=(0,-8,-8),seed=1337),
         dict(cells=8,origin=(-16,-16,-16),seed=1337,lod=1),
-        dict(cells=16,origin=(-48,-64,16),seed=17,uClimateFrequency=.04,
+        dict(cells=16,origin=(-48,-64,16),seed=17,
              uHeightAmplitude=240.,uHeightFrequency=.03),
         dict(cells=8,origin=(-8,-8,-8),seed=19,uSeaLevel=500.),
     )
@@ -88,7 +87,7 @@ def verify_queues(runner, requests, side):
 def check_batches(gl,runner):
     requests=[None if i in (2,5,11) else dict(origin=(i*16-64,-16,(i%4)*16-32),
               lod=i%2,seed=1337+17*i) for i in range(MAX_JOBS)]
-    options=dict(cells=8,uClimateFrequency=.04,uHeightAmplitude=32.,uHeightFrequency=.02)
+    options=dict(cells=8,uHeightAmplitude=32.,uHeightFrequency=.02)
     batch=runner.run_batch(requests,padding=True,**options)
     verify_queues(runner,requests,11)
     for slot,request in enumerate(requests):
@@ -177,7 +176,7 @@ def check_weighted_oracle(gl):
     """
     with tempfile.TemporaryDirectory(prefix="terrain-accumulation-oracle-") as temporary:
         directory=Path(temporary)/"shaders"
-        shutil.copytree(SHADERS,directory)
+        copy_terrain_shaders(SHADERS,directory)
         for biome,name in enumerate(BIOMES):
             path=directory/f"biomes/{name}/relief.C.glsl"
             path.write_text(replace_body(path.read_text(),"fieldRelief",
@@ -188,11 +187,11 @@ def check_weighted_oracle(gl):
                 f"return {1+biome*biome}.0+0.03125*p.x-0.0625*p.y+0.015625*p.z;"))
         runner=BatchFieldRunner(gl,directory)
         cases=[
-            (dict(cells=9,origin=(-16,-16,-16),seed=1337,uClimateFrequency=.04,
+            (dict(cells=9,origin=(-16,-16,-16),seed=1337,
                   uHeightAmplitude=0.,uBaseHeight=0.,uDetailScale=.5),None),
-            (dict(cells=8,origin=(-32,-16,16),seed=19,lod=1,uClimateFrequency=.03,
+            (dict(cells=8,origin=(-32,-16,16),seed=19,lod=1,
                   uHeightAmplitude=0.,uBaseHeight=16.,uDetailScale=.5,uSeaLevel=-1000.),None),
-            (dict(cells=8,origin=(-16,-16,-16),seed=17,uClimateFrequency=.04,
+            (dict(cells=8,origin=(-16,-16,-16),seed=17,
                   uHeightAmplitude=0.,uBaseHeight=0.,uDetailScale=.5),
              packed_cell((0,0,25,25),(0,1,2,3,20,21,24,25))),
         ]
@@ -246,7 +245,9 @@ def check_weighted_oracle(gl):
         # mean/max threshold would suppress the analytic contribution here.
         classify=directory/"field_batch_classify.C.glsl"
         source=classify.read_text()
-        source=re.sub(r"vec2 climate=smoothstep[\s\S]*?;", "vec2 climate=vec2(0.25625);",source,count=1)
+        source,replacements=re.subn(r"vec2 climate=noiseClimate2D\(world,uSeed\);",
+            "vec2 climate=vec2(0.25625);",source,count=1)
+        assert replacements==1, "Tiny-weight fixture failed to replace production climate"
         classify.write_text(source)
         tiny=BatchFieldRunner(gl,directory)
         field=tiny.run(cells=4,origin=(0,0,0),uHeightAmplitude=0.,uSeaLevel=-1000.,uDetailScale=.5)
@@ -262,14 +263,21 @@ def check_weighted_oracle(gl):
 
 def check_free_recipes(gl,runner):
     options=dict(cells=8,origin=(-8,-8,-8),seed=1337,uBiomeOverride=0,uHeightAmplitude=0.)
-    before=runner.run(**options)
     other=runner.run(**dict(options,uBiomeOverride=11))
     with tempfile.TemporaryDirectory(prefix="terrain-free-recipes-") as temporary:
         directory=Path(temporary)/"shaders"
-        shutil.copytree(SHADERS,directory)
+        copy_terrain_shaders(SHADERS,directory)
+        # Guarantee an open band at the fixture origin. Real PolarIce now has
+        # rare seeded sites, so a random origin is intentionally often quiet.
+        relief_path=directory/"biomes/PolarIce/relief.C.glsl"
+        relief_path.write_text(replace_body(relief_path.read_text(),"fieldRelief",
+                                           "return vec4(0.0,128.0,0.0,1.0);"))
+        baseline=BatchFieldRunner(gl,directory)
+        before=baseline.run(**options)
         path=directory/"biomes/PolarIce/volume.C.glsl"
         path.write_text(replace_body(path.read_text(),"fieldVolume", """
-    vec2 band=fieldVolumeBand(column,0.0);
+    vec2 band=vec2(column.terrain.x+column.blend.y
+        +clamp(column.blend.z,-160.0,160.0)*uDetailScale,0.5*column.terrain.w);
     float radial=length(vec3(p.x,0.0,p.z)-vec3(0.0));
     float rock=max(0.0,4.0-radial);
     return rock*smoothstep(0.0,1.0,band.y-abs(p.y-band.x));
@@ -283,7 +291,7 @@ def check_free_recipes(gl,runner):
         compare(runner.run(**disabled),changed.run(**disabled),"Disabled 3D detail")
         path=directory/"biomes/PolarIce/relief.C.glsl"
         path.write_text(replace_body(path.read_text(),"fieldRelief", """
-    float height=24.0+fieldCellular2(p*0.03125,714u,1.0)*16.0;
+    float height=24.0+noiseCellularDistance2D(p*0.03125, uSeed ^ (714u), NOISE_MANHATTAN)*16.0;
     return vec4(height,0.0,0.0,1.0);
 """))
         changed=BatchFieldRunner(gl,directory)

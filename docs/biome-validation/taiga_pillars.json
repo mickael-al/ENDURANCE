@@ -1,0 +1,387 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "source_sha256": "43df568845e96515c8cc1453aeb3c61a8b23ba642262c806646694405fed1886",
+  "seed": 1337,
+  "reference_shaders": "/workspace/scratch/264cfadbd7c0/taiga_before/Asset/Shader/ProceduralTerrain",
+  "notes": [
+    "Distances mean nearest neighbouring foot centers, including tile seams.",
+    "30% void refers to the full cylinder; existing ground fills buried/intersecting voids.",
+    "Height is maximum world-vertical extent above the foot center, not axial length.",
+    "Offline OpenGL probes and reconstructed meshes do not certify Windows GPU speed or gameplay."
+  ],
+  "height_and_union": {
+    "bit_exact_height_samples": 111747,
+    "maps": [
+      {
+        "seed": 1337,
+        "origin_m": [
+          -30000.0,
+          -30000.0
+        ],
+        "spacing_m": 317.0,
+        "size": 193,
+        "detail_scale": 0.35
+      },
+      {
+        "seed": 97,
+        "origin_m": [
+          -17000.0,
+          6000.0
+        ],
+        "spacing_m": 317.0,
+        "size": 193,
+        "detail_scale": 0.2
+      },
+      {
+        "seed": 98765,
+        "origin_m": [
+          12000.0,
+          -13000.0
+        ],
+        "spacing_m": 317.0,
+        "size": 193,
+        "detail_scale": 1.0
+      }
+    ],
+    "addition_only_samples": 225816,
+    "materially_added_density_samples": 4716
+  },
+  "placement": {
+    "points_per_tile": 1309,
+    "tile_period_m": 48000.0,
+    "nearest_foot_distance_min_m": 1034.872714384218,
+    "nearest_foot_distance_max_m": 1448.51291052793,
+    "nearest_direction_harmonics": {
+      "2": 0.033148219781578135,
+      "4": 0.01967656754259386,
+      "6": 0.03863286165295003,
+      "8": 0.023474423349001534
+    }
+  },
+  "geometry": {
+    "uniform_volume_samples_per_column": 131072,
+    "tested_columns": [
+      {
+        "center_xz_m": [
+          18316.9140625,
+          -572.2880859375
+        ],
+        "diameter_m": 203.97470092773438,
+        "vertical_height_m": 658.1460571289062,
+        "axial_length_m": 658.1189342458122,
+        "tilt_degrees": 17.602628707885742,
+        "azimuth_degrees": 329.60955810546875,
+        "isolated_void_fraction": 0.29990386962890625,
+        "anchor_height_error_m": 3.0517578125e-05
+      },
+      {
+        "center_xz_m": [
+          4018.00390625,
+          12427.6845703125
+        ],
+        "diameter_m": 276.33514404296875,
+        "vertical_height_m": 911.3240966796875,
+        "axial_length_m": 969.6934589730294,
+        "tilt_degrees": 29.610565185546875,
+        "azimuth_degrees": 284.4958801269531,
+        "isolated_void_fraction": 0.30027008056640625,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          5186.90478515625,
+          9243.9462890625
+        ],
+        "diameter_m": 242.8832550048828,
+        "vertical_height_m": 808.7469482421875,
+        "axial_length_m": 825.4556078858104,
+        "tilt_degrees": 22.597639083862305,
+        "azimuth_degrees": 294.0046691894531,
+        "isolated_void_fraction": 0.29985809326171875,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          7949.12109375,
+          5610.4384765625
+        ],
+        "diameter_m": 256.3021545410156,
+        "vertical_height_m": 550.3933715820312,
+        "axial_length_m": 542.3811264216985,
+        "tilt_degrees": 22.33319091796875,
+        "azimuth_degrees": 104.1092300415039,
+        "isolated_void_fraction": 0.300079345703125,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          8227.6015625,
+          2149.03466796875
+        ],
+        "diameter_m": 235.4664306640625,
+        "vertical_height_m": 654.57861328125,
+        "axial_length_m": 710.1374856388464,
+        "tilt_degrees": 33.99763107299805,
+        "azimuth_degrees": 270.7883605957031,
+        "isolated_void_fraction": 0.30029296875,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          8409.24609375,
+          490.270263671875
+        ],
+        "diameter_m": 381.23187255859375,
+        "vertical_height_m": 504.7923889160156,
+        "axial_length_m": 498.5389435447025,
+        "tilt_degrees": 1.9684950113296509,
+        "azimuth_degrees": 210.4998016357422,
+        "isolated_void_fraction": 0.300018310546875,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          10194.703125,
+          -4273.4736328125
+        ],
+        "diameter_m": 215.387939453125,
+        "vertical_height_m": 702.939453125,
+        "axial_length_m": 697.483901844346,
+        "tilt_degrees": 3.6631040573120117,
+        "azimuth_degrees": 257.928955078125,
+        "isolated_void_fraction": 0.30027008056640625,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          -875.8916015625,
+          5464.1162109375
+        ],
+        "diameter_m": 399.64605712890625,
+        "vertical_height_m": 670.173583984375,
+        "axial_length_m": 649.2774011865253,
+        "tilt_degrees": 7.688169956207275,
+        "azimuth_degrees": 326.9396057128906,
+        "isolated_void_fraction": 0.29998779296875,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          9682.095703125,
+          -6933.28759765625
+        ],
+        "diameter_m": 221.19935607910156,
+        "vertical_height_m": 787.4620361328125,
+        "axial_length_m": 779.7078642589016,
+        "tilt_degrees": 8.724912643432617,
+        "azimuth_degrees": 322.7268981933594,
+        "isolated_void_fraction": 0.2997283935546875,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          10464.306640625,
+          -9330.099609375
+        ],
+        "diameter_m": 380.28448486328125,
+        "vertical_height_m": 710.7466430664062,
+        "axial_length_m": 708.2737297801297,
+        "tilt_degrees": 29.290294647216797,
+        "azimuth_degrees": 173.30816650390625,
+        "isolated_void_fraction": 0.30005645751953125,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          -1141.144775390625,
+          1468.7210693359375
+        ],
+        "diameter_m": 305.24908447265625,
+        "vertical_height_m": 707.3755493164062,
+        "axial_length_m": 691.4032701162671,
+        "tilt_degrees": 14.946483612060547,
+        "azimuth_degrees": 343.8867492675781,
+        "isolated_void_fraction": 0.29987335205078125,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          7285.5263671875,
+          -7885.92578125
+        ],
+        "diameter_m": 202.59024047851562,
+        "vertical_height_m": 954.306884765625,
+        "axial_length_m": 953.7199829443663,
+        "tilt_degrees": 0.34155789017677307,
+        "azimuth_degrees": 35.96089553833008,
+        "isolated_void_fraction": 0.2995758056640625,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          -3073.148193359375,
+          1662.6708984375
+        ],
+        "diameter_m": 254.34466552734375,
+        "vertical_height_m": 813.210205078125,
+        "axial_length_m": 809.4108757815001,
+        "tilt_degrees": 15.942338943481445,
+        "azimuth_degrees": 232.3872833251953,
+        "isolated_void_fraction": 0.30027008056640625,
+        "anchor_height_error_m": 4.76837158203125e-07
+      },
+      {
+        "center_xz_m": [
+          -559.9177856445312,
+          -1636.65673828125
+        ],
+        "diameter_m": 376.982177734375,
+        "vertical_height_m": 975.2957763671875,
+        "axial_length_m": 957.2344896036698,
+        "tilt_degrees": 9.671467781066895,
+        "azimuth_degrees": 274.19171142578125,
+        "isolated_void_fraction": 0.29987335205078125,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          3471.08984375,
+          -8450.08203125
+        ],
+        "diameter_m": 391.82647705078125,
+        "vertical_height_m": 943.8109130859375,
+        "axial_length_m": 923.349609491181,
+        "tilt_degrees": 11.170527458190918,
+        "azimuth_degrees": 222.34451293945312,
+        "isolated_void_fraction": 0.300048828125,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          444.93603515625,
+          -5033.40185546875
+        ],
+        "diameter_m": 247.123779296875,
+        "vertical_height_m": 814.39208984375,
+        "axial_length_m": 1024.735852032421,
+        "tilt_degrees": 44.78160858154297,
+        "azimuth_degrees": 247.8363037109375,
+        "isolated_void_fraction": 0.30017852783203125,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          6036.33984375,
+          -13517.314453125
+        ],
+        "diameter_m": 239.7497100830078,
+        "vertical_height_m": 996.821044921875,
+        "axial_length_m": 1128.4646963261662,
+        "tilt_degrees": 34.613677978515625,
+        "azimuth_degrees": 297.5331726074219,
+        "isolated_void_fraction": 0.300201416015625,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          4276.2392578125,
+          -11835.298828125
+        ],
+        "diameter_m": 366.28582763671875,
+        "vertical_height_m": 950.821533203125,
+        "axial_length_m": 1135.06800430274,
+        "tilt_degrees": 43.37565994262695,
+        "azimuth_degrees": 205.30984497070312,
+        "isolated_void_fraction": 0.3000946044921875,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          4809.05419921875,
+          -14153.8466796875
+        ],
+        "diameter_m": 351.5433044433594,
+        "vertical_height_m": 970.030029296875,
+        "axial_length_m": 954.0243653545758,
+        "tilt_degrees": 11.029596328735352,
+        "azimuth_degrees": 21.252731323242188,
+        "isolated_void_fraction": 0.30020904541015625,
+        "anchor_height_error_m": 0.0
+      },
+      {
+        "center_xz_m": [
+          -7950.8115234375,
+          -1289.394287109375
+        ],
+        "diameter_m": 347.4341125488281,
+        "vertical_height_m": 845.780029296875,
+        "axial_length_m": 872.5765216956894,
+        "tilt_degrees": 29.337644577026367,
+        "azimuth_degrees": 121.30244445800781,
+        "isolated_void_fraction": 0.30008697509765625,
+        "anchor_height_error_m": 0.0
+      }
+    ],
+    "void_fraction_min": 0.2995758056640625,
+    "void_fraction_max": 0.30029296875,
+    "exterior_samples": 7760
+  },
+  "world": {
+    "detail_scale": 0.35,
+    "world_samples": 47104,
+    "above_ground_stone_samples": 31504,
+    "clipped_stone_samples": 0,
+    "site_anchor_height_range_m": [
+      -437.3361511230469,
+      529.2046508789062
+    ],
+    "site_local_relief_range_m": [
+      -54.471954345703125,
+      315.7970275878906
+    ],
+    "maximum_actual_world_band_m": 2359.6484375,
+    "targeted_pipeline": {
+      "anchor": [
+        4916,
+        1012,
+        1630
+      ],
+      "shared_exact_lod_samples": 125,
+      "production_density_samples": 1331
+    }
+  },
+  "world_other_detail_scales": [
+    {
+      "detail_scale": 0.2,
+      "world_samples": 47104,
+      "above_ground_stone_samples": 31695,
+      "clipped_stone_samples": 0,
+      "site_anchor_height_range_m": [
+        -434.6774597167969,
+        535.6475219726562
+      ],
+      "site_local_relief_range_m": [
+        -31.1268310546875,
+        180.4554443359375
+      ],
+      "maximum_actual_world_band_m": 2154.832763671875,
+      "targeted_pipeline": null
+    },
+    {
+      "detail_scale": 1.0,
+      "world_samples": 47104,
+      "above_ground_stone_samples": 29531,
+      "clipped_stone_samples": 0,
+      "site_anchor_height_range_m": [
+        -510.08404541015625,
+        1102.525146484375
+      ],
+      "site_local_relief_range_m": [
+        -155.6341552734375,
+        902.2772216796875
+      ],
+      "maximum_actual_world_band_m": 3341.551025390625,
+      "targeted_pipeline": null
+    }
+  ]
+}

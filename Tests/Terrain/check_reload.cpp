@@ -119,8 +119,8 @@ extern "C" int terrain_reload_tests(const char* shaderDirectory)
         const auto volumePath = directory / "biomes/PolarIce/volume.C.glsl";
         const auto originalRelief = read(reliefPath);
         const auto originalVolume = read(volumePath);
-        const auto noise2Path = directory / "field_noise_2d.glsl";
-        const auto noise3Path = directory / "field_noise_3d.glsl";
+        const auto noise2Path = directory.parent_path() / "Noise/noise_2d.glsl";
+        const auto noise3Path = directory.parent_path() / "Noise/noise_3d.glsl";
         const auto originalNoise2 = read(noise2Path);
         const auto originalNoise3 = read(noise3Path);
         GpuConfig config;
