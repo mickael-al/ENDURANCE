@@ -4,6 +4,7 @@
 #include "Initializer.hpp"
 #include "Manager.hpp"
 #include "ShadowCasterBounds.hpp"
+#include "ShadowMapCache.hpp"
 #include <vector>
 #include <string>
 #include <glm/glm.hpp>
@@ -17,6 +18,7 @@ namespace Ge
 	class SpotLight;
 	class DirectionalLight;
 	class Atmosphere;
+	class Camera;
 }
 
 namespace Ge
@@ -35,6 +37,10 @@ namespace Ge
 		void updateStorage();
 		// Called after custom renderers publish their geometry for this frame.
 		void prepareShadowCasterBounds(const std::vector<CustomRenderer*>& renderers);
+        void prepareShadowMaps(const std::vector<CustomRenderer*>& renderers, bool untrackedCasters);
+        bool shadowMapNeedsRender(unsigned layer) const { return m_shadowMaps.needsRender(layer); }
+        void shadowMapRendered(unsigned layer) { m_shadowMaps.rendered(layer); }
+        void finishShadowMaps() { m_shadowMaps.finish(); }
 	protected:
 		friend class Lights;
 		void updateStorageShadow();
@@ -51,12 +57,21 @@ namespace Ge
 		void getShadowMatrix(std::vector<glm::mat4> * mats);
 		// Same packed index as the shadow SSBO and framebuffer layer; CPU data only.
 		bool getShadowMatrix(unsigned int shadowIndex, glm::mat4& matrix) const;
-		const std::vector<Lights*>& getLights() const { return m_lights; }
+		// Zero means a new frame/storage has not finished its shadow passes yet.
+        std::uint64_t getShadowContentRevision() const { return m_shadowMaps.contentRevision(); }
+        unsigned getShadowRedrawnLayers() const { return m_shadowMaps.redrawnLayers(); }
+        unsigned getShadowReusedLayers() const { return m_shadowMaps.reusedLayers(); }
+        const std::vector<Lights*>& getLights() const { return m_lights; }
 		const std::vector<ShadowCasterBounds>& getShadowCasterBounds() const { return m_shadowCasterBounds.bounds(); }
     private:
 		GraphicsDataMisc * m_gdm;
 		std::vector<Lights *> m_lights;
 		ShadowCasterBoundsCache m_shadowCasterBounds;
+        ShadowMapCache m_shadowMaps;
+        const Camera* m_shadowClipCamera = nullptr;
+        float m_shadowClipNear = 0.0f, m_shadowClipFar = 0.0f;
+        std::vector<glm::mat4> m_shadowMapMatrices;
+        std::vector<ShadowContentSource> m_shadowMapSources;
 		std::vector<unsigned int> m_frameBufferDepthShadow;
 		unsigned int m_ssboShadow;
 		unsigned int m_ssboPlaneHidden;

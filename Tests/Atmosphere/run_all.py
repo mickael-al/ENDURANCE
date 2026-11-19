@@ -10,7 +10,8 @@ TESTS=("check_cpu.py","check_shaders.py","check_common.py","check_luts.py",
        "check_game_climate.py","check_game_component.py","check_revision.py","check_runtime.py",
        "check_screen_composition.py","check_surface_shadows.py","check_position_precision.py",
        "check_terrain_shadow.py","check_light_persistence.py","check_gbuffer_geometry.py",
-       "check_shadow_bounds.py")
+       "check_shadow_bounds.py", "check_shadow_filtering.py", "check_shadow_cache.py",
+       "check_spot_shadows.py", "check_render_integration.py")
 
 
 def main():

@@ -35,6 +35,8 @@ int main()
         std::vector<CustomRenderer*> renderers{&terrain};
         require(cache.update(renderers) && cache.bounds().empty(), "New terrain retained ungenerated caster bounds");
         auto revision = terrain.shadowCasterBoundsRevision();
+        auto contentRevision = terrain.shadowContentRevision();
+        require(contentRevision != 0, "Initialized immutable terrain did not opt into shadow reuse");
         auto publications = terrain.getStats().publishedLodGroups;
         unsigned changes = 0;
         bool finished = false;
@@ -46,6 +48,9 @@ int main()
             require(changed == publishedNow, "Bounds changed outside a committed terrain publication");
             require((terrain.shadowCasterBoundsRevision() != revision) == publishedNow,
                 "Terrain bounds token did not follow actual publication");
+            require((terrain.shadowContentRevision() != contentRevision) == publishedNow,
+                "Shadow content revision missed a publication or changed during background generation");
+            contentRevision = terrain.shadowContentRevision();
             const auto chunks = published(terrain);
             require(cache.bounds().size() == chunks.size(), "Published nonempty chunk missing from caster bounds");
             for (std::size_t i = 0; i < chunks.size(); ++i)
@@ -70,11 +75,16 @@ int main()
             step(terrain, camera);
             require(!cache.update(renderers) && terrain.shadowCasterBoundsRevision() == revision,
                 "Converged stationary terrain invalidated caster fitting");
+            require(terrain.shadowContentRevision() == contentRevision,
+                "Idle terrain unnecessarily invalidated cached depth textures");
         }
         require(terrain.initialize(config), terrain.getLastError());
         require(terrain.shadowCasterBoundsRevision() != revision && cache.update(renderers) && cache.bounds().empty(),
             "Terrain restart reused old loaded caster bounds");
+        require(terrain.shadowContentRevision() != contentRevision && terrain.shadowContentRevision() != 0,
+            "Restart reused the previous terrain depth token");
         terrain.shutdown();
+        require(terrain.shadowContentRevision() == 0, "Stopped renderer retained a live depth token");
         require(terrain.shadowCasterBoundsRevision() == 0 && cache.update(renderers) && cache.bounds().empty(),
             "Stopped terrain kept a bounds provider alive");
         std::cout << "PASS actual terrain publication: " << changes << " stationary geometry commits, exact full-chunk bounds, idle reuse, restart and shutdown invalidation\n";

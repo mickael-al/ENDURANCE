@@ -2,16 +2,32 @@
 
 ## État de la passe courante
 
+La passe du 19 novembre 2026 ajoute la stabilisation des cascades, le PCF
+continu des god rays, les ombres des projecteurs et les caches de profondeur
+et de coefficients volumétriques. Les **23 groupes passent** avec sortie 0 de
+`run_all.py` et le résultat `PASS all 23 atmosphere validation groups`, sur
+Mesa/llvmpipe. Aucun gain en millisecondes sur GPU matériel n'est revendiqué.
+Le fonctionnement et les limites du cache sont décrits dans [SHADOWS.md](SHADOWS.md).
+
+Les nouveaux contrôles vérifient notamment les bords XY superposés de quatre
+cascades, leurs trois transitions, une vraie carte de projecteur rasterisée,
+la réutilisation de 64 images de terrain immobile et les invalidations après
+publication, retrait de caster, animation inconnue ou remplacement d'atlas.
+Le test runtime vérifie aussi les images diffusées, et pas seulement les
+compteurs, après un changement du contenu des ombres.
+
+### Historique de la correction des surfaces
+
 Après le retour visuel sur `3b57f79`, la régression des ombres est reproduite
 sur la vraie géométrie triangulée du terrain. Le succès historique des
 15 groupes, fondé notamment sur des plans analytiques, ne démontrait pas
 l’absence de quadrillage sur ce cas.
 
-La suite étendue à **19 groupes passe le 18 novembre 2026**, avec sortie 0 de
+La suite étendue à **19 groupes passait le 18 novembre 2026**, avec sortie 0 de
 `run_all.py` et le résultat final `PASS all 19 atmosphere validation groups`.
 Elle inclut le terrain réel, la persistance des biais, la couverture adaptative
 et l’encodage de la normale géométrique. Le harnais C++ du service conserve
-ses **18 groupes internes**, en plus du test du vrai composant ENDURANCE.
+ses contrôles internes, en plus du test du vrai composant ENDURANCE.
 Aucun lancement de l’éditeur Windows ni mesure sur GPU matériel n’est
 revendiqué.
 
@@ -50,6 +66,10 @@ python3 Tests/Atmosphere/check_terrain_shadow.py
 python3 Tests/Atmosphere/check_light_persistence.py
 python3 Tests/Atmosphere/check_shadow_bounds.py
 python3 Tests/Atmosphere/check_gbuffer_geometry.py
+python3 Tests/Atmosphere/check_shadow_filtering.py
+python3 Tests/Atmosphere/check_shadow_cache.py
+python3 Tests/Atmosphere/check_spot_shadows.py
+python3 Tests/Atmosphere/check_render_integration.py
 ```
 
 Le test CPU utilise le vrai `AtmosphereState.hpp`, C++17 et le GLM embarqué.
@@ -77,6 +97,10 @@ exclusivement aux assertions des tests, jamais au chemin de rendu du jeu.
 
 | Test | Ce qu'il vérifie |
 | --- | --- |
+| `check_shadow_filtering.py` | PCF comparé à un oracle bilinéaire indépendant ; vrais blocs opaque/transparence/eau ; trois transitions de cascades ; continuité des god rays quand plusieurs bords XY coïncident ; couches invalides et désactivation. |
+| `check_shadow_cache.py` | Vrai LightManager en compilation normale et fast-math : réutilisation au repos, invalidation du contenu même à bornes identiques, matrices, casters inconnus, retraits, redémarrages, atlas remplacé, compteur de couches et publication après rendu complet. Changement des clips point/spot sans recalcul sur simple translation caméra. |
+| `check_spot_shadows.py` | Douze cas d'occultant rasterisé dans une carte perspective ; limites de couverture ; vraie composition différée à cônes de 90° et 1° ; caméra confondue avec la lumière ; dépassement numérique du cosinus de Fresnel. |
+| `check_render_integration.py` | Compilation des vrais renderer, lumières, atmosphère et terrain avec les en-têtes de production, sans doubles de matériaux, modèles ou services moteur. |
 | `check_cpu.py` | Fondu interrompu depuis la couleur affichée ; convergence sans nouvel événement caméra ; référence du seuil conservée après les petits écarts ; changements de paramètres du gradient ; forçage et durée nulle ; valeurs HDR ; indépendance aux subdivisions du temps ; rejet des delta-times négatifs, infinis et NaN. |
 | `check_shaders.py` | Compilation et liaison des 15 programmes/variantes de production présents dans `Asset/Shader/Atmosphere`, avec leurs dépendances réelles, et des sept associations matériaux/vertex : deferred, forward, transparence, eau, géométrie skinned et cloth. |
 | `check_common.py` | Intégration homogène comparée à une solution analytique indépendante ; transmittance de Beer-Lambert ; limite sans extinction ; densités décroissant avec l'altitude ; radiance HDR ; conservation de l'obscurité par la correction artistique ; aller-retour de la projection du ciel ; masque du disque fini au centre, au bord et à l'extérieur, même avec un rayon de 1e-5 radian. |

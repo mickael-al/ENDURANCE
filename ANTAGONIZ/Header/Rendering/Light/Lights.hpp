@@ -11,7 +11,7 @@
 #define TEXTURE_DIM 2048
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
-#define SHADOW_MAP_SPOT_COUNT 4
+#define SHADOW_MAP_SPOT_COUNT 1
 
 struct GraphicsDataMisc;
 
@@ -81,7 +81,6 @@ namespace Ge
 		float cascadeSplitLambda = 0.96f;
 		float m_shadowCasterMargin = 0.0f;
 		std::array<float, SHADOW_MAP_CASCADE_COUNT> m_directionalShadowCasterMargins{};
-		glm::vec3 frustumCorners[8];
 	};
 }
 

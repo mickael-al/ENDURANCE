@@ -3,6 +3,7 @@
 #include "CustomRenderer.hpp"
 #include "LightManager.hpp"
 #include "DirectionalLight.hpp"
+#include "SpotLight.hpp"
 #include "Camera.hpp"
 #include "Engine.hpp"
 #include "GraphicsDataMisc.hpp"
@@ -203,8 +204,104 @@ static void restartedProviderAndAggregate()
     std::cout << "PASS publication lifecycle: independent provider revisions, aggregate removal and restart at the same address\n";
 }
 
+static void productionStableCascadesAndSpot()
+{
+    LightManager lights;
+    Camera camera;
+    GraphicsDataMisc graphics;
+    graphics.current_camera = &camera;
+    Engine::getPtrClassAddr()->lightManager = &lights;
+    RenderingEngine::initialize(lights, graphics);
+    auto* sun = lights.createDirectionalLight({-35, 37, 0}, {1, 1, 1});
+    sun->setshadow(true);
+    sun->setShadowCasterMargin(4000);
+    unsigned cornersChecked=0, stationaryPairs=0;
+    for (bool orthographic : {false, true})
+    for (const auto origin : {glm::vec3(0),glm::vec3(40000,1700,-38000)})
+    for (const auto angles : {glm::vec3(0),glm::vec3(67,133,0),glm::vec3(-23,-71,0)})
+    {
+        camera.orthographic=orthographic; camera.position=origin; camera.angles=angles;
+        camera.notify(lights);
+        const auto initial=sun->getShadowMatrix();
+        const auto invP=glm::inverse(glm::dmat4(camera.getProjectionMatrix()));
+        const auto invV=glm::inverse(glm::dmat4(camera.getViewMatrix()));
+        for(unsigned cascade=0;cascade<4;++cascade)
+        {
+            const double end=-initial[cascade].splitDepth;
+            const double previousEnd=cascade ? -initial[cascade-1].splitDepth : camera.getNear();
+            const double previousStart=cascade>1 ? -initial[cascade-2].splitDepth : 0;
+            const double start=cascade ? (std::max)(double(camera.getNear()),previousEnd-.1*(previousEnd-previousStart)) : camera.getNear();
+            for(double depth : {start,end}) for(int x : {-1,1}) for(int y : {-1,1})
+            {
+                auto a=invP*glm::dvec4(x,y,-1,1), b=invP*glm::dvec4(x,y,0,1);
+                a/=a.w;b/=b.w;
+                const auto viewPoint=a+(b-a)*((-depth-a.z)/(b.z-a.z));
+                const auto clip=glm::dmat4(initial[cascade].projview)*invV*viewPoint;
+                require(std::abs(clip.x)<clip.w && std::abs(clip.y)<clip.w &&
+                    std::abs(clip.z)<clip.w, "Snapped cascade clips a receiver or a crossfade corner");
+                ++cornersChecked;
+            }
+        }
+        const glm::vec3 row(initial[0].projview[0][0],initial[0].projview[1][0],initial[0].projview[2][0]);
+        const float texel=2.0f/(glm::length(row)*TEXTURE_DIM);
+        const auto direction=glm::normalize(row);
+        auto previous=initial[0].projview;
+        for(unsigned step=1;step<=20;++step)
+        {
+            camera.position=origin+direction*(texel*.05f*step);
+            camera.notify(lights);
+            const auto matrix=sun->getShadowMatrix()[0].projview;
+            bool stable=true;
+            for(unsigned column=0;column<4;++column) for(unsigned axis=0;axis<2;++axis)
+                stable=stable && matrix[column][axis]==previous[column][axis];
+            stationaryPairs+=stable;
+            for(unsigned axis=0;axis<2;++axis)
+            {
+                const double shift=(double(matrix[3][axis])-previous[3][axis])*TEXTURE_DIM*.5;
+                require(std::abs(shift-std::round(shift))<.002, "Cascade translation was not snapped to whole shadow texels");
+            }
+            for(unsigned column=0;column<3;++column) for(unsigned axis=0;axis<2;++axis)
+                require(matrix[column][axis]==initial[0].projview[column][axis], "Camera translation changed cascade scale or orientation");
+            previous=matrix;
+        }
+    }
+    require(stationaryPairs>180, "Subtexel camera motion still moves the shadow grid continuously");
+
+    auto* spot=lights.createSpotLight({1000,300,-800},{1,1,1},{0,0,0},60);
+    spot->setshadow(true);
+    require(SHADOW_MAP_SPOT_COUNT==1 && spot->getShadowMatrix().size()==1,
+        "Spotlight still allocates directional cascades");
+    require(lights.getShadowMatrix().size()==5, "Packed spotlight consumes more than one shadow layer");
+    for(const auto angles : {glm::vec3(0),glm::vec3(90,0,0),glm::vec3(-90,0,0),glm::vec3(13,79,0)})
+    {
+        spot->setEulerAngles(angles);
+        const auto matrix=glm::dmat4(spot->getShadowMatrix()[0].projview);
+        const auto position=glm::dvec3(1000,300,-800);
+        const auto direction=glm::normalize(glm::dvec3(spot->getDirection()));
+        const auto up=std::abs(direction.y)>.99 ? glm::dvec3(0,0,1) : glm::dvec3(0,1,0);
+        const auto right=glm::normalize(glm::cross(direction,up));
+        const auto inside=matrix*glm::dvec4(position+direction*100.0,1);
+        const auto behind=matrix*glm::dvec4(position-direction*100.0,1);
+        const double radius=std::tan(glm::radians(30.0))*100;
+        const auto edge=matrix*glm::dvec4(position+direction*100.0+right*radius,1);
+        const auto outside=matrix*glm::dvec4(position+direction*100.0+right*(radius*1.1),1);
+        require(inside.w>0 && std::abs(inside.x/inside.w)<1e-4 && std::abs(inside.y/inside.w)<1e-4 &&
+            std::abs(inside.z)<inside.w, "Spotlight axis is clipped or off-centre");
+        require(behind.w<0 && std::abs(std::abs(edge.x/edge.w)-1)<1e-4 && std::abs(outside.x)>outside.w,
+            "Perspective spotlight cone or rear rejection is incorrect");
+    }
+    spot->setSpotAngle(0); require(spot->getSpotAngle()==1,"Degenerate spotlight angle accepted");
+    spot->setSpotAngle(360); require(spot->getSpotAngle()==179,"Inverted spotlight angle accepted");
+    spot->setSpotAngle(std::numeric_limits<float>::quiet_NaN());
+    require(spot->getSpotAngle()==45,"Invalid spotlight angle did not recover");
+    std::cout << "PASS production cascade stability: " << cornersChecked << " perspective/ortho/rotated/far-origin overlap corners; "
+        << stationaryPairs << "/240 stable subtexel pairs, integer texel shifts; single-layer spotlight cone and pole directions\n";
+    RenderingEngine::release(lights);
+    Engine::getPtrClassAddr()->lightManager=nullptr;
+}
+
 int main()
 {
-    try { independentGeometryOracle(); productionPublicationAndBias(); restartedProviderAndAggregate(); }
+    try { independentGeometryOracle(); productionPublicationAndBias(); restartedProviderAndAggregate(); productionStableCascadesAndSpot(); }
     catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
 }

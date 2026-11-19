@@ -1,5 +1,6 @@
 #version 450
 #include "Atmosphere/lighting.glsl"
+#include "Shadow/spot_surface.glsl"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
@@ -110,7 +111,8 @@ float GeometrySmith(vec3 N, vec3 V, vec3 L, float roughness)
 
 vec3 fresnelSchlick(float cosTheta, vec3 F0)
 {
-	return F0 + (1.0 - F0) * pow(1.0 - cosTheta, 5.0);
+	// Normalized dot products can round slightly above one (camera at light).
+	return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
 vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness)
@@ -256,6 +258,20 @@ void main()
 						int(ubl.ubl[i].shadowID + cascadeIndex), ubs.s[ubl.ubl[i].shadowID + cascadeIndex].projview,
 						shadowWorldDx, shadowWorldDy, shadowPositionError,
 						vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+					if (cascadeIndex + 1 < SHADOW_MAP_CASCADE_COUNT)
+					{
+						uint layer = ubl.ubl[i].shadowID + cascadeIndex;
+						float previousSplit = cascadeIndex > 0 ? ubs.s[layer - 1].splitDepth : 0.0;
+						float blend = geShadowCascadeBlend(viewPos.z, previousSplit, ubs.s[layer].splitDepth);
+						if (blend > 0.0)
+						{
+							vec4 nextCoord = (biasMat * ubs.s[layer + 1].projview) * vec4(WorldPos, 1.0);
+							float nextShadow = geDirectionalSurfaceShadowFromNormal(shadowDepth, nextCoord,
+								int(layer + 1), ubs.s[layer + 1].projview, geDirectionalSurfaceNormal(shadowWorldDx, shadowWorldDy), shadowPositionError,
+								vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+							shadow = mix(shadow, nextShadow, blend);
+						}
+					}
 				}
 				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, WorldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}
@@ -280,7 +296,14 @@ void main()
 
 				if (spotEffect > cos(spotAngle / 2.0))
 				{
-					float transitionAngle = radians(4.0);
+					if (ubl.ubl[i].shadowID >= 0)
+					{
+						shadow = geSpotSurfaceShadow(shadowDepth, ubs.s[ubl.ubl[i].shadowID].projview,
+							ubl.ubl[i].shadowID, WorldPos, ubl.ubl[i].position,
+							geDirectionalSurfaceNormal(shadowWorldDx, shadowWorldDy), shadowPositionError,
+							vec2(ubl.ubl[i].shadowDepthBias, ubl.ubl[i].shadowNormalBias));
+					}
+					float transitionAngle = min(radians(4.0), spotAngle * 0.5);
 					float edge0 = cos(spotAngle / 2.0 - transitionAngle);
 					float edge1 = cos(spotAngle / 2.0);
 					float smoothFactor = smoothstep(edge1, edge0, spotEffect);

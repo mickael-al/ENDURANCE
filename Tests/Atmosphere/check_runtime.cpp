@@ -193,6 +193,85 @@ namespace
         std::cout<<"PASS initial palette: "<<(physical?"physical":"gradient")<<", duration "<<duration
                  <<", stable API/UBO/HDR sky until initial publication, no rollback, latest target converges\n"<<std::flush;
     }
+    void checkVolumeCache()
+    {
+        Ge::LightManager lights; Ge::Lights sun; sun.shadow=0; lights.lights={&sun};
+        lights.shadowFrames.resize(4);
+        glCreateTextures(GL_TEXTURE_2D_ARRAY,1,&lights.shadowTexture);
+        glTextureStorage3D(lights.shadowTexture,1,GL_DEPTH_COMPONENT32F,8,8,4);
+        glTextureParameteri(lights.shadowTexture,GL_TEXTURE_MIN_FILTER,GL_NEAREST);
+        glTextureParameteri(lights.shadowTexture,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        const float lit=1,occluded=0;
+        glClearTexImage(lights.shadowTexture,0,GL_DEPTH_COMPONENT,GL_FLOAT,&lit);
+        struct ShadowMatrix { glm::mat4 matrix{1}; glm::vec3 position{}; float split=0; };
+        static_assert(sizeof(ShadowMatrix)==80,"Runtime shadow fixture ABI drift");
+        std::array<ShadowMatrix,4> matrices{};
+        for(int i=0;i<4;++i)
+        {
+            matrices[i].matrix=glm::scale(glm::mat4(1),glm::vec3(1.f/8192));
+            matrices[i].split=-1024.f*float(1<<i);
+        }
+        glCreateBuffers(1,&lights.shadowBuffer);
+        glNamedBufferData(lights.shadowBuffer,sizeof(matrices),matrices.data(),GL_STATIC_DRAW);
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        auto& config=atmosphere.settings(); config=smallSettings();
+        config.clouds=true; config.godRays=true; config.wind=glm::vec2(0);
+        config.aerialDistance=4096; config.environmentBlendSeconds=0;
+        const auto frame=[&](double dt)
+        {
+            atmosphere.prepare(&camera,dt);
+            require(atmosphere.active(),"Volume cache fixture inactive: "+atmosphere.error());
+            atmosphere.computeVolumes(&camera); checkGL("volume cache runtime frame");
+            return atmosphere.stats();
+        };
+        const auto sameCoefficients=[](const Ge::AtmosphereStats& a,const Ge::AtmosphereStats& b)
+        { return a.aerialDispatches==b.aerialDispatches && a.cloudVolumeDispatches==b.cloudVolumeDispatches; };
+        const auto changedAll=[](const Ge::AtmosphereStats& a,const Ge::AtmosphereStats& b)
+        { return b.aerialDispatches==a.aerialDispatches+1 && b.cloudVolumeDispatches==a.cloudVolumeDispatches+1 &&
+                 b.fogDispatches==a.fogDispatches+1; };
+        auto previous=frame(0);
+        GLint scattering=0; glGetIntegeri_v(GL_IMAGE_BINDING_NAME,0,&scattering);
+        const auto litVolume=readTexture(static_cast<GLuint>(scattering),GL_TEXTURE_3D);
+        auto next=frame(.5);
+        require(sameCoefficients(previous,next) && previous.fogDispatches==next.fogDispatches,
+                "A stationary tracked shadow map invalidated unchanged volumetric passes");
+        glClearTexImage(lights.shadowTexture,0,GL_DEPTH_COMPONENT,GL_FLOAT,&occluded);
+        ++lights.shadowContentRevision; previous=next; next=frame(.1);
+        require(changedAll(previous,next),"Changed terrain shadow content did not refresh every affected volume");
+        const auto shadowedVolume=readTexture(static_cast<GLuint>(scattering),GL_TEXTURE_3D);
+        float shadowDifference=0;
+        for(std::size_t i=0;i<litVolume.size();++i)
+            if(i%4!=3) shadowDifference=std::max(shadowDifference,litVolume[i]-shadowedVolume[i]);
+        require(shadowDifference>.0001f,"Shadow content revision refreshed counters but left stale scattering");
+        config.localFog=true; config.fogDensity=.001f; config.fogScaleHeight=1000;
+        previous=next; next=frame(.1);
+        require(sameCoefficients(previous,next) && next.fogDispatches==previous.fogDispatches+1,
+                "Local fog changes unnecessarily rebuilt physical/cloud coefficients");
+        unsigned fogBindings=0;
+        atmosphere.setGameFogBinding([&](unsigned){++fogBindings;});
+        previous=next; next=frame(.1); next=frame(.1);
+        require(fogBindings==2 && sameCoefficients(previous,next) && next.fogDispatches==previous.fogDispatches+2,
+                "Untracked game fog did not animate independently of invariant coefficients");
+        atmosphere.setGameFogBinding({});
+        config.wind={5,0}; previous=next; next=frame(1);
+        require(changedAll(previous,next),"Moving cloud shadows did not refresh atmospheric/cloud scattering");
+        config.wind=glm::vec2(0); previous=next; next=frame(.1);
+        require(sameCoefficients(previous,next),"Stopping wind changed coefficients without moving clouds");
+        camera.position.x+=10; previous=next; next=frame(.1);
+        require(changedAll(previous,next),"Camera movement reused world-space coefficients from the previous view");
+        camera.farDistance*=.5f; previous=next; next=frame(.1);
+        require(changedAll(previous,next),"Projection changes reused incorrectly located volume samples");
+        lights.shadowContentRevision=0; previous=next; next=frame(.1); next=frame(.1);
+        require(next.aerialDispatches==previous.aerialDispatches+2 &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+2 && next.fogDispatches==previous.fogDispatches+2,
+                "Unknown shadow revision was cached instead of conservatively refreshed");
+        config.godRays=false; next=frame(.1); previous=next; ++lights.shadowContentRevision; next=frame(.1);
+        require(sameCoefficients(previous,next) && next.fogDispatches==previous.fogDispatches,
+                "Disabled terrain god rays still invalidated volumes on shadow revision changes");
+        atmosphere.release(); glDeleteTextures(1,&lights.shadowTexture); glDeleteBuffers(1,&lights.shadowBuffer);
+        std::cout<<"PASS volume cache: stable tracked shadows, actual shadowed scattering, fog-only integration, unknown hooks/revisions, cloud motion, camera/projection and disabled god rays\n"<<std::flush;
+    }
     void checkCloudWind()
     {
         Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
@@ -370,6 +449,7 @@ namespace
         checkInitialPalette(false,.3f);
         checkInitialPalette(true,0);
         checkCloudWind();
+        checkVolumeCache();
         std::string error;
         const GLuint material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
         require(material!=0,error);
@@ -681,9 +761,14 @@ namespace
         require(atmosphere.error().empty(),"Animated fog fixture did not compile: "+atmosphere.error());
         const auto animatedBefore=readTexture(textureAt(13,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D);
         const auto animationUpdates=atmosphere.stats().volumeUpdates;
+        const auto animationAerial=atmosphere.stats().aerialDispatches;
+        const auto animationCloud=atmosphere.stats().cloudVolumeDispatches;
         frame(5);
         require(atmosphere.stats().volumeUpdates==animationUpdates+1,
                 "A time-dependent game fog shader without a binding callback was incorrectly cached");
+        require(atmosphere.stats().aerialDispatches==animationAerial &&
+                atmosphere.stats().cloudVolumeDispatches==animationCloud,
+                "Animated game fog rebuilt unrelated physical/cloud coefficients");
         const auto animatedAfter=readTexture(textureAt(13,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D);
         require(animatedAfter[animatedAfter.size()-4]<animatedBefore[animatedBefore.size()-4]-.005f,
                 "A game fog shader without a callback did not animate at a stationary camera");

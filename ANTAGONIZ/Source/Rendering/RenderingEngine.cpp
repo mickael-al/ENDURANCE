@@ -581,9 +581,26 @@ namespace Ge
 		glClearDepth(1.0);
 		currentDepthTest = true;
 		glDisable(GL_BLEND);		
+        // Standard model/texture buffers and legacy callbacks are mutable
+        // without content revisions. Redraw conservatively whenever they emit
+        // casters; only explicit versioned custom renderers can currently reuse.
+        bool untrackedCasters = !callbacks.empty();
+        for (auto* material : matlist)
+        {
+            if (untrackedCasters) break;
+            if (!material || !material->getDraw() || !material->getCastShadow() ||
+                material->getColor().a == 0.0f || !material->getDepthTest()) continue;
+            const auto found = instanced_models.find(material);
+            if (found == instanced_models.end()) continue;
+            for (const auto& buffer : found->second)
+                if (!buffer.second.empty() && hasDrawableModel(buffer.second))
+                { untrackedCasters = true; break; }
+        }
+        m_lightManager->prepareShadowMaps(customRenderers, untrackedCasters);
 		const std::vector<unsigned int>& frameBufferDepthShadow = m_lightManager->getFrameShadowBuffer();
 		for (int i = 0; i < frameBufferDepthShadow.size(); i++)
 		{
+            if (!m_lightManager->shadowMapNeedsRender(static_cast<unsigned>(i))) continue;
 			glBindFramebuffer(GL_FRAMEBUFFER, frameBufferDepthShadow[i]);
 			glClear(GL_DEPTH_BUFFER_BIT);
 			glViewport(0, 0, TEXTURE_DIM, TEXTURE_DIM);
@@ -648,7 +665,9 @@ namespace Ge
 					renderer->drawShadowRenderer(static_cast<unsigned int>(i));
 				}
 			}
+            m_lightManager->shadowMapRendered(static_cast<unsigned>(i));
 		}
+        m_lightManager->finishShadowMaps();
 		glCullFace(GL_BACK);
 		/*  Shadow  */
 		

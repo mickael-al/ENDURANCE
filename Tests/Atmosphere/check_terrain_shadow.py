@@ -177,10 +177,16 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
                 end += 1
             witness += "\n" + helper[start:end] + "\n"
         old = source.replace(helper, witness)
-        old = old.replace("geDirectionalSurfaceShadowFromNormal(shadowDepth, shadowCoord,",
-                          "geDirectionalSurfaceShadow(shadowDepth, shadowCoord,")
-        old = re.sub(r"shadowGeometricNormal\s*,\s*shadowPositionError",
-                     "shadowWorldDx, shadowWorldDy, shadowPositionError", old)
+        # Rewrite both directional samples (including cascade overlap), but
+        # leave other lighting consumers, such as perspective spots, intact.
+        def legacy_call(match):
+            return match.group(0).replace("geDirectionalSurfaceShadowFromNormal(",
+                                         "geDirectionalSurfaceShadow(").replace(
+                                             "shadowGeometricNormal", "shadowWorldDx, shadowWorldDy")
+        old, replacements = re.subn(
+            r"geDirectionalSurfaceShadowFromNormal\(shadowDepth,[^;]*?shadowGeometricNormal\s*,\s*shadowPositionError",
+            legacy_call, old)
+        assert replacements == 2, "Both actual directional cascade calls must exercise the frozen witness"
         single = old.replace("for(int y=-1;y<=1;++y)", "for(int y=0;y<=0;++y)")
         single = single.replace("for(int x=-1;x<=1;++x)", "for(int x=0;x<=0;++x)")
         single = single.replace("return visibility/9.0;", "return visibility;")

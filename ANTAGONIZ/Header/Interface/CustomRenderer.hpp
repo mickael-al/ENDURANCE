@@ -17,7 +17,11 @@ public:
 	// Ge::nextShadowCasterBoundsRevision() whenever the published set changes.
 	// Tokens distinguish restarts and address reuse; no GPU readback is needed.
 	virtual std::uint64_t shadowCasterBoundsRevision() const { return 0; }
-	virtual void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& /*output*/) const {}
+	// Opt in only if this token covers ALL shadow changes, including shader,
+    // material, animation and geometry. Bounds alone are not such a guarantee.
+    // Tokens must distinguish renderer restarts/address reuse. Zero disables reuse.
+    virtual std::uint64_t shadowContentRevision() const { return 0; }
+    virtual void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& /*output*/) const {}
 	// SSBO 0 contains UniformBufferCamera.
 	virtual void drawRenderer() = 0;
 	// SSBO 0 contains the engine's StructShadow array. Optional for older renderers.

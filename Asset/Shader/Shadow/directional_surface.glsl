@@ -4,6 +4,7 @@
 // the deferred G-buffer derivatives can themselves cross a triangle boundary.
 #ifndef GE_DIRECTIONAL_SURFACE_SHADOW_GLSL
 #define GE_DIRECTIONAL_SURFACE_SHADOW_GLSL
+#include "shadow_filter.glsl"
 
 vec3 geDirectionalSurfaceNormal(vec3 worldDx,vec3 worldDy)
 {
@@ -66,24 +67,7 @@ float geDirectionalSurfaceShadowFromNormal(sampler2DArray depthMap,vec4 shadowCo
     receiver+=(mat3(projectionView)*offset)*(0.5/shadowCoord.w);
     if(any(isnan(receiver)) || any(isinf(receiver)) || receiver.z<0.0 || receiver.z>1.0) return 1.0;
     float bias=geDirectionalSurfaceNumericalBias(projectionView,receiver.z,worldPositionError);
-    vec2 samplePosition=receiver.xy*vec2(size.xy)-0.5;
-    ivec2 center=ivec2(floor(samplePosition));
-    vec2 fraction=fract(samplePosition);
-    float visibility=0.0;
-    // Bilinear PCF compares four raw depths, then interpolates visibility.
-    // This preserves sub-texel continuity with four reads instead of nine;
-    // averaging raw depths would invent occluders at discontinuities.
-    for(int y=0;y<2;++y) for(int x=0;x<2;++x)
-    {
-        vec2 w=mix(vec2(1.0)-fraction,fraction,vec2(x,y));
-        float weight=w.x*w.y;
-        ivec2 pixel=center+ivec2(x,y);
-        if(any(lessThan(pixel,ivec2(0))) || any(greaterThanEqual(pixel,size.xy)))
-        { visibility+=weight; continue; }
-        float storedDepth=texelFetch(depthMap,ivec3(pixel,layer),0).r;
-        visibility+=weight*step(receiver.z-bias,storedDepth);
-    }
-    return visibility;
+    return geShadowPCF(depthMap,receiver,layer,bias);
 }
 
 float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int layer,

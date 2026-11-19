@@ -707,6 +707,13 @@ void ProceduralGeneration::drawShadowRenderer(unsigned int shadowIndex)
 bool ProceduralGeneration::isInitialized() const noexcept { return m_impl != nullptr; }
 std::uint64_t ProceduralGeneration::shadowCasterBoundsRevision() const
 { return m_impl ? m_impl->shadowBoundsRevision : 0; }
+std::uint64_t ProceduralGeneration::shadowContentRevision() const
+{
+    // The immutable shadow pipeline and generated mesh buffers live for one
+    // Impl lifetime. A fresh token is issued on restart and every publication.
+    // Surface microdetail is shading-only and does not alter shadow geometry.
+    return m_impl ? m_impl->shadowBoundsRevision : 0;
+}
 void ProceduralGeneration::appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const
 {
     if (m_impl) output.insert(output.end(), m_impl->shadowCasterBounds.begin(), m_impl->shadowCasterBounds.end());

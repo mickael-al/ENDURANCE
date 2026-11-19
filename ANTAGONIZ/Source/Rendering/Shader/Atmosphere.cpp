@@ -183,7 +183,9 @@ struct Atmosphere::Impl
     AtmospherePalette lastBakedPalette, lastSkyPalette, lastRequestedPalette, displayedPalette, fromPalette, targetPalette;
     glm::vec3 lastBakedCamera{0};
     Budget budget;
-    AtmosphereGpuParameters gpu{},previous{},lastVolumeParameters{},lastCloudShadowParameters{},lastVisibleCloudParameters{};
+    AtmosphereGpuParameters gpu{},previous{},lastVolumeParameters{},lastAerialParameters{},lastCloudVolumeParameters{};
+    AtmosphereGpuParameters lastCloudShadowParameters{},lastVisibleCloudParameters{};
+    std::uint64_t lastVolumeShadowRevision=0;
     bool cloudShadowValid=false;
     std::array<GLuint,ProgramCount> programs{};
     GLuint parameters=0,vao=0;
@@ -1103,22 +1105,42 @@ void Atmosphere::computeVolumes(Camera* camera)
         // The one-voxel identities allocated on the toggle need no compute.
         m->lastVolumeParameters=volumeKey; m->volumesReady=true; return;
     }
-    const bool dynamicShadows=m->config.godRays && (m->gpu.shadow.x>=0 || m->gpu.shadow.y>=0);
-    // A game hook may animate independently or replace its world atlas, and
-    // moving shadow casters have no scene revision counter: conservatively update.
+    const bool usesTerrainShadows=m->config.godRays && (m->gpu.shadow.x>=0 || m->gpu.shadow.y>=0);
+    // This revision is committed after shadow drawing, including conservative
+    // redraws for casters without a content revision. Zero means untracked.
+    const auto shadowRevision=usesTerrainShadows?lights->getShadowContentRevision():0;
+    const bool shadowChanged=usesTerrainShadows &&
+        (shadowRevision==0 || shadowRevision!=m->lastVolumeShadowRevision);
+    // Fog hooks may animate independently or replace their atlas. Only the
+    // integration pass evaluates them; physical/cloud coefficients do not.
     const bool unknownGameMedium=m->config.localFog && (!m->gameFogPath.empty() || bool(m->bindGameFog));
-    if(m->volumesReady && !dynamicShadows && !unknownGameMedium && m->radiancePath.empty() &&
+    const bool unknownRadiance=!m->radiancePath.empty();
+    auto aerialKey=volumeKey;
+    aerialKey.volume.y=aerialKey.volume.z=aerialKey.volume.w=0;
+    aerialKey.fog=aerialKey.fogNoise=glm::vec4(0);
+    aerialKey.control.y=0; aerialKey.samples.x=0;
+    // Disk appearance and specular IBL saturation do not illuminate media.
+    aerialKey.sunDisk=aerialKey.moonDisk=glm::vec4(0); aerialKey.art.z=0;
+    auto cloudKey=aerialKey;
+    // Cloud coefficients trace their own light rays, not the cloud shadow atlas.
+    cloudKey.shadowOrigin=glm::vec4(0); cloudKey.cloudOffset.z=0;
+    const bool aerialChanged=m->config.physicalAtmosphere && (!m->volumesReady ||
+        shadowChanged || unknownRadiance || std::memcmp(&aerialKey,&m->lastAerialParameters,sizeof(aerialKey))!=0);
+    const bool cloudChanged=m->cloudsEnabled() && (!m->volumesReady ||
+        shadowChanged || unknownRadiance || std::memcmp(&cloudKey,&m->lastCloudVolumeParameters,sizeof(cloudKey))!=0);
+    if(m->volumesReady && !aerialChanged && !cloudChanged && !shadowChanged &&
+        !unknownGameMedium && !unknownRadiance &&
         std::memcmp(&volumeKey,&m->lastVolumeParameters,sizeof(volumeKey))==0) return;
     m->upload(); m->commonTextures(); textureUnit(4,shadowTexture);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,lights->getSsboShadow());
     const auto& b=m->budget;
-    if(m->config.physicalAtmosphere)
+    if(aerialChanged)
     {
         m->begin(AerialTime); glUseProgram(m->programs[Aerial]);
         textureImage(0,m->physicalSource,GL_RGBA32F); textureImage(1,m->physicalExtinction,GL_RGBA32F);
         m->submit(b.width,b.height,b.depth,4,4,4); ++m->statistics.aerialDispatches; m->end();
     }
-    if(m->cloudsEnabled())
+    if(cloudChanged)
     {
         m->begin(CloudTime); glUseProgram(m->programs[CloudVolume]);
         textureImage(0,m->cloudSource,GL_RGBA32F); textureImage(1,m->cloudExtinction,GL_R32F);
@@ -1131,7 +1153,8 @@ void Atmosphere::computeVolumes(Camera* camera)
     textureImage(0,m->scattering,GL_RGBA16F); textureImage(1,m->transmission,GL_RGBA16F);
     textureImage(2,m->baselineScattering,GL_RGBA16F,0,false); textureImage(3,m->baselineTransmission,GL_RGBA16F,0,false);
     m->submit(b.width,b.height,1); ++m->statistics.fogDispatches; m->end();
-    m->lastVolumeParameters=volumeKey; m->volumesReady=true; ++m->statistics.volumeUpdates;
+    m->lastVolumeParameters=volumeKey; m->lastAerialParameters=aerialKey; m->lastCloudVolumeParameters=cloudKey;
+    m->lastVolumeShadowRevision=shadowRevision; m->volumesReady=true; ++m->statistics.volumeUpdates;
 }
 
 void Atmosphere::bindLighting(unsigned int program,bool)

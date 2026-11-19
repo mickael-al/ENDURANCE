@@ -92,10 +92,10 @@ CAMERA = r'''
 namespace Ge {
 class Camera {
 public:
- glm::vec3 position{0}; float nearPlane=.1f,farPlane=8192.0f;
+ glm::vec3 position{0}, angles{0}; bool orthographic=false; float nearPlane=.1f,farPlane=8192.0f;
  float getNear() const{return nearPlane;} float getFar() const{return farPlane;}
- glm::mat4 getProjectionMatrix() const{return glm::perspective(glm::radians(70.0f),1.7f,nearPlane,farPlane);}
- glm::mat4 getViewMatrix() const{return glm::translate(glm::mat4(1),-position);}
+ glm::mat4 getProjectionMatrix() const{return orthographic ? glm::ortho(-170.0f,170.0f,-100.0f,100.0f,nearPlane,farPlane) : glm::perspective(glm::radians(70.0f),1.7f,nearPlane,farPlane);}
+ glm::mat4 getViewMatrix() const{return glm::mat4_cast(glm::conjugate(glm::quat(glm::radians(angles)))) * glm::translate(glm::mat4(1),-position);}
  void notify(LightManager& manager){manager.updateShadowCascadeMatrix();}
 };
 }

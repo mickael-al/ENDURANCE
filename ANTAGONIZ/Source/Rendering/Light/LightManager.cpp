@@ -10,6 +10,7 @@
 #include "ShadowMatrix.hpp"
 #include "UniformBufferPlaneHidden.hpp"
 #include "CustomRenderer.hpp"
+#include "Camera.hpp"
 
 bool LightManager::initialize(GraphicsDataMisc * gdm)
 {
@@ -60,6 +61,7 @@ const std::vector<unsigned int>& LightManager::getFrameShadowBuffer() const
 void LightManager::release()
 {
 	m_shadowCasterBounds.clear();
+    m_shadowMaps.invalidateStorage();
 	while (!m_lights.empty())
 	{
 		Lights* light = m_lights.back();
@@ -85,19 +87,38 @@ void LightManager::prepareShadowCasterBounds(const std::vector<CustomRenderer*>&
 	if (m_shadowCasterBounds.update(renderers)) updateShadowCascadeMatrix();
 }
 
+void LightManager::prepareShadowMaps(const std::vector<CustomRenderer*>& renderers, bool untrackedCasters)
+{
+    m_shadowMapMatrices.clear();
+    getShadowMatrix(&m_shadowMapMatrices);
+    m_shadowMapSources.clear();
+    for (const auto* renderer : renderers)
+        if (renderer) m_shadowMapSources.push_back({renderer, renderer->shadowContentRevision()});
+    m_shadowMaps.prepare(m_shadowMapMatrices, m_shadowMapSources, untrackedCasters);
+}
+
 void LightManager::updateShadowCascadeMatrix()
 {
-	for (int i = 0; i < m_lights.size(); i++)
-	{
-		if (m_lights[i]->isActive() && m_lights[i]->getshadow() && m_lights[i]->getStatus() == 0)
-		{			
-			m_lights[i]->mapMemoryShadow();			
-		}
-	}
+    auto* camera = m_gdm ? m_gdm->current_camera : nullptr;
+    const float nearClip = camera ? camera->getNear() : 0.0f;
+    const float farClip = camera ? camera->getFar() : 0.0f;
+    const bool localClipChanged = camera != m_shadowClipCamera ||
+        nearClip != m_shadowClipNear || farClip != m_shadowClipFar;
+    m_shadowClipCamera = camera;
+    m_shadowClipNear = nearClip;
+    m_shadowClipFar = farClip;
+    for (auto* light : m_lights)
+    {
+        // Point and spot projections depend on the camera's clipping planes,
+        // but not its translation/rotation. Keep their maps reusable on a flyby.
+        if (light->isActive() && light->getshadow() &&
+            (light->getStatus() == 0 || localClipChanged)) light->mapMemoryShadow();
+    }
 }
 
 void LightManager::updateStorageShadow()
-{	
+{
+    m_shadowMaps.invalidateStorage();
 	int countTotal = 0;
 	for (int i = 0; i < m_lights.size(); i++)
 	{

@@ -126,7 +126,7 @@ namespace Ge
 		Camera* currentCamera = m_gdm->current_camera;
 		if (currentCamera == nullptr) return;
 
-		if (m_ubl.status == 0 || m_ubl.status == 2)
+		if (m_ubl.status == 0)
 		{
 			m_ubl.direction = getDirection();
 			float cascadeSplits[SHADOW_MAP_CASCADE_COUNT];
@@ -154,13 +154,29 @@ namespace Ge
 			const glm::vec3 lightDirection = glm::normalize(m_ubl.direction);
 			const glm::vec3 lightUp = std::abs(lightDirection.y) > 0.99f
 				? glm::vec3(0.0f, 0.0f, 1.0f) : glm::vec3(0.0f, 1.0f, 0.0f);
-			const glm::mat4 invCam = glm::inverse(currentCamera->getProjectionMatrix() * currentCamera->getViewMatrix());
+			// Fit in camera space: translation or rotation must not resize the
+			// sphere through cancellation in a world-space float inverse.
+			const glm::dmat4 invProjection = glm::inverse(glm::dmat4(currentCamera->getProjectionMatrix()));
+			const glm::dmat4 invView = glm::inverse(glm::dmat4(currentCamera->getViewMatrix()));
 			const glm::dvec3 direction = glm::normalize(glm::dvec3(lightDirection));
 			const glm::dvec3 right = glm::normalize(glm::cross(direction, glm::dvec3(lightUp)));
 			const glm::dvec3 up = glm::cross(right, direction);
 			const auto* pc = Engine::getPtrClassAddr();
 			const auto* casterBounds = m_ubl.status == 0 && pc && pc->lightManager
 				? &pc->lightManager->getShadowCasterBounds() : nullptr;
+			glm::dvec3 rayOrigins[4], raysPerDepth[4];
+			for (unsigned corner = 0; corner < 4; ++corner)
+			{
+				const double x = (corner & 1) ? 1.0 : -1.0;
+				const double y = (corner & 2) ? 1.0 : -1.0;
+				const auto nearH = invProjection * glm::dvec4(x, y, -1.0, 1.0);
+				// A mid-depth point avoids the poorly conditioned far-plane
+				// inverse of a perspective camera spanning many kilometres.
+				const auto middleH = invProjection * glm::dvec4(x, y, 0.0, 1.0);
+				rayOrigins[corner] = glm::dvec3(nearH) / nearH.w;
+				const glm::dvec3 middle = glm::dvec3(middleH) / middleH.w;
+				raysPerDepth[corner] = (middle - rayOrigins[corner]) / (rayOrigins[corner].z - middle.z);
+			}
 
 			// Calculate orthographic projection matrix for each cascade
 			float lastSplitDist = 0.0;
@@ -168,50 +184,46 @@ namespace Ge
 			{
 				float splitDist = cascadeSplits[i];
 
-				frustumCorners[0] = glm::vec3(-1.0f, 1.0f, -1.0f);
-				frustumCorners[1] = glm::vec3(1.0f, 1.0f, -1.0f);
-				frustumCorners[2] = glm::vec3(1.0f, -1.0f, -1.0f);
-				frustumCorners[3] = glm::vec3(-1.0f, -1.0f, -1.0f);
-				frustumCorners[4] = glm::vec3(-1.0f, 1.0f, 1.0f);
-				frustumCorners[5] = glm::vec3(1.0f, 1.0f, 1.0f);
-				frustumCorners[6] = glm::vec3(1.0f, -1.0f, 1.0f);
-				frustumCorners[7] = glm::vec3(-1.0f, -1.0f, 1.0f);
-
-				for (uint32_t i = 0; i < 8; i++)
+				// The next cascade includes the last 10% of the preceding
+				// interval. Keep this fraction in sync with Shadow/shadow_filter.glsl;
+				// splitDepth still denotes the nominal (unexpanded) boundary.
+				constexpr double cascadeBlendFraction = 0.10;
+				double nearSplit = lastSplitDist;
+				if (i > 0)
 				{
-					glm::vec4 invCorner = invCam * glm::vec4(frustumCorners[i], 1.0f);
-					frustumCorners[i] = invCorner / invCorner.w;
+					const double previousEnd = nearClip + lastSplitDist * clipRange;
+					const double previousStart = i > 1 ? nearClip + cascadeSplits[i - 2] * clipRange : 0.0;
+					nearSplit = (std::max)(0.0, nearSplit - cascadeBlendFraction * (previousEnd - previousStart) / clipRange);
 				}
-
-				for (uint32_t i = 0; i < 4; i++)
+				glm::dvec3 corners[8];
+				for (unsigned corner = 0; corner < 4; ++corner)
 				{
-					glm::vec3 dist = frustumCorners[i + 4] - frustumCorners[i];
-					frustumCorners[i + 4] = frustumCorners[i] + (dist * splitDist);
-					frustumCorners[i] = frustumCorners[i] + (dist * lastSplitDist);
+					const auto& nearPoint = rayOrigins[corner];
+					const auto& rayPerDepth = raysPerDepth[corner];
+					corners[corner] = nearPoint + rayPerDepth * (nearClip + nearSplit * clipRange + nearPoint.z);
+					corners[corner + 4] = nearPoint + rayPerDepth * (nearClip + double(splitDist) * clipRange + nearPoint.z);
 				}
-
-				// Get frustum center
-				glm::vec3 frustumCenter = glm::vec3(0.0f);
-				for (uint32_t i = 0; i < 8; i++)
-				{
-					frustumCenter += frustumCorners[i];
-				}
-				frustumCenter /= 8.0f;
-
-				float radius = 0.0f;
-				for (uint32_t i = 0; i < 8; i++)
-				{
-					float distance = glm::length(frustumCorners[i] - frustumCenter);
-					radius = glm::max(radius, distance);
-				}
-				radius = std::ceil(radius * 16.0f) / 16.0f;
+				glm::dvec3 viewCenter(0.0);
+				for (const auto& corner : corners) viewCenter += corner;
+				viewCenter /= 8.0;
+				double radius = 0.0;
+				for (const auto& corner : corners) radius = (std::max)(radius, glm::length(corner - viewCenter));
+				// Reserve three texels for centre snapping, the PCF footprint
+				// and the default geometric-normal offset. Solve using the final
+				// texel size, rather than padding with the unexpanded radius.
+				radius = std::ceil((radius / (1.0 - 6.0 / TEXTURE_DIM)) * 16.0) / 16.0;
 
 				DirectionalShadowVolume volume;
-				volume.center = glm::dvec3(frustumCenter);
+				volume.center = glm::dvec3(invView * glm::dvec4(viewCenter, 1.0));
 				volume.right = right;
 				volume.up = up;
 				volume.direction = direction;
 				volume.radius = radius;
+				const double worldTexel = 2.0 * radius / TEXTURE_DIM;
+				const double centerX = glm::dot(right, volume.center);
+				const double centerY = glm::dot(up, volume.center);
+				volume.center += right * (std::round(centerX / worldTexel) * worldTexel - centerX)
+					+ up * (std::round(centerY / worldTexel) * worldTexel - centerY);
 				const float margin = casterBounds
 					? fitDirectionalShadowCasterMargin(volume, m_shadowCasterMargin, *casterBounds)
 					: m_shadowCasterMargin;
@@ -234,6 +246,23 @@ namespace Ge
 				m_shadowMatrix[i].projview = glm::mat4(lightOrthoMatrix * lightViewMatrix);
 				lastSplitDist = cascadeSplits[i];
 			}
+		}
+
+		if (m_ubl.status == 2)
+		{
+			// One perspective map covers a spotlight cone; directional
+			// camera cascades do not represent its point of emission.
+			m_ubl.direction = getDirection();
+			const glm::vec3 direction = glm::normalize(m_ubl.direction);
+			const glm::vec3 up = std::abs(direction.y) > 0.99f
+				? glm::vec3(0, 0, 1) : glm::vec3(0, 1, 0);
+			const float nearPlane = glm::clamp(currentCamera->getNear(), 0.01f, 0.1f);
+			const float farPlane = (std::max)(currentCamera->getFar(), nearPlane + 1.0f);
+			const auto projection = glm::perspective(glm::radians(double(m_ubl.spotAngle)), 1.0, double(nearPlane), double(farPlane));
+			const auto position = glm::dvec3(m_ubl.position);
+			m_shadowMatrix[0].projview = glm::mat4(projection * glm::lookAt(position, position + glm::dvec3(direction), glm::dvec3(up)));
+			m_shadowMatrix[0].pos = m_ubl.position;
+			m_shadowMatrix[0].splitDepth = 0.0f;
 		}
 
 		if (m_ubl.status == 1)
@@ -387,7 +416,7 @@ namespace Ge
 
 	void Lights::setSpotAngle(float r)
 	{
-		m_ubl.spotAngle = r;
+		m_ubl.spotAngle = finiteShadowCoordinate(r) ? glm::clamp(r, 1.0f, 179.0f) : 45.0f;
 		mapMemory();
 	}
 
