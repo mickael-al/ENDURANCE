@@ -36,9 +36,9 @@ namespace Ge
     inline float atmospherePaletteDifference(const AtmospherePalette& a,
         const AtmospherePalette& b)
     {
-        const glm::vec3 d = glm::max(glm::abs(a.horizon-b.horizon),
-            glm::max(glm::abs(a.middle-b.middle), glm::abs(a.zenith-b.zenith)));
-        return std::max({d.x,d.y,d.z,std::abs(a.middleElevation-b.middleElevation),
+        const glm::vec3 d = (glm::max)(glm::abs(a.horizon-b.horizon),
+            (glm::max)(glm::abs(a.middle-b.middle), glm::abs(a.zenith-b.zenith)));
+        return (std::max)({d.x,d.y,d.z,std::abs(a.middleElevation-b.middleElevation),
             std::abs(a.gradientPower-b.gradientPower),std::abs(a.strength-b.strength),
             std::abs(a.exposure-b.exposure)});
     }
@@ -51,7 +51,7 @@ namespace Ge
         bool target(const AtmospherePalette& p, float threshold, float seconds, bool force=false,
             const AtmospherePalette* displayedOverride=nullptr)
         {
-            if (m_initialized && !force && atmospherePaletteDifference(p,m_target) < std::max(0.0f,threshold))
+            if (m_initialized && !force && atmospherePaletteDifference(p,m_target) < (std::max)(0.0f,threshold))
                 return false;
             if (!m_initialized)
             {
@@ -64,7 +64,7 @@ namespace Ge
             m_from=m_displayed;
             m_target=p;
             m_elapsed=0.0;
-            m_duration=std::max(0.0f,seconds);
+            m_duration=(std::max)(0.0f,seconds);
             if (m_duration==0.0) m_displayed=m_target;
             return true;
         }
@@ -73,7 +73,7 @@ namespace Ge
         {
             if (!active()) return false;
             if (!std::isfinite(seconds) || seconds<=0.0) return false;
-            m_elapsed=std::min(m_duration,m_elapsed+seconds);
+            m_elapsed=(std::min)(m_duration,m_elapsed+seconds);
             const float t=static_cast<float>(m_elapsed/m_duration);
             // Fixed endpoint interpolation: subdivision of dt has no effect.
             const float smooth=t*t*(3.0f-2.0f*t);

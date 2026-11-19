@@ -9,6 +9,12 @@ et de coefficients volumétriques. Les **23 groupes passent** avec sortie 0 de
 Mesa/llvmpipe. Aucun gain en millisecondes sur GPU matériel n'est revendiqué.
 Le fonctionnement et les limites du cache sont décrits dans [SHADOWS.md](SHADOWS.md).
 
+Le contrôle de bornes inclut aussi les en-têtes publics avec les macros Windows
+`min`/`max` définies après STL/GLM. Il reproduit la collision de
+`numeric_limits<float>::max()` et des appels de `AtmosphereState.hpp`, vérifie
+leur protection et préserve les macros de l'appelant. Ce test de préprocesseur
+sur Linux ne constitue pas une compilation complète de l'éditeur sous MSVC.
+
 Les nouveaux contrôles vérifient notamment les bords XY superposés de quatre
 cascades, leurs trois transitions, une vraie carte de projecteur rasterisée,
 la réutilisation de 64 images de terrain immobile et les invalidations après

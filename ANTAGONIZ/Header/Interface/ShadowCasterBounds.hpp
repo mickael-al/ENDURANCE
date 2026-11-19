@@ -100,7 +100,8 @@ namespace Ge
         }
         // All engine geometry uses float matrices. The supported terrain domain
         // is far below this representable limit; never return infinity on input.
-        required = (std::min)(required, static_cast<double>(std::numeric_limits<float>::max()) / 4.0);
+        // Protect numeric_limits::max too: Windows may define a max(a,b) macro.
+        required = (std::min)(required, static_cast<double>((std::numeric_limits<float>::max)()) / 4.0);
         float result = static_cast<float>(required);
         if (static_cast<double>(result) < required)
             result = std::nextafter(result, std::numeric_limits<float>::infinity());

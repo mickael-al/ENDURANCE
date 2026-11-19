@@ -155,6 +155,15 @@ def main():
             print(f"Production shadow bounds: {name}", flush=True)
             subprocess.run([str(binary)], check=True)
 
+            # Include Windows-style min/max AFTER STL/GLM, reproducing the
+            # MSVC include order even on the headless Linux test runner.
+            macro_binary = tmp / ("windows-macros-" + name)
+            subprocess.run(command + ["-I", str(ROOT / "ANTAGONIZ/Header/Rendering/Shader"),
+                str(ROOT / "Tests/Atmosphere/check_windows_shadow_macros.cpp"),
+                "-o", str(macro_binary)], check=True)
+            subprocess.run([str(macro_binary)], check=True)
+            print("PASS public shadow/atmosphere headers with Windows min/max macros preserved", flush=True)
+
         # Reuse the established terrain scheduler's doubles; verify its actual
         # publication hooks as well as the light-side cache tested above.
         spec = importlib.util.spec_from_file_location("terrain_scheduler_fixture", ROOT / "Tests/Terrain/check_scheduler.py")
