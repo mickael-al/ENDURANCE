@@ -145,12 +145,24 @@ class Scene:
         self.render = gl.compile([(0x8B31, shader_source(TERRAIN / "render.vs.glsl")),
                                   (0x8B30, shader_source(TERRAIN / "render.fs.glsl"))], "actual packed terrain GBuffer")
         full_writer = shader_source(TERRAIN / "render.fs.glsl").replace(
-            "out vec2 gPosition;", "out vec4 gPosition;").replace(
-            "gPosition = geGBufferPackPosition(viewPosition, geometryTag);",
-            "gPosition = vec4(viewPosition, geometryTag);")
+            "out vec2 gPosition;", "out vec4 gPosition;")
+        full_writer = re.sub(r"gPosition\s*=\s*geGBufferPackPosition\(viewPosition,\s*geometryTag\);",
+            "gPosition = vec4(viewPosition, geometryTag);", full_writer)
         assert "gPosition = vec4(viewPosition, geometryTag);" in full_writer
         self.reference_render = gl.compile([(0x8B31, shader_source(TERRAIN / "render.vs.glsl")),
                                             (0x8B30, full_writer)], "reference terrain XYZ GBuffer encoding")
+        # The terrain renderer now supplies a fixed std140 appearance table.
+        # A neutral constant material keeps this test about shadow geometry,
+        # independently of ENDURANCE's authored palettes and pattern choices.
+        material = ((.45,.45,.45,.88)*3
+                    + (0.,1.,1.,0., .5,1.,1.,0., 0.,0.,0.,0.))
+        surface = material*2 + (.62,.12,.7,.3, 24.,1.5,0.,0.)
+        biome = surface*2 + (.28,.65,0.,1.)
+        self.material_table = gl.buffer(struct.pack('<3016f',*(biome*26)))
+        gl.glBindBufferBase(0x8A11,6,self.material_table)
+        for program in (self.render,self.reference_render):
+            # The deferred fixture below uses gamma1; preserve that contract.
+            gl.uniform(program,'terrainAlbedoGamma','1f',1.)
         self.shadow = gl.compile([(0x8B31, shader_source(TERRAIN / "shadow.vs.glsl")),
                                   (0x8B30, shader_source(TERRAIN / "shadow.fs.glsl"))], "actual packed terrain shadow")
         vertex = shader_source(ROOT / "Asset/Shader/forward.vs.glsl")
@@ -230,7 +242,7 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
         self.light_direction = SUN
         self.radius = RADIUS
         self.parameters = Parameters().set("Camera", *self.eye, 0).set("Control", 0, 0, 0, 0)
-        self.parameters.upload(gl)
+        self.parameters_buffer = self.parameters.upload(gl)
         self.light = bytearray(80)
         struct.pack_into("<3f", self.light, 0, 512., 10000., 512.)
         struct.pack_into("<3f", self.light, 16, 30., 28., 25.)
@@ -293,7 +305,7 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
         self.inverse = inverse_rigid(self.view)
         self.gl.write(self.camera, struct.pack("<52f", *eye, 0., *column_major(self.view),
                                                *column_major(self.inverse), *column_major(self.projection)))
-        self.parameters.set("Camera", *eye, 0).upload(self.gl)
+        self.parameters.set("Camera", *eye, 0).upload(self.gl,self.parameters_buffer)
 
     def geometry(self, pattern, obstacle, microdetail=False):
         gl = self.gl
@@ -304,6 +316,7 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
             gl.glEnableVertexAttribArray(i)
             gl.glVertexAttribIPointer(i, 1, 0x1405, 12, C.c_void_p(i * 4))
         gl.bind(self.descriptor, 8); gl.bind(self.camera, 0)
+        gl.glBindBufferBase(0x8A11,6,self.material_table)
         gl.glBindFramebuffer(0x8D40, self.gframe)
         gl.glViewport(0, 0, *VIEW_SIZE)
         gl.glEnable(0x0B71); gl.glDepthFunc(0x0201); gl.glDepthMask(True)
@@ -354,6 +367,7 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
 
     def lighting(self, kind, empty=False):
         gl = self.gl
+        gl.glBindBufferBase(0x8A11,6,self.parameters_buffer)
         for binding, buffer in enumerate((self.camera, self.light_buffer, self.divers,
                                           self.shadow_buffer, self.ssao, self.planes)):
             gl.bind(buffer, binding)
@@ -581,6 +595,7 @@ def packing_ab_case(scene):
         gl.glClearBufferfv(0x1800,0,(C.c_float*4)(0,0,0,-2))
         gl.glClearDepth(1);gl.glClear(0x00000100)
         gl.bind(scene.descriptor,8);gl.bind(scene.camera,0)
+        gl.glBindBufferBase(0x8A11,6,scene.material_table)
         gl.glBindVertexArray(scene.vao.value)
         gl.uniform(scene.reference_render,"microDetailStrength","1f",0)
         gl.uniform(scene.reference_render,"microDetailScale","1f",1)

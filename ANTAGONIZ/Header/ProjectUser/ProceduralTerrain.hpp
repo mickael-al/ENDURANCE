@@ -2,6 +2,7 @@
 #define ENDURANCE_PROCEDURAL_TERRAIN_COMPONENT_HPP
 
 #include "Behaviour.hpp"
+#include "ProceduralTerrainMaterials.hpp"
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -49,6 +50,7 @@ public:
     std::int32_t biomeOverride = -1;
     float microDetailStrength = 0.15f;
     float microDetailScale = 2.0f;
+    ProceduralTerrain::TerrainAppearance appearance;
     bool debugLod = false;
     bool collisionEnabled = true;
     float collisionRadius = 128.0f;
@@ -57,6 +59,8 @@ private:
     std::unique_ptr<ProceduralGeneration> m_generator;
     const ptrClass* m_pc = nullptr;
     std::string m_error;
+    std::string m_materialError;
+    int m_materialBiome = 0;
 };
 
 #endif

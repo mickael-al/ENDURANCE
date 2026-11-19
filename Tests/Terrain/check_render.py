@@ -1,6 +1,8 @@
 """Rasterize the production G-buffer/shadow stages into a small test FBO."""
 import ctypes as C
+import importlib.util
 import math
+from pathlib import Path
 import struct
 
 from gl_headless import shader_source
@@ -33,6 +35,7 @@ def check_render(gl, directory):
         "glReadPixels": (None,C.c_int,C.c_int,C.c_int,C.c_int,C.c_uint,C.c_uint,C.c_void_p),
         "glEnable": (None,C.c_uint),
         "glDisable": (None,C.c_uint),
+        "glUniform1uiv": (None,C.c_int,C.c_int,C.POINTER(C.c_uint)),
     }
     for name, signature in signatures.items():
         gl._fn(name,*signature)
@@ -40,6 +43,18 @@ def check_render(gl, directory):
     for stem in ("render","shadow"):
         programs[stem]=gl.compile([(0x8B31,shader_source(directory/(stem+".vs.glsl"))),
                                    (0x8B30,shader_source(directory/(stem+".fs.glsl")))],stem)
+    # Use the actual authored material table. Disable only its bump amplitudes
+    # in this vertex-decoding fixture; full material normals are tested by
+    # Tests/TerrainMaterials/check_gpu.py with independent derivative checks.
+    helper=Path(__file__).resolve().parents[1]/"TerrainMaterials/check_cpu.py"
+    spec=importlib.util.spec_from_file_location("terrain_material_data_fixture",helper)
+    module=importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    table,settings=module.export_appearance()
+    table=bytearray(table)
+    for biome in range(26): struct.pack_into('<f',table,biome*464+460,0.)
+    appearance=gl.buffer(bytes(table))
+    gl.glBindBufferBase(0x8A11,6,appearance)
     textures=(C.c_uint*5)()
     framebuffer,vao=C.c_uint(),C.c_uint()
     gl.glGenTextures(5,textures)
@@ -76,6 +91,12 @@ def check_render(gl, directory):
         indirect=gl.buffer(struct.pack("<4I",3,1,0,1))
         gl.glBindBuffer(0x8F3F,indirect)
         render=programs["render"]
+        gl.glUseProgram(render)
+        location=gl.glGetUniformLocation(render,b"terrainBiomeMatrix[0]")
+        assert location>=0,"Missing terrain climate matrix"
+        gl.glUniform1uiv(location,25,(C.c_uint*25)(*range(25)))
+        for name,value in settings.items():
+            gl.uniform(render,name,"1i" if name=="terrainMaterialDebug" else "1f",value)
         gl.uniform(render,"microDetailStrength","1f",0)
         gl.uniform(render,"microDetailScale","1f",1)
         gl.uniform(render,"worldSeed","1ui",1337)
@@ -94,10 +115,13 @@ def check_render(gl, directory):
             gl.glReadPixels(4,3,1,1,0x1908,0x1406,value)
             return tuple(value)
         position,normal,color,material=(sample(i) for i in range(4))
-        assert all(abs(a-b)<1e-5 for a,b in zip(position,(.25,-.25,-.25,0))), ("G-buffer view position/projection",position)
+        # The production G-buffer stores signed view depth + exact geometric
+        # normal metadata, not the obsolete XYZ-position layout.
+        assert abs(position[0]+.25)<1e-5,("G-buffer signed view depth/projection",position)
+        assert position[1]<=-4 and position[1]==math.floor(position[1]),("G-buffer geometric normal tag",position)
         assert all(abs(a-b)<1e-5 for a,b in zip(normal[:3],(0,0,1))), ("G-buffer normal",normal)
         assert all(math.isfinite(v) and 0<=v<=1 for v in color) and color[3]==1,("G-buffer color",color)
-        assert all(abs(a-b)<1e-5 for a,b in zip(material[:3],(0,.88,1))), ("G-buffer material",material)
+        assert material[0]==0. and .04<=material[1]<=1. and 0.<=material[2]<=1.,("G-buffer authored PBR",material)
         palette=set()
         for biome in range(26):
             gl.uniform(render,"terrainBiomeOverride","1i",biome)
