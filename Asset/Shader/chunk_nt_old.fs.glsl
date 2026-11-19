@@ -1,4 +1,5 @@
 #version 450
+#include "Geometry/gbuffer_position.glsl"
 
 layout(std430, binding = 0) buffer UniformBufferCamera
 {
@@ -218,7 +219,7 @@ layout(location = 0) in vec4 ViewPos;
 layout(location = 1) in vec4 Normal;
 layout(location = 2) in vec3 WorldPos;
 
-layout(location = 0) out vec4 gPosition;
+layout(location = 0) out vec2 gPosition;
 layout(location = 1) out vec3 gNormal;
 layout(location = 2) out vec4 gColor;
 layout(location = 3) out vec3 gOther;
@@ -228,7 +229,7 @@ void main(void)
     vec2 uv = vec2(ViewPos.w, Normal.w);
     PbrData pd = bilinearMatrixSample(uv, WorldPos * CSCALE, Normal.xyz);
 
-    gPosition = vec4(ViewPos.xyz, pd.gOther.w);//view position = rgb + emit = a
+    gPosition = geGBufferPackPosition(ViewPos.xyz, pd.gOther.w);//view Z + emission/material tag
     gNormal = Normal.xyz;
     gColor = vec4(pd.Color.rgb, 1.0);//color = rgba
     gOther = pd.gOther.xyz;//metallic = r + roughness = g + ao = b

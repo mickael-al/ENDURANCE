@@ -4,7 +4,7 @@ layout(local_size_x=4,local_size_y=4,local_size_z=4) in;
 // Coefficients are per metre (often below 1e-7 at altitude/night). Keep FP32
 // until integration; storing them as half would erase physically thin media.
 layout(rgba32f,binding=0) writeonly uniform image3D geAtmSourceOutput;
-layout(rgba32f,binding=1) writeonly uniform image3D geAtmExtinctionOutput;
+layout(rg32f,binding=1) writeonly uniform image3D geAtmExtinctionOutput;
 void main()
 {
     ivec3 p=ivec3(gl_GlobalInvocationID),size=imageSize(geAtmSourceOutput);
@@ -17,6 +17,7 @@ void main()
         vec3 world=geAtmCamera.xyz+direction*distance;
         source=geAtmPhysicalSource(geAtmOrigin()+direction*distance,direction,geAtmVisibility(world),extinction);
     }
-    imageStore(geAtmSourceOutput,p,vec4(source,0.0));
-    imageStore(geAtmExtinctionOutput,p,vec4(extinction,0.0));
+    // Six FP32 coefficients occupy six channels; no conversion or rescaling.
+    imageStore(geAtmSourceOutput,p,vec4(source,extinction.r));
+    imageStore(geAtmExtinctionOutput,p,vec4(extinction.gb,0.0,0.0));
 }

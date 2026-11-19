@@ -454,6 +454,9 @@ namespace Ge
 		const glm::vec4 & clear = m_ptrClass->settingManager->getClearColor();
 		glClearColor(clear.x, clear.y, clear.z, clear.w);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+		// Attachment 0 stores view Z and the material tag, not clear-color R/G.
+		const GLfloat clearPosition[4] = {clear.z, clear.w, 0.0f, 0.0f};
+		glClearBufferfv(GL_COLOR, 0, clearPosition);
 		if (m_atmosphere->active()) m_atmosphere->renderSky(m_cameraManager->getSSBO());
 		else m_skybox->render(m_cameraManager->getSSBO());
 		glEnable(GL_CULL_FACE);

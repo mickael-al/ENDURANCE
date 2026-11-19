@@ -7,7 +7,7 @@ import math
 import struct
 
 from fixtures import Parameters
-from gl_support import AtmosphereGL, ROOT, TEXTURE_CUBE_MAP, RG16F, RGBA32F, shader_source
+from gl_support import AtmosphereGL, ROOT, TEXTURE_CUBE_MAP, RG16F, RG32F, RGBA32F, shader_source
 from check_luts import finite, rgb
 
 DIRECTORY=ROOT/"Asset/Shader/Atmosphere"
@@ -118,13 +118,13 @@ def check_ibl(gl,programs=None):
 
     sky_program=gl.compile([(0x8B31,shader_source(DIRECTORY/"sky.vs.glsl")),
                             (0x8B30,shader_source(DIRECTORY/"sky.fs.glsl"))],"HDR sky G-buffer")
-    attachments=[gl.texture((3,5),internal=RGBA32F) for _ in range(4)]
+    attachments=[gl.texture((3,5),internal=RG32F if i==0 else RGBA32F) for i in range(4)]
     gl.sampler(0,source,TEXTURE_CUBE_MAP)
     gl.fullscreen(sky_program,3,5,attachments)
     color=gl.texels(attachments[2],(3,5))
-    marker=gl.texels(attachments[0],(3,5))
+    marker=gl.texels(attachments[0],(3,5),channels=2)
     assert all(abs(v-(2,4,8,1)[i%4])<1e-5 for i,v in enumerate(color)),"Sky fragment stage clipped/gamma-converted HDR radiance"
-    assert all(marker[i]==-2 for i in range(3,len(marker),4)),"Sky classification marker lost"
+    assert all(marker[i]==-2 for i in range(1,len(marker),2)),"Sky classification marker lost"
     parameters.values["Art"][1]=0
     parameters.upload(gl,uniform)
     gl.fullscreen(sky_program,3,5,attachments)

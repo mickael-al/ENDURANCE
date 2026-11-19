@@ -21,7 +21,7 @@ import struct
 from check_luts import finite
 from fixtures import Parameters
 from gl_support import (
-    AtmosphereGL, FLOAT, R32F, RED, RGBA, RGBA32F, ROOT,
+    AtmosphereGL, FLOAT, R32F, RED, RG, RGBA, RG32F, RGBA32F, ROOT,
     TEXTURE_2D, TEXTURE_2D_ARRAY, TEXTURE_3D, TEXTURE_CUBE_MAP,
     shader_source,
 )
@@ -81,7 +81,9 @@ class ScreenGL(AtmosphereGL):
                                     ("a_Normal", 3, self.mesh[2])):
             location = self.glGetAttribLocation(program, name.encode())
             if location < 0:
-                assert name == "a_Normal", f"Production mesh attribute {name} is inactive"
+                assert name != "a_Position", "Fullscreen position attribute is inactive"
+                # Geometry-only probes use gl_FragCoord with compact depth and
+                # legitimately optimize both normal and texture-coordinate inputs.
                 continue
             buffer = self.buffer(struct.pack(f"<{len(values)}f", *values))
             self.glBindBuffer(0x8892, buffer)  # GL_ARRAY_BUFFER
@@ -117,16 +119,18 @@ class ScreenGL(AtmosphereGL):
         self.check("production deferred draw")
         return [values[i:i + 3] for i in range(0, len(values), 4)]
 
-    def field_texture(self, size, rows, *, repeat=False):
+    def field_texture(self, size, rows, *, repeat=False, internal=RGBA32F):
         target = TEXTURE_3D if len(size) == 3 else TEXTURE_2D
-        texture = self.texture(size, target=target, internal=RGBA32F)
-        payload = b"".join(struct.pack("<4f", *row) for row in rows)
+        texture = self.texture(size, target=target, internal=internal)
+        channels = 2 if internal == RG32F else 4
+        format_ = RG if internal == RG32F else RGBA
+        payload = b"".join(struct.pack(f"<{channels}f", *row) for row in rows)
         assert len(rows) == math.prod(size)
         self.glBindTexture(target, texture)
         if target == TEXTURE_3D:
-            self.glTexImage3D(target, 0, RGBA32F, *size, 0, RGBA, FLOAT, C.c_char_p(payload))
+            self.glTexImage3D(target, 0, internal, *size, 0, format_, FLOAT, C.c_char_p(payload))
         else:
-            self.glTexImage2D(target, 0, RGBA32F, *size, 0, RGBA, FLOAT, C.c_char_p(payload))
+            self.glTexImage2D(target, 0, internal, *size, 0, format_, FLOAT, C.c_char_p(payload))
         if repeat:
             # FrameBuffer.cpp uses nearest filtering for the GBuffer. Only
             # the atmosphere fields use linear reconstruction in this test.
@@ -217,13 +221,13 @@ class DeferredFixture:
             for x in range(width):
                 u, v = (x + .5) / width, (y + .5) / height
                 ray = view_ray(u, v, aspect)
-                positions.append(tuple(4000 * value for value in ray) + (-2. if mode == "sky" else 0.,))
+                positions.append((4000 * ray[2], -2. if mode == "sky" else 0.))
                 colours.append((2. + 1.1 * u, .6 + .7 * v, 1. + .3 * u + .6 * v, 1.)
                                if mode == "sky" else (.3 + .4 * u, .2 + .6 * v, .1 + .2 * u + .1 * v, 1.))
                 normals.append(normal + (1.,))
                 others.append((.3, .5, 1., 1.))
         self.colours = [row[:3] for row in colours]
-        self.samplers = {unit_: (gl.field_texture(size, rows, repeat=True), TEXTURE_2D)
+        self.samplers = {unit_: (gl.field_texture(size, rows, repeat=True, internal=RG32F if unit_ == 0 else RGBA32F), TEXTURE_2D)
                          for unit_, rows in enumerate((positions, normals, colours, others))}
         self.samplers.update({
             4: (gl.texture((2, 2, 1), target=TEXTURE_2D_ARRAY, internal=R32F, value=1), TEXTURE_2D_ARRAY),
@@ -375,9 +379,9 @@ def check_directional_caller(gl, production, vertex, fragment):
             world_ray = multiply(rotation, ray)
             assert world_ray[1] < 0, "The selected camera must see the ground plane in every pixel"
             distance = -position[1] / world_ray[1]
-            view_positions.append(tuple(value * distance for value in ray) + (0.,))
+            view_positions.append((ray[2] * distance, 0.))
             world_positions.append(tuple(origin + value * distance for origin, value in zip(position, world_ray)))
-    fixture.samplers[0] = (gl.field_texture(size, view_positions, repeat=True), TEXTURE_2D)
+    fixture.samplers[0] = (gl.field_texture(size, view_positions, repeat=True, internal=RG32F), TEXTURE_2D)
     for unit_, colour in ((1, (0., 1., 0., 1.)), (2, (.65, .5, .3, 1.)), (3, (0., .8, 1., 1.))):
         fixture.samplers[unit_] = (gl.field_texture(size, [colour] * (width * height), repeat=True), TEXTURE_2D)
     for unit_ in (6, 7):

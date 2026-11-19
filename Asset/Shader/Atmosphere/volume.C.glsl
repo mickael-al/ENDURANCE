@@ -8,7 +8,6 @@ layout(rgba16f,binding=3) writeonly uniform image2D geAtmBaselineTransmissionOut
 layout(binding=9) uniform sampler3D geAtmPhysicalSourceVolume;
 layout(binding=10) uniform sampler3D geAtmPhysicalExtinctionVolume;
 layout(binding=11) uniform sampler3D geAtmCloudSourceVolume;
-layout(binding=12) uniform sampler3D geAtmCloudExtinctionVolume;
 void main()
 {
     ivec2 p=ivec2(gl_GlobalInvocationID.xy); ivec3 size=imageSize(geAtmScatteringOutput);
@@ -27,8 +26,9 @@ void main()
         vec3 source=vec3(0.0),extinction=vec3(0.0);
         if(geAtmControl.x!=0)
         {
-            source=texelFetch(geAtmPhysicalSourceVolume,ivec3(p,z),0).rgb;
-            extinction=texelFetch(geAtmPhysicalExtinctionVolume,ivec3(p,z),0).rgb;
+            vec4 physical=texelFetch(geAtmPhysicalSourceVolume,ivec3(p,z),0);
+            source=physical.rgb;
+            extinction=vec3(physical.a,texelFetch(geAtmPhysicalExtinctionVolume,ivec3(p,z),0).rg);
         }
         // The cubemap contains an unoccluded physical sky. Separate this
         // baseline from the terrain-shadowed source used in the view volume.
@@ -38,8 +38,9 @@ void main()
             direction,vec2(1.0),unusedExtinction);
         if(geAtmControl.z!=0)
         {
-            vec3 cloudSource=texelFetch(geAtmCloudSourceVolume,ivec3(p,z),0).rgb;
-            float cloudExtinction=texelFetch(geAtmCloudExtinctionVolume,ivec3(p,z),0).r;
+            vec4 cloud=texelFetch(geAtmCloudSourceVolume,ivec3(p,z),0);
+            vec3 cloudSource=cloud.rgb;
+            float cloudExtinction=cloud.a;
             source+=cloudSource;
             vec3 unoccludedCloudSource=cloudSource;
             if(cloudExtinction>0.0 && geAtmControl.w!=0)

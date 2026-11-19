@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Measure actual opaque G-buffer position quantization on inclined planes.
 
-The unchanged production opaque VS/FS write either RGBA16F or RGBA32F. A
+The production opaque VS/FS write RG32F depth and metadata. Frozen-layout
+RGBA16F/RGBA32F writer variants retain the former XYZ encoding for comparison. A
 diagnostic fragment pass reconstructs world position and shadow depth exactly
 as deferred lighting does. The independent analytic shadow plane removes PCF
 sampling error. Its signed receiver-depth error can cause false occlusion or
@@ -22,7 +23,7 @@ import math
 import re
 import struct
 
-from gl_support import AtmosphereGL, ROOT, RGBA16F, RGBA32F, FULLSCREEN_VERTEX, TEXTURE_2D_ARRAY
+from gl_support import AtmosphereGL, ROOT, RGBA16F, RGBA32F, RG32F, FULLSCREEN_VERTEX, TEXTURE_2D_ARRAY
 from gl_headless import shader_source
 
 WIDTH, HEIGHT = 96, 64
@@ -263,6 +264,8 @@ def measure(gl, opaque, probe, shadow_program, distance, internal, material_text
     gl.sampler(0, outputs[0])
     gl.sampler(1,shadow_texture,TEXTURE_2D_ARRAY)
     gl.matrix(probe, 'inverseView', column_major(inverse_view))
+    if internal == RG32F:
+        gl.matrix(probe, 'projection', column_major(projection))
     gl.matrix(probe, 'shadowProjectionView', column_major(shadow))
     gl.uniform(probe, 'planeAnchor', '3f', *anchor)
     gl.uniform(probe, 'planeGradient', '2f', *gradient)
@@ -321,16 +324,22 @@ def check_production_allocations():
         body=source.split(f'FrameBuffer::{method}(',1)[1].split(f'FrameBuffer::{end}(',1)[0]
         bound=body.split('glBindTexture(GL_TEXTURE_2D, m_gPosition);',1)[1]
         allocation=re.search(r'glTexImage2D\s*\([^;]+;',bound).group()
-        assert re.search(r'GL_TEXTURE_2D\s*,\s*0\s*,\s*GL_RGBA32F\s*,',allocation), (method,allocation)
-    print('PASS production initialize and resize both allocate gPosition as RGBA32F',flush=True)
+        assert re.search(r'GL_TEXTURE_2D\s*,\s*0\s*,\s*GL_RG32F\s*,',allocation), (method,allocation)
+    print('PASS production initialize and resize both allocate gPosition as RG32F',flush=True)
 
 
 def main():
     check_production_allocations()
     with AtmosphereGL() as gl:
         print(f'OpenGL {gl.version}; renderer: {gl.renderer}',flush=True)
-        opaque=gl.compile([(0x8B31,shader_source(ROOT/'Asset/Shader/opaque.vs.glsl')),
-                           (0x8B30,shader_source(ROOT/'Asset/Shader/opaque.fs.glsl'))], 'production opaque position writer')
+        vertex=shader_source(ROOT/'Asset/Shader/opaque.vs.glsl')
+        fragment=shader_source(ROOT/'Asset/Shader/opaque.fs.glsl')
+        opaque=gl.compile([(0x8B31,vertex),(0x8B30,fragment)], 'production packed opaque writer')
+        reference_fragment=fragment.replace('out vec2 gPosition;', 'out vec4 gPosition;').replace(
+            'gPosition = geGBufferPackPosition(ViewPos, emission > 0.0 ? emission : geometryTag);',
+            'gPosition = vec4(ViewPos, emission > 0.0 ? emission : geometryTag);')
+        assert reference_fragment != fragment and 'gPosition = vec4(ViewPos,' in reference_fragment
+        reference_opaque=gl.compile([(0x8B31,vertex),(0x8B30,reference_fragment)], 'former full XYZ opaque encoding')
         probe_source=PROBE_FRAGMENT.replace('//__PRODUCTION_SHADOW_HELPER__',
             shader_source(ROOT/'Asset/Shader/Shadow/directional_surface.glsl'))
         # Use the caller's actual expression, not a duplicated test-only bound.
@@ -339,15 +348,28 @@ def main():
         position_error=position_error.replace('ubc.invView','inverseView')
         probe_source=probe_source.replace('//__PRODUCTION_POSITION_ERROR__',position_error)
         probe=gl.compile([(0x8B31,FULLSCREEN_VERTEX),(0x8B30,probe_source)], 'position/shadow precision diagnostic')
+        packed_probe_source=probe_source.replace('#version 450 core', '#version 450 core\n'+
+            shader_source(ROOT/'Asset/Shader/Geometry/gbuffer_position.glsl')+'\nuniform mat4 projection;')
+        packed_probe_source=packed_probe_source.replace(
+            'vec4 viewPos=texelFetch(positions,ivec2(gl_FragCoord.xy),0);',
+            'vec4 viewPos=geGBufferReadPosition(positions,ivec2(gl_FragCoord.xy),projection);')
+        packed_probe=gl.compile([(0x8B31,FULLSCREEN_VERTEX),(0x8B30,packed_probe_source)], 'packed position/shadow precision diagnostic')
         shadow_program=gl.compile([(0x8B31,FULLSCREEN_VERTEX),(0x8B30,SHADOW_FRAGMENT)], 'independent receiver/2/4 m obstacle depth')
         material=[gl.texture((1,1),internal=RGBA32F,value=v,linear=False) for v in
                   ((1,1,1,1),(.5,.5,1,1),(0,0,0,0),(1,1,1,1),(1,0,0,0))]
         print('distance_m format max_world_error_m max_shadow_error_m max_derivative_angle_deg min_numerical_bias_m max_numerical_bias_m outside_bias_percent false_shadow_percent min_signed_error_m max_signed_error_m minimum_lit_visibility maximum_2m_visibility mean_2m_occlusion false_pcf_shadow_percent maximum_4m_visibility',flush=True)
         for distance in (100.,1000.,10000.,40000.):
-            values={internal:measure(gl,opaque,probe,shadow_program,distance,internal,material) for internal in (RGBA16F,RGBA32F)}
-            for internal,label in ((RGBA16F,'RGBA16F'),(RGBA32F,'RGBA32F')):
+            values={internal:measure(gl,opaque if internal == RG32F else reference_opaque,
+                         packed_probe if internal == RG32F else probe,shadow_program,distance,internal,material)
+                    for internal in (RGBA16F,RGBA32F,RG32F)}
+            for internal,label in ((RGBA16F,'RGBA16F'),(RGBA32F,'RGBA32F'),(RG32F,'RG32F')):
                 print(f'{distance:10.0f} {label:8s} '+' '.join(f'{v:.6f}' for v in values[internal]),flush=True)
             half,full=values[RGBA16F],values[RGBA32F]
+            packed=values[RG32F]
+            assert packed[0]<.025 and packed[1]<.025, ('packed plane precision',distance,packed)
+            assert packed[6]==0. and packed[9]>=1.-1e-6, ('packed must not falsely self-shadow',distance,packed)
+            assert packed[10]<=1e-6 and packed[13]<=1e-6, ('packed 2m and4m blockers remain shadowed',distance,packed)
+            assert packed[2]<1.0, ('packed receiver derivatives',distance,packed)
             assert full[0]<.025 and full[1]<.025, ('32F plane precision',distance,full)
             assert full[6]==0. and full[9]>=1.-1e-6, ('32F must not falsely self-shadow',distance,full)
             assert full[10]<=1e-6, ('2 m blocker must remain fully shadowed with the production bias',distance,full)
@@ -357,9 +379,9 @@ def main():
             if distance>=1000:
                 assert half[1]>.1 and half[5]>10., ('half storage must exceed the actual residual bias',distance,half)
         for width,height in ((1920,1080),(2560,1440),(3840,2160)):
-            old=width*height*8; new=width*height*16
-            print(f'gPosition {width}x{height}: {old} -> {new} bytes; additional {new-old} bytes ({(new-old)/1048576:.5f} MiB)',flush=True)
-        print('PASS actual opaque writer + PCF: no false 32F self-shadow through 40 km; 2 m and 4 m blockers fully shadowed with production texel bias at every distance',flush=True)
+            old=width*height*16; new=width*height*8
+            print(f'gPosition {width}x{height}: {old} -> {new} bytes; saved {old-new} bytes ({(old-new)/1048576:.5f} MiB)',flush=True)
+        print('PASS actual opaque writer + PCF: no false RG32F/RGBA32F self-shadow through40km; 2 m and 4 m blockers fully shadowed with production texel bias at every distance',flush=True)
         gl.check('position precision regression')
 
 

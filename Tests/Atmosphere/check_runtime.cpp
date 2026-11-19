@@ -81,7 +81,7 @@ namespace
             const GLenum outputs[]={GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1,GL_COLOR_ATTACHMENT2,GL_COLOR_ATTACHMENT3};
             for(int i=0;i<4;++i)
             {
-                glTextureStorage2D(colors[i],1,GL_RGBA32F,32,18);
+                glTextureStorage2D(colors[i],1,i==0?GL_RG32F:GL_RGBA32F,32,18);
                 glNamedFramebufferTexture(fbo,outputs[i],colors[i],0);
             }
             glNamedFramebufferDrawBuffers(fbo,4,outputs);
@@ -231,6 +231,19 @@ namespace
         { return b.aerialDispatches==a.aerialDispatches+1 && b.cloudVolumeDispatches==a.cloudVolumeDispatches+1 &&
                  b.fogDispatches==a.fogDispatches+1; };
         auto previous=frame(0);
+        // Check the real C++ allocation/binding path, not just shader fixtures.
+        const GLint formats[]={GL_RGBA32F,GL_RG32F,GL_RGBA32F};
+        for(unsigned i=0;i<3;++i)
+        {
+            const auto texture=textureAt(9+i,GL_TEXTURE_BINDING_3D);
+            GLint format=0,width=0,height=0,depth=0;
+            glGetTextureLevelParameteriv(texture,0,GL_TEXTURE_INTERNAL_FORMAT,&format);
+            glGetTextureLevelParameteriv(texture,0,GL_TEXTURE_WIDTH,&width);
+            glGetTextureLevelParameteriv(texture,0,GL_TEXTURE_HEIGHT,&height);
+            glGetTextureLevelParameteriv(texture,0,GL_TEXTURE_DEPTH,&depth);
+            require(format==formats[i] && width==16 && height==9 && depth==16,
+                    "Runtime coefficient storage does not use the packed FP32 layout");
+        }
         GLint scattering=0; glGetIntegeri_v(GL_IMAGE_BINDING_NAME,0,&scattering);
         const auto litVolume=readTexture(static_cast<GLuint>(scattering),GL_TEXTURE_3D);
         auto next=frame(.5);
@@ -285,7 +298,7 @@ namespace
         config.environmentBlendSeconds=0;
         const auto referenceSettings=config;
         Targets targets;
-        GLuint cloudExtinction=0;
+        GLuint cloudCoefficients=0;
         struct Observation
         {
             glm::vec2 offset{};
@@ -302,7 +315,7 @@ namespace
             const auto previousCloudDispatches=atmosphere.stats().cloudVolumeDispatches;
             atmosphere.computeVolumes(&camera);
             if(atmosphere.stats().cloudVolumeDispatches>previousCloudDispatches)
-                cloudExtinction=textureAt(12,GL_TEXTURE_BINDING_3D);
+                cloudCoefficients=textureAt(11,GL_TEXTURE_BINDING_3D);
             Observation value;
             if(images)
             {
@@ -310,7 +323,8 @@ namespace
                 value.offset={gpu[21*4],gpu[21*4+1]}; // std140 CloudOffset XY, unchanged ABI.
                 value.delta=readTexture(delta,GL_TEXTURE_2D);
                 value.shadow=readTexture(shadow,GL_TEXTURE_2D);
-                value.extinction=readTexture(cloudExtinction,GL_TEXTURE_3D);
+                const auto coefficients=readTexture(cloudCoefficients,GL_TEXTURE_3D);
+                for(std::size_t i=3;i<coefficients.size();i+=4) value.extinction.push_back(coefficients[i]);
                 value.sky=readTexture(targets.colors[2],GL_TEXTURE_2D);
             }
             checkGL("cloud wind runtime frame");
@@ -484,8 +498,8 @@ namespace
             if(atmosphere.stats().cloudVolumeDispatches>cloudDispatches)
             {
                 GLint format=0;
-                glGetTextureLevelParameteriv(textureAt(12,GL_TEXTURE_BINDING_3D),0,GL_TEXTURE_INTERNAL_FORMAT,&format);
-                require(format==GL_R32F,"Cloud extinction still uses four float channels");
+                glGetTextureLevelParameteriv(textureAt(11,GL_TEXTURE_BINDING_3D),0,GL_TEXTURE_INTERNAL_FORMAT,&format);
+                require(format==GL_RGBA32F,"Cloud source/extinction no longer share an FP32 RGBA texture");
             }
             validatePublished(atmosphere,material);
             require(atmosphere.stats().iblWorkUnitsThisFrame<=static_cast<unsigned>(std::clamp(config.iblMaxWorkUnitsPerFrame,1,64)),
@@ -723,7 +737,7 @@ namespace
         config.clouds=false; frame(.1);
         glGetTextureLevelParameteriv(textureAt(13,GL_TEXTURE_BINDING_3D),0,GL_TEXTURE_WIDTH,&neutralWidth);
         require(neutralWidth==1,"Disabling clouds did not restore small identity resources");
-        std::cout<<"PASS scheduler budget/disabled effects: bounded submissions, active soft target, R32F cloud extinction, skipped passes and neutral one-voxel resources\n"<<std::flush;
+        std::cout<<"PASS scheduler budget/disabled effects: bounded submissions, active soft target, packed FP32 cloud extinction, skipped passes and neutral one-voxel resources\n"<<std::flush;
 
         {
             Ge::Atmosphere startup;

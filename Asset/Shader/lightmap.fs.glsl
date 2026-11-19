@@ -1,4 +1,5 @@
 #version 450
+#include "Geometry/gbuffer_position.glsl"
 
 struct StructUBM
 {
@@ -30,7 +31,7 @@ layout(location = 2) in vec3 ViewPos;
 layout(location = 3) in mat3 TBN;
 layout(location = 6) flat in int imaterial;
 
-layout(location = 0) out vec4 gPosition;
+layout(location = 0) out vec2 gPosition;
 layout(location = 1) out vec3 gNormal;
 layout(location = 2) out vec4 gColor;
 layout(location = 3) out vec3 gOther;
@@ -53,5 +54,5 @@ void main(void)
 	gOther.r = ubm.ubm[imaterial].metallic * texture(metallicTexture, fragTexCoord).r;
 	gOther.g = ubm.ubm[imaterial].roughness * texture(roughnessTexture, fragTexCoord).r;
 	gOther.b = ubm.ubm[imaterial].ao * bakedOcclusion;
-	gPosition = vec4(ViewPos, ubm.ubm[imaterial].emit);
+	gPosition = geGBufferPackPosition(ViewPos, ubm.ubm[imaterial].emit);
 }

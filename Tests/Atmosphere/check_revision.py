@@ -21,7 +21,7 @@ from check_luts import DIRECTORY, finite, rgb
 from check_volumes import VolumeFixture
 from fixtures import Parameters
 from gl_support import (
-    AtmosphereGL, RG16F, RGBA32F, TEXTURE_3D, TEXTURE_CUBE_MAP,
+    AtmosphereGL, RG16F, RG32F, RGBA32F, TEXTURE_3D, TEXTURE_CUBE_MAP,
     shader_source,
 )
 
@@ -322,7 +322,7 @@ def check_current_visible_clouds(gl, fixture):
     assert gl.glGetUniformLocation(draw_program, b"geCurrentCloudView") >= 0
     delta = gl.texture(size)
     direct = gl.texture(size, internal=RGBA32F)
-    outputs = [gl.texture(size, internal=RGBA32F) for _ in range(4)]
+    outputs = [gl.texture(size, internal=RG32F if i==0 else RGBA32F) for i in range(4)]
     old_cube = gl.texture((3, 3), target=TEXTURE_CUBE_MAP, value=(9., 2., 5., 1.))
     other_cube = gl.texture((3, 3), target=TEXTURE_CUBE_MAP, value=(1., 8., 3., 1.))
 
@@ -338,7 +338,7 @@ def check_current_visible_clouds(gl, fixture):
         gl.fullscreen(draw_program, *size, outputs)
         actual = gl.texels(outputs[2], size)
         finite(actual, "current visible sky framebuffer")
-        assert all(value == -2 for value in gl.texels(outputs[0], size)[3::4]), "Current sky lost its deferred HDR sky marker"
+        assert all(value == -2 for value in gl.texels(outputs[0], size, channels=2)[1::2]), "Current sky lost its deferred HDR sky marker"
         return actual
 
     def capture():

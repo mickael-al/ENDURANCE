@@ -1,4 +1,4 @@
-// Optional geometric VIEW-space normal in the existing RGBA32F gPosition.w.
+// Optional geometric VIEW-space normal in the RG32F gPosition.g metadata channel.
 // >0 is emission, -2 is sky, 0 is a legacy/no-normal surface. Encoded normals
 // occupy only integer tags [-1048579,-4]: -4 - oct20 (10 bits per oct axis).
 // Every tag is exactly representable in float32; keep NEAREST G-buffer reads.

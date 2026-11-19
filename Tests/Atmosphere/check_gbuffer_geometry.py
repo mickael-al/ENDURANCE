@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the real geometric-normal tag through an RGBA32F framebuffer.
+"""Validate the real geometric-normal tag through an RG32F framebuffer.
 
 Roundtrip references come from independent 3D directions, not another oct
 encoder. Reserved/malformed tags and degenerate derivatives must stay legacy.
@@ -11,7 +11,7 @@ import math
 import random
 import struct
 
-from gl_support import AtmosphereGL, FULLSCREEN_VERTEX, RGBA32F, ROOT, shader_source
+from gl_support import AtmosphereGL, FULLSCREEN_VERTEX, RGBA32F, RG32F, ROOT, shader_source
 
 HELPER = ROOT / "Asset/Shader/Geometry/gbuffer_geometry.glsl"
 ENCODE = """#version 450 core
@@ -19,10 +19,10 @@ ENCODE = """#version 450 core
 struct Input { vec4 dx; vec4 dy; };
 layout(std430,binding=0) readonly buffer Inputs { Input samples[]; };
 uniform uint width;
-layout(location=0) out vec4 position;
+layout(location=0) out vec2 position;
 void main() {
     uint i=uint(gl_FragCoord.x)+uint(gl_FragCoord.y)*width;
-    position=vec4(0,0,0,geGBufferGeometryTag(samples[i].dx.xyz,samples[i].dy.xyz));
+    position=vec2(0,geGBufferGeometryTag(samples[i].dx.xyz,samples[i].dy.xyz));
 }
 """
 DECODE = """#version 450 core
@@ -31,7 +31,7 @@ layout(binding=0) uniform sampler2D positions;
 layout(location=0) out vec4 result;
 void main() {
     vec3 normal;
-    bool valid=geGBufferGeometricNormal(texelFetch(positions,ivec2(gl_FragCoord.xy),0).w,normal);
+    bool valid=geGBufferGeometricNormal(texelFetch(positions,ivec2(gl_FragCoord.xy),0).g,normal);
     result=vec4(normal,valid?1.0:0.0);
 }
 """
@@ -92,10 +92,10 @@ def check_roundtrip(gl,encoder,decoder):
     samples.extend([((0,0,0),(0,0,0),None)]*(size[0]*size[1]-count))
     payload=b''.join(struct.pack('<8f',*dx,0.,*dy,0.) for dx,dy,_ in samples)
     gl.buffer(payload,0)
-    texture=gl.texture(size,internal=RGBA32F,linear=False)
+    texture=gl.texture(size,internal=RG32F,linear=False)
     gl.uniform(encoder,'width','1ui',size[0])
     gl.fullscreen(encoder,*size,[texture])
-    tags=gl.texels(texture,size)[3::4]
+    tags=gl.texels(texture,size,channels=2)[1::2]
     output=read_normals(gl,decoder,texture,size)
     maximum=0.
     for i,(_,_,expected) in enumerate(samples):
@@ -110,7 +110,7 @@ def check_roundtrip(gl,encoder,decoder):
         maximum=max(maximum,error)
         assert error<.005, ('oct20 roundtrip error',i,error,expected,normal)
         assert abs(sum(v*v for v in normal)-1.)<2e-6, ('unit normal',i,normal)
-    print(f'PASS {valid_count} normals through RGBA32F: maximum vector error={maximum:.7f}; axes/folds, scales1e-30..1e30, degenerate/invalid derivatives',flush=True)
+    print(f'PASS {valid_count} normals through RG32F: maximum vector error={maximum:.7f}; axes/folds, scales1e-30..1e30, degenerate/invalid derivatives',flush=True)
 
 
 def check_tags(gl,decoder):
@@ -119,10 +119,10 @@ def check_tags(gl,decoder):
     valid=(-4.,-5.,-1027.,-1028.,-524804.,-1048579.)
     tags=invalid+valid
     size=(len(tags),1)
-    texture=gl.texture(size,internal=RGBA32F,linear=False)
-    data=struct.pack('<'+str(4*len(tags))+'f',*(v for tag in tags for v in (0.,0.,0.,tag)))
+    texture=gl.texture(size,internal=RG32F,linear=False)
+    data=struct.pack('<'+str(2*len(tags))+'f',*(v for tag in tags for v in (0.,tag)))
     gl.glBindTexture(0x0DE1,texture)
-    gl.glTexImage2D(0x0DE1,0,RGBA32F,*size,0,0x1908,0x1406,C.c_char_p(data))
+    gl.glTexImage2D(0x0DE1,0,RG32F,*size,0,0x8227,0x1406,C.c_char_p(data))
     output=read_normals(gl,decoder,texture,size)
     for i in range(len(tags)):
         normal,accepted=output[4*i:4*i+3],output[4*i+3]
@@ -146,7 +146,7 @@ def check_opaque(gl,decoder):
     identity=((1.,0.,0.,0.),(0.,1.,0.,0.),(0.,0.,1.,0.),(0.,0.,0.,1.))
     positions=[(x,y,-100+SLOPE_X*x+SLOPE_Y*y) for x,y in
                ((-EXTENT_X,-EXTENT_Y),(3*EXTENT_X,-EXTENT_Y),(-EXTENT_X,3*EXTENT_Y))]
-    outputs=[gl.texture(size,internal=RGBA32F,linear=False) for _ in range(4)]
+    outputs=[gl.texture(size,internal=fmt,linear=False) for fmt in (RG32F,RGBA32F,RGBA32F,RGBA32F)]
     material=[gl.texture((1,1),internal=RGBA32F,value=v,linear=False) for v in
               ((1,1,1,1),(1,.5,.5,1),(0,0,0,0),(1,1,1,1),(1,1,0,0))]
     for unit_index,texture in enumerate(material): gl.sampler(unit_index,texture)
@@ -157,7 +157,7 @@ def check_opaque(gl,decoder):
     array=C.c_int(); gl.glGetIntegerv(0x85B5,C.byref(array))
     gl._fn('glGetIntegeri_v',None,C.c_uint,C.c_uint,C.POINTER(C.c_int))
     material_buffer=C.c_int(); gl.glGetIntegeri_v(0x90D3,2,C.byref(material_buffer))
-    tags=gl.texels(outputs[0],size)[3::4]
+    tags=gl.texels(outputs[0],size,channels=2)[1::2]
     normals=read_normals(gl,decoder,outputs[0],size)
     expected=unit((-SLOPE_X,-SLOPE_Y,1.))
     for i,tag in enumerate(tags):
@@ -178,17 +178,17 @@ def check_opaque(gl,decoder):
     for emission in (2.75,-3.):
         gl.write(material_buffer.value,struct.pack('<f',emission),48)
         redraw()
-        written=gl.texels(outputs[0],size)[3::4]
+        written=gl.texels(outputs[0],size,channels=2)[1::2]
         assert all(v==emission for v in written) if emission>0 else written==tags
     gl._fn('glClearColor',None,C.c_float,C.c_float,C.c_float,C.c_float)
     gl._fn('glClear',None,C.c_uint)
     gl.glBindFramebuffer(0x8D40,framebuffer)
-    gl.glClearColor(0,0,0,-2)
+    gl.glClearColor(0,-2,0,0)
     gl.glClear(0x00004000)
     gl.glBindFramebuffer(0x8D40,0)
     material[0]=gl.texture((1,1),internal=RGBA32F,value=(1,1,1,0),linear=False)
     redraw()
-    assert all(v==-2. for v in gl.texels(outputs[0],size)[3::4]), 'Alpha discard overwrote the background tag'
+    assert all(v==-2. for v in gl.texels(outputs[0],size,channels=2)[1::2]), 'Alpha discard overwrote the background tag'
     print('PASS real opaque/skinned/cloth linkage; primitive normal independent of normal map; positive emission preserved, nonpositive emission tagged, alpha discard intact',flush=True)
 
 

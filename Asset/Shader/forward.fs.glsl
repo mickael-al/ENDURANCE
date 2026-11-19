@@ -1,4 +1,5 @@
 #version 450
+#include "Geometry/gbuffer_position.glsl"
 #include "Atmosphere/lighting.glsl"
 #include "Shadow/spot_surface.glsl"
 #include "Geometry/gbuffer_geometry.glsl"
@@ -235,7 +236,7 @@ float SSAO(vec3 viewPos, vec3 normal)
 		offset = ubc.proj * offset;    // from view to clip-space		
 		offset.xyz /= offset.w;               // perspective divide
 		offset.xyz = offset.xyz * 0.5 + 0.5;
-		float sampleDepth = texture(gPosition, offset.xy).z;
+		float sampleDepth = texture(gPosition, offset.xy).r;
 		occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0);
 		float rangeCheck = smoothstep(0.0, 1.0, radius / abs(viewPos.z - sampleDepth));
 		occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck;
@@ -247,7 +248,7 @@ out vec3 o_FragColor;
 
 void main()
 {	
-	vec4 viewPos = texture(gPosition, v_UV).rgba;
+	vec4 viewPos = geGBufferReadPosition(gPosition, ivec2(gl_FragCoord.xy), ubc.proj);
 	vec3 normal = texture(gNormal, v_UV).rgb;
 	vec4 col = texture(gColor, v_UV).rgba;
 	vec3 other = texture(gOther, v_UV).rgb;//metallic roughness ao emit

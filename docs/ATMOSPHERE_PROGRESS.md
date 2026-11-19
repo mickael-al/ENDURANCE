@@ -1,5 +1,12 @@
 # Ciel et atmosphère — état de reprise
 
+> Mise à jour du 19 novembre 2026 : les descriptions RGBA32F/R32F ci-dessous
+> relatent les étapes précédentes. Le contrat actuel utilise un G-buffer
+> RG32F (Z vue + tag), des coefficients physiques RGBA32F + RG32F et des
+> coefficients nuageux RGBA32F (source RGB + extinction alpha). Voir
+> [ATMOSPHERE.md](ATMOSPHERE.md) et [ATMOSPHERE_VALIDATION.md](ATMOSPHERE_VALIDATION.md)
+> pour le rangement et les contrôles courants.
+
 ## État actuel
 
 Correction intégrée et validée après le retour visuel sur `3b57f79`.

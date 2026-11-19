@@ -1,5 +1,12 @@
 # Revision de la PR #4 : correctifs et validation
 
+> Mise à jour du 19 novembre 2026 : les descriptions RGBA32F/R32F ci-dessous
+> relatent les étapes précédentes. Le contrat actuel utilise un G-buffer
+> RG32F (Z vue + tag), des coefficients physiques RGBA32F + RG32F et des
+> coefficients nuageux RGBA32F (source RGB + extinction alpha). Voir
+> [ATMOSPHERE.md](ATMOSPHERE.md) et [ATMOSPHERE_VALIDATION.md](ATMOSPHERE_VALIDATION.md)
+> pour le rangement et les contrôles courants.
+
 Ce document conserve le plan de correction demande et les preuves disponibles.
 La validation GPU de jeu et celle de l’editeur restent distinctes des tests numeriques executes ici.
 

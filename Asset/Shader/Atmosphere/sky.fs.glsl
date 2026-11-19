@@ -11,7 +11,7 @@ layout(binding=1) uniform sampler2D geAtmVisibleClouds;
 uniform bool geCurrentCloudView;
 uniform bool geRawExternalEnvironment;
 in vec2 geSkyUV;
-layout(location=0) out vec4 gPosition;
+layout(location=0) out vec2 gPosition;
 layout(location=1) out vec3 gNormal;
 layout(location=2) out vec4 gColor;
 layout(location=3) out vec3 gOther;
@@ -41,7 +41,7 @@ void main()
 #endif
     // Dedicated negative marker bypasses material gamma and direct lighting.
     // The HDR G-buffer carries sky radiance unchanged to deferred composition.
-    gPosition=vec4(0,0,0,-2);
+    gPosition=vec2(0,-2);
     gNormal=vec3(0);
     gColor=vec4(color,1);
     gOther=vec3(0);

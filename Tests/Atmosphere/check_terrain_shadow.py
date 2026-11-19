@@ -3,7 +3,7 @@
 
 The terrain and shadow passes use the SAME packed vertex buffer and the
 unchanged production GLSL460 terrain shaders. The real deferred shader and
-ModelManager fullscreen mesh then light the RGBA32F GBuffer. Under a vertical
+ModelManager fullscreen mesh then light the RG32F GBuffer. Under a vertical
 sun a single-valued heightfield cannot shadow itself: the independently known
 answer is the same direct radiance as an empty shadow map. A raised plate,
 included in both geometry passes, supplies a positive occlusion control.
@@ -29,7 +29,7 @@ os.environ.setdefault("MESA_GLSL_VERSION_OVERRIDE", "460")
 from check_screen_composition import ScreenGL
 from check_position_precision import cross, dot, normalized, multiply, column_major, inverse_rigid, ortho, transform_point
 from fixtures import Parameters
-from gl_support import ROOT, RGBA32F, TEXTURE_2D, TEXTURE_2D_ARRAY, TEXTURE_3D, TEXTURE_CUBE_MAP, shader_source
+from gl_support import ROOT, RG32F, RGBA32F, TEXTURE_2D, TEXTURE_2D_ARRAY, TEXTURE_3D, TEXTURE_CUBE_MAP, shader_source
 
 HERE = Path(__file__).resolve().parent
 TERRAIN = ROOT / "Asset/Shader/ProceduralTerrain"
@@ -144,6 +144,13 @@ class Scene:
         self.gl = gl
         self.render = gl.compile([(0x8B31, shader_source(TERRAIN / "render.vs.glsl")),
                                   (0x8B30, shader_source(TERRAIN / "render.fs.glsl"))], "actual packed terrain GBuffer")
+        full_writer = shader_source(TERRAIN / "render.fs.glsl").replace(
+            "out vec2 gPosition;", "out vec4 gPosition;").replace(
+            "gPosition = geGBufferPackPosition(viewPosition, geometryTag);",
+            "gPosition = vec4(viewPosition, geometryTag);")
+        assert "gPosition = vec4(viewPosition, geometryTag);" in full_writer
+        self.reference_render = gl.compile([(0x8B31, shader_source(TERRAIN / "render.vs.glsl")),
+                                            (0x8B30, full_writer)], "reference terrain XYZ GBuffer encoding")
         self.shadow = gl.compile([(0x8B31, shader_source(TERRAIN / "shadow.vs.glsl")),
                                   (0x8B30, shader_source(TERRAIN / "shadow.fs.glsl"))], "actual packed terrain shadow")
         vertex = shader_source(ROOT / "Asset/Shader/forward.vs.glsl")
@@ -194,6 +201,14 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
         self.deferred = {"current": gl.compile([(0x8B31, vertex), (0x8B30, source)], "actual deferred terrain lighting"),
                          "frozen": gl.compile([(0x8B31, vertex), (0x8B30, old)], "frozen pre-fix nonplanar PCF witness"),
                          "frozen1": gl.compile([(0x8B31, vertex), (0x8B30, single)], "frozen center tap with fractional receiver-plane correction")}
+        full_reader = source.replace(
+            "geGBufferReadPosition(gPosition, ivec2(gl_FragCoord.xy), ubc.proj)",
+            "texture(gPosition, v_UV)").replace(
+            "float sampleDepth = texture(gPosition, offset.xy).r;",
+            "float sampleDepth = texture(gPosition, offset.xy).z;")
+        assert full_reader != source
+        self.deferred["reference"] = gl.compile([(0x8B31, vertex), (0x8B30, full_reader)],
+                                               "reference deferred XYZ GBuffer encoding")
         normal_probe = source.replace("vec2 atmosphereUV = gl_FragCoord.xy * uAtmosphereInvResolution;",
                                       "o_FragColor = shadowGeometricNormal; return;\nvec2 atmosphereUV = vec2(0);")
         assert normal_probe != source
@@ -226,7 +241,8 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
         self.divers = gl.buffer(struct.pack("<i4fi", 1, 0., 1., 0., 70., 0))
         self.ssao = gl.buffer(bytes(64 * 16))
         self.planes = gl.buffer(bytes(64))
-        self.gbuffer = [gl.texture(VIEW_SIZE, internal=RGBA32F, linear=False) for _ in range(4)]
+        self.gbuffer = [gl.texture(VIEW_SIZE, internal=fmt, linear=False)
+                        for fmt in (RG32F, RGBA32F, RGBA32F, RGBA32F)]
         for texture in self.gbuffer:
             gl.glBindTexture(TEXTURE_2D, texture)
             gl.glTexParameteri(TEXTURE_2D, 0x2802, 0x2901); gl.glTexParameteri(TEXTURE_2D, 0x2803, 0x2901)
@@ -293,7 +309,7 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
         gl.glEnable(0x0B71); gl.glDepthFunc(0x0201); gl.glDepthMask(True)
         gl.glDisable(0x0BE2); gl.glDisable(0x0B44)
         for i in range(4):
-            gl.glClearBufferfv(0x1800, i, (C.c_float * 4)(0, 0, 0, -2 if i == 0 else 0))
+            gl.glClearBufferfv(0x1800, i, (C.c_float * 4)(0, -2 if i == 0 else 0, 0, 0))
         gl.glClearDepth(1); gl.glClear(0x00000100)
         gl.uniform(self.render, "microDetailStrength", "1f", .3 if microdetail else 0)
         gl.uniform(self.render, "microDetailScale", "1f", .01 if microdetail else 1)
@@ -302,10 +318,18 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
         gl.glDrawArraysInstancedBaseInstance(0x0004, 0, self.count, 1, 0)
         gl.glBindFramebuffer(0x8D40, 0)
         gl.glMemoryBarrier(gl.ALL_BARRIER_BITS)
-        position = gl.texels(self.gbuffer[0], VIEW_SIZE)
-        self.worlds = [transform_point(self.inverse, position[i:i + 3])
-                       if position[i + 3] == 0 or position[i + 3] <= -4 else None
-                       for i in range(0, len(position), 4)]
+        position = gl.texels(self.gbuffer[0], VIEW_SIZE, channels=2)
+        self.worlds = []
+        # Independent inverse projection for this perspective fixture, using
+        # the FP32 depth actually rasterized by the production terrain shader.
+        for i in range(VIEW_SIZE[0] * VIEW_SIZE[1]):
+            z, tag = position[2*i:2*i+2]
+            if tag != 0 and tag > -4:
+                self.worlds.append(None)
+                continue
+            x = (2*((i % VIEW_SIZE[0])+.5)/VIEW_SIZE[0]-1)*(-z)/self.projection[0][0]
+            y = (2*((i // VIEW_SIZE[0])+.5)/VIEW_SIZE[1]-1)*(-z)/self.projection[1][1]
+            self.worlds.append(transform_point(self.inverse, (x,y,z)))
         gl.check("same packed terrain through production GBuffer vertex/fragment shaders")
 
     def rasterize_shadow(self, margin):
@@ -428,11 +452,11 @@ def microdetail_case(scene):
     scene.set_light(60)
     scene.geometry("bumps", False)
     scene.rasterize_shadow(4000)
-    positions = scene.gl.texels(scene.gbuffer[0], VIEW_SIZE)
+    positions = scene.gl.texels(scene.gbuffer[0], VIEW_SIZE, channels=2)
     normals = scene.gl.texels(scene.gbuffer[1], VIEW_SIZE)
     lit, shaded = scene.lighting("current", empty=True), scene.lighting("current")
     scene.geometry("bumps", False, microdetail=True)
-    detailed_positions = scene.gl.texels(scene.gbuffer[0], VIEW_SIZE)
+    detailed_positions = scene.gl.texels(scene.gbuffer[0], VIEW_SIZE, channels=2)
     detailed_normals = scene.gl.texels(scene.gbuffer[1], VIEW_SIZE)
     detailed_lit, detailed_shaded = scene.lighting("current", empty=True), scene.lighting("current")
     assert detailed_positions == positions, "Microdetail changed actual rasterized terrain positions"
@@ -459,10 +483,10 @@ def stored_normal_case(scene):
     scene.geometry("bumps", False)
     scene.rasterize_shadow(4000)
     gl = scene.gl
-    positions = gl.texels(scene.gbuffer[0], VIEW_SIZE)
-    tags = [positions[i * 4 + 3] for i, world in enumerate(scene.worlds) if world is not None]
+    positions = gl.texels(scene.gbuffer[0], VIEW_SIZE, channels=2)
+    tags = [positions[i * 2 + 1] for i, world in enumerate(scene.worlds) if world is not None]
     assert len(tags) > 10000 and all(-1048579 <= tag <= -4 and tag == round(tag) for tag in tags), (
-        "The actual terrain writer did not preserve integer geometric normal tags in RGBA32F"
+        "The actual terrain writer did not preserve integer geometric normal tags in RG32F"
     )
     decoded = scene.lighting("geometric")
     payload, count = mesh("bumps", False)
@@ -517,9 +541,9 @@ def stored_normal_case(scene):
     lit = scene.lighting("current", empty=True)
     tagged = visibility(scene, lit, scene.lighting("current"))
     original = scene.gbuffer[0]
-    rows = [(*positions[i:i + 3], 0 if positions[i + 3] <= -4 else positions[i + 3])
-            for i in range(0, len(positions), 4)]
-    scene.gbuffer[0] = gl.field_texture(VIEW_SIZE, rows, repeat=True)
+    rows = [(positions[i], 0 if positions[i + 1] <= -4 else positions[i + 1])
+            for i in range(0, len(positions), 2)]
+    scene.gbuffer[0] = gl.field_texture(VIEW_SIZE, rows, repeat=True, internal=RG32F)
     fallback = visibility(scene, lit, scene.lighting("current"))
     scene.gbuffer[0] = original
     print("per-primitive geometric normal", {"encoded_pixels": len(tags), "independent_triangle_checks": len(errors),
@@ -528,6 +552,55 @@ def stored_normal_case(scene):
     assert tagged["false_percent"] == 0 and fallback["false_percent"] > 0 and fallback["minimum_visibility"] < .99, (
         "Normal tag negative control no longer distinguishes per-primitive geometry from deferred quads", tagged, fallback
     )
+
+
+
+def packing_ab_case(scene):
+    """Compare actual terrain+deferred HDR against the previous XYZ layout.
+
+    Only the writer/readback encoding changes in the reference shaders; all
+    current PBR, normals, shadow maps, PCF, light and vertex code stay identical.
+    """
+    gl=scene.gl
+    full_position=gl.texture(VIEW_SIZE,internal=RGBA32F,linear=False)
+    gl.glBindTexture(TEXTURE_2D,full_position)
+    gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
+    gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
+    worst=0.;cases=0
+    scene.set_camera((512.,428.,640.),CENTER,RADIUS)
+    for pattern,obstacle,elevation in (("bumps",False,90),("bumps",True,60),("creases",False,60)):
+        scene.set_light(elevation)
+        scene.geometry(pattern,obstacle)
+        scene.rasterize_shadow(4000)
+        packed=scene.lighting("current")
+        packed_position=scene.gbuffer[0]
+        gl.glBindFramebuffer(0x8D40,scene.gframe)
+        gl.glFramebufferTexture2D(0x8D40,0x8CE0,TEXTURE_2D,full_position,0)
+        gl.glViewport(0,0,*VIEW_SIZE)
+        gl.glEnable(0x0B71);gl.glDepthFunc(0x0201);gl.glDepthMask(True)
+        gl.glClearBufferfv(0x1800,0,(C.c_float*4)(0,0,0,-2))
+        gl.glClearDepth(1);gl.glClear(0x00000100)
+        gl.bind(scene.descriptor,8);gl.bind(scene.camera,0)
+        gl.glBindVertexArray(scene.vao.value)
+        gl.uniform(scene.reference_render,"microDetailStrength","1f",0)
+        gl.uniform(scene.reference_render,"microDetailScale","1f",1)
+        gl.uniform(scene.reference_render,"worldSeed","1ui",1337)
+        gl.uniform(scene.reference_render,"terrainBiomeOverride","1i",1)
+        gl.glDrawArraysInstancedBaseInstance(0x0004,0,scene.count,1,0)
+        gl.glBindFramebuffer(0x8D40,0);gl.glMemoryBarrier(gl.ALL_BARRIER_BITS)
+        scene.gbuffer[0]=full_position
+        reference=scene.lighting("reference")
+        scene.gbuffer[0]=packed_position
+        gl.glBindFramebuffer(0x8D40,scene.gframe)
+        gl.glFramebufferTexture2D(0x8D40,0x8CE0,TEXTURE_2D,packed_position,0)
+        gl.glBindFramebuffer(0x8D40,0)
+        # L/(1+L) is used only as an independent finite display-range error
+        # metric; it does not alter either actual HDR render.
+        difference=max(abs(a/(1+a)-b/(1+b)) for left,right in zip(packed,reference)
+                       for a,b in zip(left,right))
+        assert difference<1/1024,("Packed GBuffer changed visible deferred radiance",pattern,obstacle,difference)
+        worst=max(worst,difference);cases+=1
+    print(f"PASS packed/reference real terrain+deferred A/B: {cases} cases, max normalized radiance difference={worst:.9f}",flush=True)
 
 
 def main():
@@ -549,6 +622,7 @@ def main():
                         data = visibility(scene, lit, scene.lighting(kind))
                         results.append((pattern, elevation, margin, kind, data))
                         print(pattern, f"sun={elevation}", f"margin={margin}", kind, data, flush=True)
+        packing_ab_case(scene)
         stored_normal_case(scene)
         scene.set_light(90)
         scene.geometry("bumps", True)

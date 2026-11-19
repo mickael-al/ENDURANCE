@@ -23,6 +23,7 @@ RGBA32F = 0x8814
 R32F = 0x822E
 R16F = 0x822D
 RG16F = 0x822F
+RG32F = 0x8230
 RGBA = 0x1908
 RG = 0x8227
 RED = 0x1903
@@ -73,7 +74,7 @@ class AtmosphereGL(GL):
         self.glGenTextures(1, C.byref(texture))
         self.textures.append(texture.value)
         self.glBindTexture(target, texture.value)
-        channels = 1 if internal in (R16F, R32F) else 2 if internal == RG16F else 4
+        channels = 1 if internal in (R16F, R32F) else 2 if internal in (RG16F, RG32F) else 4
         format_ = RED if channels == 1 else RG if channels == 2 else RGBA
         for level in range(levels):
             dimensions = tuple(max(1, n >> level) for n in size)

@@ -11,8 +11,8 @@ import math
 import re
 import struct
 
-from check_screen_composition import ScreenGL, DeferredFixture
-from gl_support import ROOT, RGBA32F, TEXTURE_2D, TEXTURE_2D_ARRAY, FULLSCREEN_VERTEX, shader_source
+from check_screen_composition import ScreenGL, DeferredFixture, camera
+from gl_support import ROOT, RG32F, RGBA32F, TEXTURE_2D, TEXTURE_2D_ARRAY, FULLSCREEN_VERTEX, shader_source
 
 SIZE = (81, 67)
 
@@ -128,12 +128,22 @@ def check_deferred(gl, angle=90., camera_x=3.):
     depth = gl.rasterize(projection)
     fixture = DeferredFixture(gl, SIZE, 0, 0, "opaque", camera_position=(camera_x, 0., 0.))
     extent = 6. if angle == 90 else .06
+    # Match the fixture's known receiver grid to its camera projection. The
+    # spotlight depth map remains perspective; only the observation camera is
+    # orthographic, off-centre when translated, so depth determines the same XYZ.
+    position, _, view, inverse, _ = camera(0, 0, SIZE[0]/SIZE[1], (camera_x, 0., 0.))
+    near, far = .1, 1000.
+    camera_projection = (1/extent, 0, 0, 0, 0, 1/extent, 0, 0,
+                         0, 0, -2/(far-near), 0, camera_x/extent, 0,
+                         -(far+near)/(far-near), 1)
+    fixture.camera_buffer = gl.buffer(struct.pack("<52f", *position, 0, *view, *inverse, *camera_projection), 0)
     positions = [(2*extent*(x+.5)/SIZE[0]-extent, 2*extent*(y+.5)/SIZE[1]-extent, -10., 0.)
                  for y in range(SIZE[1]) for x in range(SIZE[0])]
-    view_positions = [(x-camera_x, y, z, w) for x, y, z, w in positions]
+    view_positions = [(z, tag) for x, y, z, tag in positions]
     for unit, values in ((0, view_positions), (1, [(0, 0, 1, 1)]*len(positions)),
                          (2, [(1, 1, 1, 1)]*len(positions)), (3, [(0, .8, 1, 1)]*len(positions))):
-        fixture.samplers[unit] = (gl.field_texture(SIZE, values, repeat=True), TEXTURE_2D)
+        fixture.samplers[unit] = (gl.field_texture(SIZE, values, repeat=True,
+                                    internal=RG32F if unit==0 else RGBA32F), TEXTURE_2D)
     fixture.samplers[4] = (depth, TEXTURE_2D_ARRAY)
     light = bytearray(80)
     struct.pack_into("<3f", light, 0, 0, 0, 0)

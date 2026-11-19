@@ -2,6 +2,38 @@
 
 ## État de la passe courante
 
+**Validation complète du 19 novembre 2026 : les 25 groupes passent**, avec
+sortie 0 de `python3 Tests/Atmosphere/run_all.py` et le résultat final
+`PASS all 25 atmosphere validation groups`, sous EGL/Mesa llvmpipe.
+
+La réduction des textures du 19 novembre conserve tous les coefficients en
+float32. Les volumes physiques passent à RGBA32F + RG32F, les coefficients
+nuageux tiennent dans une seule RGBA32F. Les sorties intégrées restent RGBA16F.
+La comparaison avec les anciennes passes de stockage vérifie l'identité bit
+à bit des coefficients et des quatre sorties intégrées sur sept scènes :
+jour, lune faible, altitude élevée, nuages, brouillard, terrain occultant et
+absence de milieux. Les ressources désactivées d'un voxel sont testées avec
+des valeurs NaN pour déceler toute lecture interdite.
+
+Le G-buffer passe à RG32F : profondeur vue et tag conservent leurs 32 bits,
+X/Y sont reconstruits au centre du texel. Les tags de normale géométrique, d'émission et de ciel
+sont transportés par le second canal. Les comparaisons incluent l'ancien
+RGBA32F et le contrôle négatif RGBA16F ; les petits occultants résolus à
+40 km et le vrai terrain restent les critères de régression des ombres.
+Sur les 2 088 positions du test de reconstruction, l'erreur XYZ maximale est
+7,55 mm ; sur le plan opaque à 40 km, RG32F et RGBA32F ont la même erreur
+mondiale maximale mesurée de 7,97 mm et conservent les occultants de 2/4 m.
+La comparaison du vrai terrain avec l'ancien stockage XYZ mesure un écart
+maximal de 0,000129886 après normalisation `L/(1+L)`, sur trois scènes HDR.
+Aucun seuil de régression d'ombre n'a été relâché ; les contrôles négatifs
+historiques restent présents. Le clear RG32F et les invocations auxiliaires
+hors viewport, y compris aux coordonnées négatives, sont aussi vérifiés.
+Voir [ATMOSPHERE.md](ATMOSPHERE.md) pour le contrat des shaders personnalisés
+et les économies théoriques. Ces tests ne constituent pas une mesure de
+performances sur GPU matériel ni un lancement de l'éditeur Windows.
+
+### Validation précédente des ombres
+
 La passe du 19 novembre 2026 ajoute la stabilisation des cascades, le PCF
 continu des god rays, les ombres des projecteurs et les caches de profondeur
 et de coefficients volumétriques. Les **23 groupes passent** avec sortie 0 de
@@ -76,6 +108,8 @@ python3 Tests/Atmosphere/check_shadow_filtering.py
 python3 Tests/Atmosphere/check_shadow_cache.py
 python3 Tests/Atmosphere/check_spot_shadows.py
 python3 Tests/Atmosphere/check_render_integration.py
+python3 Tests/Atmosphere/check_texture_packing.py
+python3 Tests/Atmosphere/check_gbuffer_packing.py
 ```
 
 Le test CPU utilise le vrai `AtmosphereState.hpp`, C++17 et le GLM embarqué.
@@ -106,32 +140,34 @@ exclusivement aux assertions des tests, jamais au chemin de rendu du jeu.
 | `check_shadow_filtering.py` | PCF comparé à un oracle bilinéaire indépendant ; vrais blocs opaque/transparence/eau ; trois transitions de cascades ; continuité des god rays quand plusieurs bords XY coïncident ; couches invalides et désactivation. |
 | `check_shadow_cache.py` | Vrai LightManager en compilation normale et fast-math : réutilisation au repos, invalidation du contenu même à bornes identiques, matrices, casters inconnus, retraits, redémarrages, atlas remplacé, compteur de couches et publication après rendu complet. Changement des clips point/spot sans recalcul sur simple translation caméra. |
 | `check_spot_shadows.py` | Douze cas d'occultant rasterisé dans une carte perspective ; limites de couverture ; vraie composition différée à cônes de 90° et 1° ; caméra confondue avec la lumière ; dépassement numérique du cosinus de Fresnel. |
-| `check_render_integration.py` | Compilation des vrais renderer, lumières, atmosphère et terrain avec les en-têtes de production, sans doubles de matériaux, modèles ou services moteur. |
+| `check_render_integration.py` | Compilation des vrais renderer, framebuffer, lumières, atmosphère et terrain avec les en-têtes de production, sans doubles de matériaux, modèles ou services moteur. |
+| `check_gbuffer_packing.py` | Reconstruction GPU comparee a une reference double, dimensions impaires jusqu'a 3841 × 2159, perspectives 75°/120°, projection decentree et orthographique Y inverse ; profondeur 0,1 m a 40 km, profondeur/tag exacts, borne des arrondis, voisins du centre, wrapping des invocations hors viewport et effacement non noir. |
+| `check_texture_packing.py` | Anciennes passes de stockage figées et équations physiques communes : coefficients FP32 et quatre résultats intégrés bit à bit identiques dans sept scènes ; faibles coefficients sous la résolution du half-float ; allocations désactivées empoisonnées de NaN. |
 | `check_cpu.py` | Fondu interrompu depuis la couleur affichée ; convergence sans nouvel événement caméra ; référence du seuil conservée après les petits écarts ; changements de paramètres du gradient ; forçage et durée nulle ; valeurs HDR ; indépendance aux subdivisions du temps ; rejet des delta-times négatifs, infinis et NaN. |
-| `check_shaders.py` | Compilation et liaison des 15 programmes/variantes de production présents dans `Asset/Shader/Atmosphere`, avec leurs dépendances réelles, et des sept associations matériaux/vertex : deferred, forward, transparence, eau, géométrie skinned et cloth. |
+| `check_shaders.py` | Compilation et liaison des 15 programmes/variantes de production présents dans `Asset/Shader/Atmosphere`, avec leurs dépendances réelles, et des dix associations matériaux/vertex : deferred, forward, transparence, eau, géométrie skinned et cloth. |
 | `check_common.py` | Intégration homogène comparée à une solution analytique indépendante ; transmittance de Beer-Lambert ; limite sans extinction ; densités décroissant avec l'altitude ; radiance HDR ; conservation de l'obscurité par la correction artistique ; aller-retour de la projection du ciel ; masque du disque fini au centre, au bord et à l'extérieur, même avec un rayon de 1e-5 radian. |
 | `check_luts.py` | LUT intégralement écrites ; transmittance RGB dans `[0,1]` ; variation avec l'altitude, y compris depuis l'extérieur de l'atmosphère ; extinction doublée donnant `T²` ; vide donnant `T=1` ; absence de source donnant un ciel noir fini ; lune seule ; linéarité de l'irradiance ; SkyView affectée par l'altitude et indépendante de la rotation de la vue. |
 | `check_ibl.py` | Invariance d'une radiance constante HDR sous convolution diffuse et GGX ; six faces et tous les mips écrits ; élargissement d'une source angulaire par la rugosité ; fondu HDR exact ; disque visible exclu de la source IBL ; LUT BRDF bornée ; ciel HDR non modifié dans le G-buffer avant la composition finale. |
-| `check_volumes.py` | Coefficients colores RGBA32F, extinction nuageuse R32F et resultats RGBA16F écrits et finis ; intégration monotone ; vraie lecture d'une texture d'ombres de terrain, même sans nuages ; brouillard absorbant comparé à la solution analytique ; modes generiques absent et lisse ; nuages deterministes selon la seed ; couverture nulle ; ombres de nuages ; vent continu à caméra immobile ; aucune source. |
+| `check_volumes.py` | Coefficients physiques RGBA32F + RG32F, nuageux RGBA32F et resultats RGBA16F écrits et finis ; intégration monotone ; vraie lecture d'une texture d'ombres de terrain, même sans nuages ; brouillard absorbant comparé à la solution analytique ; modes generiques absent et lisse ; nuages deterministes selon la seed ; couverture nulle ; ombres de nuages ; vent continu à caméra immobile ; aucune source. |
 | `check_sampling.py` | Fonction de composition commune au deferred et aux transparents : profondeur propre du fragment, identité à distance nulle, borne au dernier plan du volume, composition du brouillard devant le ciel et désactivation complète. Saturation appliquée au ciel après composition de tous les milieux ; sur les objets, seule la diffusion est modifiée, sans changer la réflectance ni la transmittance spectrale. |
 | `check_sky.py` | Variante physique complète de génération des cubemaps : HDR, disque solaire, nuages visibles avec une couverture de 0,42, identité à couverture nulle, animation sans déplacement, IBL sans énergie directe du disque et absence de sources. |
 | `check_game_climate.py` | 26 palettes forcées, concordance des poids avec le terrain à des positions/seed connues, brouillard de jeu absent/lisse/bruité, altitude et ancrage de l'atlas dans le monde. |
 | `check_game_component.py` | Execute le vrai composant ENDURANCE et son hook : vent XYZ persistant, bruit anime a camera fixe avec atlas inchange, invariance 4 s / 4 × 1 s, changement de vent sans saut, vitesse nulle, deltas invalides et reprise apres reconstruction du terrain. Aucun mode GLSL artificiel. |
 | `check_revision.py` | Ombres de terrain sur les nuages jusque dans le ciel compose, reference non occultee et extinction inchangees ; milieu nuageux absent neutre aux angles rasants ; continuite du rayon et de sa carte autour de l’horizon ; meteo regionale, ouvertures et profils verticaux ; vrai dessin du ciel courant independant d’une cubemap figee. |
-| `check_runtime.py` | Exécution du C++ de production : allocations, formats d'images, tailles de dispatch, six faces et cinq mips publiés, bindings matériaux sans programme courant, dessin HDR, invalidation séparée des LUT, fondu à faible framerate avec rebakes continus, parallaxe des nuages sans vent, sources optionnelles, désactivation/réactivation, timers asynchrones, destruction et redémarrage. Sérialisation JSON exacte avec HDR/vecteurs, rejet atomique des entrées invalides, personnalisation de radiance cohérente entre IBL et diffusion, conservation de l'état complet après échec de compilation, brouillard de jeu ajoute au milieu generique. Ordonnanceur multi-images : limites de travail, gel des LUT/bruit/cubemap externe, revisions regroupees sans famine, publication complete, resize/reload avec ancienne IBL conservee, allocation R32F et absence de dispatchs pour les effets coupes. Source externe visible des la premiere image et hook de brouillard anime sans callback. |
+| `check_runtime.py` | Exécution du C++ de production : allocations, formats d'images, tailles de dispatch, six faces et cinq mips publiés, bindings matériaux sans programme courant, dessin HDR, invalidation séparée des LUT, fondu à faible framerate avec rebakes continus, parallaxe des nuages sans vent, sources optionnelles, désactivation/réactivation, timers asynchrones, destruction et redémarrage. Sérialisation JSON exacte avec HDR/vecteurs, rejet atomique des entrées invalides, personnalisation de radiance cohérente entre IBL et diffusion, conservation de l'état complet après échec de compilation, brouillard de jeu ajoute au milieu generique. Ordonnanceur multi-images : limites de travail, gel des LUT/bruit/cubemap externe, revisions regroupees sans famine, publication complete, resize/reload avec ancienne IBL conservee, formats compactes RGBA32F/RG32F et absence de dispatchs pour les effets coupes. Source externe visible des la premiere image et hook de brouillard anime sans callback. |
 | `check_screen_composition.py` | Triangle indexe extrait de ModelManager, vrais forward.vs/fs, G-buffer NEAREST/REPEAT, volumes LINEAR/CLAMP. Ciel et opaques a trois resolutions et angles 0/+72/-68 degres, bords et desactivation ; ancien caller UV volontairement restaure en memoire comme controle negatif. La vraie branche directionnelle compare plan libre, carte vide et occultant sous camera pivotee. |
 | `check_surface_shadows.py` | Helper de production, depth32/NEAREST et oracle CPU indépendant du PCF bilinéaire. Seize configurations testées avec/sans occultant, pentes 0–85°, axes signés, Y inversé, résolutions 32–2048, cartes rectangulaires, profondeur jusqu’à 100 km ; incertitude XYZ, dégénérescences, biais nul, gardes et bords. Contacts fins uniquement avec une empreinte permettant de les résoudre. |
-| `check_position_precision.py` | Vrais shaders opaques écrivant 16F puis 32F, reconstruction deferred et incertitude XYZ extraite du vrai caller ; depth32/NEAREST et filtre réel. Plans à 100 m, 1 km, 10 km et 40 km, occultants résolus de 2/4 m, allocations initiale et après resize en 32F. |
-| `check_terrain_shadow.py` | Chaîne réelle VBO terrain compacté → shaders d’ombre → G-buffer → deferred. Contrôle négatif figé de l’ancien filtre, 18 combinaisons de relief/soleil/marge, 438 732 évaluations sans faux auto-ombrage ; occultants réels, oracle géométrique indépendant et invariance au microdétail de matériau. |
+| `check_position_precision.py` | Vrais shaders opaques écrivant RG32F, comparaison avec les anciens RGBA32F/RGBA16F, reconstruction deferred et incertitude XYZ extraite du vrai caller ; depth32/NEAREST et filtre réel. Plans à 100 m, 1 km, 10 km et 40 km, occultants résolus de 2/4 m, allocations initiale et après resize en RG32F. |
+| `check_terrain_shadow.py` | Chaîne réelle VBO terrain compacté → shaders d’ombre → G-buffer → deferred. Contrôle négatif figé de l’ancien filtre, 18 combinaisons de relief/soleil/marge, 438 732 évaluations sans faux auto-ombrage ; occultants réels, oracle géométrique indépendant, invariance au microdétail de matériau et comparaison HDR entre RG32F et ancien RGBA32F sur trois scènes. |
 | `check_light_persistence.py` | Vrais SceneData/LightData et json_struct : anciennes entrées sans biais, champs partiels, zéro explicite, plusieurs directionnelles distinctes, autres types de lumières, aller-retour et rechargement. |
 | `check_shadow_bounds.py` | Vrais Lights/LightManager avec services GL/caméra/GUI simulés ; fitting conservateur et cache en compilation normale puis -ffast-math, setter réel et bloc de 80 octets. Le vrai scheduler terrain vérifie publication à caméra immobile, bounds de tous les chunks publiés, repos, reprise et arrêt. |
-| `check_gbuffer_geometry.py` | Normales octaédriques transportées dans l’alpha RGBA32F, amplitude des dérivées, cas dégénérés/invalides, tags réservés et limites. Vrai opaque avec émission, discard et normal map ; liaison des variantes opaques statique, skinned et cloth. |
+| `check_gbuffer_geometry.py` | Normales octaédriques transportées dans le second canal RG32F, amplitude des dérivées, cas dégénérés/invalides, tags réservés et limites. Vrai opaque avec émission, discard et normal map ; liaison des variantes opaques statique, skinned et cloth. |
 
 Les tests utilisent de petites résolutions et des budgets réduits pour vérifier
 les invariants. Ils ne remplacent pas les préréglages de qualité du moteur,
 dont la valeur initiale est **Ultra**.
 
-## Correction courante : terrain triangulé et normale géométrique
+## Historique : terrain triangulé et normale géométrique
 
 ### Diagnostic qui remplace la conclusion des anciens plans
 
@@ -243,7 +279,7 @@ avec une cascade dont le texel couvre plusieurs mètres. Le déplacement du
 biais géométrique reste proportionnel à cette empreinte, et la marge numérique
 reste une contribution séparée.
 
-### Précision du G-buffer et occultants à grande distance
+### Mesures historiques du G-buffer avant le regroupement des canaux
 
 Le vrai shader opaque écrit les positions dans les deux formats. À 1 km,
 l’erreur mondiale maximale passe d’environ **0,50 m en 16F à 0,267 mm en 32F**.
@@ -270,7 +306,7 @@ ajoutée. Les mesures présentes portent sur la justesse, pas sur un temps de tr
 ### Encodage de la normale de primitive
 
 `check_gbuffer_geometry.py` transporte **33 388 normales** dans une vraie
-texture RGBA32F. L’erreur vectorielle maximale est **0,0041474**, sous la borne
+texture RG32F (initialement RGBA32F). L’erreur vectorielle maximale est **0,0041474**, sous la borne
 0,005. Les cas couvrent axes et replis octaédriques, dérivées d’échelles
 `1e-30` à `1e30`, dégénérescences et valeurs invalides. Le code ne doit pas
 confondre valeurs fractionnaires, hors intervalle, NaN ou infini avec une normale.

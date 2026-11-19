@@ -295,22 +295,26 @@ terrain, meme avec une marge de casters nulle.
 La normale servant au biais est geometrique, independante de la normale de
 shading et du microdetail. Les vrais fragment shaders opaque et terrain la
 calculent avec les derivees de leur primitive, avant les branches ou le
-discard. Ils la conservent dans le canal **deja existant** `gPosition.w`, avec
+discard. Ils la conservent dans le canal `gPosition.g` du buffer compact RG32F, avec
 le contrat partage de `Geometry/gbuffer_geometry.glsl` :
 
-| Valeur de `gPosition.w` | Signification |
+| Valeur de `gPosition.g` | Signification |
 | --- | --- |
 | Strictement positive | Emission, valeur conservee. |
 | `-2` | Ciel. |
 | `0` ou ancien indicateur non encode | Surface historique ; repli sur les derivees deferred. |
 | Entier de `-1048579` a `-4` | Normale geometrique en espace vue, encodage octaedrique de 10 bits par axe. |
 
-Les tags sont exactement representables dans le RGBA32F et sont lus en
-NEAREST. Le deferred decode la normale puis la tourne en espace monde. Les
+Les tags sont exactement representables dans le canal float32 et sont lus en
+NEAREST ; le wrapping REPEAT est conserve pour les derivees aux bords
+des fenetres de dimensions impaires et le SSAO. Le deferred decode la normale puis la tourne en espace monde. Les
 transparents et l’eau utilisent les derivees de leur propre primitive. Il
 n’y a ni nouvel attachment, ni texture supplementaire, ni passe de calcul.
 Les shaders personnalises peuvent appeler `geGBufferGeometryTag` pour
-beneficier du meme contrat ; les anciens producteurs restent compatibles.
+beneficier du meme contrat. Les producteurs embarques sont migres ; un shader
+personnalise doit maintenant ecrire un `vec2` en location 0 via
+`geGBufferPackPosition(viewPosition, tag)` de `Geometry/gbuffer_position.glsl`.
+Ecrire encore un `vec4(X,Y,Z,tag)` dans cet attachement perdrait Z et le tag.
 
 Chaque lumiere directionnelle expose deux controles ImGui, en texels de la
 cascade, independants de la portee Z :
@@ -336,12 +340,21 @@ projetee selon la lumiere et un plancher d’arrondi de profondeur. Il reste
 separe du decalage geometrique en texels. Les indices, projections et points
 hors carte sont controles ; les echantillons hors carte restent eclaires.
 
-Les positions vue de `gPosition` sont en **RGBA32F** a la creation et au
-redimensionnement, depuis la correction precedente. Le passage precedent
-de 16F a 32F ajoutait 8 octets par pixel pour cet attachment : **+15,82 Mio a
-1920 x 1080**, **+28,125 Mio a 2560 x 1440**, **+63,28 Mio a 3840 x 2160**.
-L’encodage geometrique de cette passe n’ajoute aucun octet a ce stockage.
-Les couleurs HDR conservent leur format.
+`gPosition` utilise **RG32F**, a la creation comme au redimensionnement :
+R contient Z en espace vue, signe et en metres ; G contient le tag exact.
+X/Y sont reconstruits au centre du texel a partir de la projection courante,
+avec `geGBufferReadPosition`. Les projections perspective, orthographique et
+decentrees du moteur sont prises en charge ; aucune conversion depuis la
+profondeur materielle n'est introduite. Le SSAO lit directement Z dans R.
+Les matrices de projection generales avec couplage X/Y ne font pas partie de
+ce contrat (elles ne sont pas produites par `Camera`).
+
+Cet attachement passe de **16 a 8 octets par pixel** : economie theorique de
+**15,82 Mio a 1920 x 1080**, **28,125 Mio a 2560 x 1440** et **63,28 Mio a
+3840 x 2160**. La precision de stockage de Z et du tag reste 32 bits ; la
+reconstruction XY peut differer de l'ancien stockage de quelques arrondis
+float32. Les tests comparent les positions et le rendu des ombres. Les autres
+formats HDR, les resolutions, les biais et les cartes d'ombres restent inchanges.
 
 References : [coordonnees de fragment OpenGL](https://wikis.khronos.org/opengl/Fragment_Shader/Defined_Inputs),
 [limites de la compensation par plan recepteur](https://learn.microsoft.com/windows/win32/dxtecharts/cascaded-shadow-maps)
@@ -471,16 +484,38 @@ transport spectral complet de diffusion multiple dans les gouttelettes.
 ## Allocation et passes conditionnelles
 
 Les coefficients physiques et nuageux inactifs utilisent des textures neutres
-1 × 1 × 1 ; les shaders ne les lisent pas avec les coordonnees d’un volume
-complet. Les passes correspondantes sont ignorees. L’extinction nuageuse,
-identique sur RGB, utilise R32F. Les coefficients colores gardent RGBA32F
-pour ne pas perdre les faibles valeurs en metres inverses.
+1 × 1 × 1 ; les shaders ne les lisent pas avec les coordonnees d'un volume
+complet. Les passes correspondantes sont ignorees.
 
-Pour les six volumes 3D principaux, en Ultra 160 × 90 × 96 avec tous les
-milieux actifs, le stockage theorique des texels passe de **105,47 Mio a 89,65 Mio**, soit
-**15,82 Mio de moins**. Ce chiffre exclut les cubemaps, les LUT et les copies
-privees des captures ; les compteurs de textures permettent de suivre leur
-cout total. Il ne constitue pas une mesure de gain de temps GPU.
+Les coefficients en metres inverses conservent leur precision **float32**,
+y compris les tres faibles valeurs de nuit ou en altitude. Seul leur rangement
+change ; aucune equation, resolution, nombre d'echantillons ou quantification
+n'est modifie :
+
+| Texture | Format | Canaux |
+| --- | --- | --- |
+| `physicalSource` | RGBA32F | source RGB + extinction R |
+| `physicalExtinction` | RG32F | extinction G/B |
+| `cloudSource` | RGBA32F | source RGB + extinction nuageuse scalaire |
+| `scattering` / `transmission` | RGBA16F chacune | resultats integres, inchanges |
+
+La texture separee `cloudExtinction` est supprimee, ainsi que son ecriture et
+sa lecture lors de l'integration. Les cinq volumes principaux occupent
+**56 octets/voxel au lieu de 68**, soit **17,65 % de moins**.
+
+| Qualite | Dimensions des volumes | Avant | Apres | Economie |
+| --- | --- | --- | --- | --- |
+| Low | 64 × 36 × 48 | 7,17 Mio | 5,91 Mio | 1,27 Mio |
+| Medium | 96 × 54 × 64 | 21,52 Mio | 17,72 Mio | 3,80 Mio |
+| High | 128 × 72 × 80 | 47,81 Mio | 39,38 Mio | 8,44 Mio |
+| Ultra | 160 × 90 × 96 | 89,65 Mio | 73,83 Mio | 15,82 Mio |
+
+Ces chiffres supposent tous les milieux actifs et les budgets par defaut.
+Ils excluent les cubemaps, les LUT et les copies privees des captures ; les
+compteurs de textures affichent leur cout logique total. Il ne s'agit ni de
+mesures de VRAM physique du pilote ni d'un gain mesure en millisecondes.
+Les formats de bruit, les cartes d'ombres, les caches IBL et le preset Ultra
+par defaut sont conserves.
 
 ## Validation et limites de la livraison
 

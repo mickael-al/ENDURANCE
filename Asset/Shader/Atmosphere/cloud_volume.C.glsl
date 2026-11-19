@@ -2,7 +2,6 @@
 #include "medium.glsl"
 layout(local_size_x=4,local_size_y=4,local_size_z=4) in;
 layout(rgba32f,binding=0) writeonly uniform image3D geAtmSourceOutput;
-layout(r32f,binding=1) writeonly uniform image3D geAtmExtinctionOutput;
 void main()
 {
     ivec3 p=ivec3(gl_GlobalInvocationID),size=imageSize(geAtmSourceOutput);
@@ -29,8 +28,7 @@ void main()
                 vec3(extinction*0.98),geAtmCloudShape.w,visibility);
         }
     }
-    imageStore(geAtmSourceOutput,p,vec4(source,0.0));
-    // Cloud extinction is achromatic: retain 32-bit coefficient precision
-    // without storing three identical channels and an unused alpha.
-    imageStore(geAtmExtinctionOutput,p,vec4(extinction,0.0,0.0,0.0));
+    // Achromatic extinction fits the unused source alpha at unchanged FP32
+    // precision, removing a texture allocation and a separate write/fetch.
+    imageStore(geAtmSourceOutput,p,vec4(source,extinction));
 }

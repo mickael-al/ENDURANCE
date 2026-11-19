@@ -190,7 +190,9 @@ struct Atmosphere::Impl
     std::array<GLuint,ProgramCount> programs{};
     GLuint parameters=0,vao=0;
     GLuint transmittance=0,multiple=0,skyView=0,noise=0,cloudShadow=0,visibleClouds=0;
-    GLuint physicalSource=0,physicalExtinction=0,cloudSource=0,cloudExtinction=0;
+    // All coefficients remain FP32. Source alpha carries extinction R (physical)
+    // or the scalar extinction (clouds); physicalExtinction stores the G/B pair.
+    GLuint physicalSource=0,physicalExtinction=0,cloudSource=0;
     GLuint scattering=0,transmission=0,baselineScattering=0,baselineTransmission=0;
     GLuint brdf=0;
     // 0 snapshot of current display, 1 completed target, 2 coherent displayed set.
@@ -401,7 +403,7 @@ struct Atmosphere::Impl
     void releaseLive()
     {
         for(GLuint* t:{&transmittance,&multiple,&skyView,&noise,&cloudShadow,&visibleClouds,
-                      &physicalSource,&physicalExtinction,&cloudSource,&cloudExtinction,
+                      &physicalSource,&physicalExtinction,&cloudSource,
                       &scattering,&transmission,&baselineScattering,&baselineTransmission}) destroyTexture(*t);
         liveSkyReady=volumesReady=cloudShadowValid=visibleCloudValid=false;
     }
@@ -422,13 +424,13 @@ struct Atmosphere::Impl
             transmittance=createTexture(GL_TEXTURE_2D,GL_RGBA16F,physical?b.transWidth:1,physical?b.transHeight:1);
             multiple=createTexture(GL_TEXTURE_2D,GL_RGBA16F,physical?b.multiSize:1,physical?b.multiSize:1);
             physicalSource=createTexture(GL_TEXTURE_3D,GL_RGBA32F,physical?b.width:1,physical?b.height:1,physical?b.depth:1);
-            physicalExtinction=createTexture(GL_TEXTURE_3D,GL_RGBA32F,physical?b.width:1,physical?b.height:1,physical?b.depth:1);
+            physicalExtinction=createTexture(GL_TEXTURE_3D,GL_RG32F,physical?b.width:1,physical?b.height:1,physical?b.depth:1);
             glClearTexImage(transmittance,0,GL_RGBA,GL_FLOAT,white);
             physicalDirty=multipleDirty=skyDirty=dirty=true; volumesReady=false;
         }
         if(force || clouds!=allocatedClouds)
         {
-            for(GLuint* t:{&noise,&cloudShadow,&visibleClouds,&cloudSource,&cloudExtinction}) destroyTexture(*t);
+            for(GLuint* t:{&noise,&cloudShadow,&visibleClouds,&cloudSource}) destroyTexture(*t);
             const int n=clouds?b.noise:1;
             noise=createTexture(GL_TEXTURE_3D,GL_RGBA16F,n,n,n,mipCount(n));
             for(GLenum parameter:{GL_TEXTURE_WRAP_S,GL_TEXTURE_WRAP_T,GL_TEXTURE_WRAP_R})
@@ -437,7 +439,6 @@ struct Atmosphere::Impl
             glClearTexImage(cloudShadow,0,GL_RG,GL_FLOAT,white);
             visibleClouds=createTexture(GL_TEXTURE_2D,GL_RGBA16F,clouds?b.cloudViewWidth:1,clouds?b.cloudViewHeight:1);
             cloudSource=createTexture(GL_TEXTURE_3D,GL_RGBA32F,clouds?b.width:1,clouds?b.height:1,clouds?b.depth:1);
-            cloudExtinction=createTexture(GL_TEXTURE_3D,GL_R32F,clouds?b.width:1,clouds?b.height:1,clouds?b.depth:1);
             noiseDirty=clouds; dirty=true; volumesReady=false; cloudShadowValid=visibleCloudValid=false;
         }
         if(force || media!=allocatedMedia)
@@ -1137,19 +1138,19 @@ void Atmosphere::computeVolumes(Camera* camera)
     if(aerialChanged)
     {
         m->begin(AerialTime); glUseProgram(m->programs[Aerial]);
-        textureImage(0,m->physicalSource,GL_RGBA32F); textureImage(1,m->physicalExtinction,GL_RGBA32F);
+        textureImage(0,m->physicalSource,GL_RGBA32F); textureImage(1,m->physicalExtinction,GL_RG32F);
         m->submit(b.width,b.height,b.depth,4,4,4); ++m->statistics.aerialDispatches; m->end();
     }
     if(cloudChanged)
     {
         m->begin(CloudTime); glUseProgram(m->programs[CloudVolume]);
-        textureImage(0,m->cloudSource,GL_RGBA32F); textureImage(1,m->cloudExtinction,GL_R32F);
+        textureImage(0,m->cloudSource,GL_RGBA32F);
         m->submit(b.width,b.height,b.depth,4,4,4); ++m->statistics.cloudVolumeDispatches; m->end();
     }
     m->begin(FogTime); glUseProgram(m->programs[Volume]);
     if(m->config.localFog && m->bindGameFog) m->bindGameFog(m->programs[Volume]);
     textureUnit(9,m->physicalSource); textureUnit(10,m->physicalExtinction);
-    textureUnit(11,m->cloudSource); textureUnit(12,m->cloudExtinction);
+    textureUnit(11,m->cloudSource);
     textureImage(0,m->scattering,GL_RGBA16F); textureImage(1,m->transmission,GL_RGBA16F);
     textureImage(2,m->baselineScattering,GL_RGBA16F,0,false); textureImage(3,m->baselineTransmission,GL_RGBA16F,0,false);
     m->submit(b.width,b.height,1); ++m->statistics.fogDispatches; m->end();

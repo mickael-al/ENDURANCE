@@ -31,7 +31,9 @@ def compile_shaders(gl):
                             ("forward_transparency","forward_transparency_skinned"),
                             ("water_transparency","water_transparency"),
                             ("opaque","opaque"),("opaque","opaque_skinned"),
-                            ("opaque","opaque_cloth")):
+                            ("opaque","opaque_cloth"),
+                            ("lightmap","lightmap"),("iso","iso"),
+                            ("background","background")):
         shaders=ROOT/"Asset/Shader"
         name=f"{fragment}/{vertex}"
         programs[name]=gl.compile([(0x8B31,shader_source(shaders/f"{vertex}.vs.glsl")),
