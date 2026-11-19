@@ -23,7 +23,7 @@ def main():
         command += ["-I", str(include)]
     sources = ("Rendering/RenderingEngine.cpp", "Rendering/Light/Lights.cpp",
                "Rendering/Light/LightManager.cpp", "Rendering/Light/SpotLight.cpp",
-               "Rendering/Shader/Atmosphere.cpp", "Rendering/Window/FrameBuffer.cpp",
+               "Rendering/Shader/Atmosphere.cpp", "Rendering/Window/FrameBuffer.cpp", "Rendering/Window/SSAOBuffer.cpp",
                "Miscellaneous/ProceduralGeneration.cpp")
     subprocess.run(command + [str(ROOT / "ANTAGONIZ/Source" / path) for path in sources], check=True)
     print("PASS real renderer/light/atmosphere/terrain interfaces with production headers")

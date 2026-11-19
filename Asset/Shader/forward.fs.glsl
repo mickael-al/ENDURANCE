@@ -61,7 +61,7 @@ layout(std430, binding = 3) buffer UniformBufferShadow
 
 layout(std430, binding = 4) buffer UniformBufferSSAO
 {
-	vec3 samples[];
+	vec4 samples[];
 } ubssao;
 
 struct PlaneLightHidden
@@ -216,33 +216,7 @@ float filterPCF(vec4 sc, uint cascadeIndex, float bias)
 
 in vec2 v_UV;
 
-float SSAO(vec3 viewPos, vec3 normal)
-{
-	ivec2 ts = textureSize(gPosition,0);
-	vec3 randomVec = normalize(texture(texNoise, v_UV * vec2(float(ts.x) / 4.0, float(ts.y) / 4.0)).xyz);
-
-	vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));
-	vec3 bitangent = cross(normal, tangent);
-	mat3 TBN = mat3(tangent, bitangent, normal);
-	float occlusion = 0.0;
-	float radius = 0.5;	
-	float bias = 0.025;
-
-	for (int i = 0; i < 64; ++i)
-	{
-		vec3 samplePos = TBN * ubssao.samples[i];
-		samplePos = viewPos + samplePos * radius;
-		vec4 offset = vec4(samplePos, 1.0);
-		offset = ubc.proj * offset;    // from view to clip-space		
-		offset.xyz /= offset.w;               // perspective divide
-		offset.xyz = offset.xyz * 0.5 + 0.5;
-		float sampleDepth = texture(gPosition, offset.xy).r;
-		occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0);
-		float rangeCheck = smoothstep(0.0, 1.0, radius / abs(viewPos.z - sampleDepth));
-		occlusion += (sampleDepth >= samplePos.z + bias ? 1.0 : 0.0) * rangeCheck;
-	}
-	return 1.0 - (occlusion / 64);
-}
+#include "SSAO/evaluate.glsl"
 
 out vec3 o_FragColor;
 
@@ -412,8 +386,12 @@ void main()
 
 		vec3 ambient = (kD * diffuse + specular) * other.z;
 		Lo = max(vec3(0), Lo);
-		color = ambient + Lo * other.z * SSAO(viewPos.xyz, normal.rgb);
-		//color = ambient + Lo * SSAO(viewPos.xyz, normal.rgb);
+		// AO attenuates indirect light; direct light already uses shadow maps.
+		// Preserve the material normal (including smoothing/normal maps), in
+		// the VIEW space used by the sample hemisphere. Primitive normals
+		// remain reserved for shadow bias, to avoid faceting the SSAO.
+		vec3 aoNormal = mat3(ubc.view) * normal;
+		color = ambient * geSsaoEvaluate(viewPos.xyz, aoNormal, ivec2(gl_FragCoord.xy)) + Lo;
 	}
 	else
 	{

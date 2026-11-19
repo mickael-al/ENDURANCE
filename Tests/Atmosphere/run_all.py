@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run all CPU/GPU atmosphere validations; fail immediately on any failed gate."""
+"""Run all CPU/GPU atmosphere and SSAO validations; fail immediately on any failed gate."""
 from pathlib import Path
 import subprocess
 import sys
@@ -12,14 +12,14 @@ TESTS=("check_cpu.py","check_shaders.py","check_common.py","check_luts.py",
        "check_terrain_shadow.py","check_light_persistence.py","check_gbuffer_geometry.py",
        "check_shadow_bounds.py", "check_shadow_filtering.py", "check_shadow_cache.py",
        "check_spot_shadows.py", "check_render_integration.py", "check_texture_packing.py",
-       "check_gbuffer_packing.py")
+       "check_gbuffer_packing.py", "../SSAO/check_gpu.py")
 
 
 def main():
     for test in TESTS:
         print(f"\nRunning {test}",flush=True)
         subprocess.run([sys.executable,str(DIRECTORY/test)],check=True)
-    print(f"\nPASS all {len(TESTS)} atmosphere validation groups",flush=True)
+    print(f"\nPASS all {len(TESTS)} atmosphere/SSAO validation groups",flush=True)
 
 
 if __name__=="__main__":
