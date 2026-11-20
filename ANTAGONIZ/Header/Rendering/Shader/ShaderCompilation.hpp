@@ -57,6 +57,8 @@ namespace Ge
     namespace detail
     {
         class ShaderBinaryCache;
+        // Failure-only source excerpts shared by standalone and parallel builds.
+        std::string shaderSourceContext(const ShaderSource& source, const std::string& diagnostic);
         // Shared synchronous compiler for prepared batch misses and standalone
         // builds. Sources and binary identity have already been validated.
         unsigned int buildPreparedShaderProgram(const std::vector<ShaderFile>& stages,

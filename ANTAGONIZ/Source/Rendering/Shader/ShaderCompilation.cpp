@@ -7,6 +7,9 @@
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <sstream>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 
 namespace Ge
@@ -132,6 +135,158 @@ namespace Ge
             return table;
         }
 
+        struct SourceLocation { unsigned file = 0, line = 0; };
+
+        bool sourceNumber(const std::string& text, std::size_t& position, unsigned& result)
+        {
+            const auto begin = position;
+            result = 0;
+            while (position < text.size() && text[position] >= '0' && text[position] <= '9')
+            {
+                const unsigned digit = static_cast<unsigned>(text[position++] - '0');
+                if (result > ((std::numeric_limits<unsigned>::max)() - digit) / 10u) return false;
+                result = result * 10u + digit;
+            }
+            return position != begin;
+        }
+
+        bool diagnosticLocation(const std::string& line, SourceLocation& location)
+        {
+            auto position = line.find_first_not_of(" \t\r");
+            if (position == std::string::npos) return false;
+            for (const auto* prefix : {"ERROR:", "WARNING:"})
+            {
+                if (line.compare(position, std::char_traits<char>::length(prefix), prefix) == 0)
+                {
+                    position = line.find_first_not_of(" \t", position + std::char_traits<char>::length(prefix));
+                    break;
+                }
+            }
+            if (position == std::string::npos || !sourceNumber(line, position, location.file)
+                || position >= line.size()) return false;
+            const char separator = line[position++];
+            if ((separator != '(' && separator != ':') || !sourceNumber(line, position, location.line)
+                || position >= line.size() || !location.line) return false;
+            // NVIDIA: source(line). Mesa/AMD: source:line(column) or source:line:.
+            return separator == '(' ? line[position] == ')'
+                : line[position] == '(' || line[position] == ':';
+        }
+
+        std::string sourceContext(const ShaderSource& source, const std::string& diagnostic)
+        {
+            // Failure-only work: use the exact expanded snapshot, never reread
+            // files that an editor may have changed while the driver compiled.
+            std::vector<SourceLocation> locations;
+            std::istringstream messages(diagnostic);
+            std::string line;
+            while (locations.size() < 2 && std::getline(messages, line))
+            {
+                SourceLocation location;
+                if (!diagnosticLocation(line, location) || location.file >= source.files.size()) continue;
+                const auto same = [&](const SourceLocation& other)
+                { return other.file == location.file && other.line == location.line; };
+                if (std::find_if(locations.begin(), locations.end(), same) == locations.end()) locations.push_back(location);
+            }
+            if (locations.empty()) return {};
+            struct OriginalLine { SourceLocation at; std::string text; bool injected = false; };
+            std::vector<OriginalLine> context;
+            std::unordered_map<std::string, std::vector<OriginalLine>> macros;
+            std::istringstream expanded(source.text);
+            SourceLocation at{0, 1};
+            bool blockComment = false;
+            bool sourceMapped = false;
+            while (std::getline(expanded, line))
+            {
+                const auto token = SourceReader::firstToken(line, blockComment);
+                if (SourceReader::directive(line, token, "line"))
+                {
+                    std::size_t position = line.find_first_not_of(" \t", line.find("line", token) + 4);
+                    unsigned number = 0;
+                    if (position != std::string::npos && sourceNumber(line, position, number))
+                    {
+                        sourceMapped = true;
+                        at.line = number;
+                        position = line.find_first_not_of(" \t", position);
+                        if (position != std::string::npos && sourceNumber(line, position, number)) at.file = number;
+                        continue;
+                    }
+                }
+                if (at.file < source.files.size())
+                {
+                    for (const auto& target : locations)
+                    {
+                        const auto distance = at.line > target.line ? at.line - target.line : target.line - at.line;
+                        if (at.file != target.file || distance > 3u) continue;
+                        const auto same = [&](const OriginalLine& other)
+                        { return other.at.file == at.file && other.at.line == at.line; };
+                        const auto found = std::find_if(context.begin(), context.end(), same);
+                        if (found == context.end()) context.push_back({at, line});
+                        else found->text = line;
+                        break;
+                    }
+                    if (SourceReader::directive(line, token, "define"))
+                    {
+                        auto name = line.find_first_not_of(" \t", line.find("define", token) + 6);
+                        if (name != std::string::npos)
+                        {
+                            auto end = line.find_first_of(" \t(\r", name);
+                            const auto key = line.substr(name, end == std::string::npos ? end : end - name);
+                            auto& candidates = macros[key];
+                            if (candidates.size() < 4 && std::none_of(candidates.begin(), candidates.end(),
+                                [&](const OriginalLine& item) { return item.at.file == at.file && item.at.line == at.line; }))
+                                candidates.push_back({at, line, !sourceMapped});
+                        }
+                    }
+                }
+                if (at.line != (std::numeric_limits<unsigned>::max)()) ++at.line;
+            }
+            std::string result = "\nGLSL source context (snapshot before preprocessing):\n";
+            std::vector<std::pair<std::string, unsigned>> references;
+            const auto identifiers = [&](const std::string& text, unsigned depth)
+            {
+                const auto start = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+                for (std::size_t i = 0; i < text.size() && references.size() < 256;)
+                {
+                    if (!start(text[i])) { ++i; continue; }
+                    const auto begin = i++;
+                    while (i < text.size() && (start(text[i]) || (text[i] >= '0' && text[i] <= '9'))) ++i;
+                    references.emplace_back(text.substr(begin, i - begin), depth);
+                }
+            };
+            for (const auto& location : locations)
+            {
+                result += source.files[location.file] + ":" + std::to_string(location.line) + "\n";
+                for (const auto& original : context)
+                {
+                    const auto distance = original.at.line > location.line ? original.at.line - location.line : location.line - original.at.line;
+                    if (original.at.file != location.file || distance > 3u) continue;
+                    const bool reported = original.at.line == location.line;
+                    result += reported ? " > " : "   ";
+                    result += std::to_string(original.at.line) + " | " + original.text.substr(0, 240) + "\n";
+                    if (reported) identifiers(original.text, 0);
+                }
+            }
+            std::unordered_set<std::string> visited;
+            unsigned shown = 0;
+            for (std::size_t i = 0; i < references.size() && shown < 12; ++i)
+            {
+                const auto reference = references[i];
+                if (!visited.insert(reference.first).second) continue;
+                const auto found = macros.find(reference.first);
+                if (found == macros.end()) continue;
+                if (!shown) result += "Referenced macro definitions (conditional definitions may be inactive):\n";
+                for (const auto& definition : found->second)
+                {
+                    result += definition.injected ? "   injected shader definition"
+                        : "   " + source.files[definition.at.file] + ":" + std::to_string(definition.at.line);
+                    result += " | " + definition.text.substr(0, 240) + "\n";
+                    if (reference.second < 2) identifiers(definition.text, reference.second + 1);
+                    if (++shown == 12) break;
+                }
+            }
+            return result;
+        }
+
         std::string objectLog(GLuint object, bool program)
         {
             GLint length = 0;
@@ -170,6 +325,11 @@ namespace Ge
                 std::cerr << "[Shader " << label << "] " << stage << " end (" << elapsed << " ms)" << std::endl;
             }
         };
+    }
+
+    std::string detail::shaderSourceContext(const ShaderSource& source, const std::string& diagnostic)
+    {
+        return sourceContext(source, diagnostic);
     }
 
     const std::vector<std::string>* ShaderSourceSnapshot::read(const std::string& filename,
@@ -261,7 +421,12 @@ namespace Ge
             GLint success = GL_FALSE;
             trace.run("GL_COMPILE_STATUS", [&] { glGetShaderiv(shader, GL_COMPILE_STATUS, &success); });
             if (!success)
-            { error = "Shader compilation failed: " + stage.filename + "\n" + objectLog(shader, false) + sourceTable(source); return 0; }
+            {
+                const auto log = objectLog(shader, false);
+                error = "Shader compilation failed: " + stage.filename + "\n" + log
+                    + sourceContext(source, log) + sourceTable(source);
+                return 0;
+            }
         }
         objects.program = glCreateProgram();
         if (!objects.program) { error = "Cannot create shader program: " + stages.front().filename; return 0; }

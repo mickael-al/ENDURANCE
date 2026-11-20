@@ -5,6 +5,24 @@ of imported terrain textures. Material attributes are written into the existing
 deferred G-buffer, so they use the same direct lights, shadow maps, atmosphere,
 SSAO and environment reflections as other PBR objects.
 
+## Rendering source map
+
+The terrain color pass has **one vertex/fragment program**. The GLSL includes
+below are functions compiled into that program, not additional rendering passes.
+
+| File | Responsibility / entry points |
+|---|---|
+| `Asset/Shader/ProceduralTerrain/render.fs.glsl` | Fragment `main`: material evaluation, final normal and G-buffer writes |
+| `Asset/Shader/ProceduralTerrain/materials.glsl` | `terrainEvaluateAppearance` → biome → surface → material: climate, slope, palettes and PBR blending |
+| `Asset/Shader/ProceduralTerrain/patterns.glsl` | Shared noise/value gradients, grain spectrum and the eight procedural relief families |
+| `Asset/Shader/ProceduralTerrain/render.vs.glsl` | Packed terrain vertex decoding, world position and climate varyings |
+| `ANTAGONIZ/Source/ProjectUser/EnduranceTerrainMaterials.cpp` | `makeTerrainAppearance`: authored ground/wall palettes and parameters for all 26 biomes |
+| `ANTAGONIZ/Source/Miscellaneous/ProceduralGeneration.cpp` | Program creation, appearance upload and the existing batched terrain draw |
+
+Terrain-generation compute shaders and the atmosphere's palette compute shader
+serve separate systems. They do not add terrain color draws. Shadow draws keep
+their existing depth-only path and do not execute the material functions.
+
 ## Artistic model
 
 Every one of the 25 climate biomes and the marine biome has a ground profile and
@@ -140,66 +158,82 @@ do more work than the previous flat colors; their complete material pass should
 also be profiled on the target GPU. The benchmark is retained for reproducing
 that comparison without adding a production cache or extra resource lifecycle.
 
-The initial revision-1 material-pass benchmark used the actual G-buffer formats and a
-256 x 256 viewport. Revision-1 medians on Mesa llvmpipe, with 17 alternating samples
-after warmup, were:
+## Reproducible performance measurements
 
-| Scene | Previous flat colors | Revision-1 materials |
+Earlier revisions of this document used only `GL_TIME_ELAPSED` queries on
+llvmpipe. Repeated draws with the same program can report substantially less
+query time while their completed-render wall time stays unchanged, even with
+fresh query objects and timestamp queries. Those old absolute times and ratios
+are withdrawn as a performance baseline.
+
+`benchmark_materials.py` now records both clocks. On llvmpipe/softpipe it defaults
+to completed-draw wall time, with explicit `glFinish` boundaries; on hardware
+renderers it defaults to GPU queries. Alternating sample order, multiple draws
+per sample, raw samples, paired ratio quartiles, shader/data hashes and the
+renderer/thread configuration are included in the JSON report. Software wall
+time includes driver/CPU work: it is not a hardware GPU timing or a game FPS
+prediction. No compiler optimization is accepted as faster just because its
+source is shorter.
+
+The benchmark loads historical shaders and authored data directly from Git
+without switching or modifying the working branch:
+
+```sh
+python3 Tests/TerrainMaterials/benchmark_materials.py --size 256 --samples 17 --batch-draws 4 --lp-threads 1 --baseline-ref 5487e13 --json material-timings.json
+```
+
+Use `--baseline-ref 426d806` to compare with the earlier shared-noise materials,
+or omit the option to compare with the original flat-color shader. These are
+different comparisons: preserving the newer per-biome fields and normal recipes
+is not equivalent to restoring the earlier material's smaller feature set.
+`--current-ref` measures another historical candidate without a checkout change.
+Compilation, allocation, uploads and image readbacks are outside the timed draws.
+
+The near/four-biome scenario deliberately fills the viewport with a climate
+junction and a ground/wall blend. Its relative cost is useful for detecting a
+worst case; it does not measure how much of a gameplay frame that case occupies.
+The complete color pass should also be profiled on the target GPU.
+
+### November 20 conservative cleanup: budget still unresolved
+
+The retained changes share lattice-axis hash products and the pixel footprint,
+rotate the accumulated fBm gradient once, and omit parameter clamps already
+guaranteed by `validTerrainAppearance` before upload. Computed-value safeguards
+remain. These are algebraic simplifications, **not a demonstrated frame-time
+improvement**. No texture cache, extra pass, derived GPU-table ABI or alternative
+noise realization was added. Palettes, world periods and all climate weights
+remain intact.
+
+Compared with the published biome-specific implementation `5487e13`, using a
+256² viewport, 16 warmup draws, 17 alternating sample pairs and four draws per
+sample, the final paired median ratios were:
+
+| Scenario | llvmpipe, one thread | llvmpipe, default threads |
 |---|---:|---:|
-| Nearby, one biome | 0.429 ms | 1.022 ms |
-| Nearby, four biomes and ground/wall blend | 0.596 ms | 3.753 ms |
-| Distant, four biomes | 0.496 ms | 2.273 ms |
-| Coast, four biomes plus marine and slope blend | 0.543 ms | 5.311 ms |
+| Nearby, one biome | 0.988 | 1.017 |
+| Nearby, four biomes plus slope | 0.997 | 1.008 |
+| Distant, four biomes | 0.986 | 0.974 |
+| Coast, four biomes plus marine and slope | 0.996 | 0.987 |
 
-These software-renderer figures deliberately show the additional cost; they
-must not be extrapolated to hardware frame rates. Allocation, compilation,
-uploads and readback are outside the measured fragment pass. The original
-optimizations avoid reading inactive material records and duplicating inline
-material evaluations. Their outputs were compared to the unoptimized version
-over 54 varied cases, with zero difference on all four G-buffer attachments.
+The one-thread interquartile intervals all include 1.0. This does not establish
+a meaningful overall speedup or resolve the requested performance budget.
+A separate corrected control of `5487e13` versus the earlier shared-field
+version `426d806` measured approximately 1.25× / 2.00× / 1.45× / 1.49× for these
+four scenarios. The cost of independent per-biome fields is still present.
 
-```sh
-python3 Tests/TerrainMaterials/benchmark_materials.py --size 256 --samples 17
-```
-
-## Material revision 2 measurements
-
-The biome-specific normal families and independently scaled fields cost more
-than revision 1's three universal noises. In a sequential run on the same Mesa
-llvmpipe renderer, with the same 256 x 256 G-buffer targets, eight warmups and
-17 alternating samples, the complete passes measured:
-
-| Scene | Published revision 1 (`426d806`) | Revision 2 | Ratio |
-|---|---:|---:|---:|
-| Nearby, one biome | 0.825 ms | 1.003 ms | 1.22x |
-| Nearby, four biomes and ground/wall blend | 3.155 ms | 6.433 ms | 2.04x |
-| Distant, four biomes | 1.773 ms | 2.557 ms | 1.44x |
-| Coast, four biomes plus marine and slope blend | 5.152 ms | 7.941 ms | 1.54x |
-
-This is an explicit quality/cost tradeoff, **not a speed improvement**. The
-four-biome case deliberately covers the whole viewport with a climate junction
-and a ground/wall transition; it does not measure their coverage in a gameplay
-frame. Software-renderer samples vary and these numbers are not hardware FPS
-predictions. Profile the material pass on the target GPU before choosing the
-shipping quality budget.
-
-Work is shared within each biome; zero climate weights skip that biome, invisible
-fine octaves skip noise hashes, unresolved waves skip sine/cosine, and the macro
-field is shared globally. No new textures, render targets or per-biome draws are
-introduced. The table grows from 12,064 to 13,312 bytes. Four climate contributions
-are retained even in the most expensive transition rather than dropping small
-weights and creating visible boundaries.
-
-The benchmark can load historical shaders and authored data directly from Git
-into a temporary directory without switching or modifying the working branch:
+The validated expanded fragment SHA256 is
+`c9a762c8bceb8225c8db7f73a0df9678c35b7a20c3d9eb56188ea76e8e4e991c`.
+The optional historical oracle compares 886 authored and valid-parameter boundary
+cases, including close-ups where the grain remains visible: color, position and
+PBR outputs are identical; the largest normal-component difference is 2.09e-7.
 
 ```sh
-python3 Tests/TerrainMaterials/benchmark_materials.py --size 256 --samples 17 --baseline-ref 426d806 --json material-timings.json
+python3 Tests/TerrainMaterials/check_revision_equivalence.py --baseline-ref 5487e13 --bounds
 ```
 
-The comparison validates the historical CPU table and expands all historical
-shader includes before timing. Compilation, allocation, uploads and readbacks
-remain outside the measured draw intervals.
+Common-body material loops, a flattened UBO, a larger CPU-derived GPU table,
+simplex substitutes and explicit octave unrolling were not retained: they had
+no reliable gain, were slower, or changed the appearance unfavorably.
 
 ## Validation
 

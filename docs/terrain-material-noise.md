@@ -100,12 +100,21 @@ and distant oblique views when changing feature width or contrast.
 ## Historical generated-cache experiment
 
 Before the independent-family revision, a generated 3D cache was compared with
-the earlier shared analytic fields. It showed no performance benefit on the
-available software renderer and introduced approximation error and periodic
-repetition, so it was not adopted. The isolated prototype remains in
-`Tests/TerrainMaterials/benchmark_noise.py`; it is not a runtime resource or an
-optional production rendering path. **The timings below measure that historical
-prototype, not the current complete biome-material shader or its new families.**
+the earlier shared analytic fields. It was not adopted. The isolated prototype
+remains in `Tests/TerrainMaterials/benchmark_noise.py`; it is not a runtime
+resource or an optional production rendering path. Its original llvmpipe GPU
+query timings are withdrawn: the material benchmark subsequently exposed
+software-driver timer under-counting. The numerical quality measurements below
+remain separate from that timing problem. The original benchmark's timing mode
+must not be used to infer a hardware performance advantage for either path.
+
+A bounded follow-up used completed-draw wall time with `glFinish` boundaries,
+one llvmpipe thread, a 384² target, seven alternating sample pairs and eight
+draws per sample. The 64³ cache remained slower than the current nonperiodic
+analytic primitive: 1.242 versus 0.860 ms for one field, and 3.129 versus
+1.822 ms for three fields. This software result does not predict hardware GPU
+performance; it gives no measured reason to add a cache and its approximation
+to the present implementation.
 
 The test generates a seeded periodic value-noise volume on the GPU, at texel
 centers, with 16 noise cells along each axis. RGBA16F stores scalar value in R
@@ -143,30 +152,12 @@ previous interpolant, `--cache-sizes 64 128` to compare resolutions, or
 `--quality-only` to skip timing. The script requires only Python's standard
 library and the repository's existing headless OpenGL harness.
 
-Recorded environment: OpenGL 4.5 Core, Mesa 25.0.7-2+deb13u1, llvmpipe
-(LLVM 19.1.7, 256 bits). The following are median GPU-query times for a 512×512
-fullscreen draw, seven measured samples after two warmups, alternating order:
-
-| Scene | Analytic, ms | Cached 64³, ms | Cache / analytic |
-|---|---:|---:|---:|
-| One macro field | 0.1556 | 0.3382 | 2.173 |
-| Near: macro + intermediate + visible microdetail | 0.4543 | 1.3598 | 2.993 |
-| Far: macro + intermediate, microdetail skipped | 0.7511 | 1.3153 | 1.751 |
-
 Allocation, shader compilation, noise-volume generation, mip generation, and
-readbacks are outside these fragment timings. The output consumes all four
-noise channels so the compiler cannot remove derivative work. Both paths use
-the same seeded periodic quintic function; the analytic baseline therefore
-contains coordinate wrapping that the nonperiodic production field does not
-need. The texture version also benefits from actual mip filtering, so numerical
-quality is assessed separately at LOD 0 rather than inferred from timings.
-
-These software-renderer numbers are **not a forecast for a hardware GPU, the
-revised material pass, or complete game frame time**. CPU scheduling and other workloads affect them;
-small elapsed times are especially sensitive to measurement conditions. They
-provide no reason to add the cache to production, but do not establish that
-analytic noise always wins on every GPU. There is deliberately no timing
-assertion or automatic performance gate.
+readbacks are outside the historical fragment timings. Both paths used the same
+seeded periodic quintic function; the analytic baseline therefore included
+coordinate wrapping that the nonperiodic production field does not need.
+The texture version also uses actual mip filtering, so numerical quality is
+assessed separately at LOD 0 rather than inferred from timings.
 
 Quintic 64³ quality measurements, against direct evaluation at deterministic
 points including negative coordinates and period boundaries:

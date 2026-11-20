@@ -1,6 +1,9 @@
 #ifndef ENDURANCE_TERRAIN_PATTERNS_GLSL
 #define ENDURANCE_TERRAIN_PATTERNS_GLSL
 
+// Appearance controls have passed validTerrainAppearance on the CPU before
+// upload. Their documented ranges are trusted here; computed-field, frequency
+// and filter safeguards remain independent of that data validation.
 // One shared macro field, then stable per-biome patch/detail domains.
 // Analytic WORLD-unit gradients work on cliffs/caves without triplanar samples.
 struct TerrainNoise { float value; vec3 gradient; };
@@ -10,6 +13,7 @@ struct TerrainPatternContext
     vec3 position;
     vec3 dx;
     vec3 dy;
+    float pixelFootprint;
     float normalWidth;
     float macroPeriod;
     float patchPeriod;
@@ -61,14 +65,37 @@ TerrainNoise terrainNoiseValueGradientSalt(vec3 p, uint salt)
     vec3 f = fract(p);
     vec3 blend = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
     vec3 derivative = 30.0 * f * f * (f - 1.0) * (f - 1.0);
-    float a = terrainCornerValueSalt(cell,salt);
-    float b = terrainCornerValueSalt(cell + ivec3(1,0,0),salt);
-    float c = terrainCornerValueSalt(cell + ivec3(0,1,0),salt);
-    float d = terrainCornerValueSalt(cell + ivec3(1,1,0),salt);
-    float e = terrainCornerValueSalt(cell + ivec3(0,0,1),salt);
-    float f1 = terrainCornerValueSalt(cell + ivec3(1,0,1),salt);
-    float g = terrainCornerValueSalt(cell + ivec3(0,1,1),salt);
-    float h = terrainCornerValueSalt(cell + ivec3(1,1,1),salt);
+    // Share the six axis products across the eight integer lattice corners.
+    // Unsigned wraparound and the avalanche are identical to the scalar hash.
+    uvec3 lower = uvec3(cell);
+    uvec3 upper = lower + uvec3(1u);
+    uvec3 lowProducts = lower * uvec3(0x8da6b343u,0xd8163841u,0xcb1ab31fu);
+    uvec3 highProducts = upper * uvec3(0x8da6b343u,0xd8163841u,0xcb1ab31fu);
+    uvec4 xy = uvec4(lowProducts.x,highProducts.x,lowProducts.x,highProducts.x)
+        ^ uvec4(lowProducts.y,lowProducts.y,highProducts.y,highProducts.y)
+        ^ worldSeed ^ salt;
+    uvec4 lowHash = xy ^ lowProducts.z;
+    uvec4 highHash = xy ^ highProducts.z;
+    lowHash ^= lowHash >> 16u;
+    highHash ^= highHash >> 16u;
+    lowHash *= 0x7feb352du;
+    highHash *= 0x7feb352du;
+    lowHash ^= lowHash >> 15u;
+    highHash ^= highHash >> 15u;
+    lowHash *= 0x846ca68bu;
+    highHash *= 0x846ca68bu;
+    lowHash ^= lowHash >> 16u;
+    highHash ^= highHash >> 16u;
+    vec4 lowValues = vec4(lowHash >> 8u) * (1.0 / 16777215.0);
+    vec4 highValues = vec4(highHash >> 8u) * (1.0 / 16777215.0);
+    float a = lowValues.x;
+    float b = lowValues.y;
+    float c = lowValues.z;
+    float d = lowValues.w;
+    float e = highValues.x;
+    float f1 = highValues.y;
+    float g = highValues.z;
+    float h = highValues.w;
     float value = mix(mix(mix(a,b,blend.x),mix(c,d,blend.x),blend.y),
                       mix(mix(e,f1,blend.x),mix(g,h,blend.x),blend.y),blend.z);
     float dx = mix(mix(b-a,d-c,blend.y),mix(f1-e,h-g,blend.y),blend.z);
@@ -87,17 +114,41 @@ TerrainNoise terrainNoiseValueGradient(vec3 p)
 const mat3 TERRAIN_NOISE_ROTATION = mat3(
     vec3(0.80,0.00,0.60),vec3(0.36,0.80,-0.48),vec3(-0.48,0.60,0.64));
 
-TerrainNoise terrainWorldNoiseSalt(vec3 p, vec3 dx, vec3 dy, float period, vec3 offset, uint salt)
+// Private noise-domain result: leave the analytic gradient in rotated domain
+// coordinates until the caller decides whether it is a single sample or fBm.
+TerrainNoise terrainDomainNoiseFootprint(vec3 p, float pixelFootprint,
+    float period, vec3 offset, uint salt, out float gradientScale)
 {
     float frequency = 1.0 / max(period,0.000001);
-    float footprint = max(length(dx),length(dy)) * frequency;
+    float footprint = pixelFootprint * frequency;
     float fade = 1.0 - smoothstep(0.20,0.80,footprint);
-    if (fade <= 0.0001) return TerrainNoise(0.5,vec3(0.0));
+    gradientScale = frequency * fade;
+    if (fade <= 0.0001)
+    {
+        gradientScale = 0.0;
+        return TerrainNoise(0.5,vec3(0.0));
+    }
     TerrainNoise n = terrainNoiseValueGradientSalt(
         TERRAIN_NOISE_ROTATION * (p * frequency) + offset,salt);
     n.value = mix(0.5,n.value,fade);
-    n.gradient = transpose(TERRAIN_NOISE_ROTATION) * n.gradient * (frequency * fade);
     return n;
+}
+
+TerrainNoise terrainWorldNoiseFootprint(vec3 p, float pixelFootprint,
+    float period, vec3 offset, uint salt)
+{
+    float gradientScale;
+    TerrainNoise n = terrainDomainNoiseFootprint(p,pixelFootprint,
+        period,offset,salt,gradientScale);
+    n.gradient = transpose(TERRAIN_NOISE_ROTATION) * n.gradient * gradientScale;
+    return n;
+}
+
+// Public derivative-based API remains available to isolated noise callers.
+TerrainNoise terrainWorldNoiseSalt(vec3 p, vec3 dx, vec3 dy,
+    float period, vec3 offset, uint salt)
+{
+    return terrainWorldNoiseFootprint(p,max(length(dx),length(dy)),period,offset,salt);
 }
 
 TerrainNoise terrainWorldNoise(vec3 p, vec3 dx, vec3 dy, float period, vec3 offset)
@@ -112,12 +163,13 @@ TerrainPatternContext terrainMakePatternContext(vec3 p, vec3 dx, vec3 dy,
     c.position = p;
     c.dx = dx;
     c.dy = dy;
+    c.pixelFootprint = max(length(dx),length(dy));
     c.normalWidth = normalWidth;
     c.macroPeriod = max(terrainMacroPeriod,0.001);
     c.patchPeriod = max(terrainPatchPeriod,0.001);
     c.grainPeriod = 1.0 / clamp(microDetailScale,0.0001,1000000.0);
     c.domainPhase = 0.0;
-    c.macro = terrainWorldNoise(p,dx,dy,c.macroPeriod,vec3(0.0));
+    c.macro = terrainWorldNoiseFootprint(p,c.pixelFootprint,c.macroPeriod,vec3(0.0),0u);
     c.patchNoise = TerrainNoise(0.5,vec3(0.0));
     c.grain = TerrainNoise(0.5,vec3(0.0));
     return c;
@@ -130,7 +182,7 @@ TerrainNoise terrainDetailSpectrum(TerrainPatternContext c, float octaves,
     float gain, vec3 offset, uint salt)
 {
     float period = c.grainPeriod;
-    if (max(length(c.dx),length(c.dy)) >= period*0.8)
+    if (c.pixelFootprint >= period*0.8)
         return TerrainNoise(0.5,vec3(0.0));
     float value = 0.0;
     vec3 gradient = vec3(0.0);
@@ -140,15 +192,19 @@ TerrainNoise terrainDetailSpectrum(TerrainPatternContext c, float octaves,
     {
         float weight = amplitude * clamp(octaves-float(octave),0.0,1.0);
         if (weight <= 0.00001) break;
-        TerrainNoise n = terrainWorldNoiseSalt(c.position,c.dx,c.dy,period,
+        float gradientScale;
+        TerrainNoise n = terrainDomainNoiseFootprint(c.position,c.pixelFootprint,period,
             offset + fract(float(octave)*vec3(0.37,0.19,0.61)),
-            salt ^ (uint(octave)*0x9e3779b9u));
+            salt ^ (uint(octave)*0x9e3779b9u),gradientScale);
         value += (n.value-0.5)*weight;
-        gradient += n.gradient*weight;
+        gradient += (n.gradient*gradientScale)*weight;
         sum += weight;
         period *= 0.5;
         amplitude *= gain;
     }
+    // The common linear rotation is applied once to the accumulated spectrum.
+    // Frequencies, positions and value interpolation remain unchanged.
+    gradient = transpose(TERRAIN_NOISE_ROTATION) * gradient;
     return TerrainNoise(0.5+value/max(sum,0.00001),gradient/max(sum,0.00001));
 }
 
@@ -163,12 +219,12 @@ TerrainPatternContext terrainBiomePatterns(uint id, vec4 spectrum,
     vec3 offset = fract(float(id+1u)*vec3(0.1713,0.5379,0.3141));
     c.domainPhase = fract(float(id+1u)*0.61803398875);
     c.patchPeriod = max(terrainPatchPeriod*spectrum.x,0.001);
-    c.grainPeriod = max(spectrum.y,0.001)
+    c.grainPeriod = spectrum.y
         * (2.0/clamp(microDetailScale,0.0001,1000000.0));
-    c.patchNoise = terrainWorldNoiseSalt(c.position,c.dx,c.dy,c.patchPeriod,
+    c.patchNoise = terrainWorldNoiseFootprint(c.position,c.pixelFootprint,c.patchPeriod,
         offset + vec3(0.71,0.19,-0.53),salt ^ 0x68bc21ebu);
-    c.grain = terrainDetailSpectrum(c,clamp(spectrum.z,1.0,3.0),
-        clamp(spectrum.w,0.0,0.5),offset + vec3(-0.29,0.47,0.13),salt ^ 0x02e5be93u);
+    c.grain = terrainDetailSpectrum(c,spectrum.z,
+        spectrum.w,offset + vec3(-0.29,0.47,0.13),salt ^ 0x02e5be93u);
     return c;
 }
 
@@ -202,7 +258,7 @@ TerrainPatterns terrainSurfacePatterns(vec4 detail, vec4 activeWeights,
         vec3 direction = vec3(cos(detail.z),0.0,sin(detail.z));
         if (activeWeights.z > 0.0)
         {
-            float period = max(detail.x,0.001);
+            float period = detail.x;
             vec3 axis = vec3(0.0,1.0,0.0) + 0.18 * direction;
             // Two already-shared scales bend the sediment at broad and medium
             // distances, avoiding uniformly spaced contour-like bands.
@@ -217,7 +273,7 @@ TerrainPatterns terrainSurfacePatterns(vec4 detail, vec4 activeWeights,
         }
         if (activeWeights.w > 0.0)
         {
-            float period = max(detail.y,0.001);
+            float period = detail.y;
             float phase = (dot(c.position,direction) + detail.w * (c.patchNoise.value-0.5)) / period;
             vec3 phaseGradient = (direction + detail.w * c.patchNoise.gradient) / period;
             TerrainNoise ripple = terrainWave(phase,phaseGradient,c);
@@ -248,17 +304,11 @@ TerrainNoise terrainGroove(float phase, vec3 phaseGradient, float width,
 TerrainNoise terrainSurfaceRelief(vec4 control, vec4 detail, TerrainPatternContext c)
 {
     if (microDetailStrength <= 0.0) return TerrainNoise(0.0,vec3(0.0));
-    int family = clamp(int(control.x+0.5),0,7);
-    float period = max(control.y,0.001);
-    float warp = max(control.z,0.0);
-    float grainMix = clamp(control.w,0.0,1.0);
-    vec3 direction = vec3(cos(detail.z),0.0,sin(detail.z));
-    vec3 across = vec3(-direction.z,0.0,direction.x);
+    int family = int(control.x);
+    float grainMix = control.w;
     // The small detail field is shared by ground/wall/layers of this biome.
     // Its period is independent of both palette patches and feature spacing.
     vec3 fine = c.grain.gradient*c.grainPeriod;
-    // A fine field cannot displace a metre-wide feature by metre-sized amounts.
-    float fineRatio = min(c.grainPeriod/period,1.0);
     float height = 0.0;
     float fineHeight = (c.grain.value-0.5)*c.grainPeriod;
     vec3 gradient = vec3(0.0);
@@ -269,6 +319,12 @@ TerrainNoise terrainSurfaceRelief(vec4 control, vec4 detail, TerrainPatternConte
     }
     else
     {
+        float period = control.y;
+        float warp = control.z;
+        vec3 direction = vec3(cos(detail.z),0.0,sin(detail.z));
+        vec3 across = vec3(-direction.z,0.0,direction.x);
+        // A fine field cannot displace a metre-wide feature by metre-sized amounts.
+        float fineRatio = min(c.grainPeriod/period,1.0);
         // Macro/patch fields only bend and interrupt meaningful structures. Their
         // own gradients are NOT a universal round bump height any more.
         float bend = warp*(c.patchNoise.value-0.5);

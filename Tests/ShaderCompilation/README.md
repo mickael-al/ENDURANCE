@@ -8,8 +8,9 @@ EGL_PLATFORM=surfaceless python3 Tests/ShaderCompilation/check_shader_compilatio
 ```
 
 The fixture builds the production `ShaderCompilation`, `ShaderBinaryCache`, `ComputeShader`,
-`GraphiquePipeline` and `ShaderPair` translation units. It creates all GLSL in a
-temporary directory and does not modify application shaders. Neither `Debug`
+`GraphiquePipeline` and `ShaderPair` translation units. It creates synthetic GLSL in a
+temporary directory and also compiles the terrain classification and atmosphere
+palette entrypoints without modifying application shaders. Neither `Debug`
 nor the ImGui console is linked.
 
 It verifies nested relative includes and source maps, injected definitions,
@@ -19,6 +20,14 @@ includes, compiler diagnostics, graphics link failures, and program ownership.
 Successful compute programs write values to a real SSBO; graphics programs
 render a checked pixel. `takeProgram()` must leave ownership with the caller
 through the wrapper's destruction.
+
+Failure diagnostics include a bounded excerpt of the actual expanded source
+snapshot and referenced macro definitions. Tests cover native driver errors,
+NVIDIA `source(line)` and Mesa/AMD `source:line` locations, nested macros, and
+ignored directives inside multiline comments. A deliberately malformed climate
+contrast (the configured value followed by `q`) is injected only into the prepared in-memory source of both
+production entrypoints: it must report the original climate use line and show
+the erroneous definition. Unmodified production entrypoints must compile.
 
 The diagnostic-size case retains real compilation failure and substitutes only
 the driver's log queries with a 128 KiB message. It checks full preservation of
@@ -66,7 +75,8 @@ once, warm requests only load binaries, and changing one selected include or
 one request's definitions recompiles exactly one program.
 
 The failure cases verify that a missing include cannot be hidden by an old
-binary, a GLSL failure retains the numbered include source map, and no partial
+binary, a GLSL failure retains the numbered include source map, the parallel
+path also reports its failing source line and malformed macro, and no partial
 result or program/shader object survives a failed batch. Disabling the exposed
 parallel-compile extension flags exercises the synchronous startup fallback
 and its cache reuse. The previous driver compiler-thread hint must be restored.

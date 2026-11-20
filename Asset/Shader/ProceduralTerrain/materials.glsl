@@ -2,6 +2,9 @@
 #define ENDURANCE_TERRAIN_MATERIALS_GLSL
 
 // std140 ABI: Material96, Surface240, Biome512 bytes; table26 = 13,312 bytes.
+// The CPU rejects invalid appearance records before upload; material controls
+// below already satisfy validTerrainAppearance's ranges. Computed values still
+// keep their filtering/normalization guards and roughness noise clamp.
 // Palette RGB is linear. The game supplies presets; the renderer needs no
 // per-biome shader variants, extra mesh attributes or additional terrain draws.
 struct TerrainMaterial
@@ -67,15 +70,15 @@ float terrainFilteredStep(float threshold, float halfWidth, float value,
 TerrainAppearanceSample terrainEvaluateMaterial(TerrainMaterial m,
     TerrainPatterns p, TerrainPatternContext c)
 {
-    vec4 weights = max(m.pattern,vec4(0.0));
+    vec4 weights = m.pattern;
     float weightSum = dot(weights,vec4(1.0));
     weights /= max(weightSum,0.00001);
     float value = weightSum > 0.00001 ? dot(weights,p.value) : 0.5;
-    float contrast = max(m.ramp.z,0.0);
+    float contrast = m.ramp.z;
     value = clamp((value-0.5) * contrast + 0.5 + m.ramp.w,0.0,1.0);
     float screenWidth = terrainFieldWidth(p.gradient * weights,c) * contrast;
-    float midpoint = clamp(m.ramp.x,0.05,0.95);
-    float softness = clamp(m.ramp.y,0.0,1.0);
+    float midpoint = m.ramp.x;
+    float softness = m.ramp.y;
     // softness1: continuous low/mid/high ramps. softness0: three bands with
     // derivative-filtered edges, never a hard unfiltered step on the screen.
     float lowMid = terrainFilteredStep(midpoint*0.5,
@@ -84,10 +87,10 @@ TerrainAppearanceSample terrainEvaluateMaterial(TerrainMaterial m,
         (1.0-midpoint)*0.5*softness,value,screenWidth);
     vec4 palette = mix(mix(m.colorLow,m.colorMid,lowMid),m.colorHigh,midHigh);
     float roughness = palette.a + m.response.w * (c.grain.value*2.0-1.0);
-    vec3 heightGradient = p.normalGradient * max(m.response.z,0.0);
-    return TerrainAppearanceSample(max(palette.rgb,vec3(0.0)),
-        clamp(roughness,0.04,1.0),clamp(m.response.x,0.0,1.0),
-        clamp(m.response.y,0.0,1.0),heightGradient,0.0,0.0);
+    vec3 heightGradient = p.normalGradient * m.response.z;
+    return TerrainAppearanceSample(palette.rgb,
+        clamp(roughness,0.04,1.0),m.response.x,
+        m.response.y,heightGradient,0.0,0.0);
 }
 
 TerrainMaterial terrainLoadMaterial(uint id, bool wall, bool accent)
@@ -103,25 +106,25 @@ TerrainAppearanceSample terrainEvaluateSurface(uint id, bool wall, TerrainPatter
     // inactive records on a driver; load only material records selected below.
     vec4 blend = wall ? terrainBiomes[id].wall.blend : terrainBiomes[id].ground.blend;
     vec4 detail = wall ? terrainBiomes[id].wall.detail : terrainBiomes[id].ground.detail;
-    vec2 maskWeights = max(blend.zw,vec2(0.0));
+    vec2 maskWeights = blend.zw;
     float maskSum = maskWeights.x + maskWeights.y;
     maskWeights /= max(maskSum,0.00001);
     float mask = maskSum > 0.00001
         ? dot(maskWeights,vec2(c.macro.value,c.patchNoise.value)) : 0.5;
     vec3 maskGradient = c.macro.gradient * maskWeights.x
                       + c.patchNoise.gradient * maskWeights.y;
-    float accent = terrainFilteredStep(blend.x,max(blend.y,0.0),
+    float accent = terrainFilteredStep(blend.x,blend.y,
         mask,terrainFieldWidth(maskGradient,c));
     // Exact endpoints load/evaluate only their active material. Keep the common
     // evaluation outside branches so drivers do not inline three copies of it.
     bool partial = accent > 0.0 && accent < 1.0;
     TerrainMaterial base = terrainLoadMaterial(id,wall,accent >= 1.0);
     TerrainMaterial top = base;
-    vec4 activeWeights = max(base.pattern,vec4(0.0));
+    vec4 activeWeights = base.pattern;
     if (partial)
     {
         top = terrainLoadMaterial(id,wall,true);
-        activeWeights = activeWeights*(1.0-accent) + max(top.pattern,vec4(0.0))*accent;
+        activeWeights = activeWeights*(1.0-accent) + top.pattern*accent;
     }
     TerrainPatterns patterns = terrainSurfacePatterns(detail,activeWeights,c);
     vec4 normalControl = wall ? terrainBiomes[id].wall.normal : terrainBiomes[id].ground.normal;
@@ -148,8 +151,8 @@ TerrainAppearanceSample terrainEvaluateBiome(uint id, vec3 baseNormal,
     float slope = 1.0-upward + distortion*upward;
     float screenWidth = c.normalWidth*abs(1.0-distortion)
         + upward*abs(slopeControl.z)*terrainFieldWidth(c.patchNoise.gradient,c);
-    float start = clamp(slopeControl.x,0.0,1.0);
-    float end = max(clamp(slopeControl.y,0.0,1.0),start+0.00001);
+    float start = slopeControl.x;
+    float end = max(slopeControl.y,start+0.00001);
     float wall = terrainFilteredStep((start+end)*0.5,(end-start)*0.5,slope,screenWidth);
     // A short continuous saturation also keeps derivative-expanded mask edges
     // from leaking ground onto vertical/downward faces; no hard switch at Y=0.
@@ -163,7 +166,7 @@ TerrainAppearanceSample terrainEvaluateBiome(uint id, vec3 baseNormal,
         appearance = terrainMixAppearance(terrainEvaluateSurface(id,false,c),
             terrainEvaluateSurface(id,true,c),wall);
     appearance.wallMask = wall;
-    appearance.heightGradient *= max(slopeControl.w,0.0);
+    appearance.heightGradient *= slopeControl.w;
     return appearance;
 }
 

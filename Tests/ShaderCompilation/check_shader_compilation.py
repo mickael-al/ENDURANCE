@@ -34,9 +34,9 @@ def main():
         with GL() as gl:
             print(f'OpenGL {gl.version}; renderer: {gl.renderer}', flush=True)
             runner = ctypes.CDLL(str(library))
-            runner.shader_compilation_tests.argtypes = [ctypes.c_char_p]
+            runner.shader_compilation_tests.argtypes = [ctypes.c_char_p, ctypes.c_char_p]
             runner.shader_compilation_tests.restype = ctypes.c_int
-            return runner.shader_compilation_tests(str(directory).encode())
+            return runner.shader_compilation_tests(str(directory).encode(), str(ROOT).encode())
 
 
 if __name__ == '__main__':

@@ -274,7 +274,8 @@ namespace
         }
         observe.noLeaks();
         write(directory / "biome-8.glsl", "uint sampleBiome() { return 18u; }\n");
-        write(directory / "broken.glsl", "// First line\n// Second line\nINVALID_GLSL_HERE\n");
+        write(directory / "broken.glsl", "#define BAD_BATCH_VALUE 1.5 q\n// Second line\n"
+            "float broken = clamp(BAD_BATCH_VALUE, 0.0, 1.0);\n");
         write(directory / "bad-batch.comp", "#version 450 core\n#include \"broken.glsl\"\n"
             "layout(local_size_x=1) in;\nvoid main() {}\n");
         auto failing = requests;
@@ -287,6 +288,9 @@ namespace
                     error.find("broken.glsl") != std::string::npos &&
                     error.find("source ID : file") != std::string::npos,
                 "Failed batch omitted the label or numbered include source table: " + error);
+            require(error.find(" > 3 | float broken = clamp(BAD_BATCH_VALUE") != std::string::npos &&
+                    error.find("broken.glsl:1 | #define BAD_BATCH_VALUE 1.5 q") != std::string::npos,
+                "Failed parallel batch omitted its original source excerpt: " + error);
         }
         observe.noLeaks();
         observe.reset();
