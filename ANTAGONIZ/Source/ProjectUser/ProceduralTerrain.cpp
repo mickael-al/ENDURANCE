@@ -2,6 +2,7 @@
 #define CLEAR_REGISTRY
 #include "ProceduralGeneration.hpp"
 #include "EnduranceTerrainMaterials.hpp"
+#include "EnduranceSea.hpp"
 #include "EnduranceTerrainMaterialMigration.hpp"
 #include "EnduranceTerrainMaterialPanel.hpp"
 #include "EnduranceTerrainMaterialSerialization.hpp"
@@ -39,6 +40,7 @@ void ProceduralTerrainComponent::start()
     stop();
     m_error.clear();
     m_materialError.clear();
+    m_seaError.clear();
     m_pc = Ge::Engine::getPtrClassAddr();
     Ge::Editor* editor = Ge::Editor::instance();
     SceneData* scene = editor != nullptr ? editor->getCurrentSceneData() : nullptr;
@@ -93,6 +95,40 @@ void ProceduralTerrainComponent::start()
     }
     if (!m_generator)
         std::cerr << "[Terrain initialization] Failed: " << m_error << std::endl;
+    else if (m_pc->renderingEngine)
+    {
+        // Water art belongs to the game. The terrain exposes only the tiles of
+        // its last complete publication, including empty terrain chunks.
+        try
+        {
+            m_sea = std::make_unique<Endurance::SeaRenderer>();
+            if (!m_sea->initialize(*m_pc))
+            {
+                m_seaError = m_sea->error();
+                m_sea.reset();
+            }
+            else
+                m_pc->renderingEngine->addTransparencyCallback(this,
+                    [this](bool* depthWrite)
+                    {
+                        if (!m_generator || !m_sea) return;
+                        const auto& settings = m_generator->getConfig();
+                        if (m_sea->setTiles(m_generator->getSeaTiles(),
+                            m_generator->getCoverageRevision(), settings.field.seaLevel,
+                            64.0f * settings.cellSize))
+                        {
+                            m_seaError.clear();
+                            m_sea->draw(depthWrite);
+                        }
+                        else m_seaError = m_sea->error();
+                    }, Ge::RenderingEngine::TransparencyPhase::BeforeMaterials);
+        }
+        catch (const std::exception& error)
+        {
+            m_seaError = error.what();
+            m_sea.reset();
+        }
+    }
 }
 
 void ProceduralTerrainComponent::fixedUpdate() {}
@@ -107,6 +143,9 @@ void ProceduralTerrainComponent::stop()
 {
     // Unregister before releasing geometry/programs. shutdown() is idempotent,
     // so an explicit Stop followed by component destruction is safe.
+    if (m_pc && m_pc->renderingEngine)
+        m_pc->renderingEngine->removeTransparencyCallback(this);
+    m_sea.reset();
     m_generator.reset();
     m_pc = nullptr;
 }
@@ -146,6 +185,9 @@ void ProceduralTerrainComponent::onGUI()
                 "Apres une erreur GLSL, corrigez le fichier et cliquez a nouveau.");
     }
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
+    if (!m_seaError.empty()) ImGui::TextWrapped("Mer : %s", m_seaError.c_str());
+    if (m_generator && m_sea)
+        ImGui::Text("Mer : %u tuiles", static_cast<unsigned>(m_generator->getSeaTiles().size()));
     if (m_pc && m_pc->renderingEngine)
     {
         auto& rendering = *m_pc->renderingEngine;

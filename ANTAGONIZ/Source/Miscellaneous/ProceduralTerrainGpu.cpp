@@ -21,7 +21,7 @@ namespace ProceduralTerrain
         constexpr std::uint32_t VertexBytes = 12;
         struct Counters
         {
-            std::uint32_t total, cursor, overflow, padding;
+            std::uint32_t total, cursor, overflow, surfaceBiomeMask;
         };
         struct Command { std::uint32_t count, instances, first, baseInstance; };
         struct Descriptor { float originExtent[4]; std::uint32_t metadata[4]; };
@@ -788,6 +788,7 @@ namespace ProceduralTerrain
             glDeleteSync(job.fence); job.fence=nullptr;
             Completion completion;
             completion.token=job.token;
+            if (!job.cancelled) completion.surfaceBiomeMask=job.mapped->surfaceBiomeMask;
             if (job.cancelled)
             {
                 if (job.mesh.slot!=UINT32_MAX) s.freeSlot(job.mesh.slot);

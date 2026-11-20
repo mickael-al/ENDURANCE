@@ -3,7 +3,7 @@
 #include "field_weights.glsl"
 layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
 layout(std430,binding=1) readonly buffer FieldColumns { PackedFieldColumn columns[]; };
-shared uvec2 localMasks[64];
+shared uvec3 localMasks[64];
 shared vec2 localEnvelopes[64];
 
 void main()
@@ -13,11 +13,17 @@ void main()
     fieldSelectJob(job);
     uvec2 p=gl_GlobalInvocationID.xy;
     uint side=uCells+3u;
-    uvec2 masks=uvec2(0u); // possible positive/nonpositive signs, volume biomes
+    uvec3 masks=uvec3(0u); // density signs, volume biomes, surface biomes
     vec2 envelopeRange=vec2(3.402823e38,-3.402823e38);
     if(all(lessThan(p,uvec2(side))))
     {
         FieldColumn column=fieldUnpackColumn(columns[fieldJobs[job].storage.x*uColumnStride+p.x+p.y*side]);
+        // Reuse the classified/cached columns, including when relief is off.
+        // The surface footprint is [0,N] in lattice space; its one-voxel halo
+        // must not mark a land chunk marine solely because of a nearby sample.
+        if(uFieldMode==0u && all(greaterThanEqual(p,uvec2(1u)))
+            && all(lessThanEqual(p,uvec2(uCells+1u))))
+            masks.z=fieldSurfaceMask(column);
         // The entire [-1,N+1] halo participates, including normal/LOD samples.
         vec2 yRange=vec2(fieldWorldPosition(ivec3(1,0,1)).y,
                          fieldWorldPosition(ivec3(1,int(side-1u),1)).y);
@@ -74,6 +80,9 @@ void main()
         uint tile=gl_WorkGroupID.x+gl_WorkGroupID.y*((side+7u)/8u);
         fieldStates[header+1u+tile]=uvec4(localMasks[0].y,first,last,0u);
         if(localMasks[0].x!=0u) atomicOr(fieldStates[header].x,localMasks[0].x);
+        // Reserved header word persists with the density-cache entry. Empty
+        // density fields retain this metadata just like fields with triangles.
+        if(localMasks[0].z!=0u) atomicOr(fieldStates[header].w,localMasks[0].z);
         if(last>first)
         {
             atomicOr(fieldJobs[job].info.w,localMasks[0].y);

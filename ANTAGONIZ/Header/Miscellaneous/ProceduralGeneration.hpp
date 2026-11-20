@@ -6,6 +6,7 @@
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainLod.hpp"
 #include "ProceduralTerrainMaterials.hpp"
+#include "ProceduralTerrainSea.hpp"
 #include <glm/vec3.hpp>
 #include <cstdint>
 #include <memory>
@@ -117,6 +118,10 @@ public:
     const Config& getConfig() const noexcept;
     // Published octree coverage, including chunks whose density was all empty.
     void getVisibleLodChunks(std::vector<ProceduralTerrain::LodChunk>& output) const;
+    // Sea tiles follow the same published coverage transaction, including empty
+    // terrain chunks. Borrowed until update()/shutdown(); no per-frame copy.
+    const std::vector<ProceduralTerrain::SeaTile>& getSeaTiles() const noexcept;
+    std::uint64_t getCoverageRevision() const noexcept;
 
     SceneData& getScene() noexcept { return m_scene; }
     const SceneData& getScene() const noexcept { return m_scene; }

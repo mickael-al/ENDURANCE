@@ -36,17 +36,28 @@ bool GpuMesher::submit(const ChunkRequest& request,std::uint64_t token){
 void GpuMesher::dispatchQueued(){for(auto& j:m_impl->jobs)j.dispatched=true;}
 void GpuMesher::poll(std::vector<Completion>& out){
  auto& s=*m_impl;
+#ifdef TERRAIN_SEA_STREAMING
+ Test::injectSeaCompletion(out);
+#endif
  for(auto it=s.jobs.begin();it!=s.jobs.end();){
   if(Test::holdCompletions || !it->dispatched || it->readyFrame>Test::frame){++it;continue;}
   Completion c;c.token=it->token;
   if(it->cancelled)c.status=CompletionStatus::Cancelled;
   else if(Test::failNext){Test::failNext=false;c.status=CompletionStatus::Failed;c.error="injected GPU failure";++s.stats.failedJobs;}
   else {
+#ifdef TERRAIN_SEA_STREAMING
+   c.surfaceBiomeMask=Test::seaMask(it->request,s.config);
+   if(Test::seaEmpty(it->request,s.config)) {
+    c.status=CompletionStatus::Empty;++s.stats.emptyJobs;
+   } else
+#endif
+   {
    c.status=CompletionStatus::Ready;auto& m=c.mesh;m.slot=s.nextSlot++;m.generation=1;m.vertexCount=3;
    m.lod=it->request.lod;m.transitionMask=it->request.transitionMask;
    for(unsigned axis=0;axis<3;++axis)m.origin[axis]=it->request.origin[axis]*s.config.baseSpacing;
    m.extent=float(std::uint64_t(64)<<m.lod)*s.config.baseSpacing;s.live.emplace(m.slot,m);
    ++s.stats.completedJobs;++s.stats.residentChunks;s.stats.residentVertices+=3;s.stats.allocatedBytes+=96;
+   }
   }
   out.push_back(c);it=s.jobs.erase(it);--s.stats.pendingJobs;
  }
@@ -89,11 +100,20 @@ void checkCoverage(const std::vector<LodChunk>& chunks){
 }
 std::set<Id> expected(const glm::vec3& camera,const ProceduralGeneration::Config& c){
  LodConfig l;l.baseSpacing=c.cellSize;l.maxLod=c.maxLod;l.viewDistance=c.viewDistance;l.splitDistanceFactor=c.lodDistanceFactor;l.maxLeaves=c.maxSelectedChunks;l.fullResolutionRadius=0;
- const auto bounds=fieldHeightBounds(c.field);const float pad=std::ldexp(c.cellSize,int(c.maxLod));l.minimumY=bounds.minimumY-pad;l.maximumY=bounds.maximumY+pad;
+ auto bounds=fieldHeightBounds(c.field);
+ if(c.field.mode==FieldMode::Terrain){bounds.minimumY=(std::min)(bounds.minimumY,c.field.seaLevel);bounds.maximumY=(std::max)(bounds.maximumY,c.field.seaLevel);}
+ const float pad=std::ldexp(c.cellSize,int(c.maxLod));l.minimumY=bounds.minimumY-pad;l.maximumY=bounds.maximumY+pad;
  std::vector<LodChunk> chunks;std::string error;require(selectLodChunks(camera,l,chunks,error),error);return identities(chunks);
 }
 void step(ProceduralGeneration& g,Ge::Camera& camera,bool allowFailure=false){
+#ifdef TERRAIN_SEA_STREAMING
+ const auto previousWater=g.getSeaTiles();const auto previousRevision=g.getCoverageRevision();
+ const auto* previousWaterData=g.getSeaTiles().data();
+#endif
  ++frame;submittedThisFrame=0;g.prepareRenderer();const auto& s=g.getStats();const auto& c=g.getConfig();
+#ifdef TERRAIN_SEA_STREAMING
+ checkSea(g,previousWater,previousRevision,previousWaterData);
+#endif
  require(submittedThisFrame<=c.maxChunksPerFrame,"per-frame submission budget exceeded");
  require(s.pendingJobs<=c.maxInFlight,"in-flight budget exceeded");
  require(s.pendingLodGroups<=1,"more than one frozen GPU transaction");
@@ -132,8 +152,14 @@ int main(int argc,char** argv){
   auto* engine=Ge::Engine::getPtrClassAddr();engine->graphiquePipelineManager=&pipelines;engine->cameraManager=&cameras;engine->lightManager=&lights;
   auto& camera=cameras.camera;camera.setPosition({1,18,3});SceneData scene;
   ProceduralGeneration::Config config;config.field.mode=FieldMode::Plane;config.field.baseHeight=0;config.maxLod=3;config.viewDistance=512;config.maxChunksPerFrame=2;config.maxInFlight=4;config.maxSelectedChunks=1024;config.maxResidentChunks=2048;config.collisionEnabled=false;
+#ifdef TERRAIN_SEA_STREAMING
+  config.field.mode=FieldMode::Terrain;config.field.heightAmplitude=0;config.field.detailScale=0;
+#endif
   ProceduralGeneration g(scene,1337);require(g.initialize(config),g.getLastError());
   const Metrics initial=settle(g,camera);
+#ifdef TERRAIN_SEA_STREAMING
+  checkInitialSea(g);
+#endif
   if(!baseline)require(initial.publicationRefilled>0,"successor never submitted on publication frame");
   const auto idleSubmissions=submissions,idleGroups=g.getStats().publishedLodGroups,idleSelections=g.getStats().lodSelections;
   for(unsigned i=0;i<25;++i)step(g,camera);
@@ -182,6 +208,10 @@ int main(int argc,char** argv){
            <<",\"stale_plans_discarded\":"<<s.stalePlansDiscarded<<",\"planning_wait_frames\":"<<s.planningWaitFrames;
 #endif
   std::cout<<",\"checks\":[\"actual update/worker\",\"submission budgets\",\"published seams\",\"moving camera\",\"failure invalidation\",\"idle stability\"]}"<<'\n';
-  g.shutdown();return 0;
+  g.shutdown();
+#ifdef TERRAIN_SEA_STREAMING
+  checkStoppedSea(g);
+#endif
+  return 0;
  }catch(const std::exception& e){std::cerr<<"FAIL scheduler: "<<e.what()<<'\n';return 1;}
 }
