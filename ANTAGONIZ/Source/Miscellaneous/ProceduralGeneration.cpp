@@ -146,7 +146,7 @@ struct ProceduralGeneration::Impl
     struct ReadyChunk
     {
         MeshHandle mesh;
-        std::uint32_t surfaceBiomeMask = 0;
+        bool hasMarineSurface = false;
     };
     std::unordered_map<ChunkKey, ReadyChunk, KeyHash> ready;
     std::unordered_map<std::uint64_t, ChunkKey> pending;
@@ -545,7 +545,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         if (!s.wanted.count(key)) { s.gpu.release(result.mesh); continue; }
         if (result.status == CompletionStatus::Ready || result.status == CompletionStatus::Empty)
         {
-            s.ready.emplace(key, Impl::ReadyChunk{result.mesh, result.surfaceBiomeMask});
+            s.ready.emplace(key, Impl::ReadyChunk{result.mesh, result.hasMarineSurface});
             s.collisionDirty = true;
         }
         else if (result.status == CompletionStatus::Failed)
@@ -630,7 +630,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
             SeaTile seaTile;
             if (seaTileForChunk(chunk, s.lod.cells, m_config.cellSize,
                 m_config.field.seaLevel,
-                (ready.surfaceBiomeMask & (std::uint32_t{1} << MarineBiome)) != 0, seaTile))
+                ready.hasMarineSurface, seaTile))
                 s.seaTiles.push_back(seaTile);
             if (mesh.vertexCount)
             {

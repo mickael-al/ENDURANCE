@@ -25,7 +25,7 @@ layout(std430,binding=3) buffer MeshCounters
     uint total;
     uint cursor;
     uint overflow;
-    uint surfaceBiomeMask;
+    uint hasMarineSurface;
 };
 layout(std430,binding=4) writeonly buffer MeshVertices { uint vertices[]; };
 #if TERRAIN_GROUP_COUNTS

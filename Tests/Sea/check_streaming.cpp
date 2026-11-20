@@ -35,7 +35,7 @@ std::set<TileId> tileIds(const std::vector<ProceduralTerrain::SeaTile>& tiles)
 {
     std::set<TileId> result;
     for(const auto& tile:tiles) {
-        require(tile.padding==0,"sea tile padding not deterministic");
+        require((tile.transitionMask&~0x33u)==0,"sea tile has non-horizontal transition flags");
         require(result.emplace(tile.baseX,tile.baseZ,tile.lod).second,"duplicate sea tile");
     }
     return result;
@@ -71,7 +71,7 @@ void injectSeaCompletion(std::vector<ProceduralTerrain::Completion>& out)
     ProceduralTerrain::Completion stale;
     stale.token=0; // Production request tokens start at one: never submitted.
     stale.status=ProceduralTerrain::CompletionStatus::Empty;
-    stale.surfaceBiomeMask=1u<<ProceduralTerrain::MarineBiome;
+    stale.hasMarineSurface=true;
     out.push_back(stale);
 }
 
@@ -109,6 +109,11 @@ void checkSea(const ProceduralGeneration& generator,
         if(!marine) {sawLand=true;continue;}
         require(expected.emplace(chunk.origin[0]/64,chunk.origin[2]/64,chunk.lod).second,
                 "published sea cut has duplicate ownership");
+        const auto found=std::find_if(tiles.begin(),tiles.end(),[&](const auto& tile) {
+            return tile.baseX==chunk.origin[0]/64 && tile.baseZ==chunk.origin[2]/64 && tile.lod==chunk.lod;
+        });
+        require(found!=tiles.end() && found->transitionMask==(chunk.transitionMask&0x33u),
+                "sea edge stitching does not follow the published LOD transaction");
     }
     require(tileIds(tiles)==expected,"water does not match published marine coverage, including EMPTY chunks");
     for(std::size_t i=0;i<tiles.size();++i) {

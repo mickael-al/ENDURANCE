@@ -23,7 +23,7 @@ def check_footprint(gl):
     columns=gl.buffer(stride*32,1)
     states=gl.buffer(state_stride*16,3)
     gl.buffer(struct.pack('<4i8I',0,0,0,0,0,5,0,0,0,0,0,0),6)
-    gl.buffer(packed_biome_cells(),7)
+    mapping=gl.buffer(packed_biome_cells(),7)
     uniforms=default_uniforms(cells,uDetailScale=0,uHeightAmplitude=0)
     uniforms.update(uJobSlots=('1ui',1),uColumnStride=('1ui',stride),
                     uStateStride=('1ui',state_stride))
@@ -40,9 +40,35 @@ def check_footprint(gl):
         gl.write(states,struct.pack('<4I',0,0xffffffff,0,0)+bytes(16))
         gl.dispatch(program,1,1,1)
         mask=struct.unpack('<4I',gl.read(states,16))[3]
-        assert mask==(1|((1<<25) if marine else 0)),(point,mask,marine)
+        assert mask==int(marine),(point,mask,marine)
+    # Exact zero/positive semantics at the shoreline, including one float ULP.
+    one_ulp_below=struct.unpack('<f',struct.pack('<I',0x3f7fffff))[0]
+    for ratio,expected in ((1.0,False),(one_ulp_below,True),(0.0,True)):
+        gl.write(columns,struct.pack('<5f3I',-64.,0.,0.,ratio,0.,0,0,0)*stride)
+        gl.write(states,struct.pack('<4I',0,0xffffffff,0,0)+bytes(16))
+        gl.dispatch(program,1,1,1)
+        assert struct.unpack('<4I',gl.read(states,16))[3]==int(expected)
+    # A user-defined matrix may put Marine in a land-climate corner. The fast
+    # predicate must retain exact climate weighting for this uncommon case.
+    table=bytearray(packed_biome_cells())
+    struct.pack_into('<I',table,0,25<<15) # Only corner (1,1) is Marine.
+    gl.write(mapping,bytes(table))
+    for climate,expected in ((0.0,False),(0.125,True)):
+        gl.write(columns,struct.pack('<5f3I',-64.,climate,climate,1.,0.,0,0,0)*stride)
+        gl.write(states,struct.pack('<4I',0,0xffffffff,0,0)+bytes(16))
+        gl.dispatch(program,1,1,1)
+        assert struct.unpack('<4I',gl.read(states,16))[3]==int(expected)
+    # A 3D band can force both density signs after the marine bit is set.
+    # It must preserve that bit, and never leak it into the sign header.
+    gl.write(mapping,packed_biome_cells())
+    gl.uniform(program,'uDetailScale','1f',1.0)
+    gl.write(columns,struct.pack('<5f3I',10.,0.,0.,0.5,0.,10000,0,1<<30)*stride)
+    gl.write(states,struct.pack('<4I',0,0xffffffff,0,0)+bytes(16))
+    gl.dispatch(program,1,1,1)
+    header=struct.unpack('<4I',gl.read(states,16))
+    assert header[0]==3 and header[3]==1,header
     gl.check('sea metadata footprint')
-    print('PASS sea metadata: actual footprint boundaries included, halo excluded',flush=True)
+    print('PASS sea metadata: boundaries/halo, exact coast endpoints, custom Marine matrix corner',flush=True)
 
 
 def main():

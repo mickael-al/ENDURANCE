@@ -46,7 +46,7 @@ void GpuMesher::poll(std::vector<Completion>& out){
   else if(Test::failNext){Test::failNext=false;c.status=CompletionStatus::Failed;c.error="injected GPU failure";++s.stats.failedJobs;}
   else {
 #ifdef TERRAIN_SEA_STREAMING
-   c.surfaceBiomeMask=Test::seaMask(it->request,s.config);
+   c.hasMarineSurface=(Test::seaMask(it->request,s.config)&(1u<<MarineBiome))!=0;
    if(Test::seaEmpty(it->request,s.config)) {
     c.status=CompletionStatus::Empty;++s.stats.emptyJobs;
    } else

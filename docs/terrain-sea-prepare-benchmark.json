@@ -1,0 +1,169 @@
+{
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "lp_num_threads": "1",
+  "scope": "Isolated PrepareVolume dispatch; synthetic 3D-inactive columns, no rendering",
+  "results": [
+    {
+      "case": "land",
+      "dispatch_ms_before": 8.187321531266889,
+      "dispatch_ms_after": 8.26048025001569,
+      "paired_ratio_median": 0.9853920829680425,
+      "ratio_iqr": [
+        0.9686313839507712,
+        1.0065780677881593
+      ],
+      "rounds": [
+        {
+          "old": 9.295435187482326,
+          "new": 9.157487843737044,
+          "ratio": 0.9851596680560962
+        },
+        {
+          "new": 8.280699062510166,
+          "old": 8.06839650002189,
+          "ratio": 1.0263128568963733
+        },
+        {
+          "old": 7.8579016562514425,
+          "new": 7.611410156243892,
+          "ratio": 0.9686313839507712
+        },
+        {
+          "new": 7.691947656240927,
+          "old": 8.02318162502047,
+          "ratio": 0.9587153844621213
+        },
+        {
+          "old": 8.438192156233981,
+          "new": 8.493699156247203,
+          "ratio": 1.0065780677881593
+        },
+        {
+          "new": 8.024463874988896,
+          "old": 8.143422312485882,
+          "ratio": 0.9853920829680425
+        },
+        {
+          "old": 8.103507531245668,
+          "new": 8.022993843752602,
+          "ratio": 0.9900643410050993
+        },
+        {
+          "new": 7.941742312482347,
+          "old": 8.975066562499023,
+          "ratio": 0.8848672327028451
+        },
+        {
+          "old": 8.803594218733224,
+          "new": 8.65710228123362,
+          "ratio": 0.9833599852673942
+        },
+        {
+          "new": 8.26048025001569,
+          "old": 8.221455718768311,
+          "ratio": 1.004746669273945
+        },
+        {
+          "old": 8.187321531266889,
+          "new": 8.263126562496836,
+          "ratio": 1.0092588315898494
+        }
+      ],
+      "dispatch_ms_before_iqr": [
+        8.06839650002189,
+        8.803594218733224
+      ],
+      "dispatch_ms_after_iqr": [
+        7.941742312482347,
+        8.493699156247203
+      ]
+    },
+    {
+      "case": "mixed",
+      "dispatch_ms_before": 8.296444999984942,
+      "dispatch_ms_after": 8.009711218761595,
+      "paired_ratio_median": 0.9672644571634857,
+      "ratio_iqr": [
+        0.9290275516090846,
+        0.9960733237298407
+      ],
+      "rounds": [
+        {
+          "old": 8.390930843745537,
+          "new": 7.795405937486066,
+          "ratio": 0.9290275516090846
+        },
+        {
+          "new": 7.7763982499732265,
+          "old": 7.904829875002406,
+          "ratio": 0.9837527654535209
+        },
+        {
+          "old": 8.085724374979009,
+          "new": 8.43330431251843,
+          "ratio": 1.0429868644317133
+        },
+        {
+          "new": 7.660616187507685,
+          "old": 8.17983178123427,
+          "ratio": 0.9365249056933247
+        },
+        {
+          "old": 8.382106937489198,
+          "new": 8.769140968752254,
+          "ratio": 1.0461738360234987
+        },
+        {
+          "new": 9.14131509375693,
+          "old": 9.935451812509655,
+          "ratio": 0.9200703970248406
+        },
+        {
+          "old": 9.582807000015237,
+          "new": 8.901091031248143,
+          "ratio": 0.9288605135461865
+        },
+        {
+          "new": 8.758188249998966,
+          "old": 9.054595343741312,
+          "ratio": 0.9672644571634857
+        },
+        {
+          "old": 8.296444999984942,
+          "new": 8.009711218761595,
+          "ratio": 0.9654389583461509
+        },
+        {
+          "new": 7.969497218766719,
+          "old": 8.00091421876914,
+          "ratio": 0.9960733237298407
+        },
+        {
+          "old": 8.078879718738108,
+          "new": 7.87681799999973,
+          "ratio": 0.9749888937856425
+        }
+      ],
+      "dispatch_ms_before_iqr": [
+        8.078879718738108,
+        9.054595343741312
+      ],
+      "dispatch_ms_after_iqr": [
+        7.795405937486066,
+        8.769140968752254
+      ]
+    }
+  ],
+  "limitation": "Software timings do not predict hardware GPU or whole-generation performance.",
+  "clock": "completed wall time (perf_counter plus glFinish), excluding compilation/warmup",
+  "baseline_commit": "4864129486165ee40c24915a73170b120e84ae44",
+  "before_source_sha256": "a2e173de450923c4c6159310e8d5bd523fd156b9822019da7fdcd77f7b298a9e",
+  "after_source_sha256": "64636caeae0d693e9f0f2022a3d9126ca72506c37453f8c3e81829918db7a3a5",
+  "cells": 64,
+  "jobs": 16,
+  "rounds": 11,
+  "repetitions_per_round": 32,
+  "warmup_dispatches": 10,
+  "command": "LP_NUM_THREADS=1 python3 Tests/Sea/benchmark_metadata.py --baseline-ref 4864129 --output result.json",
+  "measurement_note": "Measured with the equivalent scratch harness before packaging. Baseline expanded source verified byte-identical; the candidate PrepareVolume source has not changed since the measurement."
+}

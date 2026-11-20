@@ -3,6 +3,9 @@
 // Tiles have no coastal mask; opaque depth handles intersections with land.
 #include "../../../../Asset/Shader/Atmosphere/lighting.glsl"
 #include "../../../../Asset/Shader/Shadow/spot_surface.glsl"
+#include "sea_waves.glsl"
+
+layout(early_fragment_tests) in;
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
@@ -17,7 +20,7 @@ layout(std430, binding = 0) readonly buffer UniformBufferCamera
 	mat4 proj;
 } ubc;
 
-layout(std430, binding = 3) buffer UniformBufferDivers
+layout(std430, binding = 3) readonly buffer UniformBufferDivers
 {
 	int maxLight;
 	float u_time;
@@ -42,7 +45,7 @@ struct StructUBL
 	float shadowNormalBias; // texels; light stride remains 80 bytes
 };
 
-layout(std430, binding = 4) buffer UniformBufferLight
+layout(std430, binding = 4) readonly buffer UniformBufferLight
 {
 	StructUBL ubl[];
 } ubl;
@@ -54,7 +57,7 @@ struct StructShadow
 	float splitDepth;
 };
 
-layout(std430, binding = 5) buffer UniformBufferShadow
+layout(std430, binding = 5) readonly buffer UniformBufferShadow
 {
 	StructShadow s[];
 } ubs;
@@ -121,6 +124,8 @@ layout(binding = 7) uniform samplerCube prefilterMap;
 layout(binding = 8) uniform sampler2D brdfLUT;
 
 layout(location=0) in vec3 WorldPos;
+layout(location=1) in vec2 SeaWaveSlope;
+layout(location=2) in float SeaViewZ;
 
 float calculateBias(vec4 shadowCoord, vec3 normal, vec3 lightDir)
 {
@@ -158,32 +163,6 @@ float filterPCF(vec4 sc, uint cascadeIndex, float bias)
 	return shadowFactor / 9.0;
 }
 
-vec2 gradientNoise_dir(vec2 p)
-{
-	p = mod(p, 289.0);
-	float x = mod((34.0 * p.x + 1.0) * p.x, 289.0) + p.y;
-	x = mod((34.0 * x + 1.0) * x, 289.0);
-	x = fract(x / 41.0) * 2.0 - 1.0;
-	return normalize(vec2(x - floor(x + 0.5), abs(x) - 0.5));
-}
-
-// Same gradient-noise lattice as water_transparency, but one evaluation returns
-// the exact analytic slope. This avoids its three finite-difference samples.
-vec3 seaNoiseValueGradient(vec2 p)
-{
-    vec2 cell=floor(p),f=fract(p);
-    vec2 g00=gradientNoise_dir(cell),g01=gradientNoise_dir(cell+vec2(0,1));
-    vec2 g10=gradientNoise_dir(cell+vec2(1,0)),g11=gradientNoise_dir(cell+vec2(1,1));
-    float a=dot(g00,f),b=dot(g01,f-vec2(0,1));
-    float c=dot(g10,f-vec2(1,0)),d=dot(g11,f-vec2(1,1));
-    vec2 u=f*f*f*(f*(f*6.0-15.0)+10.0);
-    vec2 du=30.0*f*f*(f-1.0)*(f-1.0);
-    float lo=mix(a,b,u.y),hi=mix(c,d,u.y);
-    vec2 gradient=mix(mix(g00,g01,u.y),mix(g10,g11,u.y),u.x);
-    gradient+=vec2(hi-lo,mix(b-a,d-c,u.x))*du;
-    return vec3(mix(lo,hi,u.x),gradient);
-}
-
 out vec4 o_FragColor;
 
 void main()
@@ -195,25 +174,24 @@ void main()
 	vec3 shadowPositionError = 4.0 * 1.1920928955078125e-7 * abs(WorldPos);
 
     // Fixed game-owned art settings, expressed in linear HDR color and metres.
-    const vec3 shallowColor=vec3(0.025,0.105,0.115);
+    const vec3 shallowColor=vec3(0.025,0.24,0.27);
     const vec3 deepColor=vec3(0.006,0.025,0.045);
     const vec3 foamColor=vec3(0.66,0.72,0.71);
-    const float deepDistance=12.0;
+    const float deepDistance=36.0;
     const float foamDistance=0.9;
     const float waveFrequency=0.125;
     const float foamFrequency=0.60;
-    vec3 viewPos=(ubc.view*vec4(WorldPos,1.0)).xyz;
     ivec2 pixel=clamp(ivec2(gl_FragCoord.xy),ivec2(0),textureSize(opaquePosition,0)-1);
     vec2 opaque=texelFetch(opaquePosition,pixel,0).rg;
     bool hasOpaque=opaque.x<0.0 && opaque.y!=-2.0;
     // View Z is already linear; no near/far inversion and no extra depth copy.
-    float depth=hasOpaque?max(viewPos.z-opaque.x,0.0):deepDistance;
+    float depth=hasOpaque?max(SeaViewZ-opaque.x,0.0):deepDistance;
     float depthWidth=abs(dFdx(depth))+abs(dFdy(depth));
     float footprint=max(length(shadowWorldDx.xz),length(shadowWorldDy.xz));
     float waveFade=1.0-smoothstep(0.20,0.80,footprint*waveFrequency);
-    vec2 slope=vec2(0.0);
+    vec2 slope=SeaWaveSlope;
     if(waveFade>0.0001)
-        slope=seaNoiseValueGradient(WorldPos.xz*waveFrequency
+        slope+=seaNoiseValueGradient(WorldPos.xz*waveFrequency
             +ubd.u_time*vec2(0.07,0.035)).yz*(0.22*waveFade);
     vec3 n=normalize(vec3(-slope.x,1.0,-slope.y));
     // A visible underside is useful while traversing the marine biome. This is
@@ -251,15 +229,21 @@ void main()
 		for (int i = 0; i < ubd.maxLight; i++)
 		{
 			float shadow = 1.0;
-			vec3 lightDelta=ubl.ubl[i].position-WorldPos;
-            vec3 L=lightDelta*inversesqrt(max(dot(lightDelta,lightDelta),1e-12));
-			float distance = max(length(ubl.ubl[i].position - WorldPos), 0.001);
-			float attenuation = 1.0 / (distance * distance);
-			vec3 radiance = ubl.ubl[i].color * attenuation * ubl.ubl[i].range;
+			vec3 L;
+            vec3 radiance=vec3(0.0);
 			if (ubl.ubl[i].status == 0)
 			{
 				L = normalize(-ubl.ubl[i].direction);
 			}
+            else
+            {
+                vec3 lightDelta=ubl.ubl[i].position-WorldPos;
+                float distanceSquared=dot(lightDelta,lightDelta);
+                L=lightDelta*inversesqrt(max(distanceSquared,1e-12));
+                radiance=ubl.ubl[i].color*(ubl.ubl[i].range/max(distanceSquared,1e-6));
+            }
+            float NdotL=max(dot(normal.rgb,L),0.0);
+            if (NdotL<=0.0) continue;
 			vec3 halfVector = V + L;
 			vec3 H = halfVector * inversesqrt(max(dot(halfVector,halfVector),1e-12));
 
@@ -273,13 +257,10 @@ void main()
 			kD *= 1.0 - other.x;
 
 			vec3 numerator = NDF * G * F;
-			float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * max(dot(normal.rgb, L), 0.0) + 0.0001;
+			float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * NdotL + 0.0001;
 			vec3 specular = (numerator / denominator);
 
 			// Add to outgoing radiance Lo
-			float NdotL = max(dot(normal.rgb, L), 0.0);
-            if (NdotL <= 0.0) continue;
-
 			if (ubl.ubl[i].status == 0) // DirLight
 			{
 				if (ubl.ubl[i].shadowID >= 0)
@@ -287,7 +268,7 @@ void main()
 					uint cascadeIndex = 0;
 					for (uint k = 0; k < SHADOW_MAP_CASCADE_COUNT - 1; ++k)
 					{
-						if (viewPos.z < ubs.s[ubl.ubl[i].shadowID + k].splitDepth)
+						if (SeaViewZ < ubs.s[ubl.ubl[i].shadowID + k].splitDepth)
 						{
 							cascadeIndex = k + 1;
 						}
@@ -301,7 +282,7 @@ void main()
 					{
 						uint layer = ubl.ubl[i].shadowID + cascadeIndex;
 						float previousSplit = cascadeIndex > 0 ? ubs.s[layer - 1].splitDepth : 0.0;
-						float blend = geShadowCascadeBlend(viewPos.z, previousSplit, ubs.s[layer].splitDepth);
+						float blend = geShadowCascadeBlend(SeaViewZ, previousSplit, ubs.s[layer].splitDepth);
 						if (blend > 0.0)
 						{
 							vec4 nextCoord = (biasMat * ubs.s[layer + 1].projview) * vec4(WorldPos, 1.0);

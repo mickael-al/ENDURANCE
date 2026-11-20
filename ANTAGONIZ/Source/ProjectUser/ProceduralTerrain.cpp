@@ -111,7 +111,7 @@ void ProceduralTerrainComponent::start()
                 m_pc->renderingEngine->addTransparencyCallback(this,
                     [this](bool* depthWrite)
                     {
-                        if (!m_generator || !m_sea) return;
+                        if (!m_generator || !m_sea || !m_showSea) return;
                         const auto& settings = m_generator->getConfig();
                         if (m_sea->setTiles(m_generator->getSeaTiles(),
                             m_generator->getCoverageRevision(), settings.field.seaLevel,
@@ -187,7 +187,13 @@ void ProceduralTerrainComponent::onGUI()
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
     if (!m_seaError.empty()) ImGui::TextWrapped("Mer : %s", m_seaError.c_str());
     if (m_generator && m_sea)
+    {
+        ImGui::Checkbox("Afficher la mer", &m_showSea);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Active/desactive uniquement le rendu de l'eau, sans regenerer le terrain.\n"
+                "Permet de comparer son cout d'affichage pendant la generation des chunks.");
         ImGui::Text("Mer : %u tuiles", static_cast<unsigned>(m_generator->getSeaTiles().size()));
+    }
     if (m_pc && m_pc->renderingEngine)
     {
         auto& rendering = *m_pc->renderingEngine;

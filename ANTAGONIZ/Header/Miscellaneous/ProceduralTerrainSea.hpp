@@ -10,20 +10,22 @@
 
 namespace ProceduralTerrain
 {
-    // One instance of the shared sea quad. Integer finest-chunk coordinates
+    // One instance of the shared sea grid. Integer finest-chunk coordinates
     // preserve the terrain renderer's canonical FMA decode at LOD boundaries;
     // storing rounded world origins plus an extent would not preserve seams.
-    // GPU: ivec2 baseXZ; uint lod; uint padding (std430 stride 16).
+    // GPU: ivec2 baseXZ; uint lod; uint transitionMask (std430 stride 16).
     struct alignas(16) SeaTile
     {
         std::int32_t baseX = 0;
         std::int32_t baseZ = 0;
         std::uint32_t lod = 0;
-        std::uint32_t padding = 0;
+        // Fine edge owns a stitch to a coarser neighbour: -X,+X,-Z,+Z are
+        // bits 0,1,4,5, matching LodChunk. Y faces cannot affect this surface.
+        std::uint32_t transitionMask = 0;
     };
     static_assert(sizeof(SeaTile) == 16 && alignof(SeaTile) == 16 &&
         offsetof(SeaTile, baseX) == 0 && offsetof(SeaTile, baseZ) == 4 &&
-        offsetof(SeaTile, lod) == 8 && offsetof(SeaTile, padding) == 12 &&
+        offsetof(SeaTile, lod) == 8 && offsetof(SeaTile, transitionMask) == 12 &&
         std::is_trivially_copyable<SeaTile>::value, "Sea instance GPU layout changed");
 
     // Consume only the atomically published octree leaves, including leaves
@@ -69,7 +71,7 @@ namespace ProceduralTerrain
 
         output = {static_cast<std::int32_t>(static_cast<std::int64_t>(chunk.origin[0]) / cells),
             static_cast<std::int32_t>(static_cast<std::int64_t>(chunk.origin[2]) / cells),
-            chunk.lod, 0};
+            chunk.lod, chunk.transitionMask & 0x33u};
         return true;
     }
 }

@@ -3,8 +3,21 @@
 #include "field_weights.glsl"
 layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
 layout(std430,binding=1) readonly buffer FieldColumns { PackedFieldColumn columns[]; };
-shared uvec3 localMasks[64];
+shared uvec2 localMasks[64];
 shared vec2 localEnvelopes[64];
+
+bool fieldHasMarineSurface(FieldColumn column)
+{
+    if(fieldForcedBiome()) return uint(uBiomeOverride)==FIELD_MARINE_BIOME;
+    uint cell=(column.detail.x>>20u)&63u;
+    if(cell<16u && column.blend.x<1.0) return true;
+    // The usual 2D matrix contains only land. Preserve exact weights if a
+    // game later places Marine in that matrix, without interpolating climate
+    // weights for every ordinary column merely to find one presence bit.
+    if(any(equal(fieldUnpackSurface(column.detail.x),uvec4(FIELD_MARINE_BIOME))))
+        return fieldSurfaceWeight(column,FIELD_MARINE_BIOME)>0.0;
+    return false;
+}
 
 void main()
 {
@@ -13,7 +26,9 @@ void main()
     fieldSelectJob(job);
     uvec2 p=gl_GlobalInvocationID.xy;
     uint side=uCells+3u;
-    uvec3 masks=uvec3(0u); // density signs, volume biomes, surface biomes
+    // Bits0/1 retain density signs; bit2 carries marine presence through the
+    // existing reduction. No third shared channel or full surface mask.
+    uvec2 masks=uvec2(0u);
     vec2 envelopeRange=vec2(3.402823e38,-3.402823e38);
     if(all(lessThan(p,uvec2(side))))
     {
@@ -23,11 +38,11 @@ void main()
         // must not mark a land chunk marine solely because of a nearby sample.
         if(uFieldMode==0u && all(greaterThanEqual(p,uvec2(1u)))
             && all(lessThanEqual(p,uvec2(uCells+1u))))
-            masks.z=fieldSurfaceMask(column);
+            masks.x=uint(fieldHasMarineSurface(column))<<2u;
         // The entire [-1,N+1] halo participates, including normal/LOD samples.
         vec2 yRange=vec2(fieldWorldPosition(ivec3(1,0,1)).y,
                          fieldWorldPosition(ivec3(1,int(side-1u),1)).y);
-        masks.x=uint(column.terrain.x>=yRange.x)|(uint(column.terrain.x<=yRange.y)<<1u);
+        masks.x|=uint(column.terrain.x>=yRange.x)|(uint(column.terrain.x<=yRange.y)<<1u);
         if(uFieldMode==2u) masks.x=3u; // no height-only exclusion for spheres
         if(uFieldMode==0u && uDetailScale>0.0 && column.terrain.w>0.0002)
         {
@@ -36,7 +51,7 @@ void main()
             if(biomes!=0u && yRange.y>=envelope.x && yRange.x<=envelope.y)
             {
                 masks.y=biomes;
-                masks.x=3u; // a free 3D recipe can change either sign in its envelope
+                masks.x|=3u; // a free 3D recipe can change either sign in its envelope
                 envelopeRange=envelope;
             }
         }
@@ -79,10 +94,11 @@ void main()
         }
         uint tile=gl_WorkGroupID.x+gl_WorkGroupID.y*((side+7u)/8u);
         fieldStates[header+1u+tile]=uvec4(localMasks[0].y,first,last,0u);
-        if(localMasks[0].x!=0u) atomicOr(fieldStates[header].x,localMasks[0].x);
+        uint signs=localMasks[0].x&3u;
+        if(signs!=0u) atomicOr(fieldStates[header].x,signs);
         // Reserved header word persists with the density-cache entry. Empty
         // density fields retain this metadata just like fields with triangles.
-        if(localMasks[0].z!=0u) atomicOr(fieldStates[header].w,localMasks[0].z);
+        if((localMasks[0].x&4u)!=0u) atomicOr(fieldStates[header].w,1u);
         if(last>first)
         {
             atomicOr(fieldJobs[job].info.w,localMasks[0].y);

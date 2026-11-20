@@ -64,6 +64,7 @@ private:
     std::string m_error;
     std::string m_materialError;
     std::string m_seaError;
+    bool m_showSea = true;
     int m_materialBiome = 0;
 };
 

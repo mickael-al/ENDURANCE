@@ -12,7 +12,6 @@
 using namespace ProceduralTerrain;
 namespace
 {
-constexpr auto marineBit=std::uint32_t{1}<<MarineBiome;
 unsigned blockingWaits=0,finishes=0;
 PFNGLCLIENTWAITSYNCPROC originalWait=nullptr;
 GLenum GLAPIENTRY observeWait(GLsync fence,GLbitfield flags,GLuint64 timeout)
@@ -41,7 +40,7 @@ Completion one(GpuMesher& mesher,const ChunkRequest& request,std::uint64_t token
     return finish(mesher);
 }
 void checkCase(const std::string& directory,float height,int forced,
-    bool marine,bool land,FieldMode mode=FieldMode::Terrain,bool expectMesh=false)
+    bool marine,FieldMode mode=FieldMode::Terrain,bool expectMesh=false)
 {
     GpuConfig config;
     config.shaderDirectory=directory;
@@ -59,16 +58,12 @@ void checkCase(const std::string& directory,float height,int forced,
     const auto initial=one(mesher,request,1);
     require(initial.status==(expectMesh?CompletionStatus::Ready:CompletionStatus::Empty),
         "Unexpected initial geometry state");
-    const auto mask=initial.surfaceBiomeMask;
-    require(bool(mask&marineBit)==marine,"Wrong marine bit on completion");
-    require(bool(mask&~marineBit)==land,"Wrong land bits on completion");
-    if(mode==FieldMode::Terrain && forced>=0)
-        require(mask==(std::uint32_t{1}<<forced),"Forced-biome mask contains other biomes");
+    require(initial.hasMarineSurface==marine,"Wrong marine presence on completion");
     if(!expectMesh) require(initial.mesh.vertexCount==0,"Empty chunk acquired geometry");
     const auto initialStats=mesher.stats();
 
     const auto repeated=one(mesher,request,2);
-    require(repeated.status==initial.status && repeated.surfaceBiomeMask==mask,
+    require(repeated.status==initial.status && repeated.hasMarineSurface==marine,
         "Density-cache reuse lost metadata");
     const auto repeatedStats=mesher.stats();
     require(repeatedStats.generatedColumnTiles==initialStats.generatedColumnTiles &&
@@ -80,7 +75,7 @@ void checkCase(const std::string& directory,float height,int forced,
     // Same XZ tile, distinct vertical chunk: reuse columns, rebuild density.
     request.origin[1]=16;
     const auto upper=one(mesher,request,3);
-    require(upper.surfaceBiomeMask==mask,"Column-cache reuse lost metadata");
+    require(upper.hasMarineSurface==marine,"Column-cache reuse lost metadata");
     const auto upperStats=mesher.stats();
     require(upperStats.generatedColumnTiles==repeatedStats.generatedColumnTiles &&
         upperStats.generatedDensityFields==repeatedStats.generatedDensityFields+1 &&
@@ -105,14 +100,14 @@ extern "C" int sea_metadata_tests(const char* shaderDirectory)
         require(status==GLEW_OK || status==GLEW_ERROR_NO_GLX_DISPLAY,"GLEW init failed");
         while(glGetError()!=GL_NO_ERROR) {}
         originalWait=__glewClientWaitSync;__glewClientWaitSync=observeWait;
-        checkCase(shaderDirectory,-64,25,true,false);  // forced sea, no geometry
-        checkCase(shaderDirectory,2,25,true,false,FieldMode::Terrain,true); // emission path
-        checkCase(shaderDirectory,-64,-1,true,false); // natural sea
-        checkCase(shaderDirectory,0,-1,true,true);    // mixed biome footprint
-        checkCase(shaderDirectory,128,-1,false,true);// natural land
-        checkCase(shaderDirectory,-64,2,false,true); // forced land below sea level
-        checkCase(shaderDirectory,-64,25,false,false,FieldMode::Plane);
-        checkCase(shaderDirectory,-64,25,false,false,FieldMode::Sphere);
+        checkCase(shaderDirectory,-64,25,true);  // forced sea, no geometry
+        checkCase(shaderDirectory,2,25,true,FieldMode::Terrain,true); // emission path
+        checkCase(shaderDirectory,-64,-1,true); // natural sea
+        checkCase(shaderDirectory,0,-1,true);    // mixed biome footprint
+        checkCase(shaderDirectory,128,-1,false);// natural land
+        checkCase(shaderDirectory,-64,2,false); // forced land below sea level
+        checkCase(shaderDirectory,-64,25,false,FieldMode::Plane);
+        checkCase(shaderDirectory,-64,25,false,FieldMode::Sphere);
         __glewClientWaitSync=originalWait;
         require(finishes==0 && blockingWaits==0,"Sea metadata introduced a blocking GPU wait");
         std::cout<<"PASS sea metadata: Ready/Empty, forced/natural/mixed biomes, column/density caches, no blocking waits\n";

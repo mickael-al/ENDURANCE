@@ -6,14 +6,22 @@
 #include "Atmosphere.hpp"
 #include "ShaderCompilation.hpp"
 #include <algorithm>
+#include <array>
 #include <limits>
 
 namespace Endurance
 {
+    namespace
+    {
+        // Matches SEA_GRID_CELLS in sea_waves.glsl. One tiny immutable index
+        // buffer is shared by every tile; vertex positions come from vertex ID.
+        constexpr unsigned SeaGridCells = 8;
+        constexpr unsigned SeaGridIndexCount = SeaGridCells * SeaGridCells * 6;
+    }
     struct SeaRenderer::Impl
     {
         const ptrClass* engine = nullptr;
-        unsigned program = 0, vao = 0, instances = 0;
+        unsigned program = 0, vao = 0, gridIndices = 0, instances = 0;
         int levelLocation = -1, extentLocation = -1;
         std::size_t capacity = 0;
         std::uint64_t revision = 0;
@@ -50,6 +58,28 @@ namespace Endurance
             shutdown();
             return false;
         }
+        std::array<std::uint16_t, SeaGridIndexCount> indices{};
+        unsigned next = 0;
+        for (unsigned z = 0; z < SeaGridCells; ++z)
+            for (unsigned x = 0; x < SeaGridCells; ++x)
+            {
+                const auto a = static_cast<std::uint16_t>(x + z * (SeaGridCells + 1));
+                const auto b = static_cast<std::uint16_t>(a + 1);
+                const auto c = static_cast<std::uint16_t>(a + SeaGridCells + 1);
+                const auto d = static_cast<std::uint16_t>(c + 1);
+                for (auto index : {a, c, b, b, c, d}) indices[next++] = index;
+            }
+        while (glGetError() != GL_NO_ERROR) {}
+        glCreateBuffers(1, &m->gridIndices);
+        if (m->gridIndices)
+            glNamedBufferData(m->gridIndices, sizeof(indices), indices.data(), GL_STATIC_DRAW);
+        if (!m->gridIndices || glGetError() != GL_NO_ERROR)
+        {
+            m->failure = "Cannot allocate the shared sea grid.";
+            shutdown();
+            return false;
+        }
+        glVertexArrayElementBuffer(m->vao, m->gridIndices);
         return true;
     }
 
@@ -80,7 +110,8 @@ namespace Endurance
         for (const auto& tile : tiles)
         {
             if (tile.lod > 20 || tile.baseX < -(1<<24) || tile.baseX > (1<<24) ||
-                tile.baseZ < -(1<<24) || tile.baseZ > (1<<24))
+                tile.baseZ < -(1<<24) || tile.baseZ > (1<<24) ||
+                (tile.transitionMask & ~0x33u) != 0)
             {
                 m->failure = "Invalid sea tile lattice coordinates.";
                 return false;
@@ -104,7 +135,7 @@ namespace Endurance
                 const auto capacity = (std::max)(tiles.size(),(std::max)(std::size_t{16},doubled));
                 unsigned buffer = 0;
                 glCreateBuffers(1,&buffer);
-                if (buffer) glNamedBufferData(buffer,static_cast<GLsizeiptr>(capacity*sizeof(ProceduralTerrain::SeaTile)),nullptr,GL_DYNAMIC_DRAW);
+                if (buffer) glNamedBufferData(buffer,static_cast<GLsizeiptr>(capacity*sizeof(ProceduralTerrain::SeaTile)),nullptr,GL_STREAM_DRAW);
                 if (!buffer || glGetError() != GL_NO_ERROR)
                 {
                     if (buffer) glDeleteBuffers(1,&buffer);
@@ -115,6 +146,21 @@ namespace Endurance
                 m->instances = buffer;
                 m->capacity = capacity;
                 m->statistics.allocatedBytes = capacity * sizeof(ProceduralTerrain::SeaTile);
+            }
+            else
+            {
+                // The previous frame can still read this SSBO. Orphan its
+                // storage only on publication so the upload need not overwrite
+                // an in-flight draw's backing store. Object/capacity are kept;
+                // no fences, explicit waits or idle-frame allocations are added.
+                glNamedBufferData(m->instances,
+                    static_cast<GLsizeiptr>(m->capacity*sizeof(ProceduralTerrain::SeaTile)),
+                    nullptr,GL_STREAM_DRAW);
+                if (glGetError() != GL_NO_ERROR)
+                {
+                    m->failure = "Cannot refresh the published sea instance buffer.";
+                    return false;
+                }
             }
             glNamedBufferSubData(m->instances,0,static_cast<GLsizeiptr>(bytes),tiles.data());
             if (glGetError() != GL_NO_ERROR)
@@ -168,7 +214,8 @@ namespace Endurance
         glDisable(GL_CULL_FACE);
         glDepthMask(GL_FALSE);
         if (currentDepthWrite) *currentDepthWrite = false;
-        glDrawArraysInstanced(GL_TRIANGLES,0,6,static_cast<GLsizei>(m->statistics.tiles));
+        glDrawElementsInstanced(GL_TRIANGLES,SeaGridIndexCount,GL_UNSIGNED_SHORT,nullptr,
+            static_cast<GLsizei>(m->statistics.tiles));
         ++m->statistics.draws;
 
         glDepthMask(depthWrite);
@@ -189,9 +236,10 @@ namespace Endurance
     {
         if (!m) return;
         if (m->instances) glDeleteBuffers(1,&m->instances);
+        if (m->gridIndices) glDeleteBuffers(1,&m->gridIndices);
         if (m->vao) glDeleteVertexArrays(1,&m->vao);
         if (m->program) glDeleteProgram(m->program);
-        m->instances=m->vao=m->program=0;
+        m->instances=m->gridIndices=m->vao=m->program=0;
         m->engine=nullptr;
         m->capacity=0;
         m->hasRevision=m->revisionValid=false;

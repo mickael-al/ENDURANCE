@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Render the real sea VS/FS with controlled opaque depth and lighting.
 
-Checks tile/LOD invariance, finite shading, sky/depth behavior and the canonical
-world-coordinate seams. Blocking readbacks are test instrumentation only; this
+Checks animated vertex waves, finite shading, sky/depth behavior and canonical
+world-coordinate seams including fine/coarse edge stitching. Blocking readbacks are test instrumentation only; this
 fixture makes no hardware-performance or in-game visual-quality claim.
 """
 from __future__ import annotations
@@ -25,6 +25,12 @@ from check_terrain_shadow import look_at
 
 SEA = ROOT / "ENDURANCE/Ressources/Shader/Water"
 SIZE = (65, 49)  # Odd viewport exercises derivative/helper pixels at boundaries.
+GRID = 8
+VERTICES = (GRID + 1) ** 2
+INDICES = tuple(v for z in range(GRID) for x in range(GRID)
+                for v in (x + z * (GRID + 1), x + (z + 1) * (GRID + 1),
+                          x + 1 + z * (GRID + 1), x + 1 + z * (GRID + 1),
+                          x + (z + 1) * (GRID + 1), x + 1 + (z + 1) * (GRID + 1)))
 
 
 def max_difference(a, b):
@@ -39,7 +45,7 @@ class SeaRig:
                                   "production instanced sea")
         for name, signature in {
             "glDrawArraysInstanced": (None, C.c_uint, C.c_int, C.c_int, C.c_int),
-            "glDrawArraysInstancedBaseInstance": (None, C.c_uint, C.c_int, C.c_int, C.c_int, C.c_uint),
+            "glDrawElementsInstanced": (None, C.c_uint, C.c_int, C.c_uint, C.c_void_p, C.c_int),
             "glBeginTransformFeedback": (None, C.c_uint),
             "glEndTransformFeedback": (None,),
             "glClearBufferfv": (None, C.c_uint, C.c_int, C.POINTER(C.c_float)),
@@ -94,6 +100,9 @@ class SeaRig:
         gl.glGenVertexArrays(1, C.byref(self.vao))
         gl.framebuffers.append(self.framebuffer.value)
         gl.arrays.append(self.vao.value)
+        self.indices = gl.buffer(struct.pack(f"<{len(INDICES)}H", *INDICES))
+        gl.glBindVertexArray(self.vao.value)
+        gl.glBindBuffer(0x8893, self.indices)  # Shared immutable index topology.
         gl.glBindFramebuffer(0x8D40, self.framebuffer.value)
         gl.glFramebufferTexture2D(0x8D40, 0x8CE0, TEXTURE_2D, self.output, 0)
         gl.glFramebufferTexture2D(0x8D40, 0x8D00, TEXTURE_2D, self.depth.value, 0)
@@ -142,7 +151,7 @@ class SeaRig:
         gl.glDepthMask(depth_write)
         gl.glBindVertexArray(self.vao.value)
         gl.glUseProgram(self.program)
-        gl.glDrawArraysInstanced(0x0004, 0, 6, len(tiles))
+        gl.glDrawElementsInstanced(0x0004, len(INDICES), 0x1403, None, len(tiles))
         result = gl.texels(self.output, SIZE)
         depth = (C.c_float * (SIZE[0] * SIZE[1]))()
         gl.glReadPixels(0, 0, *SIZE, 0x1902, 0x1406, depth)
@@ -157,12 +166,16 @@ def check_surface(gl):
     first, depths = rig.draw()
     assert all(math.isfinite(v) for v in first)
     assert all(v >= 0. for v in first), "Sea did not cover the whole expected tile"
-    assert all(0. <= a <= 1. for a in first[3::4])
+    assert all(0.70 < a < 0.95 for a in first[3::4]), \
+        "The artistic depth transition saturates before the requested deeper range"
+    # At ~25m the new 36m transition remains partial; the old 12m range was opaque.
     assert all(v == 1. for v in depths), "Sea modified the opaque depth buffer"
     fine = ((-2, -2, 0, 0), (-1, -2, 0, 0), (-2, -1, 0, 0), (-1, -1, 0, 0))
     divided, _ = rig.draw(fine)
     delta = max_difference(first, divided)
-    assert delta < 2e-4, ("Sea motifs depend on tile/LOD subdivision", delta)
+    assert all(math.isfinite(v) and v >= 0. for v in divided), "Fine grid has holes or invalid shading"
+    # Height is nonlinear: different resolutions no longer have identical images.
+    # Exact positions/slopes on shared stitched boundaries are checked below.
     animated, _ = rig.draw(time=4.)
     assert max_difference(first, animated) > 1e-5, "Sea animation is inactive"
     blocked, _ = rig.draw(stored_depth=0.)
@@ -185,54 +198,117 @@ def check_surface(gl):
     return rig
 
 
-def check_canonical_seams(gl, rig):
-    """Capture the actual vertex output, including rounding, at shared corners."""
-    program = gl.compile([(0x8B31, shader_source(SEA / "sea.vs.glsl")),
-                          (0x8B30, shader_source(SEA / "sea.fs.glsl"))],
-                         "sea canonical seam feedback", feedback=("WorldPos",))
-    descriptors, pairs = [], []
-    for lod in (1, 5, 12, 20):
-        stride = 1 << lod
-        for sign in (-1, 1):
-            x, z = sign * stride * 8, -sign * stride * 5
-            # Coarse right edge meets two half-size fine left edges. Compare
-            # its endpoints with the matching fine vertices, in both signs.
-            coarse = len(descriptors)
-            descriptors.extend(((x, z, lod, 0), (x+stride, z, lod-1, 0),
-                                (x+stride, z+stride//2, lod-1, 0)))
-            pairs.extend(((coarse*6+2, (coarse+1)*6),
-                          (coarse*6+5, (coarse+2)*6+1)))
+def feedback_program(gl):
+    return gl.compile([(0x8B31, shader_source(SEA / "sea.vs.glsl")),
+                       (0x8B30, shader_source(SEA / "sea.fs.glsl"))],
+                      "sea animated seam feedback", feedback=("WorldPos", "SeaWaveSlope"))
+
+
+def capture_vertices(gl, rig, program, descriptors, *, extent=64., level=3.25, time=0.):
+    """Execute the actual VS once per unique grid ID; retain float bit patterns."""
     gl.resize(rig.tiles, b"".join(struct.pack("<iiII", *v) for v in descriptors))
     gl.bind(rig.tiles, 8)
     gl.bind(rig.camera, 0)
-    count = len(descriptors)*6
-    output = gl.buffer(count*12)
+    gl.bind(rig.misc, 3)
+    gl.write(rig.misc, struct.pack("<i4fI", 1, time, 2.2, 1., 80., 1))
+    count = len(descriptors) * VERTICES
+    output = gl.buffer(count * 20)
     gl.glBindBufferBase(0x8C8E, 0, output)
     gl.glBindFramebuffer(0x8D40, rig.framebuffer.value)
     gl.glBindVertexArray(rig.vao.value)
     gl.glEnable(0x8C89)  # GL_RASTERIZER_DISCARD
     try:
-        gl.uniform(program, "seaLevel", "1f", 3.25)
-        for extent in (64., 22.4, 467.2):
-            gl.uniform(program, "seaBaseExtent", "1f", extent)
-            gl.glUseProgram(program)
-            gl.glBeginTransformFeedback(0x0004)
-            gl.glDrawArraysInstanced(0x0004, 0, 6, len(descriptors))
-            gl.glEndTransformFeedback()
-            raw = gl.read(output, count*12)
-            for a, b in pairs:
-                left, right = raw[a*12:(a+1)*12], raw[b*12:(b+1)*12]
-                assert left == right, ("Sea LOD corner differs", extent, a, b,
-                                       struct.unpack("<3f", left), struct.unpack("<3f", right))
-                position = struct.unpack("<3f", left)
-                assert all(math.isfinite(v) for v in position)
-                assert position[1] == 3.25 and position[0] != 0., "Transform feedback did not capture the sea vertex"
-        gl.check("sea canonical seam feedback")
-        print(f"PASS {len(pairs)*3} bit-identical sea seam corners: positive/negative coordinates, LOD1–20, three base extents")
+        gl.uniform(program, "seaLevel", "1f", level)
+        gl.uniform(program, "seaBaseExtent", "1f", extent)
+        gl.glUseProgram(program)
+        gl.glBeginTransformFeedback(0x0000)  # GL_POINTS: all 81 grid IDs exactly once.
+        gl.glDrawArraysInstanced(0x0000, 0, VERTICES, len(descriptors))
+        gl.glEndTransformFeedback()
+        raw = gl.read(output, count * 20)
+        gl.check("sea vertex feedback")
+        return raw
     finally:
         gl.glDisable(0x8C89)
         gl.glBindBufferBase(0x8C8E, 0, 0)
         gl.glBindFramebuffer(0x8D40, 0)
+
+
+def check_vertex_waves(gl, rig, program):
+    rig.set_camera()
+    descriptor = ((-2, -2, 1, 0),)
+    first = capture_vertices(gl, rig, program, descriptor)
+    repeated = capture_vertices(gl, rig, program, descriptor)
+    assert first == repeated, "Stationary time/camera changed vertex waves"
+    moved = capture_vertices(gl, rig, program, descriptor, time=8.)
+    a = tuple(struct.iter_unpack("<5f", first))
+    b = tuple(struct.iter_unpack("<5f", moved))
+    assert all(math.isfinite(v) for point in (*a, *b) for v in point)
+    assert max(abs(p[1] - 3.25) for p in a) > .01, "Vertex heights remain flat"
+    assert max(abs(p[1] - q[1]) for p, q in zip(a, b)) > .01, "Time does not animate vertex heights"
+    assert max(abs(v) for p in a for v in p[3:]) > .0001, "Macro waves have no shading slopes"
+    assert all(p[0] == q[0] and p[2] == q[2] for p, q in zip(a, b)), "Time moves tile XZ bounds"
+    assert max(abs(p[1] - 3.25) for p in (*a, *b)) < 2.1, "Wave displacement exceeds its configured amplitude"
+    far = capture_vertices(gl, rig, program, ((128, 128, 3, 0),))
+    assert all(p[1] == 3.25 and p[3:] == (0., 0.) for p in struct.iter_unpack("<5f", far)), \
+        "Distant coarse grid retains undersampled geometric waves"
+    print("PASS vertex waves: non-flat animated Y, analytic macro slopes, identical idle frame, fixed XZ and far fade")
+
+
+def check_canonical_seams(gl, rig, program):
+    """Every fine edge point must coincide with a coarse point after snapping."""
+    descriptors, pairs = [], []
+    def index(tile, x, z):
+        return tile * VERTICES + x + z * (GRID + 1)
+    for lod in (1, 5, 12, 20):
+        stride = 1 << lod
+        for sign in (-1, 1):
+            x, z = sign * stride * 8, -sign * stride * 5
+            coarse = len(descriptors)
+            descriptors.append((x, z, lod, 0))
+            for side in range(4):
+                for part in range(2):
+                    offset = part * stride // 2
+                    fine = len(descriptors)
+                    if side == 0:  # Fine east, -X edge against coarse +X.
+                        descriptors.append((x+stride, z+offset, lod-1, 1 << 0))
+                    elif side == 1:  # Fine west, +X edge against coarse -X.
+                        descriptors.append((x-stride//2, z+offset, lod-1, 1 << 1))
+                    elif side == 2:  # Fine +Z, -Z edge against coarse +Z.
+                        descriptors.append((x+offset, z+stride, lod-1, 1 << 4))
+                    else:  # Fine -Z, +Z edge against coarse -Z.
+                        descriptors.append((x+offset, z-stride//2, lod-1, 1 << 5))
+                    for i in range(GRID + 1):
+                        j = i // 2 + part * GRID // 2
+                        if side == 0: pair = (index(coarse, GRID, j), index(fine, 0, i))
+                        elif side == 1: pair = (index(coarse, 0, j), index(fine, GRID, i))
+                        elif side == 2: pair = (index(coarse, j, GRID), index(fine, i, 0))
+                        else: pair = (index(coarse, j, 0), index(fine, i, GRID))
+                        pairs.append(pair)
+    for extent in (64., 22.4, 467.2):
+        for time in (0., 8.):
+            raw = capture_vertices(gl, rig, program, descriptors, extent=extent, time=time)
+            for a, b in pairs:
+                left, right = raw[a*20:(a+1)*20], raw[b*20:(b+1)*20]
+                assert left == right, ("Sea stitched edge position/slope differs", extent, time, a, b,
+                                       struct.unpack("<5f", left), struct.unpack("<5f", right))
+                assert all(math.isfinite(v) for v in struct.unpack("<5f", left))
+    print(f"PASS {len(pairs)*6} bit-identical animated seam positions/slopes: all four edges, odd/even points, LOD1–20, three scales")
+
+
+def check_stitched_coverage(gl, rig):
+    """Rasterization catches holes introduced by collapsed edge triangles."""
+    cases = (
+        (((-2, -2, 1, 0), (0, -2, 0, 1), (0, -1, 0, 1)), (0., -64.)),
+        (((0, -2, 1, 0), (-1, -2, 0, 2), (-1, -1, 0, 2)), (0., -64.)),
+        (((-2, -2, 1, 0), (-2, 0, 0, 16), (-1, 0, 0, 16)), (-64., 0.)),
+        (((-2, 0, 1, 0), (-2, -1, 0, 32), (-1, -1, 0, 32)), (-64., 0.)),
+    )
+    rig.set_opaque(-150.)
+    for descriptors, center in cases:
+        rig.set_camera(center=center)
+        pixels, _ = rig.draw(descriptors, time=7.25)
+        assert all(math.isfinite(v) and v >= 0. for v in pixels), "Collapsed LOD edge triangles leave a visible hole"
+    print("PASS mixed-LOD raster coverage: no holes across four stitched directions")
 
 
 def check_noise_gradient(gl):
@@ -253,9 +329,13 @@ void main() {
 """
     vertex = """#version 460 core
 layout(location=0) out vec3 WorldPos;
+layout(location=1) out vec2 SeaWaveSlope;
+layout(location=2) out float SeaViewZ;
 void main() {
     vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);
     WorldPos=vec3(0);
+    SeaWaveSlope=vec2(0);
+    SeaViewZ=-1.0;
     gl_Position=vec4(p*2.0-1.0,0,1);
 }
 """
@@ -272,12 +352,42 @@ void main() {
     assert max(errors) < .003, ("Incorrect analytic wave gradient", max(errors))
     print(f"PASS analytic wave gradient: {len(points)} samples including lattice boundaries; finite-difference error {max(errors):.3g}")
 
+    # The macro slope includes both the scaled noise derivative and the spatial
+    # fade derivative. A flat or incomplete normal would miss the broad waves.
+    macro = shader_source(SEA / "sea.fs.glsl").replace("void main()", "void seaUnusedMain()") + """
+layout(std430,binding=9) readonly buffer ProbePoints { vec2 points[]; };
+void main() {
+    vec2 p=points[int(gl_FragCoord.x)];
+    const float e=0.25,level=3.25,time=8.0;
+    const vec3 camera=vec3(-12,100,8);
+    vec3 wave=seaLargeWave(p,level,camera,time);
+    vec2 derivative=vec2(
+        seaLargeWave(p+vec2(e,0),level,camera,time).x-seaLargeWave(p-vec2(e,0),level,camera,time).x,
+        seaLargeWave(p+vec2(0,e),level,camera,time).x-seaLargeWave(p-vec2(0,e),level,camera,time).x)/(2.0*e);
+    o_FragColor=vec4(wave.yz,derivative);
+}
+"""
+    points = [(x, z) for x in (-4200., -4096., -3000., -2048., -640., 0., 320., 2048., 3000., 4096., 4200.)
+              for z in (-320., 0., 125.)]
+    program = gl.compile([(0x8B31, vertex), (0x8B30, macro)], "sea macro slope probe")
+    gl.buffer(b"".join(struct.pack("<2f", *p) for p in points), 9)
+    output = gl.texture((len(points), 1), internal=RGBA32F)
+    gl.fullscreen(program, len(points), 1, (output,))
+    values = gl.texels(output, (len(points), 1))
+    errors = [abs(values[i+j]-values[i+j+2]) for i in range(0, len(values), 4) for j in (0, 1)]
+    assert all(math.isfinite(v) for v in values)
+    assert max(errors) < 1e-4, ("Macro/fade derivative does not match displaced height", max(errors))
+    print(f"PASS macro wave slopes, including distance fade; finite-difference error {max(errors):.3g}")
+
 
 def main():
     with AtmosphereGL() as gl:
         print(f"OpenGL {gl.version}; renderer {gl.renderer}", flush=True)
         rig = check_surface(gl)
-        check_canonical_seams(gl, rig)
+        program = feedback_program(gl)
+        check_vertex_waves(gl, rig, program)
+        check_canonical_seams(gl, rig, program)
+        check_stitched_coverage(gl, rig)
         check_noise_gradient(gl)
 
 

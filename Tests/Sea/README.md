@@ -21,11 +21,14 @@ the terrain's vertical bounds. Its shared backend hooks are enabled only by
 `TERRAIN_SEA_STREAMING`; the ordinary scheduler test remains independent.
 
 `check_render` compiles and renders the production sea shaders with EGL/OpenGL.
-It checks finite output, opaque depth, sky tags, LOD invariance and canonical
-world-coordinate seams. Blocking readbacks belong only to the test.
+It checks finite output, opaque depth, sky tags, broad wave displacement and
+slopes, animation and canonical stitched world-coordinate seams. Coarse and fine
+meshes need not produce identical interior pixels once displaced; their shared
+edges must match. Blocking readbacks belong only to the test.
 
 `check_runtime` exercises the real C++ sea renderer with controlled GL/engine
-services. It verifies revision-based uploads, buffer growth, allocation/upload
+services. It verifies revision-based uploads, buffer growth, safe refresh of an
+in-flight instance store, indexed-grid ownership, allocation/upload
 failures, restoration of external draw state and resource cleanup. Production
 headers are also used in a separate C++ syntax check during integration.
 
@@ -44,3 +47,14 @@ python3 Tests/TerrainMaterials/check_runtime.py
 
 Software OpenGL checks do not measure hardware performance or replace the
 in-game visual checks described in `docs/terrain-sea.md`.
+
+An optional isolated metadata benchmark compares the current PrepareVolume
+shader with the previous sea commit, including that commit's shader includes:
+
+```sh
+LP_NUM_THREADS=1 python3 Tests/Sea/benchmark_metadata.py --baseline-ref 4864129 --output result.json
+```
+
+It reports completed wall time, paired ratios, interquartile ranges and source
+hashes. `docs/terrain-sea-prepare-benchmark.json` records the measured software
+run. This measures neither the water draw nor complete chunk generation.
