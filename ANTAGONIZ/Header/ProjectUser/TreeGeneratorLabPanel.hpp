@@ -38,10 +38,11 @@ private:
     std::string m_batchMask, m_batchDirectory;
     unsigned m_batchIndex=0, m_batchCount=0;
     int m_impostorResolution=256;
-    bool m_bakeImpostors=false, m_batchImpostors=false, m_previewDirty=true;
+    bool m_bakeImpostors=true, m_batchImpostors=false, m_previewDirty=true;
     bool m_dirty=true, m_generateRequested=false, m_fitNext=true;
     bool m_generationFailed=false;
-    bool m_gpuReady=false, m_resetDock=false;
+    bool m_gpuReady=false, m_resetDock=true;
+    ImGuiID m_settingsDock=0, m_previewDock=0;
     unsigned m_revision=0, m_submittedRevision=0;
     double m_lastEdit=0;
     std::string m_status, m_error;

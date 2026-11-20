@@ -109,43 +109,56 @@ int main(int argc,char** argv) {
     require(loadBakedTree(root/"legacy",loaded,error,&legacyViews),"V1 baked model no longer loads: "+error);
     require(legacyViews.empty() && loaded.statistics.roots==0 && loaded.statistics.vines==0,"V1 cache acquired new data");
     equalMesh(legacyTree.lods[0].wood,loaded.lods[0].wood);
-    // Impostor albedo is already sRGB and normals are linear. Publication must
-    // preserve their bytes without another gamma conversion.
-    ImpostorView view; view.albedo=fixture; view.normal=fixture;
-    for(std::size_t i=0;i<view.normal.rgba.size();i+=4) {
-        view.normal.rgba[i]=128; view.normal.rgba[i+1]=255; view.normal.rgba[i+2]=128;
-    }
-    view.centre=(tree.boundsMin+tree.boundsMax)*.5f; view.halfExtent=20;
-    std::vector<ImpostorView> views{view};
-    require(bake(tree,root/"impostor",error,&views),"Impostor bake failed: "+error);
-    require(loadLeafMask(root/"impostor/impostor_0_albedo.png",imported,error) && imported.rgba==fixture.rgba,"Impostor albedo was gamma converted twice or flipped");
-    require(loadLeafMask(root/"impostor/impostor_0_normal.png",imported,error) && imported.rgba==view.normal.rgba,"Impostor normal was gamma converted or flipped");
-    views[0].up=views[0].direction;
-    require(!bake(tree,root/"bad-impostor",error,&views),"Degenerate impostor basis accepted");
-    require(!std::filesystem::exists(root/"bad-impostor"),"Failed impostor bake published partial output");
-    // The lightweight LOD3 uses precisely two color textures, with byte-exact
-    // sRGB roundtrip and a shared frame. No normal-map dependency is introduced.
+    // Version-2 two-view metadata must not obstruct loading its mesh. The old
+    // color PNGs need not exist: that representation is no longer consumed.
+    oldManifest["version"]=2;
+    oldManifest["lod3"]={{"type","twoViewBillboard"}};
+    writeJson(root/"legacy/manifest.json",oldManifest);
+    require(loadBakedTree(root/"legacy",loaded,error,&legacyViews) && legacyViews.empty(),
+            "Legacy two-view cache prevented loading the mesh: "+error);
+    // The only exported LOD3 is 17 albedo/normal views. sRGB and object-normal
+    // PNG bytes must survive publication and reload without color conversion.
     Image lodColor; lodColor.width=lodColor.height=32; lodColor.rgba.resize(32*32*4);
     for(int y=0;y<32;++y) for(int x=0;x<32;++x) {
         const auto i=(y*32+x)*4;
         lodColor.rgba[i]=std::uint8_t(x*7); lodColor.rgba[i+1]=std::uint8_t(y*7);
         lodColor.rgba[i+2]=71; lodColor.rgba[i+3]=x>6 && x<25 && y>3 && y<28 ? 255 : 0;
     }
-    std::vector<ImpostorView> lod3(2);
-    for(auto& v:lod3) { v.albedo=lodColor; v.centre=view.centre; v.halfExtent=20; }
-    lod3[1].direction=glm::normalize(glm::vec3(0,1,1));
-    lod3[1].up=glm::normalize(glm::vec3(0,1,-1));
-    require(bake(tree,root/"lod3",error,nullptr,&lod3),"LOD3 bake failed: "+error);
-    require(loadLeafMask(root/"lod3/lod3_0.png",imported,error) && imported.rgba==lodColor.rgba,"LOD3 horizontal PNG changed colors or alpha");
-    require(loadLeafMask(root/"lod3/lod3_45.png",imported,error) && imported.rgba==lodColor.rgba,"LOD3 elevated PNG changed colors or alpha");
+    std::vector<ImpostorView> lod3(ImpostorViewCount);
+    for(unsigned i=0;i<ImpostorViewCount;++i) {
+        auto& v=lod3[i]; v.albedo=lodColor; v.normal=lodColor;
+        v.centre=(tree.boundsMin+tree.boundsMax)*.5f; v.halfExtent=20;
+        v.direction=impostorDirection(i); v.up=impostorUp(i);
+        for(std::size_t j=0;j<v.normal.rgba.size();j+=4) {
+            v.normal.rgba[j]=128; v.normal.rgba[j+1]=255; v.normal.rgba[j+2]=128;
+        }
+    }
+    require(bake(tree,root/"lod3",error,&lod3),"LOD3 bake failed: "+error);
+    require(!std::filesystem::exists(root/"lod3/lod3_0.png") && !std::filesystem::exists(root/"lod3/lod3_45.png"),
+            "Removed two-view PNGs were exported");
     std::vector<ImpostorView> restoredViews;
     require(loadBakedTree(root/"lod3",loaded,error,&restoredViews),"LOD3 reload failed: "+error);
-    require(restoredViews.size()==2,"LOD3 reload lost one of the angles");
-    for(std::size_t i=0;i<2;++i) {
-        require(restoredViews[i].albedo.rgba==lod3[i].albedo.rgba && restoredViews[i].normal.rgba.empty(),"LOD3 image payload changed");
-        require(restoredViews[i].direction==lod3[i].direction && restoredViews[i].centre==lod3[i].centre && restoredViews[i].halfExtent==lod3[i].halfExtent,"LOD3 framing changed");
+    require(restoredViews.size()==ImpostorViewCount,"LOD3 reload lost angles");
+    for(unsigned i=0;i<ImpostorViewCount;++i) {
+        require(restoredViews[i].albedo.rgba==lod3[i].albedo.rgba && restoredViews[i].normal.rgba==lod3[i].normal.rgba,
+                "LOD3 image payload changed encoding or orientation");
+        require(restoredViews[i].direction==lod3[i].direction && restoredViews[i].up==lod3[i].up &&
+                restoredViews[i].centre==lod3[i].centre && restoredViews[i].halfExtent==lod3[i].halfExtent,"LOD3 framing changed");
     }
-    lod3.pop_back(); require(!bake(tree,root/"incomplete-lod3",error,nullptr,&lod3),"One-view LOD3 accepted");
+    const auto goodManifest=nlohmann::json::parse(contents(root/"lod3/manifest.json"));
+    auto legacy17=goodManifest; legacy17["version"]=2; legacy17.erase("lod3");
+    writeJson(root/"lod3/manifest.json",legacy17);
+    require(loadBakedTree(root/"lod3",loaded,error,&restoredViews) && restoredViews.size()==17,"Old 17-view export stopped loading");
+    auto badManifest=goodManifest; badManifest["impostors"][0]["albedo"]="../source-mask.png";
+    writeJson(root/"lod3/manifest.json",badManifest);
+    require(!loadBakedTree(root/"lod3",loaded,error,&restoredViews),"Foreign image path accepted");
+    require(restoredViews.size()==17 && restoredViews[0].albedo.rgba==lod3[0].albedo.rgba,"Failed read damaged prior LOD3");
+    writeJson(root/"lod3/manifest.json",goodManifest);
+    lod3[0].up=lod3[0].direction;
+    require(!bake(tree,root/"bad-impostor",error,&lod3),"Degenerate impostor basis accepted");
+    require(!std::filesystem::exists(root/"bad-impostor"),"Invalid bake published partial output");
+    lod3[0].up=impostorUp(0);
+    lod3.pop_back(); require(!bake(tree,root/"incomplete-lod3",error,&lod3),"Incomplete LOD3 accepted");
     require(!std::filesystem::exists(root/"incomplete-lod3"),"Invalid LOD3 published partial output");
     auto cancelled=tree; cancelled.cancelled=true;
     require(!bake(cancelled,root/"cancelled",error),"Cancelled tree published");

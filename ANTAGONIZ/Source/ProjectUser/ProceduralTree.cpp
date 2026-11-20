@@ -683,6 +683,37 @@ bool validImage(const Image& image)
     return image.width>0 && image.height>0 && image.width<=2048 && image.height<=2048
         && image.rgba.size()==std::size_t(image.width)*std::size_t(image.height)*4;
 }
+glm::vec3 impostorDirection(unsigned index)
+{
+    if(index>=16) return {0,1,0};
+    const float yaw=float(index%8)*Pi*0.25f;
+    const float pitch=(index<8?15.0f:60.0f)*Pi/180.0f;
+    return {std::cos(pitch)*std::sin(yaw),std::sin(pitch),std::cos(pitch)*std::cos(yaw)};
+}
+glm::vec3 impostorUp(unsigned index)
+{ return index>=16?glm::vec3(0,0,-1):glm::vec3(0,1,0); }
+bool validImpostors(const std::vector<ImpostorView>& views)
+{
+    if(views.size()!=ImpostorViewCount) return false;
+    const auto& first=views.front();
+    for(unsigned i=0;i<ImpostorViewCount;++i)
+    {
+        const auto& v=views[i];
+        if(!validImage(v.albedo)||!validImage(v.normal)||v.albedo.width!=v.albedo.height||
+            v.normal.width!=v.albedo.width||v.normal.height!=v.albedo.height||
+            v.albedo.width!=first.albedo.width||!finite(v.halfExtent)||
+            v.halfExtent<=0||v.halfExtent>1.0e5f) return false;
+        for(int c=0;c<3;++c)
+            if(!finite(v.centre[c])||!finite(v.direction[c])||!finite(v.up[c])) return false;
+        if(glm::length(v.direction-impostorDirection(i))>0.005f||
+            glm::length(v.up-impostorUp(i))>0.005f||
+            glm::length(v.centre-first.centre)>0.001f||
+            std::abs(v.halfExtent-first.halfExtent)>(std::max)(0.001f,first.halfExtent*0.0001f)) return false;
+        for(std::size_t pixel=3;pixel<v.albedo.rgba.size();pixel+=4)
+            if(v.albedo.rgba[pixel]!=v.normal.rgba[pixel]) return false;
+    }
+    return true;
+}
 Image makeLeafMask(int resolution)
 {
     const int n=std::clamp(resolution,16,1024);

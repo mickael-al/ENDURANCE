@@ -69,6 +69,13 @@ struct ImpostorView
     float halfExtent=1.0f;
 };
 
+// One shared layout for capture, cache validation and view selection:
+// eight azimuths at 15 degrees, eight at 60 degrees, and the zenith.
+constexpr unsigned ImpostorViewCount=17;
+glm::vec3 impostorDirection(unsigned index);
+glm::vec3 impostorUp(unsigned index);
+bool validImpostors(const std::vector<ImpostorView>& views);
+
 struct Vertex
 {
     glm::vec3 position{0.0f};

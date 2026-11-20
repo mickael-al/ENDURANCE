@@ -40,10 +40,11 @@ struct State {
         values.push_back(glIsEnabledi(GL_BLEND,1));
         glGetBooleanv(GL_DEPTH_WRITEMASK,mask); values.push_back(mask[0]);
         GLint active=0; glGetIntegerv(GL_ACTIVE_TEXTURE,&active);
-        for(int unit:{0,1,3}) {
+        for(int unit:{0,1,2,3}) {
             glActiveTexture(GL_TEXTURE0+unit); GLint texture=0,sampler=0;
             glGetIntegerv(GL_TEXTURE_BINDING_2D,&texture); glGetIntegeri_v(GL_SAMPLER_BINDING,unit,&sampler);
             values.push_back(texture); values.push_back(sampler);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY,&texture); values.push_back(texture);
         }
         glActiveTexture(active);
         for(auto key:{GL_COLOR_CLEAR_VALUE,GL_BLEND_COLOR}) {
@@ -62,15 +63,18 @@ struct State {
     }
 };
 struct ForeignState {
-    GLuint arrays=0,buffers[3]{},framebuffers[2]{},textures[3]{},samplers[3]{},program=0;
+    GLuint arrays=0,buffers[3]{},framebuffers[2]{},textures[4]{},textureArrays[4]{},samplers[4]{},program=0;
     ForeignState() {
         glCreateVertexArrays(1,&arrays); glBindVertexArray(arrays);
         glCreateBuffers(3,buffers); for(auto b:buffers) glNamedBufferData(b,65536,nullptr,GL_DYNAMIC_COPY);
         glBindBuffer(GL_ARRAY_BUFFER,buffers[0]); glBindBuffer(GL_PIXEL_PACK_BUFFER,buffers[1]); glBindBuffer(GL_PIXEL_UNPACK_BUFFER,buffers[2]);
         glCreateFramebuffers(2,framebuffers); glBindFramebuffer(GL_DRAW_FRAMEBUFFER,framebuffers[0]); glBindFramebuffer(GL_READ_FRAMEBUFFER,framebuffers[1]);
-        glCreateTextures(GL_TEXTURE_2D,3,textures); glCreateSamplers(3,samplers);
-        for(int i=0;i<3;++i) {
-            glTextureStorage2D(textures[i],1,GL_RGBA8,4,4); const int unit=i==2?3:i;
+        glCreateTextures(GL_TEXTURE_2D,4,textures); glCreateSamplers(4,samplers);
+        glCreateTextures(GL_TEXTURE_2D_ARRAY,4,textureArrays);
+        for(int i=0;i<4;++i) {
+            glTextureStorage2D(textures[i],1,GL_RGBA8,4,4); const int unit=i;
+            glTextureStorage3D(textureArrays[i],1,GL_RGBA8,4,4,2);
+            glBindTextureUnit(unit,textureArrays[i]);
             glBindTextureUnit(unit,textures[i]); glSamplerParameteri(samplers[i],GL_TEXTURE_MIN_FILTER,GL_NEAREST);
             glSamplerParameteri(samplers[i],GL_TEXTURE_MAG_FILTER,GL_NEAREST); glBindSampler(unit,samplers[i]);
         }
@@ -92,7 +96,7 @@ struct ForeignState {
     }
     ~ForeignState() {
         glUseProgram(0); glDeleteProgram(program); glBindFramebuffer(GL_FRAMEBUFFER,0); glDeleteFramebuffers(2,framebuffers);
-        glBindVertexArray(0); glDeleteVertexArrays(1,&arrays); glDeleteBuffers(3,buffers); glDeleteTextures(3,textures); glDeleteSamplers(3,samplers);
+        glBindVertexArray(0); glDeleteVertexArrays(1,&arrays); glDeleteBuffers(3,buffers); glDeleteTextures(4,textures); glDeleteTextures(4,textureArrays); glDeleteSamplers(4,samplers);
     }
 };
 std::vector<unsigned char> pixels(const TreeLabPreview& preview) {
@@ -154,27 +158,20 @@ extern "C" int tree_preview_tests() {
     GLuint primitiveCount=0; glGetQueryObjectuiv(primitivesQuery,GL_QUERY_RESULT,&primitiveCount);
     glDeleteQueries(1,&primitivesQuery);
     require(primitiveCount==2,"Warm LOD3 renders more than a single quad"); original.check("LOD3 warm render");
-    std::vector<ImpostorView> pair;
-    require(preview.captureLod3(pair,64),preview.error()); original.check("LOD3 two-view capture");
-    require(pair.size()==2,"LOD3 must contain exactly two views");
-    require(std::abs(pair[0].direction.y)<.001f && std::abs(pair[1].direction.y-std::sqrt(.5f))<.001f,"LOD3 capture elevations are not 0 and 45 degrees");
-    require(pair[0].centre==pair[1].centre && pair[0].halfExtent==pair[1].halfExtent,"LOD3 views use incompatible frames");
-    for(const auto& v:pair) {
-        require(validImage(v.albedo) && v.normal.rgba.empty(),"LOD3 needs extra normal textures or has invalid color");
-        require(v.albedo.width==64 && v.albedo.height==64,"LOD3 capture resolution ignored");
-        std::size_t coverage=0;
-        for(std::size_t i=3;i<v.albedo.rgba.size();i+=4) coverage+=v.albedo.rgba[i]>=128;
-        require(coverage>10 && coverage<64*64*9/10,"LOD3 lacks a useful cutout silhouette");
-    }
-    require(pair[0].albedo.rgba!=pair[1].albedo.rgba,"LOD3 elevations produced the same image");
+    const auto initialLod3=pixels(preview);
+    s.sunYaw=-130; s.sunElevation=8;
+    require(preview.render(s),preview.error()); original.check("LOD3 dynamic lighting");
+    require(difference(initialLod3,pixels(preview))>100,"LOD3 normals do not respond to sun changes");
+    s.sunYaw=40; s.sunElevation=45;
     // Wrong shader path must not destroy a working program or tree. Changing
     // the working directory is handled by the Python driver, so this fixture
     // concentrates on the stable render/capture lifecycle.
     require(preview.reloadShaders(),preview.error()); original.check("shader reload");
     require(preview.render(s),preview.error());
     std::vector<ImpostorView> views;
-    require(preview.captureImpostors(views,64,8,true),preview.error()); original.check("impostor capture");
-    require(views.size()==17,"Missing multi-view impostor angles");
+    require(preview.captureImpostors(views,64),preview.error()); original.check("impostor capture");
+    require(validImpostors(views),"Missing or invalid multi-view impostor angles");
+    require(views[0].albedo.rgba!=views[2].albedo.rgba && views[0].albedo.rgba!=views[16].albedo.rgba,"Azimuth or zenith captures are identical");
     for(const auto& v:views) {
         require(validImage(v.albedo) && validImage(v.normal),"Capture image invalid");
         require(v.albedo.width==64 && v.albedo.height==64,"Capture extent ignored");
@@ -195,20 +192,15 @@ extern "C" int tree_preview_tests() {
     s.sunYaw=-130; s.sunElevation=8; s.time=5; s.windStrength=.2f;
     require(preview.render(s),preview.error());
     std::vector<ImpostorView> relit;
-    require(preview.captureImpostors(relit,64,8,true),preview.error()); original.check("relit impostor capture");
+    require(preview.captureImpostors(relit,64),preview.error()); original.check("relit impostor capture");
     for(std::size_t i=0;i<views.size();++i)
         require(views[i].albedo.rgba==relit[i].albedo.rgba && views[i].normal.rgba==relit[i].normal.rgba,"Impostors contain preview sun/wind instead of static material attributes");
-    std::vector<ImpostorView> pairAgain;
-    require(preview.captureLod3(pairAgain,64),preview.error()); original.check("LOD3 stable neutral lighting");
-    for(std::size_t i=0;i<2;++i)
-        require(pairAgain[i].albedo.rgba==pair[i].albedo.rgba,"LOD3 bake changes with the preview sun/wind");
-    // A loaded pair must be consumed as-is, not silently overwritten by a new
-    // tree capture. Distinct tinted test images make accidental recapture visible.
+    // Loaded 17-view textures must be used as-is, not silently regenerated.
     s.sunYaw=40; s.sunElevation=45; s.time=s.windStrength=0;
     require(preview.render(s),preview.error()); const auto automaticLod3=pixels(preview);
-    std::vector<ImpostorView> savedPair;
-    require(preview.captureLod3(savedPair,256),preview.error());
-    require(preview.upload(tree,&savedPair) && preview.render(s),preview.error());
+    std::vector<ImpostorView> savedViews;
+    require(preview.captureImpostors(savedViews,256),preview.error());
+    require(preview.upload(tree,&savedViews) && preview.render(s),preview.error());
     const auto reloadedLod3=pixels(preview);
     std::uint64_t colorError=0; std::size_t intersection=0,unionCount=0;
     for(std::size_t i=0;i<automaticLod3.size();i+=4) {
@@ -223,13 +215,44 @@ extern "C" int tree_preview_tests() {
     }
     require(unionCount>100 && double(intersection)/unionCount>.85,"Reloaded LOD3 changed silhouette/orientation");
     require(double(colorError)/(automaticLod3.size()/4*3)<6,"Reloaded LOD3 colors diverge from generated cache");
-    auto supplied=pair;
+    auto supplied=views;
     for(auto& v:supplied) for(std::size_t i=0;i<v.albedo.rgba.size();i+=4) {
         v.albedo.rgba[i]=255; v.albedo.rgba[i+1]=0; v.albedo.rgba[i+2]=255;
     }
     require(preview.upload(tree,&supplied),preview.error()); original.check("LOD3 loaded texture upload");
     require(preview.render(s),preview.error());
     require(difference(automaticLod3,pixels(preview))>100,"Loaded LOD3 textures were ignored or regenerated");
+    // Make each layer a known solid color. Exact capture directions must select
+    // that layer, including back-facing azimuths, the elevated ring and zenith.
+    for(unsigned layer=0;layer<ImpostorViewCount;++layer) {
+        auto& v=supplied[layer];
+        for(std::size_t i=0;i<v.albedo.rgba.size();i+=4) {
+            v.albedo.rgba[i]=layer%3==0?220:20;
+            v.albedo.rgba[i+1]=layer%3==1?220:20;
+            v.albedo.rgba[i+2]=layer%3==2?220:20;
+            v.albedo.rgba[i+3]=255;
+            v.normal.rgba[i]=128; v.normal.rgba[i+1]=255; v.normal.rgba[i+2]=128; v.normal.rgba[i+3]=255;
+        }
+    }
+    require(preview.upload(tree,&supplied),preview.error());
+    s.width=s.height=192;
+    for(unsigned layer=0;layer<ImpostorViewCount;++layer) {
+        s.yaw=float(layer%8)*45; s.pitch=layer<8?15:(layer<16?60:89);
+        require(preview.render(s),preview.error());
+        const auto data=pixels(preview);
+        const auto centre=(96*192+96)*4;
+        const unsigned channel=layer%3;
+        for(unsigned c=0;c<3;++c) if(c!=channel)
+            require(data[centre+channel]>data[centre+c]+30,"LOD3 selected the wrong azimuth/elevation layer");
+    }
+    // Tiny movements across sector, ring and azimuth wrap boundaries must not pop.
+    for(const auto angle:std::array<glm::vec2,5>{{{45,35},{360,40},{20,15},{20,60},{25,85}}}) {
+        s.yaw=angle.x-.001f; s.pitch=angle.y-.001f; require(preview.render(s),preview.error());
+        const auto before=pixels(preview);
+        s.yaw=angle.x+.001f; s.pitch=angle.y+.001f; require(preview.render(s),preview.error());
+        require(difference(before,pixels(preview))<200,"Angular LOD3 transition has a discontinuity");
+    }
+    original.check("17-view selection and transitions");
     if(const char* folder=std::getenv("ENDURANCE_TREE_TEST_CAPTURE_DIR")) {
         for(int familyIndex=0;familyIndex<FamilyCount;++familyIndex) {
             const auto family=static_cast<Family>(familyIndex);
@@ -242,7 +265,7 @@ extern "C" int tree_preview_tests() {
             capture.showLeaves=false; require(preview.render(capture),preview.error());
             writeCapture(preview,std::filesystem::path(folder)/(std::string(familyName(family))+"_wood.ppm"));
             capture.showLeaves=true; capture.showGround=false; capture.lod=3;
-            for(int pitch:{0,22,45}) {
+            for(int pitch:{15,45,80}) {
                 capture.pitch=float(pitch); require(preview.render(capture),preview.error());
                 writeCapture(preview,std::filesystem::path(folder)/(std::string(familyName(family))+"_lod3_"+std::to_string(pitch)+".ppm"));
             }

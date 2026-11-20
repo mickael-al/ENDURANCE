@@ -8,7 +8,11 @@ separate integration step.
 ## Authoring
 
 Open `ENDURANCE/Scene/TreeGeneratorLab.scene` and press Play. The lab owns its preview and
-settings windows, following the existing Climate Noise Lab pattern. Start with
+settings windows, docked inside the main application work area. The host follows
+window movement and resizing; the two panels cannot become detached OS windows.
+The viewport preview fills its panel with a common scale factor while its GPU
+render target is limited to 1600 x 1200 pixels. Use **Masquer le laboratoire** to
+hide it and the component inspector to reopen it. Start with
 a family preset, adjust the seed and structural settings, then generate an
 individual tree. The default procedural leaf-cluster mask makes the tool usable
 without downloading foliage. A supplied PNG leaf mask can replace it: use alpha
@@ -20,9 +24,10 @@ state.
 
 Use **Sauvegarder preset / Charger preset** for authoring settings and
 **Exporter cet arbre** for the currently selected seed. **Generer et exporter le
-lot** creates a seed set using the requested count. Each lab export also writes
-the two LOD3 billboard PNGs (horizontal and 45-degree elevation). The older
-seventeen-view albedo/normal capture remains optional and is disabled by default.
+lot** creates a seed set using the requested count. **Exporter le LOD3 (17 vues)**
+is the only impostor export checkbox and is enabled by default. Uncheck it to
+export just the meshes and their material textures. The former two-view LOD3
+export and renderer have been removed.
 **Recharger le modele sauvegarde** reads an already baked tree without running
 the generator. Orbit the preview by dragging with the left mouse button, pan
 with the middle button, and use its LOD0/LOD1, LOD3 and wireframe controls to inspect
@@ -89,10 +94,8 @@ into the game; the fourteen supplied family presets are tracked.
 | `bark.png` | Repeating precomputed bark modulation |
 | `leaves.png` | Leaf color modulation and cutout alpha |
 | `leaves_mipN.png` | Precomputed coverage-preserving alpha mip levels |
-| `lod3_0.png` | LOD3 color and alpha viewed horizontally at 0-degree elevation |
-| `lod3_45.png` | LOD3 color and alpha viewed at 45-degree elevation |
-| `impostor_N_albedo.png` | Optional unlit, sRGB, straight-alpha capture |
-| `impostor_N_normal.png` | Optional object-space normal capture, linear encoded XYZ |
+| `impostor_N_albedo.png` | Optional LOD3 unlit, sRGB, straight-alpha capture, N = 0..16 |
+| `impostor_N_normal.png` | Matching LOD3 object-space normal capture, linear encoded XYZ, N = 0..16 |
 
 The glTF's default scene contains LOD0. Its second scene contains LOD1; they are
 not superimposed and the file does not assume a particular engine LOD extension.
@@ -110,9 +113,11 @@ It is intentionally not a general glTF importer. ENDURANCE's generic model
 importer currently handles OBJ/FBX, so this does not claim that glTF can already
 be dragged into the ordinary world scene. The exported glTF is usable in
 compatible DCC software, and the restricted loader provides the data for later
-runtime vegetation integration. Version 1 presets and bakes remain readable;
+runtime vegetation integration. Asset format is version 3; recipes remain version
+2 and the generator remains version 2. Version 1/2 presets and bakes remain readable;
 missing root/vine controls default to disabled and missing branch kinds default
-to ordinary wood. Optional LOD3 images reload without reconstructing the tree.
+to ordinary wood. Existing 17-view sets reload directly; old two-view metadata
+is ignored, so those legacy PNGs are no longer required to open a bake.
 
 The manifest records coverage-preserving leaf mips because generic glTF image
 loaders commonly generate their own mip chain. A future runtime importer should
@@ -121,45 +126,47 @@ using uncorrected alpha downsampling. RGB conversion to/from 8-bit sRGB can
 introduce one quantization step on a reloaded grayscale mask; geometry and
 floating-point vertex attributes remain exact.
 
-The optional seventeen-view impostor images are captured without sun or ground shading. For each
-view, the manifest stores `direction` from tree centre toward the camera,
-`up`, `centre`, and orthographic `halfExtent`; both image axes span
-`[-halfExtent, +halfExtent]`. Normal RGB encodes object-space XYZ as
-`normal * 0.5 + 0.5`. This leaves lighting to the runtime and supports changing
-sun direction. This older multi-view set remains asset data for a future runtime
-renderer.
+## 17-view LOD3
 
-## Two-view LOD3
+LOD3 now renders the same 17 views that are exported, using one view-facing quad
+(two triangles). The fixed layout is eight azimuths spaced by 45 degrees at
+15-degree elevation, another eight at 60 degrees, and one zenith view. Roots,
+hanging vines and foliage are captured together within shared tree bounds.
+`manifest.json` records `lod3.type = "multiViewImpostor"`, `viewCount = 17`, and
+references the existing `impostors` array. There are 34 PNGs when enabled: 17
+colors and 17 normals; no separate two-view files are produced.
 
-LOD3 uses one view-facing quad (two triangles) and exactly two RGBA color textures.
-Both captures use the same object-space centre and orthographic half-extent,
-fixed azimuth and elevations of 0 and 45 degrees. The shader blends the views
-according to viewing elevation; beyond that range it uses the nearest endpoint.
-The billboard rotates toward the camera in azimuth. Roots, hanging vines and
-foliage are captured together within the tree bounds.
+Each view records `direction` from tree centre toward the camera, `up`, `centre`,
+and orthographic `halfExtent`; both image axes span `[-halfExtent, +halfExtent]`.
+Albedo is unlit sRGB with straight alpha and top row first. Normal RGB encodes
+object-space XYZ as `normal * 0.5 + 0.5`; its alpha matches the albedo coverage.
+The material is relit using the current preview sun. Unlike the old baked-light
+billboard, changing sun direction does not require recapturing the tree.
 
-The PNGs contain **neutral baked workshop lighting**, encoded as sRGB with
-straight alpha and top row first. They are not unlit albedo textures or normal
-maps. Their lighting does not rotate with a new sun or reproduce moving leaf
-shadows. This deliberate distant approximation removes the branch/leaf geometry
-and normal-texture cost. Two captures cannot preserve all azimuthal asymmetry or
-top-down shape; the transition can also soften details between the viewpoints.
-Use it at distances where those simplifications are acceptable.
+At upload, the preview places the views in two RGBA8 texture arrays. It selects
+at most three neighboring captures on CPU using a triangulated angular grid,
+then blends those layers in the shader. There are at most six texture reads
+per fragment, not 17 pairs. Ray/plane projection aligns the selected capture
+frames, including rotation of the zenith view. Colors are blended in linear
+space with premultiplied coverage; object normals are decoded and normalized.
+A 256-square set occupies approximately 11.3 MiB including both mip chains.
+This uses more texture memory than the former two images but retains azimuthal
+variation and enables relighting without additional geometry.
 
-`manifest.json` records `lod3.type = "twoViewBillboard"` and two `views`, including
-fixed PNG names, `elevationDegrees`, `direction`, `up`, `centre`, `halfExtent`,
-`width` and `height`. Directions point from the tree centre toward the capture
-camera. Consumers must sample the PNGs as sRGB color, keep alpha linear and
-rebuild alpha-aware mipmaps. The supplied preview caches the captures per tree;
-changing the camera does not recapture them. Readback and PNG writes occur only
-for explicit bake/export operations. Its live GPU cache uses linear
-premultiplied-color mipmaps; when loading PNGs, it also adjusts alpha coverage on
-the CPU before uploading those mip levels. Neither path performs per-frame
-image decoding or mip generation.
+A fresh tree builds its inspection cache once on GPU when LOD3 is first selected,
+without readback. Explicit export captures the requested resolution with 2x
+supersampling, reads back albedo/normal images, then writes them in the CPU worker.
+Loading an exported set uses its stored images directly, with alpha-aware mips;
+there is no per-frame decoding, capture or mip generation. If the export checkbox
+was off, or an old bake has no 17-view set, the lab can rebuild its preview cache
+from the loaded mesh. Toggling the export checkbox does not disable inspection.
 
-The laboratory renders this LOD3 for inspection. Forest streaming, automatic
-distance selection and instanced billboard rendering in the world remain the
-separate vegetation-integration step.
+This remains a distant approximation: blending can soften narrow branches,
+there is no depth/parallax texture or reconstructed branch self-shadowing, and
+views below 15 degrees use the lower ring. Preview wind is disabled for LOD3;
+mesh LODs retain animated wind. Forest streaming, automatic distance selection
+and instanced billboard rendering in the world are still the separate
+vegetation-integration step.
 
 ## Performance and scope
 
@@ -197,9 +204,9 @@ mesh/bounds/normal invariants, LOD reduction, mask aspect and alpha coverage,
 invalid settings, cancellation, preset and exact geometry round trips, and safe
 export failure. Bake validation also reads glTF accessors and buffers independently
 in Python, checks private PNG import against global image-flip state, and verifies
-that captured albedo/normals and LOD3 colors are not gamma-converted again during
-publication. Roots/vines, shared budgets, version 1 compatibility and complete
-two-image LOD3 round trips are covered as well.
+that captured albedo/normals are not gamma-converted again during publication.
+Roots/vines, shared budgets, version 1/2 compatibility, malformed view rejection
+and complete 17-view LOD3 round trips are covered as well.
 
 The preview and panel scripts use a real desktop OpenGL context through Linux
 EGL. They require C/C++17 compilers, `libGL`, `libEGL`, and an installed GLEW 2.x
@@ -207,13 +214,14 @@ library; `--glew-object /path/to/glew.o` can supply a PIC GLEW object instead.
 `CC` and `CXX` select the compilers. `--fast-math` is also available for these two
 scripts. They use the actual GLSL, ImGui and rendering helper; only the panel's
 scene/HUD registration methods are stubbed. Tests cover visible wood/foliage,
-LOD and wireframe controls, seventeen albedo/normal impostor views, two-view LOD3
-capture/reload, an actual two-triangle billboard draw, restoration
-of foreign GL state, asynchronous batch/export/reload, stale-result rejection,
-error recovery and cancellation. All output is isolated in temporary directories.
+LOD and wireframe controls, 17-view capture/reload, dynamic lighting, angular
+selection/transition boundaries, an actual two-triangle billboard draw,
+restoration of foreign GL state (including array textures), asynchronous
+batch/export/reload, export checkbox behavior, main-window anchoring on resize
+and movement, stale-result rejection, error recovery and cancellation. All output is isolated in temporary directories.
 
 For visual review, `check_preview.py --captures /tmp/tree-review` writes complete
-and wood-only views for the fourteen presets plus LOD3 views at 0, 22.5 and 45
+and wood-only views for the fourteen presets plus LOD3 views at 15, 45 and 80
 degrees; this optional conversion needs
 Pillow. The validation run used Mesa llvmpipe with GLSL 4.60 enabled. Software GL
 establishes functional correctness, not performance on the target GPU. The actual

@@ -21,16 +21,16 @@ bool loadLeafMask(const std::filesystem::path& path, Image& image, std::string& 
 // Atomically publishes a new directory; existing exports are never overwritten.
 // glTF2 + tree.bin retain linear COLOR_0 and custom _WIND data. PNG base colors
 // are sRGB encoded; manifest.json carries the skeleton and alpha coverage mips.
-// lod3, when supplied, is exactly two neutral-lit RGBA captures at 0/45-degree
-// elevation. Their sRGB bytes are written unchanged; no normal PNGs are emitted.
+// Optional LOD3: exactly 17 unlit albedo/object-normal views. PNG bytes retain
+// their sRGB color / linear normal encoding, with straight alpha coverage.
 bool bake(const Tree& tree, const std::filesystem::path& directory, std::string& error,
-          const std::vector<ImpostorView>* impostors = nullptr,
-          const std::vector<ImpostorView>* lod3 = nullptr);
+          const std::vector<ImpostorView>* impostors = nullptr);
 
 // Restricted reader for our versioned generated assets, not a general glTF
 // importer. Does not regenerate geometry and does not call OpenGL.
 // The optional LOD3 output retains sRGB color bytes, not linear mask bytes.
-// Older assets without a paired billboard load successfully with an empty vector.
+// Legacy two-view billboards are ignored. Without 17 views the vector is empty;
+// the lab can rebuild its preview cache from the loaded mesh.
 bool loadBakedTree(const std::filesystem::path& directory, Tree& tree, std::string& error,
                    std::vector<ImpostorView>* lod3 = nullptr);
 }

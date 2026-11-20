@@ -108,9 +108,9 @@ void runPanel()
         requirePanel(loaded.params.seed==baseSeed+i && loaded.leafMask.rgba==opaque.rgba,
                      "Batch changed source mask or repeated seed");
         requirePanel(loaded.statistics.roots==4 && loaded.statistics.vines==6,"Batch lost optional structures");
-        requirePanel(views.size()==2 && views[0].albedo.width==64,"Ordinary batch export did not save two LOD3 images");
-        requirePanel(std::filesystem::is_regular_file(exports[i]/"lod3_0.png") && std::filesystem::is_regular_file(exports[i]/"lod3_45.png"),"Missing automatically saved LOD3 PNGs");
-        requirePanel(!std::filesystem::exists(exports[i]/"impostor_0_albedo.png"),"Disabled multi-view bake still generated legacy images");
+        requirePanel(views.empty(),"Disabled LOD3 export still saved an impostor");
+        requirePanel(!std::filesystem::exists(exports[i]/"lod3_0.png") && !std::filesystem::exists(exports[i]/"lod3_45.png"),"Legacy two-view PNGs were exported");
+        requirePanel(!std::filesystem::exists(exports[i]/"impostor_0_albedo.png"),"Disabled LOD3 export generated images");
     }
     requirePanel(owner.parameters.seed==baseSeed+1,"Batch controls disagree with visible variant");
     // Capture stays on the GL thread; the worker writes PNG/mesh files.
@@ -119,6 +119,19 @@ void runPanel()
     requirePanel(panel.m_error.empty(),"Capture + asynchronous export: "+panel.m_error);
     requirePanel(std::filesystem::is_regular_file(std::filesystem::u8path(panel.m_loadPath)/"impostor_16_normal.png"),
                  "Full panel export missed elevated/top impostors");
+    {
+        Tree loaded; std::string error; std::vector<ImpostorView> views;
+        requirePanel(loadBakedTree(std::filesystem::u8path(panel.m_loadPath),loaded,error,&views) && validImpostors(views),
+                     "Full LOD3 export could not reload: "+error);
+        unsigned count=0;
+        for(const auto& file:std::filesystem::directory_iterator(std::filesystem::u8path(panel.m_loadPath)))
+            if(file.path().filename().string().find("impostor_")==0) ++count;
+        requirePanel(count==34,"Full LOD3 must export 17 color and 17 normal PNGs");
+    }
+    panel.startLoad(); waitPanel(panel);
+    requirePanel(panel.m_error.empty(),"Panel failed to load exported 17-view LOD3: "+panel.m_error);
+    panel.m_view.lod=3;
+    requirePanel(panel.m_preview.render(panel.m_view),"Imported LOD3 cannot render");
     panel.m_bakeImpostors=false;
 
     panel.m_loadPath=exports.front().u8string(); panel.startLoad(); waitPanel(panel);
@@ -147,12 +160,25 @@ void runPanel()
     panel.startBatch(4); panel.m_cancel->store(true); waitPanel(panel);
     requirePanel(panel.m_batchCount==0 && !panel.busy(),"Batch cancellation continued scheduling work");
 
-    // Exercise actual widgets/dock/image commands with the same GL context.
-    for(int frame=0;frame<3;++frame) {
+    // Exercise real layout on resize and a moved main viewport. The host and
+    // both panels must remain attached to it, including restored .ini positions.
+    for(int frame=0;frame<6;++frame) {
+        io.DisplaySize=frame<3?ImVec2(1400,1000):ImVec2(1920,1080);
         ImGui::NewFrame();
-        ImGui::SetNextWindowPos({0,0}); ImGui::SetNextWindowSize({1300,900});
+        ImGuiViewport* main=ImGui::GetMainViewport();
+        if(frame>=3) { main->Pos={120,70}; main->WorkPos={120,95}; main->WorkSize={1920,1055}; }
         panel.render(nullptr); ImGui::Render();
         requirePanel(ImGui::GetDrawData()->TotalVtxCount>0,"Lab panel rendered no widgets");
+        const auto* host=ImGui::FindWindowByName("Tree Generator Lab");
+        requirePanel(host && host->Viewport==main && host->Pos.x==main->WorkPos.x && host->Pos.y==main->WorkPos.y
+                     && host->Size.x==main->WorkSize.x && host->Size.y==main->WorkSize.y,"Lab did not follow main work area");
+        for(const char* name:{"Reglages##TreeLab","Apercu 3D##TreeLab"}) {
+            const auto* child=ImGui::FindWindowByName(name);
+            requirePanel(child && child->DockId!=0 && child->Viewport==main,"Panel detached from main application");
+            requirePanel(child->DockNode && (child->DockNode->MergedFlags & ImGuiDockNodeFlags_NoUndocking),
+                         "Panel can escape the lab dockspace");
+        }
+        requirePanel(panel.m_view.width<=1600 && panel.m_view.height<=1200,"Large window exceeded preview GPU budget");
     }
     requirePanel(glGetError()==GL_NO_ERROR,"OpenGL error from production panel lifecycle");
     // Destructor must cancel and join its outstanding worker safely.

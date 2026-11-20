@@ -117,10 +117,8 @@ void TreeGeneratorLabPanel::startExport()
     if(!m_tree || busy()) return;
     try
     {
-        std::vector<EnduranceTrees::ImpostorView> views, lod3;
-        if(!m_preview.captureLod3(lod3,m_impostorResolution))
-            throw std::runtime_error(m_preview.error());
-        if(m_batchImpostors && !m_preview.captureImpostors(views,m_impostorResolution,8,true))
+        std::vector<EnduranceTrees::ImpostorView> views;
+        if(m_batchImpostors && !m_preview.captureImpostors(views,m_impostorResolution))
             throw std::runtime_error(m_preview.error());
         m_previewDirty=true;
         const auto tree=m_tree;
@@ -128,12 +126,12 @@ void TreeGeneratorLabPanel::startExport()
             ("tree_"+std::to_string(m_batchIndex+1)+"_seed_"+std::to_string(tree->params.seed));
         m_cancel=std::make_shared<std::atomic_bool>(false);
         const auto cancel=m_cancel;
-        m_job=std::async(std::launch::async,[tree,path,views=std::move(views),lod3=std::move(lod3),cancel]() {
+        m_job=std::async(std::launch::async,[tree,path,views=std::move(views),cancel]() {
             Result result;
             try
             {
                 if(cancel->load()) { result.cancelled=true; return result; }
-                if(EnduranceTrees::bake(*tree,path,result.error,views.empty()?nullptr:&views,&lod3))
+                if(EnduranceTrees::bake(*tree,path,result.error,views.empty()?nullptr:&views))
                     result.path=path.u8string();
             }
             catch(const std::exception& e) { result.error=e.what(); }
@@ -241,20 +239,33 @@ void TreeGeneratorLabPanel::fitCamera()
 void TreeGeneratorLabPanel::buildDock(ImGuiID id,ImVec2 size)
 {
     ImGui::DockBuilderRemoveNode(id);
-    ImGui::DockBuilderAddNode(id,ImGuiDockNodeFlags_DockSpace);
+    ImGui::DockBuilderAddNode(id,ImGuiDockNodeFlags_DockSpace|ImGuiDockNodeFlags_NoUndocking);
     ImGui::DockBuilderSetNodeSize(id,size);
-    ImGuiID right=id;
-    const ImGuiID left=ImGui::DockBuilderSplitNode(right,ImGuiDir_Left,0.32f,nullptr,&right);
-    ImGui::DockBuilderDockWindow("Reglages##TreeLab",left);
-    ImGui::DockBuilderDockWindow("Apercu 3D##TreeLab",right);
+    m_previewDock=id;
+    m_settingsDock=ImGui::DockBuilderSplitNode(id,ImGuiDir_Left,0.32f,nullptr,&m_previewDock);
+    ImGui::DockBuilderDockWindow("Reglages##TreeLab",m_settingsDock);
+    ImGui::DockBuilderDockWindow("Apercu 3D##TreeLab",m_previewDock);
     ImGui::DockBuilderFinish(id); m_resetDock=false;
 }
 void TreeGeneratorLabPanel::render(GraphicsDataMisc*)
 {
     poll();
     if(!m_owner.showWindow) return;
-    ImGui::SetNextWindowSize(ImVec2(1450,900),ImGuiCond_FirstUseEver);
-    const bool visible=ImGui::Begin("Tree Generator Lab",nullptr,ImGuiWindowFlags_MenuBar);
+    // Occupy the application's work area, including platform-window movement.
+    // Never leave the laboratory in a detached OS viewport restored from .ini.
+    const ImGuiViewport* viewport=ImGui::GetMainViewport();
+    ImGui::SetNextWindowViewport(viewport->ID);
+    ImGui::SetNextWindowPos(viewport->WorkPos,ImGuiCond_Always);
+    ImGui::SetNextWindowSize(viewport->WorkSize,ImGuiCond_Always);
+    ImGui::SetNextWindowDockID(0,ImGuiCond_Always);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding,0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize,0.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding,ImVec2(0,0));
+    const bool visible=ImGui::Begin("Tree Generator Lab",nullptr,ImGuiWindowFlags_MenuBar|
+        ImGuiWindowFlags_NoTitleBar|ImGuiWindowFlags_NoMove|ImGuiWindowFlags_NoResize|
+        ImGuiWindowFlags_NoCollapse|ImGuiWindowFlags_NoDocking|ImGuiWindowFlags_NoSavedSettings|
+        ImGuiWindowFlags_NoScrollbar|ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::PopStyleVar(3);
     if(visible)
     {
         if(ImGui::BeginMenuBar())
@@ -266,11 +277,12 @@ void TreeGeneratorLabPanel::render(GraphicsDataMisc*)
                 else m_error=m_preview.error(); // Preserve a working previous program.
                 m_previewDirty=true;
             }
+            if(ImGui::MenuItem("Masquer le laboratoire")) m_owner.showWindow=false;
             ImGui::EndMenuBar();
         }
         const auto dock=ImGui::GetID("TreeGeneratorLabDock");
         if(m_resetDock || !ImGui::DockBuilderGetNode(dock)) buildDock(dock,ImGui::GetContentRegionAvail());
-        ImGui::DockSpace(dock,ImVec2(0,0));
+        ImGui::DockSpace(dock,ImVec2(0,0),ImGuiDockNodeFlags_NoUndocking);
     }
     ImGui::End();
     if(!visible) return;
@@ -282,6 +294,8 @@ void TreeGeneratorLabPanel::render(GraphicsDataMisc*)
 }
 void TreeGeneratorLabPanel::drawSettings()
 {
+    ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+    ImGui::SetNextWindowDockID(m_settingsDock,ImGuiCond_Always);
     if(!ImGui::Begin("Reglages##TreeLab")) { ImGui::End(); return; }
     auto& p=m_owner.parameters;
     ImGui::TextWrapped("Generation hors jeu : courbes, branches et feuillage sont calcules sur CPU puis sauvegardes.");
@@ -381,12 +395,13 @@ void TreeGeneratorLabPanel::drawSettings()
     ImGui::BeginDisabled(busy() || m_batchCount>0);
     inputPath("Dossier de sortie",m_owner.exportDirectory);
     ImGui::SliderInt("Variantes",&m_owner.bakeCount,1,32);
-    ImGui::TextWrapped("Chaque export inclut le LOD3 : deux PNG transparents, vues a 0 et 45 degres.");
+    ImGui::Checkbox("Exporter le LOD3 (17 vues)",&m_bakeImpostors);
+    if(m_bakeImpostors)
     {
         int selection=m_impostorResolution==256?1:0;
         if(ImGui::Combo("Resolution par vue",&selection,"128\0 256\0")) m_impostorResolution=selection?256:128;
     }
-    ImGui::Checkbox("Ajouter les 17 vues d'imposteurs",&m_bakeImpostors);
+    ImGui::TextWrapped("LOD3 : 17 vues avec couleur et normales. Decoche : exporter uniquement les maillages et leurs textures.");
     ImGui::BeginDisabled(!m_tree || m_dirty);
     if(ImGui::Button("Exporter cet arbre")) startBatch(1);
     ImGui::SameLine();
@@ -420,11 +435,13 @@ void TreeGeneratorLabPanel::drawSettings()
 }
 void TreeGeneratorLabPanel::drawPreview()
 {
+    ImGui::SetNextWindowViewport(ImGui::GetMainViewport()->ID);
+    ImGui::SetNextWindowDockID(m_previewDock,ImGuiCond_Always);
     if(!ImGui::Begin("Apercu 3D##TreeLab")) { ImGui::End(); return; }
     if(ImGui::Button("Cadrer")) fitCamera();
     ImGui::SameLine(); m_previewDirty|=ImGui::RadioButton("LOD0",&m_view.lod,0);
     ImGui::SameLine(); m_previewDirty|=ImGui::RadioButton("LOD1",&m_view.lod,1);
-    ImGui::SameLine(); m_previewDirty|=ImGui::RadioButton("LOD3 (quad)",&m_view.lod,3);
+    ImGui::SameLine(); m_previewDirty|=ImGui::RadioButton("LOD3 (imposteur)",&m_view.lod,3);
     ImGui::SameLine(); m_previewDirty|=ImGui::Checkbox("Fil de fer",&m_view.wireframe);
     ImGui::BeginDisabled(m_view.lod==3);
     m_previewDirty|=ImGui::Checkbox("Bois",&m_view.showWood); ImGui::SameLine();
@@ -432,20 +449,24 @@ void TreeGeneratorLabPanel::drawPreview()
     ImGui::EndDisabled(); ImGui::SameLine();
     m_previewDirty|=ImGui::Checkbox("Sol",&m_view.showGround);
     if(m_view.lod==3)
-        ImGui::TextWrapped("LOD3 : 2 triangles, deux vues selon l'elevation de la camera. Eclairage neutre precalcule ; approximation pour les arbres lointains.");
+        ImGui::TextWrapped("LOD3 : 2 triangles, 17 vues disponibles. Jusqu'a 3 vues voisines melangees selon la camera ; eclairage dynamique.");
     if(ImGui::CollapsingHeader("Lumiere et vent de l'apercu"))
     {
-        ImGui::BeginDisabled(m_view.lod==3);
         m_previewDirty|=ImGui::SliderFloat("Azimut soleil",&m_view.sunYaw,-180,180);
         m_previewDirty|=ImGui::SliderFloat("Elevation soleil",&m_view.sunElevation,5,85);
+        ImGui::BeginDisabled(m_view.lod==3);
         m_previewDirty|=ImGui::SliderFloat("Vent",&m_view.windStrength,0,1);
         ImGui::EndDisabled();
-        ImGui::TextWrapped("Lumiere et vent interactifs sur les maillages. Le LOD3 utilise ses deux images precalculees ; les 17 vues optionnelles stockent albedo et normales.");
+        ImGui::TextWrapped("La lumiere reste modifiable sur le LOD3. Le vent anime uniquement les maillages.");
     }
     ImGui::TextDisabled("Glisser gauche : orbite | milieu : deplacer | molette : zoom");
     const ImVec2 avail=ImGui::GetContentRegionAvail();
-    const int w=std::clamp(static_cast<int>(avail.x),64,1600);
-    const int h=std::clamp(static_cast<int>(avail.y),64,1200);
+    const ImVec2 display((std::max)(avail.x,1.0f),(std::max)(avail.y,1.0f));
+    // Fill the available panel while bounding GPU cost. Scale both axes together
+    // so wide/tall dock layouts cannot stretch the tree or waste panel space.
+    const float scale=(std::min)({1.0f,1600.0f/display.x,1200.0f/display.y});
+    const int w=(std::max)(16,static_cast<int>(display.x*scale));
+    const int h=(std::max)(16,static_cast<int>(display.y*scale));
     if(w!=m_view.width || h!=m_view.height) { m_view.width=w; m_view.height=h; m_previewDirty=true; }
     if(m_view.windStrength>0 && m_view.lod!=3) { m_view.time=static_cast<float>(ImGui::GetTime()); m_previewDirty=true; }
     if(m_gpuReady && m_tree && m_previewDirty)
@@ -456,7 +477,7 @@ void TreeGeneratorLabPanel::drawPreview()
     if(m_preview.texture())
     {
         ImGui::Image(reinterpret_cast<ImTextureID>(static_cast<std::intptr_t>(m_preview.texture())),
-            ImVec2(static_cast<float>(w),static_cast<float>(h)),ImVec2(0,1),ImVec2(1,0));
+            display,ImVec2(0,1),ImVec2(1,0));
         if(ImGui::IsItemHovered())
         {
             const auto& io=ImGui::GetIO();

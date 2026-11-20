@@ -28,7 +28,8 @@ namespace
 {
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
-constexpr std::uint32_t AssetVersion = 2;
+constexpr std::uint32_t AssetVersion = 3;
+constexpr std::uint32_t PresetVersion = 2;
 constexpr std::size_t MaxFileBytes = 256u * 1024u * 1024u;
 constexpr std::size_t MaxVertices = 1000000u;
 constexpr std::size_t MaxIndices = 6000000u;
@@ -140,7 +141,7 @@ Params decodeParams(const Json& j)
 }
 Json presetJson(const Params& p)
 {
-    return {{"format", PresetTag}, {"version", AssetVersion},
+    return {{"format", PresetTag}, {"version", PresetVersion},
             {"generatorVersion", GeneratorVersion}, {"params", encodeParams(p)}};
 }
 std::string readText(const fs::path& path, std::size_t limit = 4u * 1024u * 1024u)
@@ -381,34 +382,7 @@ Json collisionCapsules(const Tree& tree)
     }
     return capsules;
 }
-void validateLod3(const std::vector<ImpostorView>& views)
-{
-    require(views.size() == 2, "LOD3 requires exactly two views (0 and 45 degrees)");
-    for(std::size_t i=0;i<views.size();++i)
-    {
-        const auto& v=views[i];
-        require(validImage(v.albedo) && v.albedo.width <= 2048 && v.albedo.height == v.albedo.width,
-                "Invalid square LOD3 color image");
-        require(finite(v.halfExtent) && v.halfExtent > 0.0f, "Invalid LOD3 extent");
-        for(int c=0;c<3;++c)
-            require(finite(v.direction[c]) && finite(v.up[c]) && finite(v.centre[c]), "Invalid LOD3 camera");
-        const float directionLength=glm::dot(v.direction,v.direction),upLength=glm::dot(v.up,v.up);
-        require(directionLength > 0.99f && directionLength < 1.01f && upLength > 0.99f && upLength < 1.01f
-                && std::abs(glm::dot(v.direction,v.up)) < 0.999f, "Invalid LOD3 camera basis");
-        const float expectedY=i == 0 ? 0.0f : 0.7071067812f;
-        require(std::abs(v.direction.y-expectedY) < 0.005f, "LOD3 view elevations must be 0 and 45 degrees");
-    }
-    const auto& a=views[0]; const auto& b=views[1];
-    require(a.albedo.width == b.albedo.width && a.albedo.height == b.albedo.height, "LOD3 image sizes differ");
-    require(glm::length(a.centre-b.centre) < 0.001f
-            && std::abs(a.halfExtent-b.halfExtent) <= (std::max)(0.001f,a.halfExtent*0.0001f),
-            "LOD3 views must share centre and extent");
-    const glm::vec2 h0=glm::normalize(glm::vec2(a.direction.x,a.direction.z));
-    const glm::vec2 h1=glm::normalize(glm::vec2(b.direction.x,b.direction.z));
-    require(glm::dot(h0,h1) > 0.999f, "LOD3 views must share azimuth");
-}
-void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<ImpostorView>* impostors,
-                const std::vector<ImpostorView>* lod3)
+void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<ImpostorView>* impostors)
 {
     require(!tree.cancelled, "Cannot bake a cancelled generation");
     require(!tree.lods[0].wood.vertices.empty() && !tree.lods[1].wood.vertices.empty(), "Tree has no wood geometry");
@@ -465,19 +439,10 @@ void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<I
     manifest["impostors"] = Json::array();
     if (impostors)
     {
-        require(impostors->size() <= 64, "Too many impostor views");
+        require(validImpostors(*impostors), "LOD3 requires the 17 matching albedo/normal views in the standard layout");
         for (std::size_t i = 0; i < impostors->size(); ++i)
         {
             const auto& view = (*impostors)[i];
-            require(finite(view.halfExtent) && view.halfExtent > 0.0f, "Invalid impostor extent");
-            for (int c=0; c<3; ++c)
-                require(finite(view.direction[c]) && finite(view.up[c]) && finite(view.centre[c]), "Invalid impostor camera");
-            const float viewLength = glm::dot(view.direction, view.direction);
-            const float upLength = glm::dot(view.up, view.up);
-            require(viewLength > 0.99f && viewLength < 1.01f && upLength > 0.99f && upLength < 1.01f
-                    && std::abs(glm::dot(view.direction, view.up)) < 0.999f, "Invalid impostor camera basis");
-            require(view.albedo.width == view.normal.width && view.albedo.height == view.normal.height,
-                    "Impostor image dimensions differ");
             const std::string base = "impostor_" + std::to_string(i);
             writeImage(directory / (base + "_albedo.png"), view.albedo, false);
             writeImage(directory / (base + "_normal.png"), view.normal, false);
@@ -488,26 +453,11 @@ void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<I
                 {"albedoEncoding", "sRGB, straight alpha"}, {"normalEncoding", "object space, xyz * 0.5 + 0.5, linear"}});
         }
     }
-    if(lod3)
-    {
-        validateLod3(*lod3);
-        Json views=Json::array();
-        for(std::size_t i=0;i<lod3->size();++i)
-        {
-            const auto& v=(*lod3)[i];
-            const std::string file=i == 0 ? "lod3_0.png" : "lod3_45.png";
-            // Capture output already contains sRGB color; never gamma-encode twice.
-            writeImage(directory/file,v.albedo,false);
-            views.push_back({{"uri",file},{"elevationDegrees",i == 0 ? 0 : 45},
-                {"direction",vectorJson(v.direction)},{"up",vectorJson(v.up)},
-                {"centre",vectorJson(v.centre)},{"halfExtent",v.halfExtent},
-                {"width",v.albedo.width},{"height",v.albedo.height}});
-        }
-        manifest["lod3"]={{"type","twoViewBillboard"},{"views",views},
-            {"colorEncoding","sRGB, straight alpha"},{"lighting","neutral baked lighting"},
-            {"alphaCutoff",0.5},{"triangles",2},
-            {"cameraConvention","Elevation from horizon; same azimuth; camera = centre + direction * distance; orthographic square"}};
-    }
+    if(impostors)
+        manifest["lod3"]={{"type","multiViewImpostor"},{"viewCount",ImpostorViewCount},
+            {"views","impostors"},{"triangles",2},{"maxBlendedViews",3},{"alphaCutoff",0.5},
+            {"layout","8 azimuths at 15 degrees, 8 at 60 degrees, zenith"},
+            {"lighting","unlit albedo and object-space normals; relight at runtime"}};
     writeJson(directory / "manifest.json", manifest);
 }
 std::size_t sizeNumber(const Json& j, std::size_t limit)
@@ -577,7 +527,7 @@ bool paramsFromJson(const std::string& text, Params& params, std::string& error)
         require(text.size() <= 4u*1024u*1024u, "Preset exceeds size limit");
         const Json j = Json::parse(text);
         require(j.at("format") == PresetTag, "Not an ENDURANCE tree preset");
-        integer(j.at("version"),1,AssetVersion);
+        integer(j.at("version"),1,PresetVersion);
         integer(j.at("generatorVersion"),1,GeneratorVersion);
         Params result = decodeParams(j.at("params"));
         params = result; error.clear(); return true;
@@ -621,7 +571,7 @@ bool loadLeafMask(const fs::path& path, Image& image, std::string& error)
     catch (const std::exception& e) { error=e.what(); return false; }
 }
 bool bake(const Tree& tree, const fs::path& directory, std::string& error,
-          const std::vector<ImpostorView>* impostors, const std::vector<ImpostorView>* lod3)
+          const std::vector<ImpostorView>* impostors)
 {
     try
     {
@@ -631,7 +581,7 @@ bool bake(const Tree& tree, const fs::path& directory, std::string& error,
         const fs::path parent = directory.has_parent_path() ? directory.parent_path() : fs::path(".");
         fs::create_directories(parent);
         TemporaryPath staging{reserveDirectory(parent, directory.filename().string())};
-        buildAsset(tree, staging.path, impostors, lod3);
+        buildAsset(tree, staging.path, impostors);
         require(!fs::exists(directory), "Export directory appeared during bake; it was not replaced");
         fs::rename(staging.path, directory);
         staging.path.clear(); error.clear(); return true;
@@ -644,7 +594,7 @@ bool loadBakedTree(const fs::path& directory, Tree& tree, std::string& error, st
     {
         const Json manifest = Json::parse(readText(directory / "manifest.json", 32u*1024u*1024u));
         require(manifest.at("format") == AssetTag, "Not an ENDURANCE baked tree");
-        integer(manifest.at("version"),1,AssetVersion);
+        const auto version=integer(manifest.at("version"),1,AssetVersion);
         integer(manifest.at("generatorVersion"),1,GeneratorVersion);
         Tree result;
         result.params = decodeParams(manifest.at("params"));
@@ -709,24 +659,34 @@ bool loadBakedTree(const fs::path& directory, Tree& tree, std::string& error, st
             require(glm::all(glm::greaterThanEqual(v.position,result.boundsMin-glm::vec3(0.001f)))
                     && glm::all(glm::lessThanEqual(v.position,result.boundsMax+glm::vec3(0.001f))), "Mesh lies outside cached bounds");
         std::vector<ImpostorView> billboard;
-        if(lod3 && manifest.contains("lod3"))
+        // v1/v2 used the same 17-view export layout. The separate two-image
+        // billboard from v2 is deliberately not loaded; meshes remain readable.
+        if(lod3 && manifest.contains("impostors") && !manifest.at("impostors").empty())
         {
-            const auto& description=manifest.at("lod3");
-            require(description.at("type") == "twoViewBillboard", "Unsupported LOD3 representation");
-            const auto& views=description.at("views");
-            require(views.is_array() && views.size() == 2, "Expected two cached LOD3 views");
-            for(std::size_t i=0;i<views.size();++i)
+            const auto& views=manifest.at("impostors");
+            require(views.is_array() && views.size()==ImpostorViewCount, "Expected 17 cached LOD3 views");
+            if(version>=3)
+            {
+                const auto& description=manifest.at("lod3");
+                require(description.at("type")=="multiViewImpostor" &&
+                        description.at("viewCount")==ImpostorViewCount, "Unsupported LOD3 representation");
+            }
+            billboard.reserve(ImpostorViewCount);
+            for(unsigned i=0;i<ImpostorViewCount;++i)
             {
                 const auto& j=views[i]; ImpostorView v;
-                const std::string file=i == 0 ? "lod3_0.png" : "lod3_45.png";
-                require(j.at("uri") == file && j.at("elevationDegrees") == (i == 0 ? 0 : 45), "Invalid LOD3 image path or angle");
-                v.albedo=readImage(directory/file,2048,false,32u*1024u*1024u);
-                require(j.at("width") == v.albedo.width && j.at("height") == v.albedo.height, "LOD3 image extent differs from metadata");
+                const std::string base="impostor_"+std::to_string(i);
+                require(j.at("albedo")==base+"_albedo.png" && j.at("normal")==base+"_normal.png",
+                        "Invalid LOD3 image path");
+                v.albedo=readImage(directory/(base+"_albedo.png"),2048,false,32u*1024u*1024u);
+                v.normal=readImage(directory/(base+"_normal.png"),2048,false,32u*1024u*1024u);
+                require(j.at("width")==v.albedo.width && j.at("height")==v.albedo.height,
+                        "LOD3 image extent differs from metadata");
                 v.direction=readVector(j.at("direction")); v.up=readVector(j.at("up"));
                 v.centre=readVector(j.at("centre")); v.halfExtent=j.at("halfExtent").get<float>();
                 billboard.push_back(std::move(v));
             }
-            validateLod3(billboard);
+            require(validImpostors(billboard), "Invalid cached LOD3 images or camera layout");
         }
         tree=std::move(result);
         if(lod3) *lod3=std::move(billboard);
