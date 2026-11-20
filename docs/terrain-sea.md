@@ -35,10 +35,10 @@ révision plutôt que de conserver des carrés devenus incompatibles.
   marin partage la réduction existante des signes de densité. Le cas particulier
   d'une matrice personnalisée contenant Marine conserve une vérification exacte.
 - Un carré représente une instance de **16 octets** : coordonnées entières XZ,
-  LOD et masque des raccords. Tous utilisent une même grille indexée **8 × 8** :
-  81 positions générées par le vertex shader et un buffer partagé de 768 octets
-  d'indices uint16. Il n'y a pas de mesh ni de matériau alloué par chunk.
-- Un seul `glDrawElementsInstanced` dessine la liste non vide. Le clipping matériel
+  LOD et padding. Le vertex shader génère six sommets pour **deux triangles**,
+  sans grille subdivisée, buffer d'indices ni déplacement géométrique.
+  Il n'y a pas de mesh ni de matériau alloué par chunk.
+- Un seul `glDrawArraysInstanced` dessine la liste non vide. Le clipping matériel
   rejette les triangles hors écran ; aucun nouvel algorithme de culling GPU.
 - L'upload n'a lieu qu'à la publication d'une couverture ou au changement des
   paramètres du plan. Le buffer grandit seulement quand sa capacité est dépassée.
@@ -80,18 +80,22 @@ composant retire son callback avant de détruire ses ressources.
 
 - `ENDURANCE/Ressources/Shader/Water/sea.fs.glsl` : variante de
   `Asset/Shader/water_transparency.fs.glsl`. Couleurs, transparence, profondeur de
-  coloration, écume, fréquence et force des normales sont des constantes dans
+  coloration et écume sont des constantes dans
   `main()`. Les couleurs sont en espace linéaire HDR.
 - La transition colorée atteint maintenant sa couleur profonde à **36 m** de
   séparation en Z de vue, contre 12 m auparavant. `shallowColor` devient cyan
   `(0.025, 0.24, 0.27)` ; `deepColor` reste `(0.006, 0.025, 0.045)`.
   Ce réglage ne change pas la précision ni la portée du depth buffer.
 - `ENDURANCE/Ressources/Shader/Water/sea.vs.glsl` : placement du plan et décodage
-  des instances, raccords des grilles et déplacement vertical.
-- `ENDURANCE/Ressources/Shader/Water/sea_waves.glsl` : bruit partagé et fonction
-  `seaLargeWave`. Réglages initiaux : amplitude 2 m, échelle 320 m, translation
-  `(3.5, 1.5)` m/s avec `ubd.u_time`. Il s'agit de vagues procédurales, sans
-  simulation de fluide. Leur pente analytique contribue à l'éclairage.
+  des instances. Tous les sommets restent exactement à `seaLevel`.
+- `ENDURANCE/Ressources/Shader/Water/sea_noise.glsl` : bruit et fonction
+  `seaRippleSlope` pour les normales uniquement. `frequency = 0.125` définit
+  l'échelle du bruit, `heightAmplitude = 0.40` la hauteur virtuelle utilisée par
+  l'éclairage, et `velocity = (0.56, 0.28)` son animation avec `ubd.u_time`.
+  La pente tient compte de l'amplitude et de la fréquence : coefficient **0.05**,
+  contre 0.22 précédemment, soit des pentes **4,4 fois plus faibles** avant
+  filtrage. Augmenter/diminuer `heightAmplitude` renforce/adoucit les normales
+  sans déplacer le moindre sommet.
 - `ANTAGONIZ/Source/ProjectUser/EnduranceSea.cpp` : ressources, uploads et dessin.
 - `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainSea.hpp` : format des tuiles et
   règle d'appartenance verticale.
@@ -102,12 +106,10 @@ Les normales sont animées en coordonnées monde, avec dérivée analytique du b
 et atténuation des détails sous-pixel. Le motif reste continu entre les tuiles.
 L'écume n'est évaluée que près des intersections opaques.
 
-Sur un bord voisin d'une tuile deux fois plus grande, les sommets impairs de la
-grille fine se rabattent sur le sommet pair précédent. Les deux côtés utilisent
-ainsi les mêmes segments, même pendant l'animation. Le masque provient de la
-transaction de LOD existante. Les grandes vagues s'atténuent entre 2 et 4 km de la
-caméra pour limiter le sous-échantillonnage des grilles lointaines ; cette
-atténuation dépend de la position monde, jamais du LOD de la tuile.
+La surface étant plane, les frontières des tuiles restent des segments droits,
+quel que soit leur LOD. Aucun masque de raccord ni calcul de bruit n'est nécessaire
+dans le vertex shader. L'animation des normales demeure continue en coordonnées
+monde et s'atténue quand ses détails deviennent plus petits qu'un pixel.
 
 La surface reste visible des deux côtés. Elle n'ajoute ni réfraction de l'image
 ni brouillard sous-marin. Le tri général des objets transparents immergés reste celui du moteur.
@@ -116,7 +118,7 @@ Les tests logiciels valident le fonctionnement, pas le coût sur la carte du jou
 ## Validation visuelle dans le projet
 
 1. Ouvrir la scène terrain, choisir **Fond marin**, puis régénérer. Le compteur
-   `Mer : ... tuiles` doit devenir non nul et la surface onduler autour du `seaLevel` choisi.
+   `Mer : ... tuiles` doit devenir non nul et la surface rester au `seaLevel` choisi.
 2. Passer en automatique, traverser les limites de LOD et s'éloigner/revenir.
    Vérifier l'absence de doubles surfaces, de fentes et de disparition pendant un remplacement.
 3. Regarder une intersection avec le terrain, puis tourner la caméra vers

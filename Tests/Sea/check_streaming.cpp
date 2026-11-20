@@ -35,7 +35,7 @@ std::set<TileId> tileIds(const std::vector<ProceduralTerrain::SeaTile>& tiles)
 {
     std::set<TileId> result;
     for(const auto& tile:tiles) {
-        require((tile.transitionMask&~0x33u)==0,"sea tile has non-horizontal transition flags");
+        require(tile.padding==0,"sea tile padding not deterministic");
         require(result.emplace(tile.baseX,tile.baseZ,tile.lod).second,"duplicate sea tile");
     }
     return result;
@@ -112,8 +112,8 @@ void checkSea(const ProceduralGeneration& generator,
         const auto found=std::find_if(tiles.begin(),tiles.end(),[&](const auto& tile) {
             return tile.baseX==chunk.origin[0]/64 && tile.baseZ==chunk.origin[2]/64 && tile.lod==chunk.lod;
         });
-        require(found!=tiles.end() && found->transitionMask==(chunk.transitionMask&0x33u),
-                "sea edge stitching does not follow the published LOD transaction");
+        require(found!=tiles.end() && found->padding==0,
+                "sea tile metadata is not initialized with the published LOD transaction");
     }
     require(tileIds(tiles)==expected,"water does not match published marine coverage, including EMPTY chunks");
     for(std::size_t i=0;i<tiles.size();++i) {

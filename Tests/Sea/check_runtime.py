@@ -28,7 +28,7 @@ constexpr GLenum GL_NO_ERROR=0,GL_OUT_OF_MEMORY=1,GL_INVALID_OPERATION=2,
  GL_SHADER_STORAGE_BUFFER_BINDING=10,GL_SHADER_STORAGE_BUFFER_START=11,
  GL_SHADER_STORAGE_BUFFER_SIZE=12,GL_CULL_FACE=13,GL_DEPTH_WRITEMASK=14,
  GL_TEXTURE_2D=15,GL_TEXTURE_2D_ARRAY=16,GL_SHADER_STORAGE_BUFFER=17,GL_TRIANGLES=18,
- GL_STATIC_DRAW=19,GL_UNSIGNED_SHORT=20,GL_STREAM_DRAW=21,GL_TEXTURE0=100,GL_TEXTURE4=104;
+ GL_STREAM_DRAW=21,GL_TEXTURE0=100,GL_TEXTURE4=104;
 constexpr GLboolean GL_FALSE=0,GL_TRUE=1;
 namespace SeaFixture {
  struct Binding { GLuint buffer=0; GLintptr offset=0; GLsizeiptr size=0; };
@@ -42,10 +42,9 @@ namespace SeaFixture {
  inline std::set<GLuint> vaos,programs;
  inline std::map<unsigned,GLuint> textures2D,texturesArray;
  inline std::map<unsigned,Binding> indexed;
- inline std::map<GLuint,GLuint> elements;
 }
 inline void glCreateVertexArrays(GLsizei n,GLuint* ids) { while(n--) { *ids=SeaFixture::next++; SeaFixture::vaos.insert(*ids++); } }
-inline void glDeleteVertexArrays(GLsizei n,const GLuint* ids) { while(n--) { SeaFixture::elements.erase(*ids); assert(SeaFixture::vaos.erase(*ids++)==1); } }
+inline void glDeleteVertexArrays(GLsizei n,const GLuint* ids) { while(n--) { assert(SeaFixture::vaos.erase(*ids++)==1); } }
 inline void glCreateBuffers(GLsizei n,GLuint* ids) { while(n--) { *ids=SeaFixture::next++; SeaFixture::buffers[*ids++]; } }
 inline void glDeleteBuffers(GLsizei n,const GLuint* ids) { while(n--) assert(SeaFixture::buffers.erase(*ids++)==1); }
 inline void glDeleteProgram(GLuint id) { assert(SeaFixture::programs.erase(id)==1); }
@@ -59,9 +58,6 @@ inline void glNamedBufferData(GLuint id,GLsizeiptr size,const void* data,GLenum)
  SeaFixture::buffers.at(id).resize(static_cast<std::size_t>(size));
  SeaFixture::inFlightStores.erase(id); // orphan creates a new writable store
  if(data) std::memcpy(SeaFixture::buffers.at(id).data(),data,static_cast<std::size_t>(size));
-}
-inline void glVertexArrayElementBuffer(GLuint vao,GLuint buffer) {
- assert(SeaFixture::vaos.count(vao) && SeaFixture::buffers.count(buffer)); SeaFixture::elements[vao]=buffer;
 }
 inline void glNamedBufferSubData(GLuint id,GLintptr start,GLsizeiptr size,const void* data) {
  ++SeaFixture::uploads;
@@ -100,12 +96,10 @@ inline void glBindVertexArray(GLuint v) { SeaFixture::vao=v; }
 inline void glEnable(GLenum p) { assert(p==GL_CULL_FACE); SeaFixture::culling=true; }
 inline void glDisable(GLenum p) { assert(p==GL_CULL_FACE); SeaFixture::culling=false; }
 inline void glDepthMask(GLboolean b) { SeaFixture::depthWrite=b; }
-inline void glDrawElementsInstanced(GLenum mode,GLsizei count,GLenum type,const void* indices,GLsizei instances) {
+inline void glDrawArraysInstanced(GLenum mode,GLint first,GLsizei count,GLsizei instances) {
  using namespace SeaFixture;
- assert(mode==GL_TRIANGLES && type==GL_UNSIGNED_SHORT && indices==nullptr && count==384 && instances>0);
+ assert(mode==GL_TRIANGLES && first==0 && count==6 && instances>0);
  assert(!culling && !depthWrite && programs.count(program) && vaos.count(vao));
- const auto& elementData=buffers.at(elements.at(vao)); assert(elementData.size()==384*2);
- for(std::size_t i=0;i<384;++i) { std::uint16_t index; std::memcpy(&index,elementData.data()+2*i,2); assert(index<81); }
  assert(textures2D[4]==111 && indexed[8].buffer && buffers.at(indexed[8].buffer).size()>=static_cast<std::size_t>(instances)*16);
  ++draws; lastInstances=instances;
  inFlightStores.insert(indexed[8].buffer);

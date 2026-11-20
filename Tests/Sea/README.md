@@ -21,14 +21,14 @@ the terrain's vertical bounds. Its shared backend hooks are enabled only by
 `TERRAIN_SEA_STREAMING`; the ordinary scheduler test remains independent.
 
 `check_render` compiles and renders the production sea shaders with EGL/OpenGL.
-It checks finite output, opaque depth, sky tags, broad wave displacement and
-slopes, animation and canonical stitched world-coordinate seams. Coarse and fine
-meshes need not produce identical interior pixels once displaced; their shared
-edges must match. Blocking readbacks belong only to the test.
+It checks finite output, opaque depth, sky tags, fixed sea-level geometry,
+animated soft normal slopes and canonical world-coordinate seams. The plane must
+remain flat at every animation time, and subdivision must preserve its shading.
+Blocking readbacks belong only to the test.
 
 `check_runtime` exercises the real C++ sea renderer with controlled GL/engine
 services. It verifies revision-based uploads, buffer growth, safe refresh of an
-in-flight instance store, indexed-grid ownership, allocation/upload
+in-flight instance store, six-vertex draws without geometry buffers, allocation/upload
 failures, restoration of external draw state and resource cleanup. Production
 headers are also used in a separate C++ syntax check during integration.
 

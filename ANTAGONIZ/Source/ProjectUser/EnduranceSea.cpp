@@ -6,22 +6,14 @@
 #include "Atmosphere.hpp"
 #include "ShaderCompilation.hpp"
 #include <algorithm>
-#include <array>
 #include <limits>
 
 namespace Endurance
 {
-    namespace
-    {
-        // Matches SEA_GRID_CELLS in sea_waves.glsl. One tiny immutable index
-        // buffer is shared by every tile; vertex positions come from vertex ID.
-        constexpr unsigned SeaGridCells = 8;
-        constexpr unsigned SeaGridIndexCount = SeaGridCells * SeaGridCells * 6;
-    }
     struct SeaRenderer::Impl
     {
         const ptrClass* engine = nullptr;
-        unsigned program = 0, vao = 0, gridIndices = 0, instances = 0;
+        unsigned program = 0, vao = 0, instances = 0;
         int levelLocation = -1, extentLocation = -1;
         std::size_t capacity = 0;
         std::uint64_t revision = 0;
@@ -58,28 +50,6 @@ namespace Endurance
             shutdown();
             return false;
         }
-        std::array<std::uint16_t, SeaGridIndexCount> indices{};
-        unsigned next = 0;
-        for (unsigned z = 0; z < SeaGridCells; ++z)
-            for (unsigned x = 0; x < SeaGridCells; ++x)
-            {
-                const auto a = static_cast<std::uint16_t>(x + z * (SeaGridCells + 1));
-                const auto b = static_cast<std::uint16_t>(a + 1);
-                const auto c = static_cast<std::uint16_t>(a + SeaGridCells + 1);
-                const auto d = static_cast<std::uint16_t>(c + 1);
-                for (auto index : {a, c, b, b, c, d}) indices[next++] = index;
-            }
-        while (glGetError() != GL_NO_ERROR) {}
-        glCreateBuffers(1, &m->gridIndices);
-        if (m->gridIndices)
-            glNamedBufferData(m->gridIndices, sizeof(indices), indices.data(), GL_STATIC_DRAW);
-        if (!m->gridIndices || glGetError() != GL_NO_ERROR)
-        {
-            m->failure = "Cannot allocate the shared sea grid.";
-            shutdown();
-            return false;
-        }
-        glVertexArrayElementBuffer(m->vao, m->gridIndices);
         return true;
     }
 
@@ -110,8 +80,7 @@ namespace Endurance
         for (const auto& tile : tiles)
         {
             if (tile.lod > 20 || tile.baseX < -(1<<24) || tile.baseX > (1<<24) ||
-                tile.baseZ < -(1<<24) || tile.baseZ > (1<<24) ||
-                (tile.transitionMask & ~0x33u) != 0)
+                tile.baseZ < -(1<<24) || tile.baseZ > (1<<24))
             {
                 m->failure = "Invalid sea tile lattice coordinates.";
                 return false;
@@ -214,8 +183,7 @@ namespace Endurance
         glDisable(GL_CULL_FACE);
         glDepthMask(GL_FALSE);
         if (currentDepthWrite) *currentDepthWrite = false;
-        glDrawElementsInstanced(GL_TRIANGLES,SeaGridIndexCount,GL_UNSIGNED_SHORT,nullptr,
-            static_cast<GLsizei>(m->statistics.tiles));
+        glDrawArraysInstanced(GL_TRIANGLES,0,6,static_cast<GLsizei>(m->statistics.tiles));
         ++m->statistics.draws;
 
         glDepthMask(depthWrite);
@@ -236,10 +204,9 @@ namespace Endurance
     {
         if (!m) return;
         if (m->instances) glDeleteBuffers(1,&m->instances);
-        if (m->gridIndices) glDeleteBuffers(1,&m->gridIndices);
         if (m->vao) glDeleteVertexArrays(1,&m->vao);
         if (m->program) glDeleteProgram(m->program);
-        m->instances=m->gridIndices=m->vao=m->program=0;
+        m->instances=m->vao=m->program=0;
         m->engine=nullptr;
         m->capacity=0;
         m->hasRevision=m->revisionValid=false;

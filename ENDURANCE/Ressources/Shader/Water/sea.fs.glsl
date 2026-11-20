@@ -3,7 +3,7 @@
 // Tiles have no coastal mask; opaque depth handles intersections with land.
 #include "../../../../Asset/Shader/Atmosphere/lighting.glsl"
 #include "../../../../Asset/Shader/Shadow/spot_surface.glsl"
-#include "sea_waves.glsl"
+#include "sea_noise.glsl"
 
 layout(early_fragment_tests) in;
 
@@ -124,7 +124,6 @@ layout(binding = 7) uniform samplerCube prefilterMap;
 layout(binding = 8) uniform sampler2D brdfLUT;
 
 layout(location=0) in vec3 WorldPos;
-layout(location=1) in vec2 SeaWaveSlope;
 layout(location=2) in float SeaViewZ;
 
 float calculateBias(vec4 shadowCoord, vec3 normal, vec3 lightDir)
@@ -179,7 +178,6 @@ void main()
     const vec3 foamColor=vec3(0.66,0.72,0.71);
     const float deepDistance=36.0;
     const float foamDistance=0.9;
-    const float waveFrequency=0.125;
     const float foamFrequency=0.60;
     ivec2 pixel=clamp(ivec2(gl_FragCoord.xy),ivec2(0),textureSize(opaquePosition,0)-1);
     vec2 opaque=texelFetch(opaquePosition,pixel,0).rg;
@@ -188,11 +186,7 @@ void main()
     float depth=hasOpaque?max(SeaViewZ-opaque.x,0.0):deepDistance;
     float depthWidth=abs(dFdx(depth))+abs(dFdy(depth));
     float footprint=max(length(shadowWorldDx.xz),length(shadowWorldDy.xz));
-    float waveFade=1.0-smoothstep(0.20,0.80,footprint*waveFrequency);
-    vec2 slope=SeaWaveSlope;
-    if(waveFade>0.0001)
-        slope+=seaNoiseValueGradient(WorldPos.xz*waveFrequency
-            +ubd.u_time*vec2(0.07,0.035)).yz*(0.22*waveFade);
+    vec2 slope=seaRippleSlope(WorldPos.xz,ubd.u_time,footprint);
     vec3 n=normalize(vec3(-slope.x,1.0,-slope.y));
     // A visible underside is useful while traversing the marine biome. This is
     // surface lighting only; underwater fog/refraction are not introduced here.

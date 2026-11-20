@@ -93,11 +93,11 @@ int main()
 {
     SeaTile tile;
     require(seaTileForChunk(chunk(0, 0, 0, 0), 8, 1, 0, true, tile), "lower boundary not owned");
-    require(tile.baseX == 0 && tile.baseZ == 0 && tile.lod == 0 && tile.transitionMask == 0, "instance encoding");
-    auto stitched = chunk(0, 0, 0, 0);
-    stitched.transitionMask = 63u;
-    require(seaTileForChunk(stitched, 8, 1, 0, true, tile) && tile.transitionMask == 0x33u,
-        "sea must retain XZ stitch ownership and exclude vertical transition faces");
+    require(tile.baseX == 0 && tile.baseZ == 0 && tile.lod == 0 && tile.padding == 0, "instance encoding");
+    auto transitioned = chunk(0, 0, 0, 0);
+    transitioned.transitionMask = 63u;
+    require(seaTileForChunk(transitioned, 8, 1, 0, true, tile) && tile.padding == 0,
+        "flat sea needs no edge-stitch metadata");
     require(rejected(chunk(0, -8, 0, 0), 8, 1, 0), "upper boundary owned twice");
     require(seaTileForChunk(chunk(-16, -16, -32, 1), 8, .5f, -4, true, tile), "negative lattice or scaled height");
     require(tile.baseX == -2 && tile.baseZ == -4 && tile.lod == 1, "negative integer encoding");

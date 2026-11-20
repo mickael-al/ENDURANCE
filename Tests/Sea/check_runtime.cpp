@@ -22,17 +22,17 @@ int main()
     Endurance::SeaRenderer sea;
     assert(!sea.initialize(ptrClass{}));
     assert(sea.initialize(engine));
-    assert(buffers.size()==1 && buffers.begin()->second.size()==768 && vaos.size()==1 && programs.size()==1);
-    assert(allocations==1 && elements.size()==1);
+    assert(buffers.empty() && vaos.size()==1 && programs.size()==1);
+    assert(allocations==0);
     std::vector<ProceduralTerrain::SeaTile> tiles{{0,0,0,0},{1,0,0,0}};
     error=GL_INVALID_OPERATION; // An unrelated previous pass must not hide sea.
     assert(sea.setTiles(tiles,1,0.0f,64.0f));
-    assert(allocations==2 && uploads==1 && sea.stats().tiles==2 && sea.stats().uploadBytes==32);
+    assert(allocations==1 && uploads==1 && sea.stats().tiles==2 && sea.stats().uploadBytes==32);
     const auto firstCapacity=sea.stats().allocatedBytes;
-    assert(firstCapacity>=32 && buffers.size()==2);
+    assert(firstCapacity>=32 && buffers.size()==1);
     const auto uniformsBefore=uniforms;
     assert(sea.setTiles(tiles,1,0.0f,64.0f));
-    assert(allocations==2 && uploads==1 && uniforms==uniformsBefore);
+    assert(allocations==1 && uploads==1 && uniforms==uniformsBefore);
 
     // Exercise range binding as well as the independent generic SSBO binding.
     GLuint callerBuffer=0; glCreateBuffers(1,&callerBuffer);
@@ -57,10 +57,10 @@ int main()
     const auto allocationCount=allocations;
     tiles.resize(4);
     assert(sea.setTiles(tiles,2,0.0f,64.0f));
-    assert(uploads==2 && allocations==allocationCount+1 && buffers.size()==3);
+    assert(uploads==2 && allocations==allocationCount+1 && buffers.size()==2);
     tiles.resize(static_cast<std::size_t>(firstCapacity/16)+1);
     assert(sea.setTiles(tiles,3,0.0f,64.0f));
-    assert(uploads==3 && allocations==allocationCount+2 && buffers.size()==3);
+    assert(uploads==3 && allocations==allocationCount+2 && buffers.size()==2);
     assert(sea.stats().allocatedBytes>firstCapacity);
     assert(sea.setTiles({},4,0.0f,64.0f));
     sea.draw(nullptr);
@@ -70,7 +70,7 @@ int main()
     failAllocation=true;
     assert(!sea.setTiles(tiles,5,0.0f,64.0f));
     const auto failedAllocationCount=allocations;
-    assert(!sea.error().empty() && sea.stats().tiles==0 && buffers.size()==3);
+    assert(!sea.error().empty() && sea.stats().tiles==0 && buffers.size()==2);
     sea.draw(nullptr);
     assert(draws==2 && !sea.setTiles(tiles,5,0.0f,64.0f) && allocations==failedAllocationCount);
     assert(sea.setTiles(tiles,6,0.0f,64.0f) && sea.error().empty());
@@ -94,13 +94,8 @@ int main()
     assert(!sea.setTiles(tiles,12,0.0f,0.0f));
     tiles[0].lod=21;
     assert(!sea.setTiles(tiles,13,0.0f,64.0f));
-    tiles[0].lod=0;tiles[0].transitionMask=4u;
-    assert(!sea.setTiles(tiles,14,0.0f,64.0f));
     sea.shutdown(); sea.shutdown();
-    assert(vaos.empty() && elements.empty() && programs.empty() && buffers.size()==1 && buffers.count(callerBuffer));
-    failAllocation=true;
-    assert(!sea.initialize(engine) && !sea.error().empty());
-    assert(vaos.empty() && elements.empty() && programs.empty() && buffers.size()==1);
+    assert(vaos.empty() && programs.empty() && buffers.size()==1 && buffers.count(callerBuffer));
     failCompile=true;
     assert(!sea.initialize(engine) && !sea.error().empty());
     assert(vaos.empty() && programs.empty());
