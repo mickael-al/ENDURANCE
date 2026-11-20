@@ -372,9 +372,13 @@ namespace Ge
 		callbacks[owner] = std::move(func);
 	}
 
-	void RenderingEngine::addTransparencyCallback(void* owner, std::function<void(bool*)> func)
+	void RenderingEngine::addTransparencyCallback(void* owner, std::function<void(bool*)> func,
+        TransparencyPhase phase)
 	{
-		callbacksTransparency[owner] = std::move(func);
+        removeTransparencyCallback(owner);
+        auto& target = phase == TransparencyPhase::BeforeMaterials
+            ? callbacksBeforeTransparency : callbacksTransparency;
+        target[owner] = std::move(func);
 	}
 
 	void RenderingEngine::removeCallback(void* owner)
@@ -385,6 +389,7 @@ namespace Ge
 	void RenderingEngine::removeTransparencyCallback(void* owner)
 	{
 		callbacksTransparency.erase(owner);
+        callbacksBeforeTransparency.erase(owner);
 	}
 
     bool RenderingEngine::isFrameTimingsEnabled() const noexcept
@@ -466,7 +471,7 @@ namespace Ge
 
 		std::unordered_map<Materials*, std::unordered_map<ShapeBuffer*, std::vector<Model*>>> & instanced_models = m_modelManager->getInstancedModels();		
 		const std::vector<Materials *> & matlist = m_materialManager->getMaterials();
-		bool transparency = !callbacksTransparency.empty();
+		bool transparency = !callbacksTransparency.empty() || !callbacksBeforeTransparency.empty();
 		ShapeBuffer * currentShape = nullptr;
 		GraphiquePipeline * currentPipeline = nullptr;
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_cameraManager->getSSBO());
@@ -727,6 +732,12 @@ namespace Ge
 
 			glm::vec2 invRes(1.0f / m_graphicsDataMisc->str_width, 1.0f / m_graphicsDataMisc->str_height);
 			
+            // Water and similar surfaces run after opaque lighting, before
+            // ordinary transparent materials and particle callbacks. Each custom
+            // callback must restore its bindings and keep depth state coherent.
+            for (const auto& call : callbacksBeforeTransparency)
+                call.second(&currentDepthWrite);
+
 			for (int i = static_cast<int>(matlist.size()) - 1; i >= 0; --i)
 			{
 				Materials* mat = matlist[i];

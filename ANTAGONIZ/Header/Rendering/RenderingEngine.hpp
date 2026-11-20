@@ -70,7 +70,11 @@ namespace Ge
 		Window* getWindow() const;
 		Atmosphere* getAtmosphere() const;
 		void addCallback(void* owner, std::function<void(int)> func);
-		void addTransparencyCallback(void* owner, std::function<void(bool*)> func);
+        enum class TransparencyPhase { BeforeMaterials, AfterMaterials };
+        // Stable phases for large transparent surfaces; existing callbacks keep
+        // their historical after-material position unless explicitly requested.
+        void addTransparencyCallback(void* owner, std::function<void(bool*)> func,
+            TransparencyPhase phase = TransparencyPhase::AfterMaterials);
 		void removeCallback(void* owner);
 		void removeTransparencyCallback(void* owner);
     private:
@@ -81,6 +85,7 @@ namespace Ge
 		ptrClass * m_ptrClass;
 		std::unordered_map<void*,std::function<void(int sid)>> callbacks;
 		std::unordered_map<void*,std::function<void(bool * currentDepthWrite)>> callbacksTransparency;
+		std::unordered_map<void*,std::function<void(bool * currentDepthWrite)>> callbacksBeforeTransparency;
 		GraphicsDataMisc * m_graphicsDataMisc;
 		FrameBuffer* m_frameBuffer;
 		SSAOBuffer* m_ssaoBuffer;

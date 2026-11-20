@@ -8,6 +8,7 @@
 #include <string>
 
 class ProceduralGeneration;
+namespace Endurance { class SeaRenderer; }
 struct ptrClass;
 
 // Scene-owned runtime component. Parameters are saved in the editor's script
@@ -58,9 +59,12 @@ public:
 
 private:
     std::unique_ptr<ProceduralGeneration> m_generator;
+    std::unique_ptr<Endurance::SeaRenderer> m_sea;
     const ptrClass* m_pc = nullptr;
     std::string m_error;
     std::string m_materialError;
+    std::string m_seaError;
+    bool m_showSea = true;
     int m_materialBiome = 0;
 };
 

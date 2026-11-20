@@ -143,7 +143,12 @@ struct ProceduralGeneration::Impl
     GpuMesher gpu;
     CollisionCache collision;
     LodConfig lod;
-    std::unordered_map<ChunkKey, MeshHandle, KeyHash> ready;
+    struct ReadyChunk
+    {
+        MeshHandle mesh;
+        bool hasMarineSurface = false;
+    };
+    std::unordered_map<ChunkKey, ReadyChunk, KeyHash> ready;
     std::unordered_map<std::uint64_t, ChunkKey> pending;
     KeySet submitted, wanted, visibleKeys, collisionKeys;
     std::unique_ptr<LodPlanner> planner;
@@ -156,6 +161,7 @@ struct ProceduralGeneration::Impl
     std::optional<PreparedPlan> preparedPlan;
     bool plannerLookahead = false, discardPlannerResult = false;
     std::vector<LodChunk> visibleSelection;
+    std::vector<SeaTile> seaTiles;
     std::vector<Ge::ShadowCasterBounds> shadowCasterBounds;
     std::uint64_t shadowBoundsRevision = Ge::nextShadowCasterBoundsRevision();
     CameraVisibilityCache cameraVisibility;
@@ -239,7 +245,7 @@ struct ProceduralGeneration::Impl
         for (auto it = ready.begin(); it != ready.end();)
         {
             if (visibleKeys.count(it->first) || wanted.count(it->first)) { ++it; continue; }
-            gpu.release(it->second);
+            gpu.release(it->second.mesh);
             it = ready.erase(it);
         }
     }
@@ -380,7 +386,14 @@ bool ProceduralGeneration::initialize(const Config& config)
     impl->lod.splitDistanceFactor = config.lodDistanceFactor;
     impl->lod.maxLeaves = config.maxSelectedChunks;
     impl->lod.fullResolutionRadius = config.collisionEnabled ? config.collisionRadius : 0.0f;
-    const auto bounds = fieldHeightBounds(config.field);
+    auto bounds = fieldHeightBounds(config.field);
+    if (config.field.mode == FieldMode::Terrain)
+    {
+        // Empty sea-surface leaves still own water. Keep them in the planner
+        // when seaLevel lies above/below the terrain's possible density band.
+        bounds.minimumY = (std::min)(bounds.minimumY, config.field.seaLevel);
+        bounds.maximumY = (std::max)(bounds.maximumY, config.field.seaLevel);
+    }
     const float padding = std::ldexp(config.cellSize, static_cast<int>(config.maxLod));
     impl->lod.minimumY = bounds.minimumY - padding;
     impl->lod.maximumY = bounds.maximumY + padding;
@@ -532,7 +545,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         if (!s.wanted.count(key)) { s.gpu.release(result.mesh); continue; }
         if (result.status == CompletionStatus::Ready || result.status == CompletionStatus::Empty)
         {
-            s.ready.emplace(key, result.mesh);
+            s.ready.emplace(key, Impl::ReadyChunk{result.mesh, result.hasMarineSurface});
             s.collisionDirty = true;
         }
         else if (result.status == CompletionStatus::Failed)
@@ -604,13 +617,21 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         s.visibleKeys.clear();
         s.visible.clear();
         s.visible.reserve(s.visibleSelection.size());
+        s.seaTiles.clear();
+        s.seaTiles.reserve(s.visibleSelection.size());
         s.shadowCasterBounds.clear();
         s.shadowCasterBounds.reserve(s.visibleSelection.size());
         for (const auto& chunk : s.visibleSelection)
         {
             const ChunkKey key{chunk.origin, chunk.lod, chunk.transitionMask};
             s.visibleKeys.insert(key);
-            const auto& mesh = s.ready.at(key);
+            const auto& ready = s.ready.at(key);
+            const auto& mesh = ready.mesh;
+            SeaTile seaTile;
+            if (seaTileForChunk(chunk, s.lod.cells, m_config.cellSize,
+                m_config.field.seaLevel,
+                ready.hasMarineSurface, seaTile))
+                s.seaTiles.push_back(seaTile);
             if (mesh.vertexCount)
             {
                 s.visible.push_back(mesh);
@@ -746,11 +767,11 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
             {
                 if (key.lod != 0) return;
                 const auto found = s.ready.find(key);
-                if (found == s.ready.end() || found->second.vertexCount == 0) return;
+                if (found == s.ready.end() || found->second.mesh.vertexCount == 0) return;
                 ChunkKey spatialKey = key;
                 spatialKey.mask = 0;
                 if (s.collisionKeys.insert(spatialKey).second)
-                    s.collisionCandidates.push_back(found->second);
+                    s.collisionCandidates.push_back(found->second.mesh);
             };
             for (const auto& key : s.target) addCollision(key);
             for (const auto& chunk : s.visibleSelection)
@@ -887,4 +908,15 @@ void ProceduralGeneration::getVisibleLodChunks(std::vector<ProceduralTerrain::Lo
 {
     if (m_impl) output = m_impl->visibleSelection;
     else output.clear();
+}
+
+const std::vector<ProceduralTerrain::SeaTile>& ProceduralGeneration::getSeaTiles() const noexcept
+{
+    static const std::vector<ProceduralTerrain::SeaTile> empty;
+    return m_impl ? m_impl->seaTiles : empty;
+}
+
+std::uint64_t ProceduralGeneration::getCoverageRevision() const noexcept
+{
+    return m_impl ? m_impl->visibleRevision : 0;
 }

@@ -52,6 +52,12 @@ void main()
 {
     uint lane=gl_LocalInvocationIndex;
     uint group=regularGroupIndex();
+#if TERRAIN_FIELD_STATE && !EMIT_PASS
+    // Publish metadata even when the homogeneous-density fast path skips all
+    // mesh work. This rides the existing 16-byte counter and completion fence.
+    if(group==0u && lane==0u)
+        hasMarineSurface=meshFieldStates[uFieldStateIndex].w;
+#endif
     if(skipMeshGroup(group,true)) return;
     ivec3 groupOrigin=ivec3(gl_WorkGroupID)*ivec3(8,4,4);
     for(uint i=lane;i<TILE_SAMPLES;i+=128u)

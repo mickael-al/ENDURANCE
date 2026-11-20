@@ -59,6 +59,10 @@ namespace ProceduralTerrain
         CompletionStatus status = CompletionStatus::Failed;
         MeshHandle mesh;
         std::string error;
+        // Positive Marine contribution at classified samples in the
+        // chunk's XZ footprint (including its boundary, excluding its halo).
+        // Available for Ready AND Empty completions, independently of geometry.
+        bool hasMarineSurface = false;
     };
 
     struct GpuStats
