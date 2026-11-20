@@ -143,6 +143,30 @@ extern "C" int tree_preview_tests() {
     require(difference(pixels(preview),complete)>30,"Wireframe control has no effect"); original.check("wireframe render");
     s.wireframe=false; s.lod=1; require(preview.render(s),preview.error());
     require(difference(pixels(preview),empty)>100,"LOD1 disappeared"); original.check("LOD render");
+    // The distant level must really use a two-triangle billboard, and must not
+    // recapture the high-poly tree on every frame once its GPU cache is warm.
+    s.lod=3; require(preview.render(s),preview.error()); original.check("LOD3 lazy cache");
+    require(difference(pixels(preview),empty)>100,"LOD3 is invisible");
+    GLuint primitivesQuery=0; glGenQueries(1,&primitivesQuery);
+    glBeginQuery(GL_PRIMITIVES_GENERATED,primitivesQuery);
+    require(preview.render(s),preview.error());
+    glEndQuery(GL_PRIMITIVES_GENERATED);
+    GLuint primitiveCount=0; glGetQueryObjectuiv(primitivesQuery,GL_QUERY_RESULT,&primitiveCount);
+    glDeleteQueries(1,&primitivesQuery);
+    require(primitiveCount==2,"Warm LOD3 renders more than a single quad"); original.check("LOD3 warm render");
+    std::vector<ImpostorView> pair;
+    require(preview.captureLod3(pair,64),preview.error()); original.check("LOD3 two-view capture");
+    require(pair.size()==2,"LOD3 must contain exactly two views");
+    require(std::abs(pair[0].direction.y)<.001f && std::abs(pair[1].direction.y-std::sqrt(.5f))<.001f,"LOD3 capture elevations are not 0 and 45 degrees");
+    require(pair[0].centre==pair[1].centre && pair[0].halfExtent==pair[1].halfExtent,"LOD3 views use incompatible frames");
+    for(const auto& v:pair) {
+        require(validImage(v.albedo) && v.normal.rgba.empty(),"LOD3 needs extra normal textures or has invalid color");
+        require(v.albedo.width==64 && v.albedo.height==64,"LOD3 capture resolution ignored");
+        std::size_t coverage=0;
+        for(std::size_t i=3;i<v.albedo.rgba.size();i+=4) coverage+=v.albedo.rgba[i]>=128;
+        require(coverage>10 && coverage<64*64*9/10,"LOD3 lacks a useful cutout silhouette");
+    }
+    require(pair[0].albedo.rgba!=pair[1].albedo.rgba,"LOD3 elevations produced the same image");
     // Wrong shader path must not destroy a working program or tree. Changing
     // the working directory is handled by the Python driver, so this fixture
     // concentrates on the stable render/capture lifecycle.
@@ -174,8 +198,41 @@ extern "C" int tree_preview_tests() {
     require(preview.captureImpostors(relit,64,8,true),preview.error()); original.check("relit impostor capture");
     for(std::size_t i=0;i<views.size();++i)
         require(views[i].albedo.rgba==relit[i].albedo.rgba && views[i].normal.rgba==relit[i].normal.rgba,"Impostors contain preview sun/wind instead of static material attributes");
+    std::vector<ImpostorView> pairAgain;
+    require(preview.captureLod3(pairAgain,64),preview.error()); original.check("LOD3 stable neutral lighting");
+    for(std::size_t i=0;i<2;++i)
+        require(pairAgain[i].albedo.rgba==pair[i].albedo.rgba,"LOD3 bake changes with the preview sun/wind");
+    // A loaded pair must be consumed as-is, not silently overwritten by a new
+    // tree capture. Distinct tinted test images make accidental recapture visible.
+    s.sunYaw=40; s.sunElevation=45; s.time=s.windStrength=0;
+    require(preview.render(s),preview.error()); const auto automaticLod3=pixels(preview);
+    std::vector<ImpostorView> savedPair;
+    require(preview.captureLod3(savedPair,256),preview.error());
+    require(preview.upload(tree,&savedPair) && preview.render(s),preview.error());
+    const auto reloadedLod3=pixels(preview);
+    std::uint64_t colorError=0; std::size_t intersection=0,unionCount=0;
+    for(std::size_t i=0;i<automaticLod3.size();i+=4) {
+        int aContrast=0,bContrast=0;
+        for(int c=0;c<3;++c) {
+            colorError+=std::abs(int(automaticLod3[i+c])-int(reloadedLod3[i+c]));
+            aContrast+=std::abs(int(automaticLod3[i+c])-int(empty[i+c]));
+            bContrast+=std::abs(int(reloadedLod3[i+c])-int(empty[i+c]));
+        }
+        const bool a=aContrast>20,b=bContrast>20;
+        intersection+=a&&b; unionCount+=a||b;
+    }
+    require(unionCount>100 && double(intersection)/unionCount>.85,"Reloaded LOD3 changed silhouette/orientation");
+    require(double(colorError)/(automaticLod3.size()/4*3)<6,"Reloaded LOD3 colors diverge from generated cache");
+    auto supplied=pair;
+    for(auto& v:supplied) for(std::size_t i=0;i<v.albedo.rgba.size();i+=4) {
+        v.albedo.rgba[i]=255; v.albedo.rgba[i+1]=0; v.albedo.rgba[i+2]=255;
+    }
+    require(preview.upload(tree,&supplied),preview.error()); original.check("LOD3 loaded texture upload");
+    require(preview.render(s),preview.error());
+    require(difference(automaticLod3,pixels(preview))>100,"Loaded LOD3 textures were ignored or regenerated");
     if(const char* folder=std::getenv("ENDURANCE_TREE_TEST_CAPTURE_DIR")) {
-        for(auto family:{Family::Broadleaf,Family::Conifer,Family::Weeping,Family::Dead}) {
+        for(int familyIndex=0;familyIndex<FamilyCount;++familyIndex) {
+            const auto family=static_cast<Family>(familyIndex);
             const auto variant=generate(preset(family)); require(preview.upload(variant),preview.error());
             PreviewSettings capture; capture.width=capture.height=640; capture.showGround=true;
             capture.target=(variant.boundsMin+variant.boundsMax)*.5f;
@@ -184,6 +241,11 @@ extern "C" int tree_preview_tests() {
             writeCapture(preview,std::filesystem::path(folder)/(std::string(familyName(family))+"_foliage.ppm"));
             capture.showLeaves=false; require(preview.render(capture),preview.error());
             writeCapture(preview,std::filesystem::path(folder)/(std::string(familyName(family))+"_wood.ppm"));
+            capture.showLeaves=true; capture.showGround=false; capture.lod=3;
+            for(int pitch:{0,22,45}) {
+                capture.pitch=float(pitch); require(preview.render(capture),preview.error());
+                writeCapture(preview,std::filesystem::path(folder)/(std::string(familyName(family))+"_lod3_"+std::to_string(pitch)+".ppm"));
+            }
         }
     }
     preview.release(); original.check("release");

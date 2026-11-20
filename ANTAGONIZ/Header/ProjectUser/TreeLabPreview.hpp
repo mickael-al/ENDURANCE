@@ -30,12 +30,16 @@ public:
     TreeLabPreview& operator=(const TreeLabPreview&)=delete;
     bool initialize();
     bool reloadShaders();
-    bool upload(const Tree& tree);
+    bool upload(const Tree& tree, const std::vector<ImpostorView>* lod3=nullptr);
     bool render(const PreviewSettings& settings);
     // Explicit offline operation; blocking readback is never used by preview.
     // Produces a low ring (15 degrees), optional high ring (60 degrees) and top.
     bool captureImpostors(std::vector<ImpostorView>& views, int resolution=256,
                           int azimuthViews=8, bool elevatedViews=true);
+    // Two neutral-lit RGBA views, elevation 0/45 degrees and azimuth zero.
+    // PNG RGB is sRGB; alpha is straight coverage. No normal textures are needed.
+    // lod==3 uses these views on one camera-facing quad, cached per uploaded tree.
+    bool captureLod3(std::vector<ImpostorView>& views, int resolution=256);
     unsigned int texture() const noexcept;
     int width() const noexcept;
     int height() const noexcept;

@@ -56,16 +56,21 @@ void checkTree(const Tree& t) {
     finiteVector(t.boundsMin); finiteVector(t.boundsMax);
     for(int k=0;k<3;++k) require(t.boundsMax[k]>t.boundsMin[k],"Invalid bounds extent");
     require(t.statistics.branches==t.branches.size(),"Incorrect reported branch count");
+    require(t.branches.size()<=384 && t.statistics.leafCards<=8192,"Generation exceeds its bounded geometry budget");
+    unsigned rootCount=0,vineCount=0;
     for(std::size_t i=0;i<t.branches.size();++i) {
         const auto& b=t.branches[i];
         require(b.parent>=-1 && b.parent<static_cast<std::int32_t>(i),"Branch hierarchy is cyclic or invalid");
         require(b.points.size()>=2,"Branch has no length");
         require(b.level>=0 && b.attachment>=0.f && b.attachment<=1.f,"Invalid branch metadata");
+        require(b.kind==BranchKind::Wood || b.kind==BranchKind::Root || b.kind==BranchKind::Vine,"Invalid branch category");
+        rootCount+=b.kind==BranchKind::Root; vineCount+=b.kind==BranchKind::Vine;
         for(const auto& point:b.points) {
             finiteVector(point.position);
             require(finite(point.radius) && point.radius>0.f,"Invalid branch radius");
         }
     }
+    require(rootCount==t.statistics.roots && vineCount==t.statistics.vines,"Optional-structure statistics are inconsistent");
     for(std::size_t i=0;i<t.lods.size();++i) {
         checkMesh(t.lods[i].wood,t); checkMesh(t.lods[i].foliage,t);
         require(!t.lods[i].wood.indices.empty(),"LOD lost the trunk");
@@ -110,8 +115,10 @@ int main() {
     Image empty=wide; for(std::size_t i=3;i<empty.rgba.size();i+=4) empty.rgba[i]=0;
     checkMips(wide); checkMips(tall); checkMips(empty);
     std::set<std::uint64_t> silhouettes;
-    for(auto family:{Family::Broadleaf,Family::Conifer,Family::Weeping,Family::Dead}) {
+    for(int familyIndex=0;familyIndex<FamilyCount;++familyIndex) {
+        const auto family=static_cast<Family>(familyIndex);
         auto p=preset(family); p.branchCount=6; p.twigDensity=0.6f; p.leafDensity=0.6f;
+        if(familyIndex<4) require(p.rootCount==0 && p.vineCount==0,"Original family unexpectedly enables roots or vines");
         for(std::uint32_t seed:{1u,1337u,0xffffffffu}) {
             p.seed=seed;
             const auto a=generate(p),b=generate(p); checkTree(a); checkTree(b);
@@ -125,7 +132,43 @@ int main() {
             std::cout<<familyName(family)<<" seed="<<seed<<" branches="<<a.statistics.branches<<" triangles="<<a.statistics.triangles[0]<<"/"<<a.statistics.triangles[1]<<'\n';
         }
     }
-    require(silhouettes.size()==12,"Seeds or family presets fail to vary wood geometry");
+    require(silhouettes.size()==FamilyCount*3,"Seeds or family presets fail to vary wood geometry");
+    // Optional structures are visible geometry with stable ownership, not merely
+    // authoring parameters. The same recipe must survive both mesh LODs.
+    auto structures=preset(Family::Broadleaf);
+    structures.rootCount=9; structures.rootLength=5.5f; structures.rootRadius=.32f;
+    structures.vineCount=11; structures.vineLength=6.f; structures.vineRadius=.07f;
+    const auto decorated=generate(structures),repeated=generate(structures);
+    checkTree(decorated);
+    unsigned roots=0,vines=0;
+    for(const auto& branch:decorated.branches) {
+        if(branch.kind==BranchKind::Root) {
+            ++roots;
+            require(branch.parent>=0,"Root is detached from the tree hierarchy");
+            require(glm::length(glm::vec2(branch.points.back().position.x,branch.points.back().position.z))>
+                    glm::length(glm::vec2(branch.points.front().position.x,branch.points.front().position.z)),
+                    "Root does not extend away from the trunk");
+        }
+        if(branch.kind==BranchKind::Vine) {
+            ++vines;
+            require(branch.parent>=0,"Hanging vine is detached from the tree hierarchy");
+            require(branch.points.back().position.y<branch.points.front().position.y,"Vine does not hang downward");
+        }
+    }
+    require(roots==unsigned(structures.rootCount) && vines==unsigned(structures.vineCount),"Root or vine request ignored below safety budget");
+    require(decorated.statistics.roots==roots && decorated.statistics.vines==vines,"Root or vine statistics disagree with geometry");
+    for(int lod=0;lod<2;++lod)
+        require(meshHash(decorated.lods[lod].wood)==meshHash(repeated.lods[lod].wood),"Roots/vines are not deterministic");
+    structures.rootCount=structures.vineCount=0;
+    const auto bare=generate(structures); checkTree(bare);
+    require(bare.statistics.roots==0 && bare.statistics.vines==0,"Disabling optional structures retains them");
+    for(int lod=0;lod<2;++lod)
+        require(decorated.lods[lod].wood.indices.size()>bare.lods[lod].wood.indices.size(),"Root/vine mesh disappears from a LOD");
+    auto budget=structures; budget.branchCount=24; budget.branchingLevels=4;
+    budget.twigDensity=2.5f; budget.leafDensity=3;
+    budget.rootCount=20; budget.vineCount=48;
+    const auto crowded=generate(budget); checkTree(crowded);
+    require(crowded.statistics.roots==20 && crowded.statistics.vines==48,"Branch budget starved explicitly requested roots/vines");
     auto p=preset(Family::Broadleaf); p.branchCount=4; p.branchingLevels=2;
     const auto a=generate(p,&wide),b=generate(p,&tall),c=generate(p,&empty);
     checkTree(a); checkTree(b); checkTree(c);

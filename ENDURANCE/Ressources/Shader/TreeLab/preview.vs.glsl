@@ -9,6 +9,10 @@ uniform int uKind;
 uniform float uGroundExtent;
 uniform float uTime;
 uniform float uWindStrength;
+uniform vec3 uBillboardCentre;
+uniform vec3 uBillboardRight;
+uniform vec3 uBillboardUp;
+uniform float uBillboardExtent;
 out vec3 position;
 out vec3 normal;
 out vec2 uv;
@@ -16,7 +20,9 @@ out vec4 color;
 void main()
 {
     position=inPosition;
-    if(uKind==2) position.xz*=uGroundExtent;
+    if(uKind==3)
+        position=uBillboardCentre+(uBillboardRight*inPosition.x+uBillboardUp*inPosition.y)*uBillboardExtent;
+    else if(uKind==2) position.xz*=uGroundExtent;
     else if(uWindStrength>0.0)
     {
         // Shared low frequency sway preserves the silhouette across branch forks.

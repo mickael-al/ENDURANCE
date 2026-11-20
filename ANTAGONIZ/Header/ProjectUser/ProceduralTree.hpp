@@ -11,8 +11,15 @@
 // Offline, engine-independent tree authoring. Units are metres, Y is up.
 namespace EnduranceTrees
 {
-constexpr std::uint32_t GeneratorVersion = 1;
-enum class Family : std::int32_t { Broadleaf = 0, Conifer, Weeping, Dead };
+constexpr std::uint32_t GeneratorVersion = 2;
+// Keep the original identifiers stable for saved authoring recipes.
+enum class Family : std::int32_t
+{
+    Broadleaf = 0, Conifer, Weeping, Dead,
+    Oak, Birch, Acacia, Baobab, Mangrove, Cypress, Palm, Aspen, Juniper, Banyan
+};
+constexpr std::int32_t FamilyCount = 14;
+enum class BranchKind : std::int32_t { Wood = 0, Root, Vine };
 
 struct Params
 {
@@ -34,6 +41,12 @@ struct Params
     float leafDensity = 1.0f;
     float clumpSize = 1.75f;
     float foliageNormalBlend = 0.72f;
+    std::int32_t rootCount = 0; // The four original families keep roots disabled.
+    float rootLength = 3.5f; // Horizontal spread from the trunk, metres.
+    float rootRadius = 0.25f; // Basal root radius, metres.
+    std::int32_t vineCount = 0;
+    float vineLength = 4.0f; // Maximum drop, clipped above the ground.
+    float vineRadius = 0.045f; // Hanging stem radius, metres.
     glm::vec3 barkLow{0.105f, 0.065f, 0.040f}; // Linear RGB.
     glm::vec3 barkHigh{0.29f, 0.19f, 0.10f};
     glm::vec3 leafLow{0.025f, 0.065f, 0.018f};
@@ -71,6 +84,7 @@ struct Lod { Mesh wood, foliage; };
 struct BranchPoint { glm::vec3 position{0.0f}; float radius=0.01f; };
 struct Branch
 {
+    BranchKind kind=BranchKind::Wood;
     std::int32_t parent=-1;
     std::int32_t level=0;
     float attachment=0.0f; // Fraction of the parent's polyline length.
@@ -79,6 +93,7 @@ struct Branch
 struct Statistics
 {
     std::uint32_t branches=0, leafCards=0;
+    std::uint32_t roots=0, vines=0;
     std::array<std::uint32_t,2> triangles{};
     bool budgetLimited=false;
     double generationMilliseconds=0.0;

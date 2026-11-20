@@ -67,6 +67,10 @@ void runPanel()
     requirePanel(panel.m_gpuReady,"Initialization: "+panel.m_error);
     panel.startGenerate(owner.parameters,""); waitPanel(panel);
     requirePanel(panel.m_tree && panel.m_error.empty(),"Initial generation: "+panel.m_error);
+    requirePanel(panel.m_tree->statistics.roots==0 && panel.m_tree->statistics.vines==0,"Default tree unexpectedly gained optional structures");
+    owner.parameters.rootCount=4; owner.parameters.vineCount=6;
+    panel.edited(); panel.startGenerate(owner.parameters,""); waitPanel(panel);
+    requirePanel(panel.m_tree->statistics.roots==4 && panel.m_tree->statistics.vines==6,"Edited optional structures were not generated");
     const auto initial=panel.m_tree;
 
     // An unreadable mask must retain the current preview and forbid stale bake.
@@ -88,6 +92,7 @@ void runPanel()
                  "Mask lost transparent pixels");
     owner.maskPath="../mask-alpha.png";
     panel.m_bakeImpostors=false;
+    panel.m_impostorResolution=64;
     const auto baseSeed=panel.m_tree->params.seed;
     panel.startBatch(2); waitPanel(panel);
     requirePanel(panel.m_error.empty() && panel.m_batchCount==0 && panel.m_batchIndex==2,
@@ -98,10 +103,14 @@ void runPanel()
     std::sort(exports.begin(),exports.end());
     requirePanel(exports.size()==2,"Batch did not publish exactly two variants");
     for(std::size_t i=0;i<exports.size();++i) {
-        Tree loaded; std::string error;
-        requirePanel(loadBakedTree(exports[i],loaded,error),"Batch unreadable: "+error);
+        Tree loaded; std::string error; std::vector<ImpostorView> views;
+        requirePanel(loadBakedTree(exports[i],loaded,error,&views),"Batch unreadable: "+error);
         requirePanel(loaded.params.seed==baseSeed+i && loaded.leafMask.rgba==opaque.rgba,
                      "Batch changed source mask or repeated seed");
+        requirePanel(loaded.statistics.roots==4 && loaded.statistics.vines==6,"Batch lost optional structures");
+        requirePanel(views.size()==2 && views[0].albedo.width==64,"Ordinary batch export did not save two LOD3 images");
+        requirePanel(std::filesystem::is_regular_file(exports[i]/"lod3_0.png") && std::filesystem::is_regular_file(exports[i]/"lod3_45.png"),"Missing automatically saved LOD3 PNGs");
+        requirePanel(!std::filesystem::exists(exports[i]/"impostor_0_albedo.png"),"Disabled multi-view bake still generated legacy images");
     }
     requirePanel(owner.parameters.seed==baseSeed+1,"Batch controls disagree with visible variant");
     // Capture stays on the GL thread; the worker writes PNG/mesh files.
@@ -116,6 +125,8 @@ void runPanel()
     requirePanel(panel.m_error.empty() && std::filesystem::is_regular_file(owner.maskPath) && validImage(panel.m_embeddedMask),
                  "Bake reload failed to retain embedded mask: "+panel.m_error);
     requirePanel(owner.parameters.seed==baseSeed,"Bake reload did not restore parameters");
+    panel.m_view.lod=3;
+    requirePanel(panel.m_preview.render(panel.m_view),"Reloaded LOD3 failed to render: "+panel.m_preview.error());
     owner.parameters.seed+=11;
     panel.startGenerate(owner.parameters,owner.maskPath); waitPanel(panel);
     requirePanel(panel.m_error.empty() && panel.m_tree->leafMask.rgba==opaque.rgba,

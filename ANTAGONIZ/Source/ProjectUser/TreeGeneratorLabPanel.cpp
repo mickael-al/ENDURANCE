@@ -117,7 +117,9 @@ void TreeGeneratorLabPanel::startExport()
     if(!m_tree || busy()) return;
     try
     {
-        std::vector<EnduranceTrees::ImpostorView> views;
+        std::vector<EnduranceTrees::ImpostorView> views, lod3;
+        if(!m_preview.captureLod3(lod3,m_impostorResolution))
+            throw std::runtime_error(m_preview.error());
         if(m_batchImpostors && !m_preview.captureImpostors(views,m_impostorResolution,8,true))
             throw std::runtime_error(m_preview.error());
         m_previewDirty=true;
@@ -126,12 +128,12 @@ void TreeGeneratorLabPanel::startExport()
             ("tree_"+std::to_string(m_batchIndex+1)+"_seed_"+std::to_string(tree->params.seed));
         m_cancel=std::make_shared<std::atomic_bool>(false);
         const auto cancel=m_cancel;
-        m_job=std::async(std::launch::async,[tree,path,views=std::move(views),cancel]() {
+        m_job=std::async(std::launch::async,[tree,path,views=std::move(views),lod3=std::move(lod3),cancel]() {
             Result result;
             try
             {
                 if(cancel->load()) { result.cancelled=true; return result; }
-                if(EnduranceTrees::bake(*tree,path,result.error,views.empty()?nullptr:&views))
+                if(EnduranceTrees::bake(*tree,path,result.error,views.empty()?nullptr:&views,&lod3))
                     result.path=path.u8string();
             }
             catch(const std::exception& e) { result.error=e.what(); }
@@ -155,7 +157,7 @@ void TreeGeneratorLabPanel::startLoad()
             try
             {
                 auto tree=std::make_shared<EnduranceTrees::Tree>();
-                if(EnduranceTrees::loadBakedTree(path,*tree,result.error))
+                if(EnduranceTrees::loadBakedTree(path,*tree,result.error,&result.lod3))
                 { result.tree=std::move(tree); result.path=path.u8string(); }
             }
             catch(const std::exception& e) { result.error=e.what(); }
@@ -190,7 +192,7 @@ void TreeGeneratorLabPanel::poll()
     if(result.tree)
     {
         if(kind==JobKind::Generate && !m_batchCount && m_submittedRevision!=m_revision) return;
-        if(!m_gpuReady || !m_preview.upload(*result.tree))
+        if(!m_gpuReady || !m_preview.upload(*result.tree,result.lod3.empty()?nullptr:&result.lod3))
         {
             if(kind==JobKind::Generate) { m_dirty=true; m_generationFailed=true; }
             m_error=m_preview.error(); m_batchCount=0; return;
@@ -286,7 +288,9 @@ void TreeGeneratorLabPanel::drawSettings()
     bool changed=false;
     ImGui::BeginDisabled(m_batchCount>0 || m_jobKind==JobKind::Load);
     int family=static_cast<int>(p.family);
-    if(ImGui::Combo("Famille",&family,"Feuillu etale\0Conifere\0Retombant\0Arbre mort\0"))
+    if(ImGui::Combo("Type d'arbre",&family,
+        "Feuillu etale\0Conifere\0Retombant\0Arbre mort\0Chene\0Bouleau\0Acacia\0Baobab\0"
+        "Mangrove\0Cypres\0Palmier\0Tremble\0Genevrier\0Banyan\0"))
     {
         const auto seed=p.seed;
         p=EnduranceTrees::preset(static_cast<EnduranceTrees::Family>(family)); p.seed=seed;
@@ -332,6 +336,24 @@ void TreeGeneratorLabPanel::drawSettings()
             { m_embeddedMask={}; m_owner.maskPath.clear(); changed=true; }
         }
     }
+    if(ImGui::CollapsingHeader("Racines"))
+    {
+        changed|=ImGui::SliderInt("Nombre de racines",&p.rootCount,0,20);
+        ImGui::BeginDisabled(p.rootCount==0);
+        changed|=ImGui::SliderFloat("Longueur des racines (m)",&p.rootLength,0.25f,30,"%.2f",flags);
+        changed|=ImGui::SliderFloat("Rayon des racines (m)",&p.rootRadius,0.01f,
+            (std::min)(3.0f,p.trunkRadius*1.2f),"%.2f",flags);
+        ImGui::EndDisabled();
+        ImGui::TextDisabled("0 : desactive. Les quatre types initiaux restent sans racines.");
+    }
+    if(ImGui::CollapsingHeader("Lianes retombantes"))
+    {
+        changed|=ImGui::SliderInt("Nombre de lianes",&p.vineCount,0,48);
+        ImGui::BeginDisabled(p.vineCount==0);
+        changed|=ImGui::SliderFloat("Longueur des lianes (m)",&p.vineLength,0.25f,60,"%.2f",flags);
+        changed|=ImGui::SliderFloat("Rayon des lianes (m)",&p.vineRadius,0.005f,0.3f,"%.3f",flags);
+        ImGui::EndDisabled();
+    }
     if(ImGui::CollapsingHeader("Palettes"))
     {
         changed|=color("Bois sombre",p.barkLow); changed|=color("Bois clair",p.barkHigh);
@@ -359,13 +381,12 @@ void TreeGeneratorLabPanel::drawSettings()
     ImGui::BeginDisabled(busy() || m_batchCount>0);
     inputPath("Dossier de sortie",m_owner.exportDirectory);
     ImGui::SliderInt("Variantes",&m_owner.bakeCount,1,32);
-    ImGui::Checkbox("Capturer les imposteurs multi-vues",&m_bakeImpostors);
-    if(m_bakeImpostors)
+    ImGui::TextWrapped("Chaque export inclut le LOD3 : deux PNG transparents, vues a 0 et 45 degres.");
     {
         int selection=m_impostorResolution==256?1:0;
         if(ImGui::Combo("Resolution par vue",&selection,"128\0 256\0")) m_impostorResolution=selection?256:128;
-        ImGui::TextDisabled("17 vues : deux anneaux et une vue du dessus.");
     }
+    ImGui::Checkbox("Ajouter les 17 vues d'imposteurs",&m_bakeImpostors);
     ImGui::BeginDisabled(!m_tree || m_dirty);
     if(ImGui::Button("Exporter cet arbre")) startBatch(1);
     ImGui::SameLine();
@@ -389,7 +410,8 @@ void TreeGeneratorLabPanel::drawSettings()
     {
         const auto& s=m_tree->statistics;
         ImGui::Separator();
-        ImGui::Text("Branches %u | cartes %u",s.branches,s.leafCards);
+        ImGui::Text("Branches %u | cartes %u",s.branches-s.roots-s.vines,s.leafCards);
+        ImGui::Text("Racines %u | lianes %u",s.roots,s.vines);
         ImGui::Text("Triangles LOD0 %u | LOD1 %u",s.triangles[0],s.triangles[1]);
         ImGui::Text("Generation CPU %.1f ms",s.generationMilliseconds);
         if(!m_tree->warning.empty()) ImGui::TextWrapped("%s",m_tree->warning.c_str());
@@ -402,23 +424,30 @@ void TreeGeneratorLabPanel::drawPreview()
     if(ImGui::Button("Cadrer")) fitCamera();
     ImGui::SameLine(); m_previewDirty|=ImGui::RadioButton("LOD0",&m_view.lod,0);
     ImGui::SameLine(); m_previewDirty|=ImGui::RadioButton("LOD1",&m_view.lod,1);
+    ImGui::SameLine(); m_previewDirty|=ImGui::RadioButton("LOD3 (quad)",&m_view.lod,3);
     ImGui::SameLine(); m_previewDirty|=ImGui::Checkbox("Fil de fer",&m_view.wireframe);
+    ImGui::BeginDisabled(m_view.lod==3);
     m_previewDirty|=ImGui::Checkbox("Bois",&m_view.showWood); ImGui::SameLine();
-    m_previewDirty|=ImGui::Checkbox("Feuilles",&m_view.showLeaves); ImGui::SameLine();
+    m_previewDirty|=ImGui::Checkbox("Feuilles",&m_view.showLeaves);
+    ImGui::EndDisabled(); ImGui::SameLine();
     m_previewDirty|=ImGui::Checkbox("Sol",&m_view.showGround);
+    if(m_view.lod==3)
+        ImGui::TextWrapped("LOD3 : 2 triangles, deux vues selon l'elevation de la camera. Eclairage neutre precalcule ; approximation pour les arbres lointains.");
     if(ImGui::CollapsingHeader("Lumiere et vent de l'apercu"))
     {
+        ImGui::BeginDisabled(m_view.lod==3);
         m_previewDirty|=ImGui::SliderFloat("Azimut soleil",&m_view.sunYaw,-180,180);
         m_previewDirty|=ImGui::SliderFloat("Elevation soleil",&m_view.sunElevation,5,85);
         m_previewDirty|=ImGui::SliderFloat("Vent",&m_view.windStrength,0,1);
-        ImGui::TextWrapped("Apercu d'atelier avec lumiere fixe. Les imposteurs enregistrent couleur et normales sans soleil bake.");
+        ImGui::EndDisabled();
+        ImGui::TextWrapped("Lumiere et vent interactifs sur les maillages. Le LOD3 utilise ses deux images precalculees ; les 17 vues optionnelles stockent albedo et normales.");
     }
     ImGui::TextDisabled("Glisser gauche : orbite | milieu : deplacer | molette : zoom");
     const ImVec2 avail=ImGui::GetContentRegionAvail();
     const int w=std::clamp(static_cast<int>(avail.x),64,1600);
     const int h=std::clamp(static_cast<int>(avail.y),64,1200);
     if(w!=m_view.width || h!=m_view.height) { m_view.width=w; m_view.height=h; m_previewDirty=true; }
-    if(m_view.windStrength>0) { m_view.time=static_cast<float>(ImGui::GetTime()); m_previewDirty=true; }
+    if(m_view.windStrength>0 && m_view.lod!=3) { m_view.time=static_cast<float>(ImGui::GetTime()); m_previewDirty=true; }
     if(m_gpuReady && m_tree && m_previewDirty)
     {
         if(!m_preview.render(m_view)) m_error=m_preview.error();

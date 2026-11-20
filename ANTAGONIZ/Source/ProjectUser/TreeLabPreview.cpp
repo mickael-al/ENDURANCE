@@ -56,9 +56,12 @@ public:
         glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
         glGetIntegerv(GL_VIEWPORT,viewport.data());
         glGetIntegerv(GL_ACTIVE_TEXTURE,&activeTexture);
-        glActiveTexture(GL_TEXTURE0);
-        glGetIntegerv(GL_TEXTURE_BINDING_2D,&texture);
-        glGetIntegeri_v(GL_SAMPLER_BINDING,0,&sampler);
+        for(unsigned i=0;i<2;++i)
+        {
+            glActiveTexture(GL_TEXTURE0+i);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D,&textures[i]);
+            glGetIntegeri_v(GL_SAMPLER_BINDING,i,&samplers[i]);
+        }
         glGetIntegerv(GL_DEPTH_FUNC,&depthFunc);
         glGetBooleanv(GL_DEPTH_WRITEMASK,&depthMask);
         glGetBooleani_v(GL_COLOR_WRITEMASK,0,colorMask.data());
@@ -80,9 +83,12 @@ public:
         glUseProgram(static_cast<GLuint>(program));
         glBindVertexArray(static_cast<GLuint>(vao));
         glViewport(viewport[0],viewport[1],viewport[2],viewport[3]);
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D,static_cast<GLuint>(texture));
-        glBindSampler(0,static_cast<GLuint>(sampler));
+        for(unsigned i=0;i<2;++i)
+        {
+            glActiveTexture(GL_TEXTURE0+i);
+            glBindTexture(GL_TEXTURE_2D,static_cast<GLuint>(textures[i]));
+            glBindSampler(i,static_cast<GLuint>(samplers[i]));
+        }
         glActiveTexture(static_cast<GLenum>(activeTexture));
         glDepthFunc(static_cast<GLenum>(depthFunc));
         glDepthMask(depthMask);
@@ -118,10 +124,13 @@ public:
         glDepthRange(0.0,1.0);
         glClipControl(GL_LOWER_LEFT,GL_NEGATIVE_ONE_TO_ONE);
         glBindSampler(0,0);
+        glBindSampler(1,0);
+        glActiveTexture(GL_TEXTURE0);
         glPolygonMode(GL_FRONT_AND_BACK,GL_FILL);
     }
 private:
-    GLint drawFbo=0,readFbo=0,program=0,vao=0,activeTexture=0,texture=0,sampler=0;
+    GLint drawFbo=0,readFbo=0,program=0,vao=0,activeTexture=0;
+    std::array<GLint,2> textures{},samplers{};
     GLint depthFunc=0,clipOrigin=0,clipDepth=0,packBuffer=0,unpackBuffer=0;
     std::array<GLint,4> viewport{};
     std::array<GLint,2> polygonMode{};
@@ -289,10 +298,12 @@ void readImage(GLuint fbo,GLenum attachment,int w,int h,Image& image)
 void resolveCapture(ImpostorView& view)
 {
     const int w=view.albedo.width/2,h=view.albedo.height/2;
+    const bool hasNormal=validImage(view.normal);
     Image albedo,normal;
-    albedo.width=normal.width=w; albedo.height=normal.height=h;
+    albedo.width=w; albedo.height=h;
     albedo.rgba.resize(static_cast<std::size_t>(w)*h*4);
-    normal.rgba.resize(albedo.rgba.size());
+    if(hasNormal)
+    { normal.width=w; normal.height=h; normal.rgba.resize(albedo.rgba.size()); }
     for(int y=0;y<h;++y) for(int x=0;x<w;++x)
     {
         glm::vec3 c(0.0f),n(0.0f);
@@ -305,7 +316,7 @@ void resolveCapture(ImpostorView& view)
             for(int channel=0;channel<3;++channel)
             {
                 c[channel]+=linear(view.albedo.rgba[index+channel]/255.0f)*a;
-                n[channel]+=(view.normal.rgba[index+channel]/255.0f*2.0f-1.0f)*a;
+                if(hasNormal) n[channel]+=(view.normal.rgba[index+channel]/255.0f*2.0f-1.0f)*a;
             }
         }
         const std::size_t out=(static_cast<std::size_t>(y)*w+x)*4;
@@ -315,9 +326,10 @@ void resolveCapture(ImpostorView& view)
         for(int channel=0;channel<3;++channel)
         {
             albedo.rgba[out+channel]=byte(srgb(c[channel]));
-            normal.rgba[out+channel]=byte(n[channel]*0.5f+0.5f);
+            if(hasNormal) normal.rgba[out+channel]=byte(n[channel]*0.5f+0.5f);
         }
-        albedo.rgba[out+3]=normal.rgba[out+3]=byte(sum*0.25f);
+        albedo.rgba[out+3]=byte(sum*0.25f);
+        if(hasNormal) normal.rgba[out+3]=albedo.rgba[out+3];
     }
     // Propagate edge RGB into the alpha-zero padding, without changing alpha.
     // This prevents dark halos when GPU filtering samples across the silhouette.
@@ -339,41 +351,84 @@ void resolveCapture(ImpostorView& view)
             for(int channel=0;channel<3;++channel)
             {
                 albedo.rgba[static_cast<std::size_t>(next)*4+channel]=albedo.rgba[static_cast<std::size_t>(index)*4+channel];
-                normal.rgba[static_cast<std::size_t>(next)*4+channel]=normal.rgba[static_cast<std::size_t>(index)*4+channel];
+                if(hasNormal) normal.rgba[static_cast<std::size_t>(next)*4+channel]=normal.rgba[static_cast<std::size_t>(index)*4+channel];
             }
             frontier.push_back(next);
         }
     }
     view.albedo=std::move(albedo); view.normal=std::move(normal);
 }
+
+GLuint makeLod3Texture(const Image& source)
+{
+    if(!validImage(source)) return 0;
+    Image image=source;
+    for(std::size_t i=0;i<image.rgba.size();i+=4)
+        for(int c=0;c<3;++c) image.rgba[i+c]=byte(linear(image.rgba[i+c]/255.0f));
+    auto mips=coverageMipmaps(image);
+    GLuint texture=0; glCreateTextures(GL_TEXTURE_2D,1,&texture);
+    if(!texture) return 0;
+    glTextureStorage2D(texture,static_cast<GLsizei>(mips.size()),GL_RGBA8,image.width,image.height);
+    for(std::size_t level=0;level<mips.size();++level)
+    {
+        auto& mip=mips[level];
+        for(std::size_t i=0;i<mip.rgba.size();i+=4)
+            for(int c=0;c<3;++c)
+                mip.rgba[i+c]=byte(mip.rgba[i+c]/255.0f*mip.rgba[i+3]/255.0f);
+        // Keep the same bottom-origin texture convention as the GPU capture.
+        const std::size_t row=static_cast<std::size_t>(mip.width)*4;
+        for(int y=0;y<mip.height/2;++y)
+            std::swap_ranges(mip.rgba.begin()+y*row,mip.rgba.begin()+(y+1)*row,
+                             mip.rgba.begin()+(mip.height-1-y)*row);
+        glTextureSubImage2D(texture,static_cast<GLint>(level),0,0,mip.width,mip.height,
+                            GL_RGBA,GL_UNSIGNED_BYTE,mip.rgba.data());
+    }
+    glTextureParameteri(texture,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+    glTextureParameteri(texture,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+    glTextureParameteri(texture,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE);
+    glTextureParameteri(texture,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
+    GLint width=0; glGetTextureLevelParameteriv(texture,0,GL_TEXTURE_WIDTH,&width);
+    if(width!=source.width) { glDeleteTextures(1,&texture); return 0; }
+    return texture;
+}
 }
 
 struct TreeLabPreview::Impl
 {
     GLuint program=0,leaf=0,bark=0;
+    std::array<GLuint,2> lod3Textures{};
     struct Uniforms
     {
         GLint vp=-1,camera=-1,sun=-1,kind=-1,capture=-1,groundExtent=-1,time=-1,wind=-1;
+        GLint billboardCentre=-1,billboardRight=-1,billboardUp=-1,billboardExtent=-1,lod3Blend=-1;
     } u;
     std::array<GpuMesh,4> meshes;
-    GpuMesh ground;
+    GpuMesh ground,billboard;
     Target preview;
     glm::vec3 centre{0.0f,9.0f,0.0f};
     float radius=15.0f;
-    bool uploaded=false;
+    glm::vec3 lod3Centre{0.0f};
+    float lod3Extent=1.0f;
+    bool uploaded=false,lod3FromBake=false;
     std::string error;
+    void clearLod3()
+    {
+        for(GLuint id:lod3Textures) if(id) glDeleteTextures(1,&id);
+        lod3Textures={}; lod3FromBake=false;
+    }
     void clear()
     {
         for(auto& mesh:meshes) mesh.clear();
-        ground.clear(); preview.clear();
+        ground.clear(); billboard.clear(); preview.clear(); clearLod3();
         if(program) glDeleteProgram(program);
         if(leaf) glDeleteTextures(1,&leaf);
         if(bark) glDeleteTextures(1,&bark);
         program=leaf=bark=0; uploaded=false;
     }
     void draw(Target& target,const PreviewSettings& settings,const glm::mat4& vp,
-              const glm::vec3& camera,bool capture)
+              const glm::vec3& camera,int captureMode)
     {
+        const bool capture=captureMode!=0;
         glBindFramebuffer(GL_DRAW_FRAMEBUFFER,target.fbo);
         glViewport(0,0,target.width,target.height);
         const glm::vec3 bg=safeVector(settings.background,{0.075f,0.095f,0.12f},0.0f,1.0f);
@@ -382,7 +437,7 @@ struct TreeLabPreview::Impl
         const std::array<GLfloat,4> neutral{{0.5f,0.5f,1.0f,0.0f}};
         const GLfloat depth=1.0f;
         glClearBufferfv(GL_COLOR,0,clear.data());
-        if(capture) glClearBufferfv(GL_COLOR,1,neutral.data());
+        if(capture&&target.normal) glClearBufferfv(GL_COLOR,1,neutral.data());
         glClearBufferfv(GL_DEPTH,0,&depth);
         glUseProgram(program);
         glUniformMatrix4fv(u.vp,1,GL_FALSE,glm::value_ptr(vp));
@@ -390,7 +445,7 @@ struct TreeLabPreview::Impl
         const glm::vec3 sun=direction(safe(settings.sunYaw,40.0f,-3600.0f,3600.0f),
             safe(settings.sunElevation,45.0f,-89.0f,89.0f));
         glUniform3fv(u.sun,1,glm::value_ptr(sun));
-        glUniform1i(u.capture,capture?1:0);
+        glUniform1i(u.capture,captureMode);
         glUniform1f(u.time,safe(settings.time,0.0f,-1.0e6f,1.0e6f));
         glUniform1f(u.wind,capture?0.0f:safe(settings.windStrength,0.0f,0.0f,3.0f));
         glUniform1f(u.groundExtent,(std::max)(radius*3.0f,10.0f));
@@ -400,6 +455,29 @@ struct TreeLabPreview::Impl
             ground.draw();
         }
         glPolygonMode(GL_FRONT_AND_BACK,settings.wireframe&&!capture?GL_LINE:GL_FILL);
+        if(!capture&&settings.lod==3)
+        {
+            if(lod3Textures[0]&&lod3Textures[1])
+            {
+                const glm::vec3 delta=camera-lod3Centre;
+                const float distance2=glm::dot(delta,delta);
+                const glm::vec3 facing=distance2>0.000001f?delta/std::sqrt(distance2):glm::vec3(0,0,1);
+                glm::vec3 right=glm::cross(glm::vec3(0,1,0),facing);
+                const float right2=glm::dot(right,right);
+                right=right2>0.000001f?right/std::sqrt(right2):glm::vec3(1,0,0);
+                const glm::vec3 up=glm::cross(facing,right);
+                const float elevation=std::atan2(facing.y,std::sqrt(facing.x*facing.x+facing.z*facing.z));
+                glUniform1i(u.kind,3);
+                glUniform3fv(u.billboardCentre,1,glm::value_ptr(lod3Centre));
+                glUniform3fv(u.billboardRight,1,glm::value_ptr(right));
+                glUniform3fv(u.billboardUp,1,glm::value_ptr(up));
+                glUniform1f(u.billboardExtent,lod3Extent);
+                glUniform1f(u.lod3Blend,std::clamp(elevation/glm::radians(45.0f),0.0f,1.0f));
+                glBindTextureUnit(0,lod3Textures[0]); glBindTextureUnit(1,lod3Textures[1]);
+                billboard.draw();
+            }
+            return;
+        }
         const auto base=static_cast<std::size_t>(std::clamp(settings.lod,0,1)*2);
         if(settings.showWood)
         {
@@ -413,6 +491,38 @@ struct TreeLabPreview::Impl
             glBindTextureUnit(0,leaf);
             meshes[base+1].draw();
         }
+    }
+
+    bool prepareLod3()
+    {
+        if(lod3Textures[0]&&lod3Textures[1]) return true;
+        Target source,destination;
+        std::array<GLuint,2> replacements{};
+        struct Cleanup
+        {
+            Target& a; Target& b; std::array<GLuint,2>& textures;
+            ~Cleanup() { a.clear(); b.clear(); for(GLuint id:textures) if(id) glDeleteTextures(1,&id); }
+        } cleanup{source,destination,replacements};
+        constexpr int size=256;
+        if(!source.create(size*2,size*2,false)) { error="Cannot allocate LOD3 capture target."; return false; }
+        const float extent=radius*1.06f;
+        PreviewSettings settings; settings.showGround=false;
+        for(int i=0;i<2;++i)
+        {
+            if(!destination.create(size,size,false)) { error="Cannot allocate LOD3 textures."; return false; }
+            const glm::vec3 eye=centre+direction(0.0f,static_cast<float>(i)*45.0f)*(radius*3.0f);
+            const glm::mat4 projection=glm::orthoRH_NO(-extent,extent,-extent,extent,radius*0.01f,radius*6.0f);
+            draw(source,settings,projection*glm::lookAtRH(eye,centre,glm::vec3(0,1,0)),eye,3);
+            glBlitNamedFramebuffer(source.fbo,destination.fbo,0,0,size*2,size*2,0,0,size,size,
+                                   GL_COLOR_BUFFER_BIT,GL_LINEAR);
+            glGenerateTextureMipmap(destination.color);
+            glTextureParameteri(destination.color,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR);
+            replacements[static_cast<std::size_t>(i)]=destination.color;
+            destination.color=0; destination.clear();
+        }
+        clearLod3(); lod3Textures=replacements; replacements={};
+        lod3Centre=centre; lod3Extent=extent;
+        return true;
     }
 };
 
@@ -432,6 +542,17 @@ bool TreeLabPreview::initialize()
         floor.indices={0,2,1,0,3,2};
         if(!m->ground.upload(floor)) { m->ground.clear(); m->error="Cannot allocate tree preview floor."; return false; }
     }
+    if(!m->billboard.vao)
+    {
+        Mesh quad;
+        for(glm::vec2 p:{glm::vec2(-1,-1),glm::vec2(1,-1),glm::vec2(1,1),glm::vec2(-1,1)})
+        {
+            Vertex vertex; vertex.position={p.x,p.y,0}; vertex.uv=p*0.5f+0.5f;
+            quad.vertices.push_back(vertex);
+        }
+        quad.indices={0,1,2,0,2,3};
+        if(!m->billboard.upload(quad)) { m->billboard.clear(); m->error="Cannot allocate LOD3 quad."; return false; }
+    }
     return true;
 }
 
@@ -450,21 +571,29 @@ bool TreeLabPreview::reloadShaders()
     m->u.vp=get("uViewProjection"); m->u.camera=get("uCamera"); m->u.sun=get("uSun");
     m->u.kind=get("uKind"); m->u.capture=get("uCapture"); m->u.groundExtent=get("uGroundExtent");
     m->u.time=get("uTime"); m->u.wind=get("uWindStrength");
+    m->u.billboardCentre=get("uBillboardCentre"); m->u.billboardRight=get("uBillboardRight");
+    m->u.billboardUp=get("uBillboardUp"); m->u.billboardExtent=get("uBillboardExtent");
+    m->u.lod3Blend=get("uLod3Blend");
+    // Authored images keep their baked look; generated preview caches follow
+    // shader edits when next displayed.
+    if(!m->lod3FromBake) m->clearLod3();
     m->error.clear(); return true;
 }
 
-bool TreeLabPreview::upload(const Tree& tree)
+bool TreeLabPreview::upload(const Tree& tree,const std::vector<ImpostorView>* lod3)
 {
     if(tree.cancelled || !validImage(tree.leafMask) || !validImage(tree.barkTexture))
     { m->error="Tree preview requires a completed tree and valid textures."; return false; }
     State state; state.prepareTransfer();
     std::array<GpuMesh,4> replacement;
+    std::array<GLuint,2> lod3Replacement{};
     GLuint leaf=0,bark=0;
     const auto rollback=[&]()
     {
         for(auto& mesh:replacement) mesh.clear();
         if(leaf) glDeleteTextures(1,&leaf);
         if(bark) glDeleteTextures(1,&bark);
+        for(GLuint id:lod3Replacement) if(id) glDeleteTextures(1,&id);
         m->error="Cannot allocate the tree preview geometry or textures.";
         return false;
     };
@@ -473,10 +602,33 @@ bool TreeLabPreview::upload(const Tree& tree)
     leaf=makeTexture(tree.leafMask,true);
     bark=makeTexture(tree.barkTexture,false);
     if(!leaf||!bark) return rollback();
+    if(lod3&&!lod3->empty())
+    {
+        if(lod3->size()!=2) return rollback();
+        for(std::size_t i=0;i<2;++i)
+        {
+            const auto& view=(*lod3)[i];
+            if(!validImage(view.albedo)||view.albedo.width!=view.albedo.height||view.albedo.width>2048||
+                !finite(view.halfExtent)||view.halfExtent<=0.0f||view.halfExtent>1.0e5f) return rollback();
+            for(int component=0;component<3;++component)
+                if(!finite(view.centre[component])||!finite(view.direction[component])) return rollback();
+            if(glm::length(view.direction-direction(0.0f,static_cast<float>(i)*45.0f))>0.005f||
+                glm::length(view.centre-(*lod3)[0].centre)>0.001f||
+                std::abs(view.halfExtent-(*lod3)[0].halfExtent)>0.001f) return rollback();
+            lod3Replacement[i]=makeLod3Texture(view.albedo);
+            if(!lod3Replacement[i]) return rollback();
+        }
+    }
     for(auto& mesh:m->meshes) mesh.clear();
     if(m->leaf) glDeleteTextures(1,&m->leaf);
     if(m->bark) glDeleteTextures(1,&m->bark);
     m->meshes=replacement; m->leaf=leaf; m->bark=bark;
+    m->clearLod3(); m->lod3Textures=lod3Replacement;
+    if(lod3Replacement[0])
+    {
+        m->lod3Centre=(*lod3)[0].centre; m->lod3Extent=(*lod3)[0].halfExtent;
+        m->lod3FromBake=true;
+    }
     m->centre=safeVector((tree.boundsMin+tree.boundsMax)*0.5f,{0.0f,9.0f,0.0f},-1.0e5f,1.0e5f);
     m->radius=safe(glm::length(tree.boundsMax-tree.boundsMin)*0.5f,15.0f,0.1f,1.0e5f);
     m->uploaded=true; m->error.clear(); return true;
@@ -486,6 +638,7 @@ bool TreeLabPreview::render(const PreviewSettings& settings)
 {
     if(!initialize()) return false;
     State state; state.prepareDraw(); state.prepareTransfer();
+    if(settings.lod==3&&m->uploaded&&!m->prepareLod3()) return false;
     const int w=std::clamp(settings.width,16,4096),h=std::clamp(settings.height,16,4096);
     if(m->preview.width!=w||m->preview.height!=h)
     {
@@ -546,6 +699,34 @@ bool TreeLabPreview::captureImpostors(std::vector<ImpostorView>& views,int resol
     {
         for(int i=0;i<count;++i) capture(static_cast<float>(i)*360.0f/static_cast<float>(count),60.0f);
         capture(0.0f,90.0f);
+    }
+    views=std::move(result); m->error.clear(); return true;
+}
+
+bool TreeLabPreview::captureLod3(std::vector<ImpostorView>& views,int resolution)
+{
+    if(!m->uploaded) { m->error="Generate and upload a tree before baking LOD3."; return false; }
+    if(!initialize()) return false;
+    State state; state.prepareDraw(); state.prepareTransfer();
+    Target target;
+    struct ReleaseTarget { Target& t; ~ReleaseTarget() { t.clear(); } } releaseTarget{target};
+    const int size=std::clamp(resolution,32,1024),renderSize=size*2;
+    if(!target.create(renderSize,renderSize,false)) { m->error="LOD3 framebuffer is incomplete."; return false; }
+    const float extent=m->radius*1.06f;
+    PreviewSettings settings; settings.showGround=false;
+    std::vector<ImpostorView> result;
+    result.reserve(2);
+    for(int i=0;i<2;++i)
+    {
+        ImpostorView view;
+        view.direction=direction(0.0f,static_cast<float>(i)*45.0f);
+        view.centre=m->centre; view.halfExtent=extent; view.up={0,1,0};
+        const glm::vec3 eye=view.centre+view.direction*(m->radius*3.0f);
+        const glm::mat4 projection=glm::orthoRH_NO(-extent,extent,-extent,extent,m->radius*0.01f,m->radius*6.0f);
+        m->draw(target,settings,projection*glm::lookAtRH(eye,view.centre,view.up),eye,2);
+        readImage(target.fbo,GL_COLOR_ATTACHMENT0,renderSize,renderSize,view.albedo);
+        resolveCapture(view);
+        result.push_back(std::move(view));
     }
     views=std::move(result); m->error.clear(); return true;
 }

@@ -22,6 +22,7 @@ private:
     struct Result
     {
         std::shared_ptr<EnduranceTrees::Tree> tree;
+        std::vector<EnduranceTrees::ImpostorView> lod3;
         std::string error, path;
         bool cancelled=false;
     };
@@ -36,8 +37,8 @@ private:
     EnduranceTrees::Image m_batchLeafMask, m_embeddedMask;
     std::string m_batchMask, m_batchDirectory;
     unsigned m_batchIndex=0, m_batchCount=0;
-    int m_impostorResolution=128;
-    bool m_bakeImpostors=true, m_batchImpostors=true, m_previewDirty=true;
+    int m_impostorResolution=256;
+    bool m_bakeImpostors=false, m_batchImpostors=false, m_previewDirty=true;
     bool m_dirty=true, m_generateRequested=false, m_fitNext=true;
     bool m_generationFailed=false;
     bool m_gpuReady=false, m_resetDock=false;

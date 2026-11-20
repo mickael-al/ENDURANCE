@@ -25,7 +25,7 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--glew-object",type=Path)
     parser.add_argument("--fast-math",action="store_true")
-    parser.add_argument("--captures",type=Path,help="Write four preset reference captures to this directory")
+    parser.add_argument("--captures",type=Path,help="Write all family and LOD3 reference captures to this directory")
     args=parser.parse_args()
     with tempfile.TemporaryDirectory(prefix="endurance-tree-preview-") as temporary:
         directory=Path(temporary); (directory/"Bin").mkdir()

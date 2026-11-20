@@ -60,6 +60,8 @@ BranchPoint sample(const Branch& b,float t)
 }
 glm::vec3 tangentAt(const Branch& b,float t)
 { return safeNormal(sample(b,(std::min)(1.0f,t+0.03f)).position-sample(b,(std::max)(0.0f,t-0.03f)).position); }
+bool tiered(Family family)
+{ return family==Family::Conifer || family==Family::Cypress || family==Family::Juniper; }
 
 Branch curve(glm::vec3 start,glm::vec3 end,glm::vec3 startDirection,glm::vec3 endDirection,
              float radius,float tipRadius,int parent,int level,float attachment,
@@ -89,6 +91,7 @@ Branch curve(glm::vec3 start,glm::vec3 end,glm::vec3 startDirection,glm::vec3 en
 void buildSkeleton(Tree& tree,const std::atomic_bool* stop)
 {
     const Params& p=tree.params; Random rng(p.seed);
+    const std::size_t woodBudget=MaxBranches-std::size_t(p.rootCount+p.vineCount);
     const float direction=rng.range(0,2*Pi);
     const glm::vec3 lean(std::cos(direction),0,std::sin(direction));
     Branch trunk; trunk.parent=-1; trunk.level=0;
@@ -99,26 +102,35 @@ void buildSkeleton(Tree& tree,const std::atomic_bool* stop)
         pos+=glm::vec3(-lean.z,0,lean.x)*(p.height*p.trunkBend*0.22f*std::sin(t*Pi*2));
         pos.y=t*p.height;
         const float flare=1.0f+0.60f*(1-smooth(0,0.13f,t));
-        const float r=(p.trunkRadius*std::pow(1-t,0.85f)+p.trunkRadius*0.015f)*flare;
+        float r=(p.trunkRadius*std::pow(1-t,0.85f)+p.trunkRadius*0.015f)*flare;
+        if(p.family==Family::Baobab)
+            r=p.trunkRadius*(0.75f+0.45f*std::sin(t*Pi))*glm::mix(1.0f,0.10f,smooth(0.58f,1.0f,t));
+        else if(p.family==Family::Palm)
+            r=p.trunkRadius*glm::mix(1.15f,0.48f,t)*(1+0.035f*std::sin(t*Pi*24));
         trunk.points.push_back({pos,r});
     }
     tree.branches.push_back(trunk);
-    const bool conifer=p.family==Family::Conifer;
+    const bool conifer=tiered(p.family);
+    const bool palm=p.family==Family::Palm;
     const int primaryCount=conifer ? p.branchCount*3 : p.branchCount;
     for(int i=0;i<primaryCount;++i)
     {
         if(cancelled(stop)) return;
         const float tier=conifer ? float(i/3)/float((std::max)(1,p.branchCount-1)) : float(i)/float((std::max)(1,primaryCount-1));
-        const float attach=glm::mix(p.branchStart,0.91f,tier)+rng.range(-0.015f,0.015f);
+        const float attach=palm ? rng.range(0.91f,0.985f) : glm::mix(p.branchStart,0.91f,tier)+rng.range(-0.015f,0.015f);
         const BranchPoint base=sample(trunk,attach);
         const float azimuth=direction+float(i)*2.39996323f+rng.range(-0.32f,0.32f);
         const glm::vec3 radial(std::cos(azimuth),0,std::sin(azimuth));
         float spread=p.crownWidth*0.5f*rng.range(0.76f,1.12f);
         spread*=conifer ? std::pow(1-tier*0.92f,0.70f) : (0.68f+0.32f*std::sin(tier*Pi));
+        if(palm) spread*=glm::mix(1.0f,0.72f,tier);
         const float angle=p.branchAngle*Pi/180.0f;
         const glm::vec3 branchDirection=safeNormal(radial*std::sin(angle)+glm::vec3(0,std::cos(angle),0));
         glm::vec3 end=base.position+radial*spread;
-        if(conifer) end.y=base.position.y+p.crownHeight*0.06f;
+        if(palm) end.y=base.position.y-p.crownHeight*glm::mix(0.45f,0.04f,tier);
+        else if(p.family==Family::Acacia) end.y=p.height+rng.range(-0.035f,0.035f)*p.crownHeight;
+        else if(p.family==Family::Cypress) end.y=(std::min)(p.height*1.02f,base.position.y+p.crownHeight*0.16f);
+        else if(conifer) end.y=base.position.y+p.crownHeight*0.06f;
         else
         {
             const float crownBase=p.height-p.crownHeight;
@@ -126,6 +138,7 @@ void buildSkeleton(Tree& tree,const std::atomic_bool* stop)
             end.y+=rng.range(-0.07f,0.07f)*p.crownHeight;
         }
         glm::vec3 endDirection=radial*0.5f+glm::vec3(0,conifer ? 0.18f : 1.0f,0);
+        if(palm) endDirection=radial*0.65f+glm::vec3(0,-0.85f,0);
         const float radius=base.radius*rng.range(0.52f,0.73f);
         tree.branches.push_back(curve(base.position,end,branchDirection,endDirection,radius,radius*0.075f,0,1,attach,p.curvature,rng));
     }
@@ -142,7 +155,7 @@ void buildSkeleton(Tree& tree,const std::atomic_bool* stop)
             const int children=std::clamp(int(p.twigDensity*rng.range(1.6f,2.8f)+0.5f),1,5);
             for(int j=0;j<children;++j)
             {
-                if(tree.branches.size()>=MaxBranches) { tree.statistics.budgetLimited=true; return; }
+                if(tree.branches.size()>=woodBudget) { tree.statistics.budgetLimited=true; return; }
                 const float attach=glm::mix(0.40f,0.86f,(float(j)+rng.range(0.1f,0.9f))/float(children));
                 const BranchPoint base=sample(old,attach);
                 const glm::vec3 t=tangentAt(old,attach),u=perpendicular(t),v=glm::cross(t,u);
@@ -164,6 +177,11 @@ void buildSkeleton(Tree& tree,const std::atomic_bool* stop)
                     endDir=safeNormal(dir+glm::vec3(0,0.55f,0));
                 }
                 else { end.y+=branchLength*0.10f; endDir=safeNormal(dir+glm::vec3(0,0.15f,0)); }
+                if(p.family==Family::Acacia)
+                {
+                    end.y=glm::mix(end.y,p.height,0.82f);
+                    endDir=safeNormal(glm::vec3(dir.x,0.15f,dir.z));
+                }
                 // Artistic crown envelope bounds secondary spread, retaining asymmetric tips.
                 const glm::vec3 center=lean*(p.height*p.trunkBend*0.6f);
                 glm::vec2 xz(end.x-center.x,end.z-center.z);
@@ -176,6 +194,77 @@ void buildSkeleton(Tree& tree,const std::atomic_bool* stop)
             }
         }
         levelBegin=nextBegin; levelEnd=tree.branches.size();
+    }
+}
+
+// Independent random streams preserve the existing trunk/crown shape below the
+// shared safety budgets. At saturation, roots/vines reserve branch slots and
+// their leaf sites share the same finite card budget as the crown.
+void buildRootsAndVines(Tree& tree,const std::atomic_bool* stop)
+{
+    const Params& p=tree.params;
+    Random roots(p.seed^0xb148f62du),vines(p.seed^0xd961e03bu);
+    const Branch trunk=tree.branches.front();
+    const std::size_t woodCount=tree.branches.size();
+    const float rootPhase=roots.range(0,2*Pi);
+    for(int i=0;i<p.rootCount;++i)
+    {
+        if(cancelled(stop)) return;
+        if(tree.branches.size()>=MaxBranches) { tree.statistics.budgetLimited=true; break; }
+        const bool stilt=p.family==Family::Mangrove;
+        const float attach=stilt ? roots.range(0.09f,0.24f) :
+            (std::min)(0.07f,p.rootRadius*1.4f/p.height);
+        const auto anchor=sample(trunk,attach);
+        const float angle=rootPhase+2*Pi*(float(i)+roots.range(-0.20f,0.20f))/float(p.rootCount);
+        const glm::vec3 radial(std::cos(angle),0,std::sin(angle));
+        const glm::vec3 side(-radial.z,0,radial.x);
+        const float length=(std::max)(p.rootLength*roots.range(0.72f,1.16f),p.trunkRadius*1.6f);
+        const float radius=(std::min)(p.rootRadius*roots.range(0.78f,1.18f),anchor.radius*0.88f);
+        const float bend=roots.range(-0.28f,0.28f);
+        Branch root; root.kind=BranchKind::Root; root.parent=0; root.level=1; root.attachment=attach;
+        for(int j=0;j<=10;++j)
+        {
+            const float t=float(j)/10.0f;
+            glm::vec3 position=anchor.position+radial*(length*t)+side*(std::sin(t*Pi)*length*bend);
+            position.y=stilt ? anchor.position.y*std::pow(1-t,0.72f) :
+                anchor.position.y*(1-smooth(0,0.45f,t))+radius*0.18f*std::sin(t*Pi);
+            position.y-=radius*0.23f*smooth(0.60f,1.0f,t);
+            const float r=radius*(0.04f+0.96f*std::pow(1-t,1.25f));
+            root.points.push_back({position,r});
+        }
+        tree.branches.push_back(std::move(root)); ++tree.statistics.roots;
+    }
+    std::vector<std::size_t> supports;
+    for(std::size_t i=1;i<woodCount;++i)
+        if(tree.branches[i].level<=2 && sample(tree.branches[i],0.7f).position.y>0.7f) supports.push_back(i);
+    if(supports.empty()) supports.push_back(0);
+    const std::size_t first=supports.empty()?0:std::size_t(vines.unit()*float(supports.size()));
+    for(int i=0;i<p.vineCount;++i)
+    {
+        if(cancelled(stop)) return;
+        if(tree.branches.size()>=MaxBranches) { tree.statistics.budgetLimited=true; break; }
+        const std::size_t parent=supports[(first+std::size_t(i))%supports.size()];
+        const Branch& branch=tree.branches[parent];
+        const float attach=vines.range(0.45f,0.95f);
+        const auto anchor=sample(branch,attach);
+        const float drop=(std::min)(p.vineLength*vines.range(0.64f,1.08f),anchor.position.y-0.08f);
+        if(drop<0.15f) continue;
+        const float angle=vines.range(0,2*Pi),phase=vines.range(0,2*Pi);
+        const glm::vec3 side(std::cos(angle),0,std::sin(angle));
+        const glm::vec3 crossSide(-side.z,0,side.x);
+        const float curl=drop*vines.range(0.025f,0.055f);
+        const float radius=p.vineRadius*vines.range(0.72f,1.12f);
+        Branch vine; vine.kind=BranchKind::Vine; vine.parent=int(parent); vine.level=2; vine.attachment=attach;
+        const int segments=std::clamp(int(drop*1.6f)+5,8,24);
+        for(int j=0;j<=segments;++j)
+        {
+            const float t=float(j)/float(segments);
+            glm::vec3 position=anchor.position+glm::vec3(0,-drop*t,0);
+            position+=side*(curl*std::sin(t*Pi*1.4f+phase)*std::sin(t*Pi*.7f));
+            position+=crossSide*(curl*.45f*std::sin(t*Pi*3)*t);
+            vine.points.push_back({position,radius*glm::mix(1.0f,0.22f,t)});
+        }
+        tree.branches.push_back(std::move(vine)); ++tree.statistics.vines;
     }
 }
 
@@ -194,8 +283,12 @@ void meshBranch(Tree& tree,const Branch& branch,std::size_t id,int lod)
     Mesh& mesh=tree.lods[std::size_t(lod)].wood;
     const Params& p=tree.params;
     if(lod==1 && branch.level>=3) return;
-    const int sides=branch.level==0 ? (lod==0 ? 12 : 7) : (lod==0 ? 8 : 5);
-    const int segmentStride=lod==0 ? 1 : 2;
+    if(lod==1 && branch.kind==BranchKind::Vine && (id&1u)) return;
+    const int sides=branch.kind==BranchKind::Vine ? (lod==0 ? 5 : 3) :
+        (branch.level==0 ? (lod==0 ? 12 : 7) : (lod==0 ? 8 : 5));
+    const int segmentStride=lod==0 ? 1 : (branch.kind==BranchKind::Wood ? 2 : 3);
+    const float flexibility=branch.kind==BranchKind::Root ? 0.0f :
+        (branch.kind==BranchKind::Vine ? 0.85f : float(branch.level)*0.22f);
     std::vector<BranchPoint> points;
     for(std::size_t k=0;k<branch.points.size();k+=std::size_t(segmentStride)) points.push_back(branch.points[k]);
     if((branch.points.size()-1)%std::size_t(segmentStride)!=0) points.push_back(branch.points.back());
@@ -236,7 +329,7 @@ void meshBranch(Tree& tree,const Branch& branch,std::size_t id,int lod)
             const float shade=0.10f*std::sin(angle*3+phase*6.28f);
             // Uniform UV metres along each branch; pattern follows its axis.
             pushWoodVertex(mesh,p,position,normal,{float(j)/float(sides),arclength*0.28f},shade,
-                           float(branch.level)*0.22f,phase);
+                           flexibility,phase);
         }
     }
     const std::uint32_t stride=std::uint32_t(sides+1);
@@ -253,7 +346,7 @@ void meshBranch(Tree& tree,const Branch& branch,std::size_t id,int lod)
         const glm::vec3 t=top ? safeNormal(points.back().position-points[points.size()-2].position)
                              : (branch.parent<0 ? glm::vec3(0,-1,0) : -safeNormal(points[1].position-points[0].position));
         const std::uint32_t center=std::uint32_t(mesh.vertices.size());
-        pushWoodVertex(mesh,p,points[ring].position,t,{0.5f,0.5f},0,float(branch.level)*0.22f,phase);
+        pushWoodVertex(mesh,p,points[ring].position,t,{0.5f,0.5f},0,flexibility,phase);
         for(std::uint32_t j=0;j<std::uint32_t(sides);++j)
         {
             const std::uint32_t a=offset+std::uint32_t(ring)*stride+j;
@@ -280,13 +373,36 @@ std::vector<LeafCard> foliageCards(Tree& tree,const std::atomic_bool* stop)
     for(std::size_t i=3;i<tree.leafMask.rgba.size();i+=4) if(tree.leafMask.rgba[i]>=128) { visible=true; break; }
     if(!visible) return cards;
     std::vector<bool> terminal(tree.branches.size(),true);
-    for(const Branch& b:tree.branches) if(b.parent>=0) terminal[std::size_t(b.parent)]=false;
+    for(const Branch& b:tree.branches)
+        if(b.parent>=0 && b.kind==BranchKind::Wood) terminal[std::size_t(b.parent)]=false;
     struct FoliageSite { std::size_t branch; float t,scale; };
     std::vector<FoliageSite> sites;
-    const bool conifer=p.family==Family::Conifer;
+    const bool conifer=tiered(p.family);
+    const bool palm=p.family==Family::Palm;
     for(std::size_t i=0;i<tree.branches.size();++i)
     {
         const Branch& branch=tree.branches[i];
+        if(branch.kind==BranchKind::Root) continue;
+        if(branch.kind==BranchKind::Vine)
+        {
+            const float length=branch.points.front().position.y-branch.points.back().position.y;
+            const int count=std::clamp(int(length/0.7f),1,10);
+            for(int j=0;j<count;++j)
+                sites.push_back({i,(float(j)+0.6f)/float(count+1),0.24f/p.clumpSize});
+            continue;
+        }
+        if(palm)
+        {
+            if(i==0) continue;
+            const float length=glm::length(branch.points.back().position-branch.points.front().position);
+            const int count=std::clamp(int(length/(p.clumpSize*0.75f))+1,4,14);
+            for(int j=0;j<count;++j)
+            {
+                const float t=glm::mix(0.12f,0.98f,float(j)/float(count-1));
+                sites.push_back({i,t,0.9f*std::sin(t*Pi)+0.16f});
+            }
+            continue;
+        }
         if(!conifer)
         {
             if(terminal[i] || i==0) sites.push_back({i,i==0 ? 0.98f : 0.88f,1.0f});
@@ -313,27 +429,39 @@ std::vector<LeafCard> foliageCards(Tree& tree,const std::atomic_bool* stop)
             }
         }
     }
-    // Share a saturated budget across the complete canopy, rather than filling
-    // the earliest branches and silently dropping one side of the tree.
-    const int cardsPerClump=int(MaxCards/(std::max)(std::size_t(1),sites.size()));
+    // Share a saturated budget across the complete canopy. Small vine clusters
+    // need far fewer cards than crown volumes: giving every site an equal quota
+    // would starve the crown while leaving most of that quota unused on vines.
+    const std::size_t vineSites=std::count_if(sites.begin(),sites.end(),[&](const FoliageSite& site) {
+        return tree.branches[site.branch].kind==BranchKind::Vine;
+    });
+    const std::size_t vineBudget=(std::min)(MaxCards/5,vineSites*8);
+    const int crownCardsPerClump=int((MaxCards-vineBudget)/(std::max)(std::size_t(1),sites.size()-vineSites));
+    const int vineCardsPerClump=int(vineBudget/(std::max)(std::size_t(1),vineSites));
     Random rng(p.seed^0x67a9d3e1u);
     for(std::size_t i=0;i<sites.size();++i)
     {
         if(cancelled(stop)) return cards;
         const FoliageSite& site=sites[i];
         const Branch& branch=tree.branches[site.branch];
+        const bool vine=branch.kind==BranchKind::Vine;
         const float clump=p.clumpSize*rng.range(0.76f,1.16f)*site.scale;
-        const glm::vec3 axis=tangentAt(branch,conifer ? site.t : 0.9f);
+        const glm::vec3 axis=tangentAt(branch,(conifer || palm || vine) ? site.t : 0.9f);
         const glm::vec3 center=sample(branch,site.t).position+axis*(clump*0.22f);
         glm::vec3 radii(clump,clump*0.65f,clump*0.85f);
         if(p.family==Family::Weeping) radii={clump*0.64f,clump*1.10f,clump*0.64f};
         if(conifer) radii={clump,clump*(site.branch==0 ? 0.70f : 0.28f),clump*0.72f};
+        if(p.family==Family::Cypress) radii={clump*0.60f,clump*1.45f,clump*0.60f};
+        if(p.family==Family::Acacia) radii.y=clump*0.30f;
+        if(palm) radii={clump*0.48f,clump*0.12f,clump};
+        if(vine) radii={clump*0.48f,clump*1.15f,clump*0.48f};
         // Horizontal branch-aligned sprays form readable tapered tiers. They
         // preserve a few gaps inside the crown instead of filling a solid cone.
         const glm::vec3 forward=safeNormal(glm::vec3(axis.x,0,axis.z),{1,0,0});
         const glm::vec3 side(-forward.z,0,forward.x);
-        const int desiredCount=std::clamp(int((conifer ? 18.0f : 22.0f)*p.leafDensity*clump*clump/(p.leafSize*p.leafSize)),4,256);
-        const int count=(std::min)(desiredCount,cardsPerClump);
+        const float cardSize=vine ? (std::min)(p.leafSize,0.36f) : p.leafSize;
+        const int desiredCount=std::clamp(int((conifer ? 18.0f : 22.0f)*p.leafDensity*clump*clump/(cardSize*cardSize)),4,256);
+        const int count=(std::min)(desiredCount,vine ? vineCardsPerClump : crownCardsPerClump);
         if(count<desiredCount) tree.statistics.budgetLimited=true;
         const float clumpPhase=rng.unit();
         for(int j=0;j<count;++j)
@@ -346,7 +474,7 @@ std::vector<LeafCard> foliageCards(Tree& tree,const std::atomic_bool* stop)
             const glm::vec3 direction(r*std::cos(theta),y,r*std::sin(theta));
             glm::vec3 point=direction*radii*rng.range(0.55f,1.0f);
             glm::vec3 n=safeNormal(direction/radii);
-            if(conifer)
+            if(conifer || palm)
             {
                 point=forward*point.x+glm::vec3(0,point.y,0)+side*point.z;
                 n=forward*n.x+glm::vec3(0,n.y,0)+side*n.z;
@@ -357,9 +485,9 @@ std::vector<LeafCard> foliageCards(Tree& tree,const std::atomic_bool* stop)
             LeafCard c; c.center=center+point;
             c.right=right*std::cos(roll)+up*std::sin(roll);
             c.up=-right*std::sin(roll)+up*std::cos(roll);
-            c.volumeNormal=n; c.size=p.leafSize*rng.range(0.72f,1.18f);
+            c.volumeNormal=n; c.size=cardSize*rng.range(0.72f,1.18f);
             c.phase=clumpPhase; c.shade=rng.range(-0.06f,0.06f);
-            c.key=hash(std::uint32_t(conifer ? i : site.branch)*1559u+std::uint32_t(j)*31337u+p.seed);
+            c.key=hash(std::uint32_t((conifer || palm || vine) ? i : site.branch)*1559u+std::uint32_t(j)*31337u+p.seed);
             cards.push_back(c);
         }
     }
@@ -418,6 +546,16 @@ const char* familyName(Family family)
         case Family::Conifer:return "Conifer";
         case Family::Weeping:return "Weeping";
         case Family::Dead:return "Dead";
+        case Family::Oak:return "Oak";
+        case Family::Birch:return "Birch";
+        case Family::Acacia:return "Acacia";
+        case Family::Baobab:return "Baobab";
+        case Family::Mangrove:return "Mangrove";
+        case Family::Cypress:return "Cypress";
+        case Family::Palm:return "Palm";
+        case Family::Aspen:return "Aspen";
+        case Family::Juniper:return "Juniper";
+        case Family::Banyan:return "Banyan";
         default:return "Broadleaf";
     }
 }
@@ -441,6 +579,71 @@ Params preset(Family family)
             p.height=15; p.trunkRadius=0.85f; p.trunkBend=0.17f; p.crownWidth=12;
             p.branchCount=7; p.curvature=0.5f; p.leafDensity=0;
             p.barkLow={0.07f,0.06f,0.045f}; p.barkHigh={0.23f,0.20f,0.14f}; break;
+        case Family::Oak:
+            p.height=20; p.trunkRadius=1.10f; p.trunkBend=.09f; p.crownWidth=24; p.crownHeight=14;
+            p.branchStart=.24f; p.branchCount=9; p.branchAngle=66; p.branchTaper=.63f;
+            p.curvature=.36f; p.clumpSize=2.2f; p.leafSize=.95f;
+            p.rootCount=7; p.rootLength=5.5f; p.rootRadius=.48f;
+            p.leafLow={.025f,.055f,.014f}; p.leafHigh={.19f,.27f,.045f}; break;
+        case Family::Birch:
+            p.height=21; p.trunkRadius=.33f; p.trunkBend=.08f; p.crownWidth=8; p.crownHeight=12;
+            p.branchStart=.36f; p.branchCount=13; p.branchAngle=42; p.branchTaper=.43f;
+            p.curvature=.22f; p.clumpSize=1.05f; p.leafSize=.62f; p.twigDensity=.8f;
+            p.barkLow={.24f,.25f,.24f}; p.barkHigh={.68f,.66f,.57f};
+            p.leafLow={.055f,.085f,.025f}; p.leafHigh={.30f,.39f,.10f}; break;
+        case Family::Acacia:
+            p.height=13; p.trunkRadius=.75f; p.trunkBend=.20f; p.crownWidth=25; p.crownHeight=4.2f;
+            p.branchStart=.48f; p.branchCount=8; p.branchAngle=78; p.branchTaper=.65f;
+            p.curvature=.34f; p.clumpSize=1.9f; p.leafSize=.8f; p.twigDensity=1.2f;
+            p.rootCount=5; p.rootLength=4.5f; p.rootRadius=.33f;
+            p.barkLow={.075f,.055f,.032f}; p.barkHigh={.24f,.15f,.065f};
+            p.leafLow={.04f,.065f,.015f}; p.leafHigh={.24f,.29f,.055f}; break;
+        case Family::Baobab:
+            p.height=20; p.trunkRadius=2.5f; p.trunkBend=.025f; p.crownWidth=18; p.crownHeight=7;
+            p.branchStart=.69f; p.branchCount=8; p.branchAngle=57; p.branchTaper=.57f;
+            p.curvature=.40f; p.clumpSize=1.8f; p.leafSize=.95f; p.leafDensity=.72f;
+            p.rootCount=8; p.rootLength=6.5f; p.rootRadius=.85f;
+            p.barkLow={.12f,.085f,.055f}; p.barkHigh={.32f,.24f,.16f}; break;
+        case Family::Mangrove:
+            p.height=11; p.trunkRadius=.65f; p.trunkBend=.14f; p.crownWidth=16; p.crownHeight=7;
+            p.branchStart=.32f; p.branchCount=9; p.branchAngle=70; p.branchTaper=.60f;
+            p.clumpSize=1.65f; p.leafSize=.85f; p.curvature=.40f;
+            p.rootCount=12; p.rootLength=5.2f; p.rootRadius=.28f;
+            p.vineCount=9; p.vineLength=4.5f; p.vineRadius=.035f;
+            p.barkLow={.07f,.055f,.034f}; p.barkHigh={.20f,.15f,.085f};
+            p.leafLow={.016f,.060f,.030f}; p.leafHigh={.11f,.23f,.070f}; break;
+        case Family::Cypress:
+            p.height=28; p.trunkRadius=.60f; p.trunkBend=.018f; p.crownWidth=5.2f; p.crownHeight=24;
+            p.branchStart=.15f; p.branchCount=12; p.branchAngle=32; p.branchingLevels=2;
+            p.curvature=.14f; p.clumpSize=1.5f; p.leafSize=.72f; p.twigDensity=.70f;
+            p.leafLow={.018f,.036f,.022f}; p.leafHigh={.07f,.14f,.045f}; break;
+        case Family::Palm:
+            p.height=16; p.trunkRadius=.42f; p.trunkBend=.18f; p.crownWidth=14; p.crownHeight=6;
+            p.branchStart=.80f; p.branchCount=13; p.branchAngle=64; p.branchingLevels=1;
+            p.curvature=.08f; p.clumpSize=1.0f; p.leafSize=.8f; p.leafDensity=.85f;
+            p.barkLow={.14f,.095f,.055f}; p.barkHigh={.38f,.29f,.15f};
+            p.leafLow={.025f,.075f,.020f}; p.leafHigh={.17f,.32f,.065f}; break;
+        case Family::Aspen:
+            p.height=23; p.trunkRadius=.42f; p.trunkBend=.045f; p.crownWidth=7; p.crownHeight=13;
+            p.branchStart=.43f; p.branchCount=11; p.branchAngle=27; p.branchTaper=.48f;
+            p.curvature=.18f; p.clumpSize=1.1f; p.leafSize=.72f; p.twigDensity=.85f;
+            p.barkLow={.19f,.22f,.18f}; p.barkHigh={.51f,.54f,.39f};
+            p.leafLow={.13f,.085f,.015f}; p.leafHigh={.49f,.33f,.045f}; break;
+        case Family::Juniper:
+            p.height=7; p.trunkRadius=.58f; p.trunkBend=.33f; p.crownWidth=11; p.crownHeight=5;
+            p.branchStart=.19f; p.branchCount=6; p.branchAngle=86; p.branchingLevels=2;
+            p.curvature=.62f; p.clumpSize=1.35f; p.leafSize=.7f; p.twigDensity=.85f;
+            p.rootCount=5; p.rootLength=3.4f; p.rootRadius=.24f;
+            p.barkLow={.075f,.050f,.033f}; p.barkHigh={.24f,.16f,.075f};
+            p.leafLow={.018f,.045f,.038f}; p.leafHigh={.11f,.20f,.12f}; break;
+        case Family::Banyan:
+            p.height=17; p.trunkRadius=1.15f; p.trunkBend=.12f; p.crownWidth=27; p.crownHeight=11;
+            p.branchStart=.26f; p.branchCount=12; p.branchAngle=76; p.branchTaper=.64f;
+            p.curvature=.42f; p.clumpSize=2.15f; p.leafSize=1.0f;
+            p.rootCount=10; p.rootLength=6.5f; p.rootRadius=.48f;
+            p.vineCount=28; p.vineLength=11; p.vineRadius=.07f;
+            p.barkLow={.085f,.065f,.043f}; p.barkHigh={.27f,.21f,.13f};
+            p.leafLow={.018f,.045f,.022f}; p.leafHigh={.13f,.23f,.055f}; break;
         default:p.family=Family::Broadleaf;break;
     }
     return p;
@@ -448,7 +651,7 @@ Params preset(Family family)
 Params sanitize(Params p)
 {
     const Params defaults;
-    if(int(p.family)<0 || int(p.family)>3) p.family=Family::Broadleaf;
+    if(int(p.family)<0 || int(p.family)>=FamilyCount) p.family=Family::Broadleaf;
     p.height=bounded(p.height,2,100,defaults.height);
     p.trunkRadius=bounded(p.trunkRadius,0.04f,p.height*0.14f,defaults.trunkRadius);
     p.trunkBend=bounded(p.trunkBend,0,0.45f,defaults.trunkBend);
@@ -465,6 +668,12 @@ Params sanitize(Params p)
     p.leafDensity=bounded(p.leafDensity,0,3,defaults.leafDensity);
     p.clumpSize=bounded(p.clumpSize,0.2f,8,defaults.clumpSize);
     p.foliageNormalBlend=bounded(p.foliageNormalBlend,0,1,defaults.foliageNormalBlend);
+    p.rootCount=std::clamp(p.rootCount,0,20);
+    p.rootLength=bounded(p.rootLength,.25f,30,defaults.rootLength);
+    p.rootRadius=bounded(p.rootRadius,.01f,(std::min)(3.0f,p.trunkRadius*1.2f),defaults.rootRadius);
+    p.vineCount=std::clamp(p.vineCount,0,48);
+    p.vineLength=bounded(p.vineLength,.25f,60,defaults.vineLength);
+    p.vineRadius=bounded(p.vineRadius,.005f,.3f,defaults.vineRadius);
     p.barkLow=paletteColor(p.barkLow,defaults.barkLow); p.barkHigh=paletteColor(p.barkHigh,defaults.barkHigh);
     p.leafLow=paletteColor(p.leafLow,defaults.leafLow); p.leafHigh=paletteColor(p.leafHigh,defaults.leafHigh);
     return p;
@@ -580,6 +789,8 @@ Tree generate(const Params& params,const Image* leafMask,const std::atomic_bool*
     tree.barkTexture=makeBarkTexture();
     tree.branches.reserve(MaxBranches);
     buildSkeleton(tree,stop);
+    if(cancelled(stop)) { tree.cancelled=true; return tree; }
+    buildRootsAndVines(tree,stop);
     if(cancelled(stop)) { tree.cancelled=true; return tree; }
     for(std::size_t i=0;i<tree.branches.size();++i)
     {

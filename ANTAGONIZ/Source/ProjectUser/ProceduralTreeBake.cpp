@@ -28,7 +28,7 @@ namespace
 {
 using Json = nlohmann::json;
 namespace fs = std::filesystem;
-constexpr std::uint32_t AssetVersion = 1;
+constexpr std::uint32_t AssetVersion = 2;
 constexpr std::size_t MaxFileBytes = 256u * 1024u * 1024u;
 constexpr std::size_t MaxVertices = 1000000u;
 constexpr std::size_t MaxIndices = 6000000u;
@@ -42,6 +42,8 @@ constexpr const char* PresetTag = "ENDURANCE.TreePreset";
     V(branchStart) V(branchAngle) V(branchTaper) V(curvature) V(twigDensity) \
     V(leafSize) V(leafDensity) V(clumpSize) V(foliageNormalBlend)
 #define TREE_INT_FIELDS(V) V(branchCount) V(branchingLevels)
+#define TREE_OPTIONAL_FLOAT_FIELDS(V) V(rootLength) V(rootRadius) V(vineLength) V(vineRadius)
+#define TREE_OPTIONAL_INT_FIELDS(V) V(rootCount) V(vineCount)
 #define TREE_COLOR_FIELDS(V) V(barkLow) V(barkHigh) V(leafLow) V(leafHigh)
 
 bool finite(float value)
@@ -86,6 +88,8 @@ Json encodeParams(const Params& params)
 #define ENCODE(name) j[#name] = p.name;
     TREE_FLOAT_FIELDS(ENCODE)
     TREE_INT_FIELDS(ENCODE)
+    TREE_OPTIONAL_FLOAT_FIELDS(ENCODE)
+    TREE_OPTIONAL_INT_FIELDS(ENCODE)
 #undef ENCODE
 #define ENCODE_COLOR(name) j[#name] = vectorJson(p.name);
     TREE_COLOR_FIELDS(ENCODE_COLOR)
@@ -97,7 +101,7 @@ Params decodeParams(const Json& j)
     require(j.is_object(), "Expected tree parameters object");
     Params p;
     p.seed = static_cast<std::uint32_t>(integer(j.at("seed"), 0, 0xffffffffll));
-    p.family = static_cast<Family>(integer(j.at("family"), 0, 3));
+    p.family = static_cast<Family>(integer(j.at("family"), 0, FamilyCount - 1));
 #define DECODE_FLOAT(name) require(j.at(#name).is_number(), "Expected numeric parameter " #name); \
     p.name = j.at(#name).get<float>(); require(finite(p.name), "Non-finite parameter " #name);
     TREE_FLOAT_FIELDS(DECODE_FLOAT)
@@ -108,11 +112,26 @@ Params decodeParams(const Json& j)
 #define DECODE_COLOR(name) p.name = readVector(j.at(#name));
     TREE_COLOR_FIELDS(DECODE_COLOR)
 #undef DECODE_COLOR
+    // Version 1 did not have roots or vines. Sanitize only their fallback
+    // defaults against this tree's size, then validate all provided values.
+    const Params defaults = sanitize(p);
+#define DECODE_OPTIONAL_FLOAT(name) \
+    if(j.contains(#name)) { require(j.at(#name).is_number(), "Expected numeric parameter " #name); \
+        p.name=j.at(#name).get<float>(); require(finite(p.name), "Non-finite parameter " #name); } \
+    else p.name=defaults.name;
+    TREE_OPTIONAL_FLOAT_FIELDS(DECODE_OPTIONAL_FLOAT)
+#undef DECODE_OPTIONAL_FLOAT
+#define DECODE_OPTIONAL_INT(name) \
+    if(j.contains(#name)) p.name=static_cast<std::int32_t>(integer(j.at(#name),0,100000));
+    TREE_OPTIONAL_INT_FIELDS(DECODE_OPTIONAL_INT)
+#undef DECODE_OPTIONAL_INT
     // Require legal ranges rather than silently replacing damaged settings.
     const Params checked = sanitize(p);
 #define CHECK(name) require(checked.name == p.name, "Parameter outside generator limits: " #name);
     TREE_FLOAT_FIELDS(CHECK)
     TREE_INT_FIELDS(CHECK)
+    TREE_OPTIONAL_FLOAT_FIELDS(CHECK)
+    TREE_OPTIONAL_INT_FIELDS(CHECK)
 #undef CHECK
 #define CHECK_COLOR(name) require(glm::all(glm::equal(checked.name, p.name)), "Color outside generator limits: " #name);
     TREE_COLOR_FIELDS(CHECK_COLOR)
@@ -329,6 +348,7 @@ Json encodeBranches(const Tree& tree)
         const Branch& branch = tree.branches[index];
         require(branch.parent >= -1 && branch.parent < static_cast<std::int32_t>(index), "Invalid branch hierarchy");
         require(branch.level >= 0 && branch.level <= 32, "Invalid branch level");
+        require(static_cast<int>(branch.kind) >= 0 && static_cast<int>(branch.kind) <= 2, "Invalid branch kind");
         require(finite(branch.attachment) && branch.attachment >= 0 && branch.attachment <= 1, "Invalid attachment");
         require(branch.points.size() >= 2 && branch.points.size() <= 4096, "Invalid branch polyline");
         Json points = Json::array();
@@ -338,7 +358,7 @@ Json encodeBranches(const Tree& tree)
             require(finite(point.radius) && point.radius > 0 && point.radius < 1000, "Invalid branch radius");
             points.push_back(Json::array({point.position.x, point.position.y, point.position.z, point.radius}));
         }
-        branches.push_back({{"parent", branch.parent}, {"level", branch.level},
+        branches.push_back({{"parent", branch.parent}, {"level", branch.level}, {"kind", static_cast<int>(branch.kind)},
                              {"attachment", branch.attachment}, {"points", points}});
     }
     return branches;
@@ -348,7 +368,7 @@ Json collisionCapsules(const Tree& tree)
     Json capsules = Json::array();
     for (const auto& branch : tree.branches)
     {
-        if (branch.level > 1) continue;
+        if (branch.level > 1 || branch.kind == BranchKind::Vine) continue;
         // Coarse segments for later runtime collision import; foliage is excluded.
         for (std::size_t p = 1; p < branch.points.size(); p += 3)
         {
@@ -361,7 +381,34 @@ Json collisionCapsules(const Tree& tree)
     }
     return capsules;
 }
-void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<ImpostorView>* impostors)
+void validateLod3(const std::vector<ImpostorView>& views)
+{
+    require(views.size() == 2, "LOD3 requires exactly two views (0 and 45 degrees)");
+    for(std::size_t i=0;i<views.size();++i)
+    {
+        const auto& v=views[i];
+        require(validImage(v.albedo) && v.albedo.width <= 2048 && v.albedo.height == v.albedo.width,
+                "Invalid square LOD3 color image");
+        require(finite(v.halfExtent) && v.halfExtent > 0.0f, "Invalid LOD3 extent");
+        for(int c=0;c<3;++c)
+            require(finite(v.direction[c]) && finite(v.up[c]) && finite(v.centre[c]), "Invalid LOD3 camera");
+        const float directionLength=glm::dot(v.direction,v.direction),upLength=glm::dot(v.up,v.up);
+        require(directionLength > 0.99f && directionLength < 1.01f && upLength > 0.99f && upLength < 1.01f
+                && std::abs(glm::dot(v.direction,v.up)) < 0.999f, "Invalid LOD3 camera basis");
+        const float expectedY=i == 0 ? 0.0f : 0.7071067812f;
+        require(std::abs(v.direction.y-expectedY) < 0.005f, "LOD3 view elevations must be 0 and 45 degrees");
+    }
+    const auto& a=views[0]; const auto& b=views[1];
+    require(a.albedo.width == b.albedo.width && a.albedo.height == b.albedo.height, "LOD3 image sizes differ");
+    require(glm::length(a.centre-b.centre) < 0.001f
+            && std::abs(a.halfExtent-b.halfExtent) <= (std::max)(0.001f,a.halfExtent*0.0001f),
+            "LOD3 views must share centre and extent");
+    const glm::vec2 h0=glm::normalize(glm::vec2(a.direction.x,a.direction.z));
+    const glm::vec2 h1=glm::normalize(glm::vec2(b.direction.x,b.direction.z));
+    require(glm::dot(h0,h1) > 0.999f, "LOD3 views must share azimuth");
+}
+void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<ImpostorView>* impostors,
+                const std::vector<ImpostorView>* lod3)
 {
     require(!tree.cancelled, "Cannot bake a cancelled generation");
     require(!tree.lods[0].wood.vertices.empty() && !tree.lods[1].wood.vertices.empty(), "Tree has no wood geometry");
@@ -413,6 +460,7 @@ void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<I
         {"leafMipmaps", mipFiles}, {"alphaCutoff", 0.5}, {"textureColorSpace", "sRGB; alpha linear"},
         {"meshColorSpace", "linear"}, {"wind", "Vertex attribute _WIND: height, flexibility, phase, palette"},
         {"statistics", {{"branches", tree.statistics.branches}, {"leafCards", tree.statistics.leafCards},
+             {"roots", tree.statistics.roots}, {"vines", tree.statistics.vines},
              {"triangles", tree.statistics.triangles}, {"budgetLimited", tree.statistics.budgetLimited}}}};
     manifest["impostors"] = Json::array();
     if (impostors)
@@ -439,6 +487,26 @@ void buildAsset(const Tree& tree, const fs::path& directory, const std::vector<I
                 {"halfExtent", view.halfExtent}, {"width", view.albedo.width}, {"height", view.albedo.height},
                 {"albedoEncoding", "sRGB, straight alpha"}, {"normalEncoding", "object space, xyz * 0.5 + 0.5, linear"}});
         }
+    }
+    if(lod3)
+    {
+        validateLod3(*lod3);
+        Json views=Json::array();
+        for(std::size_t i=0;i<lod3->size();++i)
+        {
+            const auto& v=(*lod3)[i];
+            const std::string file=i == 0 ? "lod3_0.png" : "lod3_45.png";
+            // Capture output already contains sRGB color; never gamma-encode twice.
+            writeImage(directory/file,v.albedo,false);
+            views.push_back({{"uri",file},{"elevationDegrees",i == 0 ? 0 : 45},
+                {"direction",vectorJson(v.direction)},{"up",vectorJson(v.up)},
+                {"centre",vectorJson(v.centre)},{"halfExtent",v.halfExtent},
+                {"width",v.albedo.width},{"height",v.albedo.height}});
+        }
+        manifest["lod3"]={{"type","twoViewBillboard"},{"views",views},
+            {"colorEncoding","sRGB, straight alpha"},{"lighting","neutral baked lighting"},
+            {"alphaCutoff",0.5},{"triangles",2},
+            {"cameraConvention","Elevation from horizon; same azimuth; camera = centre + direction * distance; orthographic square"}};
     }
     writeJson(directory / "manifest.json", manifest);
 }
@@ -508,8 +576,9 @@ bool paramsFromJson(const std::string& text, Params& params, std::string& error)
     {
         require(text.size() <= 4u*1024u*1024u, "Preset exceeds size limit");
         const Json j = Json::parse(text);
-        require(j.at("format") == PresetTag && j.at("version") == AssetVersion && j.at("generatorVersion") == GeneratorVersion,
-                "Unsupported tree preset version");
+        require(j.at("format") == PresetTag, "Not an ENDURANCE tree preset");
+        integer(j.at("version"),1,AssetVersion);
+        integer(j.at("generatorVersion"),1,GeneratorVersion);
         Params result = decodeParams(j.at("params"));
         params = result; error.clear(); return true;
     }
@@ -551,7 +620,8 @@ bool loadLeafMask(const fs::path& path, Image& image, std::string& error)
     }
     catch (const std::exception& e) { error=e.what(); return false; }
 }
-bool bake(const Tree& tree, const fs::path& directory, std::string& error, const std::vector<ImpostorView>* impostors)
+bool bake(const Tree& tree, const fs::path& directory, std::string& error,
+          const std::vector<ImpostorView>* impostors, const std::vector<ImpostorView>* lod3)
 {
     try
     {
@@ -561,27 +631,29 @@ bool bake(const Tree& tree, const fs::path& directory, std::string& error, const
         const fs::path parent = directory.has_parent_path() ? directory.parent_path() : fs::path(".");
         fs::create_directories(parent);
         TemporaryPath staging{reserveDirectory(parent, directory.filename().string())};
-        buildAsset(tree, staging.path, impostors);
+        buildAsset(tree, staging.path, impostors, lod3);
         require(!fs::exists(directory), "Export directory appeared during bake; it was not replaced");
         fs::rename(staging.path, directory);
         staging.path.clear(); error.clear(); return true;
     }
     catch (const std::exception& e) { error=e.what(); return false; }
 }
-bool loadBakedTree(const fs::path& directory, Tree& tree, std::string& error)
+bool loadBakedTree(const fs::path& directory, Tree& tree, std::string& error, std::vector<ImpostorView>* lod3)
 {
     try
     {
         const Json manifest = Json::parse(readText(directory / "manifest.json", 32u*1024u*1024u));
-        require(manifest.at("format") == AssetTag && manifest.at("version") == AssetVersion && manifest.at("generatorVersion") == GeneratorVersion,
-                "Unsupported baked tree version");
+        require(manifest.at("format") == AssetTag, "Not an ENDURANCE baked tree");
+        integer(manifest.at("version"),1,AssetVersion);
+        integer(manifest.at("generatorVersion"),1,GeneratorVersion);
         Tree result;
         result.params = decodeParams(manifest.at("params"));
         result.boundsMin = readVector(manifest.at("boundsMin")); result.boundsMax = readVector(manifest.at("boundsMax"));
         require(glm::all(glm::lessThanEqual(result.boundsMin,result.boundsMax)), "Invalid baked tree bounds");
         const Json gltf = Json::parse(readText(directory / "tree.gltf"));
-        require(gltf.at("asset").at("version") == "2.0" && gltf.at("extras").at("format") == AssetTag
-                && gltf.at("extras").at("version") == AssetVersion, "Not an ENDURANCE generated mesh");
+        require(gltf.at("asset").at("version") == "2.0" && gltf.at("extras").at("format") == AssetTag,
+                "Not an ENDURANCE generated mesh");
+        integer(gltf.at("extras").at("version"),1,AssetVersion);
         require(gltf.at("buffers").size() == 1 && gltf.at("buffers")[0].at("uri") == "tree.bin", "Unsupported mesh buffer path");
         const std::string buffer = readText(directory / "tree.bin", MaxFileBytes);
         require(sizeNumber(gltf.at("buffers")[0].at("byteLength"), MaxFileBytes) == buffer.size(), "Mesh buffer length mismatch");
@@ -605,6 +677,7 @@ bool loadBakedTree(const fs::path& directory, Tree& tree, std::string& error)
             const auto& b=branches[i]; Branch branch;
             branch.parent=static_cast<std::int32_t>(integer(b.at("parent"),-1,static_cast<std::int64_t>(i)-1));
             branch.level=static_cast<std::int32_t>(integer(b.at("level"),0,32));
+            branch.kind=static_cast<BranchKind>(integer(b.value("kind",Json(0)),0,2));
             branch.attachment=b.at("attachment").get<float>();
             require(finite(branch.attachment) && branch.attachment>=0 && branch.attachment<=1, "Invalid branch attachment");
             const auto& points=b.at("points");
@@ -622,6 +695,11 @@ bool loadBakedTree(const fs::path& directory, Tree& tree, std::string& error)
         }
         result.leafMask=readImage(directory / "leaves.png"); result.barkTexture=readImage(directory / "bark.png");
         result.statistics.branches=static_cast<std::uint32_t>(result.branches.size());
+        for(const auto& b:result.branches)
+        {
+            if(b.kind == BranchKind::Root) ++result.statistics.roots;
+            if(b.kind == BranchKind::Vine) ++result.statistics.vines;
+        }
         result.statistics.leafCards=static_cast<std::uint32_t>(integer(manifest.at("statistics").at("leafCards"),0,MaxVertices));
         result.statistics.budgetLimited=manifest.at("statistics").at("budgetLimited").get<bool>();
         for (int lod=0;lod<2;++lod)
@@ -630,7 +708,29 @@ bool loadBakedTree(const fs::path& directory, Tree& tree, std::string& error)
         for (const auto& lod:result.lods) for (const Mesh* mesh:{&lod.wood,&lod.foliage}) for (const auto& v:mesh->vertices)
             require(glm::all(glm::greaterThanEqual(v.position,result.boundsMin-glm::vec3(0.001f)))
                     && glm::all(glm::lessThanEqual(v.position,result.boundsMax+glm::vec3(0.001f))), "Mesh lies outside cached bounds");
-        tree=std::move(result); error.clear(); return true;
+        std::vector<ImpostorView> billboard;
+        if(lod3 && manifest.contains("lod3"))
+        {
+            const auto& description=manifest.at("lod3");
+            require(description.at("type") == "twoViewBillboard", "Unsupported LOD3 representation");
+            const auto& views=description.at("views");
+            require(views.is_array() && views.size() == 2, "Expected two cached LOD3 views");
+            for(std::size_t i=0;i<views.size();++i)
+            {
+                const auto& j=views[i]; ImpostorView v;
+                const std::string file=i == 0 ? "lod3_0.png" : "lod3_45.png";
+                require(j.at("uri") == file && j.at("elevationDegrees") == (i == 0 ? 0 : 45), "Invalid LOD3 image path or angle");
+                v.albedo=readImage(directory/file,2048,false,32u*1024u*1024u);
+                require(j.at("width") == v.albedo.width && j.at("height") == v.albedo.height, "LOD3 image extent differs from metadata");
+                v.direction=readVector(j.at("direction")); v.up=readVector(j.at("up"));
+                v.centre=readVector(j.at("centre")); v.halfExtent=j.at("halfExtent").get<float>();
+                billboard.push_back(std::move(v));
+            }
+            validateLod3(billboard);
+        }
+        tree=std::move(result);
+        if(lod3) *lod3=std::move(billboard);
+        error.clear(); return true;
     }
     catch (const std::exception& e) { error=e.what(); return false; }
 }

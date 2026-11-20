@@ -1,6 +1,6 @@
 {
   "format": "ENDURANCE.TreePreset",
-  "generatorVersion": 1,
+  "generatorVersion": 2,
   "params": {
     "barkHigh": [
       0.28999999165534973,
@@ -36,10 +36,16 @@
       0.02800000086426735
     ],
     "leafSize": 0.6499999761581421,
+    "rootCount": 0,
+    "rootLength": 3.5,
+    "rootRadius": 0.25,
     "seed": 1337,
     "trunkBend": 0.03500000014901161,
     "trunkRadius": 0.47999998927116394,
-    "twigDensity": 1.0
+    "twigDensity": 1.0,
+    "vineCount": 0,
+    "vineLength": 4.0,
+    "vineRadius": 0.04500000178813934
   },
-  "version": 1
+  "version": 2
 }

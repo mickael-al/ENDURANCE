@@ -1,6 +1,7 @@
 #include "ProceduralTreeBake.hpp"
 #include "stb-cmake/stb_image.h"
 #include "stb-cmake/stb_image_write.h"
+#include "hv/cpputil/json.hpp"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -26,6 +27,9 @@ std::string contents(const std::filesystem::path& p) {
     std::ifstream stream(p,std::ios::binary);
     return std::string(std::istreambuf_iterator<char>(stream),{});
 }
+void writeJson(const std::filesystem::path& path,const nlohmann::json& value) {
+    std::ofstream file(path); file<<value.dump(2); require(file.good(),"JSON fixture write failed");
+}
 }
 int main(int argc,char** argv) {
  try {
@@ -33,6 +37,8 @@ int main(int argc,char** argv) {
     const std::filesystem::path root=argv[1]; std::filesystem::create_directories(root);
     Params p=preset(Family::Weeping); p.seed=94732; p.height=14.25f; p.branchCount=5;
     p.branchingLevels=2; p.leafDensity=0.53f; p.barkHigh=glm::vec3(0.33f,0.16f,0.09f);
+    p.rootCount=5; p.rootLength=4.25f; p.rootRadius=.35f;
+    p.vineCount=7; p.vineLength=6.75f; p.vineRadius=.065f;
     const auto canonical=paramsToJson(p);
     std::string error; Params parsed;
     require(paramsFromJson(canonical,parsed,error),"Preset JSON roundtrip failed: "+error);
@@ -77,10 +83,32 @@ int main(int argc,char** argv) {
     require(tree.branches.size()==loaded.branches.size(),"Baked skeleton lost branches");
     for(std::size_t i=0;i<tree.branches.size();++i) {
         const auto& a=tree.branches[i]; const auto& b=loaded.branches[i];
-        require(a.parent==b.parent && a.level==b.level && a.attachment==b.attachment && a.points.size()==b.points.size(),"Baked skeleton hierarchy changed");
+        require(a.parent==b.parent && a.level==b.level && a.kind==b.kind && a.attachment==b.attachment && a.points.size()==b.points.size(),"Baked skeleton hierarchy changed");
         for(std::size_t j=0;j<a.points.size();++j) require(a.points[j].position==b.points[j].position && a.points[j].radius==b.points[j].radius,"Baked branch sample changed");
     }
     equalImage(tree.leafMask,loaded.leafMask); equalImage(tree.barkTexture,loaded.barkTexture);
+    require(loaded.statistics.roots==tree.statistics.roots && loaded.statistics.vines==tree.statistics.vines,"Bake lost root/vine counts");
+    // V1 recipes and caches remain readable: no new roots/vines are injected.
+    auto legacyParams=p; legacyParams.rootCount=legacyParams.vineCount=0;
+    const auto legacyTree=generate(legacyParams);
+    require(bake(legacyTree,root/"legacy",error),"Legacy fixture bake failed: "+error);
+    auto oldPreset=nlohmann::json::parse(paramsToJson(legacyParams));
+    oldPreset["generatorVersion"]=1; oldPreset["version"]=1;
+    auto oldManifest=nlohmann::json::parse(contents(root/"legacy/manifest.json"));
+    oldManifest["generatorVersion"]=1; oldManifest["version"]=1; oldManifest.erase("lod3");
+    for(const char* field:{"rootCount","rootLength","rootRadius","vineCount","vineLength","vineRadius"}) {
+        oldPreset["params"].erase(field); oldManifest["params"].erase(field);
+    }
+    for(auto& branch:oldManifest["branches"]) branch.erase("kind");
+    oldManifest["statistics"].erase("roots"); oldManifest["statistics"].erase("vines");
+    auto oldGltf=nlohmann::json::parse(contents(root/"legacy/tree.gltf")); oldGltf["extras"]["version"]=1;
+    writeJson(root/"legacy/manifest.json",oldManifest); writeJson(root/"legacy/tree.gltf",oldGltf);
+    require(paramsFromJson(oldPreset.dump(),parsed,error),"V1 recipe no longer loads: "+error);
+    require(parsed.rootCount==0 && parsed.vineCount==0,"V1 recipe acquired optional structures");
+    std::vector<ImpostorView> legacyViews(2);
+    require(loadBakedTree(root/"legacy",loaded,error,&legacyViews),"V1 baked model no longer loads: "+error);
+    require(legacyViews.empty() && loaded.statistics.roots==0 && loaded.statistics.vines==0,"V1 cache acquired new data");
+    equalMesh(legacyTree.lods[0].wood,loaded.lods[0].wood);
     // Impostor albedo is already sRGB and normals are linear. Publication must
     // preserve their bytes without another gamma conversion.
     ImpostorView view; view.albedo=fixture; view.normal=fixture;
@@ -95,6 +123,30 @@ int main(int argc,char** argv) {
     views[0].up=views[0].direction;
     require(!bake(tree,root/"bad-impostor",error,&views),"Degenerate impostor basis accepted");
     require(!std::filesystem::exists(root/"bad-impostor"),"Failed impostor bake published partial output");
+    // The lightweight LOD3 uses precisely two color textures, with byte-exact
+    // sRGB roundtrip and a shared frame. No normal-map dependency is introduced.
+    Image lodColor; lodColor.width=lodColor.height=32; lodColor.rgba.resize(32*32*4);
+    for(int y=0;y<32;++y) for(int x=0;x<32;++x) {
+        const auto i=(y*32+x)*4;
+        lodColor.rgba[i]=std::uint8_t(x*7); lodColor.rgba[i+1]=std::uint8_t(y*7);
+        lodColor.rgba[i+2]=71; lodColor.rgba[i+3]=x>6 && x<25 && y>3 && y<28 ? 255 : 0;
+    }
+    std::vector<ImpostorView> lod3(2);
+    for(auto& v:lod3) { v.albedo=lodColor; v.centre=view.centre; v.halfExtent=20; }
+    lod3[1].direction=glm::normalize(glm::vec3(0,1,1));
+    lod3[1].up=glm::normalize(glm::vec3(0,1,-1));
+    require(bake(tree,root/"lod3",error,nullptr,&lod3),"LOD3 bake failed: "+error);
+    require(loadLeafMask(root/"lod3/lod3_0.png",imported,error) && imported.rgba==lodColor.rgba,"LOD3 horizontal PNG changed colors or alpha");
+    require(loadLeafMask(root/"lod3/lod3_45.png",imported,error) && imported.rgba==lodColor.rgba,"LOD3 elevated PNG changed colors or alpha");
+    std::vector<ImpostorView> restoredViews;
+    require(loadBakedTree(root/"lod3",loaded,error,&restoredViews),"LOD3 reload failed: "+error);
+    require(restoredViews.size()==2,"LOD3 reload lost one of the angles");
+    for(std::size_t i=0;i<2;++i) {
+        require(restoredViews[i].albedo.rgba==lod3[i].albedo.rgba && restoredViews[i].normal.rgba.empty(),"LOD3 image payload changed");
+        require(restoredViews[i].direction==lod3[i].direction && restoredViews[i].centre==lod3[i].centre && restoredViews[i].halfExtent==lod3[i].halfExtent,"LOD3 framing changed");
+    }
+    lod3.pop_back(); require(!bake(tree,root/"incomplete-lod3",error,nullptr,&lod3),"One-view LOD3 accepted");
+    require(!std::filesystem::exists(root/"incomplete-lod3"),"Invalid LOD3 published partial output");
     auto cancelled=tree; cancelled.cancelled=true;
     require(!bake(cancelled,root/"cancelled",error),"Cancelled tree published");
     require(!std::filesystem::exists(root/"cancelled"),"Cancelled tree left partial output");
