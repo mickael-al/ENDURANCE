@@ -21,9 +21,9 @@ void validate()
     assert(validTerrainAppearance(authored));
     assert(validTerrainMaterialTable(authored.biomes));
     assert(sizeof(TerrainMaterial) == 96);
-    assert(sizeof(TerrainSurface) == 224);
-    assert(sizeof(TerrainBiomeAppearance) == 464);
-    assert(sizeof(TerrainMaterialTable) == 12064);
+    assert(sizeof(TerrainSurface) == 240);
+    assert(sizeof(TerrainBiomeAppearance) == 512);
+    assert(sizeof(TerrainMaterialTable) == 13312);
 
     // Distinct authored palettes, not 26 copies of a generic fallback. Each
     // biome must also distinguish its surface base from its accent and walls.
@@ -65,6 +65,15 @@ void validate()
     reject([](auto& a) { a.biomes[0].wall.accent.response[1] = 2.0f; });
     reject([](auto& a) { a.biomes[0].wall.accent.response[2] = -1.0f; });
     reject([](auto& a) { a.biomes[0].ground.detail[0] = 0.0f; });
+    reject([](auto& a) { a.biomes[0].ground.normal[0] = 1.5f; });
+    reject([](auto& a) { a.biomes[0].ground.normal[0] = 8.0f; });
+    reject([](auto& a) { a.biomes[0].wall.normal[1] = 0.0f; });
+    reject([](auto& a) { a.biomes[0].ground.normal[2] = 2.1f; });
+    reject([](auto& a) { a.biomes[0].wall.normal[3] = -0.1f; });
+    reject([](auto& a) { a.biomes[0].spectrum[0] = 0.0f; });
+    reject([](auto& a) { a.biomes[0].spectrum[1] = 0.0f; });
+    reject([](auto& a) { a.biomes[0].spectrum[2] = 4.0f; });
+    reject([](auto& a) { a.biomes[0].spectrum[3] = 0.6f; });
     reject([](auto& a) { a.biomes[0].slope[1] = a.biomes[0].slope[0]; });
     reject([](auto& a) { a.macroPeriod = 0.0f; });
     reject([](auto& a) { a.patchPeriod = -1.0f; });
@@ -84,6 +93,9 @@ void validate()
 
     // Actual nonzero metallic input must be accepted even though the natural
     // default palettes do not use it. GPU tests verify that it reaches gOther.
+    auto fractionalOctaves = authored;
+    fractionalOctaves.biomes[0].spectrum[2] = 2.5f;
+    assert(validTerrainAppearance(fractionalOctaves));
     auto metal = authored;
     metal.biomes[0].ground.base.response[0] = 0.75f;
     assert(validTerrainAppearance(metal));
@@ -96,6 +108,8 @@ void validate()
     edited.debugView = 3;
     edited.biomes[25].wall.accent.colorHigh = {{.123f,.456f,.789f,.321f}};
     edited.biomes[13].ground.base.pattern = {{.15f,.27f,.42f,.16f}};
+    edited.biomes[13].ground.normal = {{7.0f, 1.75f, 0.63f, 0.27f}};
+    edited.biomes[25].spectrum = {{1.3f, 0.11f, 3.0f, 0.42f}};
     const std::string json = JS::serializeStruct(edited);
     TerrainAppearance decoded;
     JS::ParseContext roundtrip(json);

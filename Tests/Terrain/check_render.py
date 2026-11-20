@@ -52,7 +52,7 @@ def check_render(gl, directory):
     spec.loader.exec_module(module)
     table,settings=module.export_appearance()
     table=bytearray(table)
-    for biome in range(26): struct.pack_into('<f',table,biome*464+460,0.)
+    for biome in range(26): struct.pack_into('<f',table,biome*512+492,0.)
     appearance=gl.buffer(bytes(table))
     gl.glBindBufferBase(0x8A11,6,appearance)
     textures=(C.c_uint*5)()

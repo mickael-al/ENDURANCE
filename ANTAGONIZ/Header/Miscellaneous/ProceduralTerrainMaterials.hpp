@@ -37,6 +37,10 @@ namespace ProceduralTerrain
         TerrainMaterialVector blend{{0.62f, 0.12f, 0.7f, 0.3f}};
         // Strata/ripple periods in metres, orientation radians, warp metres.
         TerrainMaterialVector detail{{24.0f, 1.5f, 0.0f, 2.0f}};
+        // Independent normal family, feature period (m), warp fraction, fine-grain mix.
+        // Families: grain, wind ribs, bedding, fractures, fibres, wet sediment,
+        // ice veins, ropy lava. The palette does not determine surface relief.
+        TerrainMaterialVector normal{{0.0f, 0.15f, 0.35f, 0.35f}};
     };
 
     struct alignas(16) TerrainBiomeAppearance
@@ -46,6 +50,9 @@ namespace ProceduralTerrain
         // Ground->wall slope interval (1-N.y), patch perturbation, normal gain.
         // The signed underlying normal is used, before material perturbation.
         TerrainMaterialVector slope{{0.28f, 0.65f, 0.07f, 1.0f}};
+        // Patch-period multiplier, grain period (m), grain octaves, octave gain.
+        // Each biome uses its own stable world-space domain before climate blending.
+        TerrainMaterialVector spectrum{{1.0f, 0.10f, 1.0f, 0.32f}};
     };
 
     using TerrainMaterialTable = std::array<TerrainBiomeAppearance, BiomeCount>;
@@ -68,14 +75,16 @@ namespace ProceduralTerrain
         && offsetof(TerrainMaterial, response) == 48
         && offsetof(TerrainMaterial, ramp) == 64
         && offsetof(TerrainMaterial, pattern) == 80, "TerrainMaterial std140 offsets");
-    static_assert(sizeof(TerrainSurface) == 224
+    static_assert(sizeof(TerrainSurface) == 240
         && offsetof(TerrainSurface, accent) == 96
         && offsetof(TerrainSurface, blend) == 192
-        && offsetof(TerrainSurface, detail) == 208, "TerrainSurface std140 offsets");
-    static_assert(sizeof(TerrainBiomeAppearance) == 464
-        && offsetof(TerrainBiomeAppearance, wall) == 224
-        && offsetof(TerrainBiomeAppearance, slope) == 448, "TerrainBiomeAppearance std140 offsets");
-    static_assert(sizeof(TerrainMaterialTable) == 12064
+        && offsetof(TerrainSurface, detail) == 208
+        && offsetof(TerrainSurface, normal) == 224, "TerrainSurface std140 offsets");
+    static_assert(sizeof(TerrainBiomeAppearance) == 512
+        && offsetof(TerrainBiomeAppearance, wall) == 240
+        && offsetof(TerrainBiomeAppearance, slope) == 480
+        && offsetof(TerrainBiomeAppearance, spectrum) == 496, "TerrainBiomeAppearance std140 offsets");
+    static_assert(sizeof(TerrainMaterialTable) == 13312
         && sizeof(TerrainMaterialTable) <= 16384, "Terrain table fits the minimum OpenGL UBO size");
 
     // Bit classification remains correct under a caller's -ffast-math build.
@@ -123,7 +132,12 @@ namespace ProceduralTerrain
             && terrainMaterialRange(s.detail[0], 0.01f, 100000.0f)
             && terrainMaterialRange(s.detail[1], 0.01f, 100000.0f)
             && terrainMaterialRange(s.detail[2], -6.283186f, 6.283186f)
-            && terrainMaterialRange(s.detail[3], 0.0f, 10000.0f);
+            && terrainMaterialRange(s.detail[3], 0.0f, 10000.0f)
+            && terrainMaterialRange(s.normal[0], 0.0f, 7.0f)
+            && s.normal[0] == static_cast<float>(static_cast<int>(s.normal[0]))
+            && terrainMaterialRange(s.normal[1], 0.01f, 10000.0f)
+            && terrainMaterialRange(s.normal[2], 0.0f, 2.0f)
+            && terrainMaterialRange(s.normal[3], 0.0f, 1.0f);
     }
 
     inline bool validTerrainMaterialTable(const TerrainMaterialTable& table) noexcept
@@ -135,7 +149,11 @@ namespace ProceduralTerrain
                 || !terrainMaterialRange(b.slope[1], 0.0f, 1.0f)
                 || b.slope[1] <= b.slope[0]
                 || !terrainMaterialRange(b.slope[2], 0.0f, 1.0f)
-                || !terrainMaterialRange(b.slope[3], 0.0f, 4.0f)) return false;
+                || !terrainMaterialRange(b.slope[3], 0.0f, 4.0f)
+                || !terrainMaterialRange(b.spectrum[0], 0.05f, 64.0f)
+                || !terrainMaterialRange(b.spectrum[1], 0.01f, 1000.0f)
+                || !terrainMaterialRange(b.spectrum[2], 1.0f, 3.0f)
+                || !terrainMaterialRange(b.spectrum[3], 0.0f, 0.5f)) return false;
         }
         return true;
     }

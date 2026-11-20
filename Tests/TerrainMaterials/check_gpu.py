@@ -72,9 +72,9 @@ def literal_table(colors=None, wall_colors=None, *, metallic=0., roughness=.6, a
             for _ in range(2):
                 floats.extend((*rgb, roughness)*3)
                 floats.extend((metallic, ao, 0., 0., .5, 1., 1., 0., 0., 0., 0., 0.))
-            floats.extend((.5, .1, 1., 0., 24., 1.5, 0., 0.))
-        floats.extend((.28, .65, 0., 1.))
-    assert len(floats) == 26*116
+            floats.extend((.5, .1, 1., 0., 24., 1.5, 0., 0., 0., .15, .35, .35))
+        floats.extend((.28, .65, 0., 1., 1., .1, 1., .32))
+    assert len(floats) == 26*128
     return struct.pack(f'<{len(floats)}f', *floats), colors, wall_colors
 
 
@@ -188,7 +188,19 @@ def check_authored(rig, table):
         rough_ranges.append(max(output[3][1::4])-min(output[3][1::4]))
     assert len(set(distinct)) == 26, ('biome palettes not visually distinct', distinct)
     assert max(rough_ranges) > .005, ('roughness lacks procedural variation', rough_ranges)
-    print('PASS 26 authored biomes: finite albedo/PBR, unit normals, distinct colors and roughness variation', flush=True)
+    # Wall profiles are authored independently, including the material on cave
+    # ceilings. Exercise their real gradients rather than only a constant oracle.
+    for normal in ((0.,0.,1.),(0.,-1.,0.)):
+        rig.set(testNormal=normal,testAxisY=(0.,30.,0.) if normal[2] else (0.,0.,30.))
+        for biome in range(26):
+            rig.set(terrainBiomeOverride=biome)
+            out=rig.read()
+            assert all(math.isfinite(v) for channel in out for v in channel), ('wall/ceiling',biome,normal)
+            for n in pixels(out[1]):
+                assert abs(sum(v*v for v in n[:3])-1.) < 3e-5
+                assert sum(a*b for a,b in zip(normal,n)) > 0., ('detail flipped base normal',biome,normal)
+    rig.set(testNormal=(0.,1.,0.),testAxisY=(0.,0.,30.))
+    print('PASS 26 authored biomes: finite ground/wall/ceiling normals and PBR, distinct colors and roughness variation', flush=True)
 
 
 def check_oracles(rig):
@@ -299,12 +311,85 @@ def check_filtering(rig, table):
     print('PASS near-field microrelief and derivative-based subpixel normal suppression',flush=True)
 
 
+def edited_vec(table, biome, offset, values):
+    """Edit an independently specified std140 byte offset in one biome record."""
+    data=bytearray(table)
+    struct.pack_into('<4f',data,biome*512+offset,*values)
+    return bytes(data)
+
+
+def check_material_identity(rig, table):
+    # Each semantic family changes surface normals at the same physical scale,
+    # with an identical constant albedo. These are normal fields, not recolors.
+    constant,_,_=literal_table()
+    for surface in (0,240):
+        for material in (0,96):
+            constant=edited_vec(constant,0,surface+material+48,(0.,1.,1.,.05))
+    rig.set(terrainBiomeOverride=0,testOrigin=(-1.7,180.,2.3),testAxisX=(2.,0.,0.),
+            testAxisY=(0.,0.,2.),testNormal=(0.,1.,0.),microDetailStrength=.15)
+    signatures=[];reference=None
+    for family in range(8):
+        candidate=edited_vec(constant,0,224,(float(family),1.2,.65,.3))
+        candidate=edited_vec(candidate,0,496,(1.,.14,2.,.4))
+        rig.upload(candidate);out=rig.read()
+        assert all(math.isfinite(v) for attachment in out for v in attachment), ('normal family',family)
+        signatures.append(tuple(round(v,5) for v in out[1]))
+        if reference is None:reference=out
+        else:
+            assert max_difference(reference[2],out[2])<2e-6, ('normal family changes albedo',family)
+            assert max_difference(reference[3],out[3])<2e-6, ('normal family changes PBR response',family)
+    assert len(set(signatures))==8, 'semantic normal profiles collapse to the same field'
+
+    # Changing the palette pattern must never create a different bump shape.
+    # Author color grouping independently from the mineral/soil microrelief.
+    rig.set(terrainBiomeOverride=15)
+    rig.upload(table);before=rig.read()
+    colored=table
+    for material in (0,96):
+        colored=edited_vec(colored,15,material+80,(0.,0.,0.,1.))
+        colored=edited_vec(colored,15,material,(.1,.7,.3,.81))
+        colored=edited_vec(colored,15,material+4*4,(.7,.1,.4,.81))
+    rig.upload(colored);after=rig.read()
+    assert max_difference(before[2],after[2])>.001, 'palette test did not change albedo'
+    assert max_difference(before[1],after[1])<2e-6, 'albedo noise still drives generic normal bumps'
+
+    # Stable per-biome domains use artist-controlled scales and fractional
+    # octaves. Fine detail fades by footprint, not by draw LOD or frame index.
+    rig.set(terrainBiomeOverride=0,testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
+    octave_outputs=[]
+    constant=edited_vec(constant,0,224,(0.,.3,.2,1.))
+    for count in (1.,1.5,2.9):
+        rig.upload(edited_vec(constant,0,496,(1.,.16,count,.5)))
+        octave_outputs.append(rig.read()[1])
+    for first,second in zip(octave_outputs,octave_outputs[1:]):
+        assert max_difference(first,second)>1e-5, 'octave controls have no normal detail effect'
+    scaled=[]
+    for period in (.08,.32):
+        rig.upload(edited_vec(constant,0,496,(1.,period,2.,.4)))
+        scaled.append(rig.read()[1])
+    assert max_difference(*scaled)>1e-4, 'grain period control has no effect'
+
+    rig.set(terrainBiomeOverride=15,testAxisX=(240.,0.,0.),testAxisY=(0.,0.,240.))
+    scales=[]
+    floats=struct.unpack('<3328f',table)
+    original=floats[15*128+124:15*128+128]
+    for multiplier in (.2,3.):
+        rig.upload(edited_vec(table,15,496,(multiplier,*original[1:])))
+        scales.append(rig.read()[2])
+    assert max_difference(*scales)>1e-5, 'biome patch scale has no albedo effect'
+    rig.upload(table)
+    rig.set(terrainBiomeOverride=0,testOrigin=(-57.3,180.,71.8),
+            testAxisX=(40.,0.,0.),testAxisY=(0.,0.,30.))
+    print('PASS independent semantic normal families, palette/normal separation, per-biome scales and fractional octaves',flush=True)
+
+
 def check_noise_gradients(gl):
     """Independent finite differences check the production analytic derivative."""
     source='''#version 460 core
 layout(local_size_x=64) in;
 uniform uint worldSeed=1337u;
 uniform float microDetailScale=2.0;
+uniform float microDetailStrength=0.15;
 uniform float terrainMacroPeriod=384.0;
 uniform float terrainPatchPeriod=32.0;
 '''+shader_source(TERRAIN/'patterns.glsl')+'''
@@ -347,6 +432,63 @@ void main() {
         maximum=max(maximum,error)
         assert 0. <= value <= 1. and error<.007, ('analytic world derivative',point,error)
     print(f'PASS 512 production noise gradients vs finite differences, maximum wavelength-scaled error {maximum:.6f}',flush=True)
+
+
+def check_relief_gradients(gl):
+    """Check composed microrelief chain rules against independent finite differences.
+
+    Position derivatives are zero here: filtering is intentionally held at full
+    resolution, so the oracle differentiates height, not a moving screen filter.
+    """
+    source='''#version 460 core
+layout(local_size_x=64) in;
+uniform uint worldSeed=1337u;
+uniform float microDetailScale=2.0;
+uniform float microDetailStrength=0.15;
+uniform float terrainMacroPeriod=384.0;
+uniform float terrainPatchPeriod=32.0;
+'''+shader_source(TERRAIN/'patterns.glsl')+'''
+layout(std430,binding=0) readonly buffer Inputs { vec4 points[]; };
+layout(std430,binding=1) writeonly buffer Outputs { vec4 result[]; };
+uniform uint pointCount;
+TerrainNoise relief(vec3 p, float family) {
+    TerrainPatternContext c=terrainMakePatternContext(p,vec3(0),vec3(0),0.0);
+    c=terrainBiomePatterns(11u,vec4(1.0,0.11,2.5,0.3),c);
+    return terrainSurfaceRelief(vec4(family,1.3,0.65,0.25),
+        vec4(23.0,1.0,0.73,4.0),c);
+}
+void main() {
+    uint i=gl_GlobalInvocationID.x;
+    if(i>=pointCount) return;
+    vec3 p=points[i].xyz;
+    float family=points[i].w;
+    TerrainNoise n=relief(p,family);
+    vec3 finiteDifference;
+    float epsilon=0.00015;
+    for(int axis=0;axis<3;++axis) {
+        vec3 d=vec3(0); d[axis]=epsilon;
+        finiteDifference[axis]=(relief(p+d,family).value-relief(p-d,family).value)/(2.0*epsilon);
+    }
+    result[i*2]=vec4(n.value,n.gradient);
+    result[i*2+1]=vec4(finiteDifference,0);
+}
+'''
+    program=gl.compile([(0x91B9,source)],'semantic relief analytic derivative oracle')
+    rng=random.Random(9247)
+    points=[(rng.uniform(-6.,6.),rng.uniform(-6.,6.),rng.uniform(-6.,6.),float(family))
+            for family in range(8) for _ in range(64)]
+    gl.buffer(struct.pack(f'<{len(points)*4}f',*(v for p in points for v in p)),0)
+    output=gl.buffer(len(points)*32,1)
+    gl.uniform(program,'pointCount','1ui',len(points))
+    gl.dispatch(program,(len(points)+63)//64)
+    values=struct.unpack(f'<{len(points)*8}f',gl.read(output,len(points)*32))
+    maximum=0.
+    for i,point in enumerate(points):
+        analytic=values[i*8+1:i*8+4];numeric=values[i*8+4:i*8+7]
+        error=max_difference(analytic,numeric);maximum=max(maximum,error)
+        assert all(math.isfinite(v) for v in (*analytic,*numeric))
+        assert error<.005, ('semantic relief derivative',point,error,analytic,numeric)
+    print(f'PASS 512 semantic relief gradients vs finite differences, maximum slope error {maximum:.6f}',flush=True)
 
 
 def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None, size=(192,144)):
@@ -426,7 +568,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
     V=normalized(tuple(a-b for a,b in zip(eye,target)))
     H=normalized(tuple(a+b for a,b in zip(L,V)))
     VH=max(sum(a*b for a,b in zip(V,H)),0.)
-    floats=struct.unpack('<3016f',table)
+    floats=struct.unpack('<3328f',table)
     for tile_index,biome in enumerate(biomes):
         name=NAMES[biome]
         rig.set(terrainBiomeOverride=biome)
@@ -473,9 +615,9 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
         sheet.paste(tile,(x,y))
         draw.text((x+5,y+height_px+2),name,font=font,fill=(230,230,230))
         swatches=[]
-        for material in (0,24,56,80):
+        for material in (0,24,60,84):
             for stop in (0,4,8):
-                start=biome*116+material+stop
+                start=biome*128+material+stop
                 swatches.append(tuple(round(255.*max(0.,min(v,1.))**(1./2.2)) for v in floats[start:start+3]))
         for i,color in enumerate(swatches):
             draw.rectangle((x+i*width//12,y+height_px+21,x+(i+1)*width//12-1,y+height_px+34),fill=color)
@@ -502,7 +644,9 @@ def main():
         check_oracles(rig)
         check_continuity(rig,table)
         check_filtering(rig,table)
+        check_material_identity(rig,table)
         check_noise_gradients(gl)
+        check_relief_gradients(gl)
         gl.check('terrain material validation')
         if args.preview:
             selected=[int(value) for value in args.preview_biomes.split(',')] if args.preview_biomes else None

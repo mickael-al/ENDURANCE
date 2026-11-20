@@ -37,7 +37,7 @@ constexpr unsigned GL_CURRENT_PROGRAM=1,GL_VERTEX_ARRAY_BINDING=2,
 namespace TerrainFixtureGL {
 struct Binding {unsigned buffer=0;GLint64 start=0,size=0;};
 inline unsigned next=1,uniform=0,program=0,uploads=0,uniformWrites=0;
-inline int blockBytes=12064;
+inline int blockBytes=13312;
 inline bool allocationFailure=false;
 inline std::map<unsigned,std::vector<unsigned char>> buffers;
 inline std::map<unsigned,Binding> uniformBindings;

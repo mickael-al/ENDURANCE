@@ -13,7 +13,7 @@ HERE=Path(__file__).resolve().parent
 
 
 def main():
-    for name in ('check_cpu.py','check_runtime.py','check_gpu.py'):
+    for name in ('check_cpu.py','check_migration.py','check_runtime.py','check_gpu.py'):
         print(f'Running {name}',flush=True)
         subprocess.run([sys.executable,str(HERE/name)],check=True)
     print('PASS all terrain material validation groups',flush=True)

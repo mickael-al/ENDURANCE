@@ -129,7 +129,7 @@ int main()
             "Failed initialization leaked GPU storage or registration");
         blockBytes = 16;
         require(!terrain.initialize(config), "Incorrect shader material ABI was accepted");
-        blockBytes = 12064;
+        blockBytes = sizeof(ProceduralTerrain::TerrainMaterialTable);
         require(buffers.empty() && pipelines.activePipelines == 0 && pipelines.registeredRenderers == 0,
             "Shader ABI rejection leaked GPU storage or registration");
         require(terrain.initialize(config), terrain.getLastError());

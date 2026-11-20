@@ -156,9 +156,9 @@ class Scene:
         # independently of ENDURANCE's authored palettes and pattern choices.
         material = ((.45,.45,.45,.88)*3
                     + (0.,1.,1.,0., .5,1.,1.,0., 0.,0.,0.,0.))
-        surface = material*2 + (.62,.12,.7,.3, 24.,1.5,0.,0.)
-        biome = surface*2 + (.28,.65,0.,1.)
-        self.material_table = gl.buffer(struct.pack('<3016f',*(biome*26)))
+        surface = material*2 + (.62,.12,.7,.3, 24.,1.5,0.,0., 0.,.15,.35,.35)
+        biome = surface*2 + (.28,.65,0.,1., 1.,.1,1.,.32)
+        self.material_table = gl.buffer(struct.pack('<3328f',*(biome*26)))
         gl.glBindBufferBase(0x8A11,6,self.material_table)
         for program in (self.render,self.reference_render):
             # The deferred fixture below uses gamma1; preserve that contract.

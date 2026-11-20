@@ -33,7 +33,7 @@ def export_appearance():
         binary = compile_export(Path(directory))
         payload = subprocess.check_output([str(binary), "--dump"])
         settings = subprocess.check_output([str(binary), "--settings"],text=True).split()
-    assert len(payload) == 12064, len(payload)
+    assert len(payload) == 13312, len(payload)
     return payload,dict(terrainMacroPeriod=float(settings[0]),terrainPatchPeriod=float(settings[1]),
                         terrainMaterialDebug=int(settings[2]))
 

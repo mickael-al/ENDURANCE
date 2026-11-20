@@ -51,6 +51,7 @@ public:
     float microDetailStrength = 0.15f;
     float microDetailScale = 2.0f;
     ProceduralTerrain::TerrainAppearance appearance;
+    std::uint32_t terrainAppearanceRevision = 0;
     bool debugLod = false;
     bool collisionEnabled = true;
     float collisionRadius = 128.0f;

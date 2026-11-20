@@ -2,6 +2,7 @@
 #define CLEAR_REGISTRY
 #include "ProceduralGeneration.hpp"
 #include "EnduranceTerrainMaterials.hpp"
+#include "EnduranceTerrainMaterialMigration.hpp"
 #include "EnduranceTerrainMaterialPanel.hpp"
 #include "EnduranceTerrainMaterialSerialization.hpp"
 #include "Editor.hpp"
@@ -21,10 +22,12 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, baseHeight,
     heightAmplitude, heightFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
-    microDetailStrength, microDetailScale, appearance, debugLod, collisionEnabled, collisionRadius);
+    microDetailStrength, microDetailScale, appearance, terrainAppearanceRevision,
+    debugLod, collisionEnabled, collisionRadius);
 
 ProceduralTerrainComponent::ProceduralTerrainComponent()
-    : appearance(Endurance::makeTerrainAppearance()) {}
+    : appearance(Endurance::makeTerrainAppearance()),
+      terrainAppearanceRevision(Endurance::TerrainAppearanceRevision) {}
 
 ProceduralTerrainComponent::~ProceduralTerrainComponent()
 {
@@ -267,6 +270,11 @@ void ProceduralTerrainComponent::load(std::string data)
     // ParseContext skips removed properties by default, including the old
     // climateFrequency setting; older scenes use the fixed shader recipe.
     const auto previousAppearance = appearance;
+    const auto previousRevision = terrainAppearanceRevision;
+    // Seed absent fields with this biome's current recipe. Saved artist edits
+    // overwrite them; pre-material scenes simply keep the current defaults.
+    appearance = Endurance::makeTerrainAppearance();
+    terrainAppearanceRevision = 0;
     JS::ParseContext context(data);
     const bool parsed = context.parseTo(*this) == JS::Error::NoError;
     if (!parsed)
@@ -274,6 +282,11 @@ void ProceduralTerrainComponent::load(std::string data)
     if (!parsed || !ProceduralTerrain::validTerrainAppearance(appearance))
     {
         appearance = previousAppearance;
+        terrainAppearanceRevision = previousRevision;
         Ge::Debug::Warn("Invalid terrain appearance; retaining the previous valid palettes.");
+    }
+    else
+    {
+        Endurance::upgradeTerrainAppearance(appearance, terrainAppearanceRevision);
     }
 }

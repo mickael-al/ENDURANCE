@@ -24,7 +24,7 @@ namespace
                  linearChannel(rgb & 255u), roughness}};
     }
     TerrainMaterial material(std::uint32_t low, std::uint32_t mid, std::uint32_t high,
-        V roughNormal, V pattern, float softness = 0.90f, float contrast = 1.20f,
+        V roughNormal, V pattern, float softness = 0.95f, float contrast = 1.08f,
         float roughVariation = 0.04f)
     {
         TerrainMaterial m;
@@ -66,275 +66,326 @@ namespace
             {"Neige ivoire froide, glace bleue affleurante et grandes veines turquoise.",
              {{"Neige soufflee", "Glace affleurante", "Glace profonde", "Veines de givre"}},
              biome(
-                surface(material(0xBCCCD0,0xD4DDDA,0xEBEDE1, {{.87f,.89f,.92f,.55f}}, {{0.8f,0.f,0.f,0.2f}}, .95f,1.15f,.025f),
-                        material(0x527F91,0x81A7B0,0xB6D0D2, {{.27f,.34f,.42f,.30f}}, {{0.85f,0.1f,0.05f,0.f}}, .95f,1.167f,.015f),
+                surface(material(0xC6D3D5,0xD5DEDC,0xE8ECE4, {{.87f,.89f,.92f,.55f}}, {{0.8f,0.f,0.f,0.2f}}, 0.95f,1.060f,.025f),
+                        material(0x7498A4,0x8DADB5,0xA9C3C8, {{.27f,.34f,.42f,.30f}}, {{0.85f,0.1f,0.05f,0.f}}, 0.95f,1.067f,.015f),
                         {{0.7f,0.18f,0.97f,0.03f}}, {{48.f,2.6f,0.38f,1.1f}}),
-                surface(material(0x3F627A,0x628697,0x90AEB7, {{.30f,.37f,.47f,.55f}}, {{0.65f,0.15f,0.2f,0.f}}, 0.8f,1.237f,.02f),
-                        material(0x91BBC2,0xB5CFD0,0xD9E3DC, {{.54f,.64f,.77f,.45f}}, {{0.6f,0.1f,0.3f,0.f}}, .5f,1.272f,.02f),
+                surface(material(0x526F84,0x65869A,0x7C9AAA, {{.30f,.37f,.47f,.55f}}, {{0.65f,0.15f,0.2f,0.f}}, 0.82f,1.095f,.02f),
+                        material(0x9FBFC5,0xB4CFD1,0xCDDDD9, {{.54f,.64f,.77f,.45f}}, {{0.6f,0.1f,0.3f,0.f}}, 0.82f,1.109f,.02f),
                         {{0.705f,0.16f,0.6f,0.4f}}, {{115.f,3.f,0.22f,55.2f}}), {{.20f,.58f,.09f,.9f}})},
             // 1 FrozenTundra: cold mineral massifs, warm glacial sediment in gaps.
             {"Neige mince et sediments taupe sous des massifs ardoise givres.",
              {{"Sediment gele", "Neige mince", "Schiste froid", "Givre mineral"}},
              biome(
-                surface(material(0x767F7E,0x989D91,0xB9B7A2, {{.84f,.88f,.91f,.8f}}, {{0.75f,0.25f,0.f,0.f}}),
-                        material(0xB3C3C5,0xCCD4CD,0xE0E2D3, {{.87f,.91f,.94f,.5f}}, {{0.9f,0.1f,0.f,0.f}}, .95f),
+                surface(material(0x858B83,0x979D90,0xA9AD9F, {{.84f,.88f,.91f,.8f}}, {{0.75f,0.25f,0.f,0.f}}),
+                        material(0xBDCACC,0xCCD6D2,0xDDE2DB, {{.87f,.91f,.94f,.5f}}, {{0.9f,0.1f,0.f,0.f}}, 0.95f),
                         {{0.63f,0.21f,0.87f,0.13f}}, {{28.f,1.5f,1.05f,3.f}}),
-                surface(material(0x4D606B,0x71818A,0x96A09C, {{.78f,.85f,.91f,1.05f}}, {{0.68f,0.2f,0.12f,0.f}}, 0.7f,1.255f),
-                        material(0x9CAEB4,0xBCC9C8,0xD9DED1, {{.75f,.84f,.9f,.65f}}, {{0.75f,0.1f,0.15f,0.f}}, .8f),
+                surface(material(0x60737F,0x738691,0x8A99A1, {{.78f,.85f,.91f,1.05f}}, {{0.68f,0.2f,0.12f,0.f}}, 0.82f,1.102f),
+                        material(0xA7B8BC,0xB9C9CA,0xCDD8D5, {{.75f,.84f,.9f,.65f}}, {{0.75f,0.1f,0.15f,0.f}}, 0.82f),
                         {{0.665f,0.19f,0.8f,0.2f}}, {{68.f,1.5f,0.8f,27.2f}}), {{.22f,.61f,.1f,1.f}})},
             // 2 Tundra: olive lichen and ochre humus, violet-gray mineral cliffs.
             {"Lichen olive et humus ocre, roches gris violace sans saturation excessive.",
              {{"Humus sec", "Lichen", "Roche de toundra", "Oxydation claire"}},
              biome(
-                surface(material(0x665C46,0x8A7E59,0xAEA078, {{.94f,.92f,.9f,.85f}}, {{0.72f,0.28f,0.f,0.f}}),
-                        material(0x53604A,0x79825B,0xA1A478, {{.94f,.96f,.97f,.65f}}, {{0.55f,0.45f,0.f,0.f}}, .7f,1.272f),
+                surface(material(0x7A6F51,0x8A7E5D,0x9C906D, {{.94f,.92f,.9f,.85f}}, {{0.72f,0.28f,0.f,0.f}}),
+                        material(0x6D7553,0x7D835D,0x8D926A, {{.94f,.96f,.97f,.65f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f,1.109f),
                         {{0.55f,0.18f,0.67f,0.33f}}, {{18.f,1.2f,0.65f,2.f}}),
-                surface(material(0x53545C,0x777878,0x9C9B8E, {{.82f,.88f,.93f,1.15f}}, {{0.64f,0.2f,0.16f,0.f}}, 0.7f,1.237f),
-                        material(0x847455,0xA69875,0xC3B99A, {{.86f,.91f,.94f,.9f}}, {{0.5f,0.25f,0.25f,0.f}}, .55f),
+                surface(material(0x65656B,0x76767A,0x88888A, {{.82f,.88f,.93f,1.15f}}, {{0.64f,0.2f,0.16f,0.f}}, 0.82f,1.095f),
+                        material(0x88806B,0x99917A,0xAAA28B, {{.86f,.91f,.94f,.9f}}, {{0.5f,0.25f,0.25f,0.f}}, 0.82f),
                         {{0.685f,0.17f,0.65f,0.35f}}, {{54.f,1.4f,-0.5f,21.6f}}))},
             // 3 Taiga: broad dark-green floor; pillars retain muted warm barklike strata.
             {"Sous-bois vert profond, aiguilles brunes et colonnes minerales aux strates chaudes.",
              {{"Mousse sombre", "Aiguilles seches", "Pierre des colonnes", "Depots pales"}},
              biome(
-                surface(material(0x354B3D,0x50664A,0x77815A, {{.91f,.95f,.97f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x584836,0x796344,0x99835C, {{.89f,.93f,.96f,.85f}}, {{0.55f,0.45f,0.f,0.f}}, .8f),
+                surface(material(0x44553E,0x50624A,0x607154, {{.91f,.95f,.97f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x5A553B,0x686143,0x796E4E, {{.89f,.93f,.96f,.85f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f),
                         {{0.66f,0.18f,0.77f,0.23f}}, {{25.f,1.2f,0.3f,3.f}}),
-                surface(material(0x4B5050,0x6D7370,0x96998A, {{.78f,.85f,.91f,1.1f}}, {{0.73f,0.15f,0.12f,0.f}}, 0.7f,1.272f),
-                        material(0x6C6855,0x8D8870,0xB1AE93, {{.83f,.88f,.94f,.8f}}, {{0.6f,0.15f,0.25f,0.f}}, .5f),
+                surface(material(0x626B67,0x717C74,0x839085, {{.78f,.85f,.91f,1.1f}}, {{0.73f,0.15f,0.12f,0.f}}, 0.82f,1.109f),
+                        material(0x7B806A,0x8B9078,0x9DA18A, {{.83f,.88f,.94f,.8f}}, {{0.6f,0.15f,0.25f,0.f}}, 0.82f),
                         {{0.675f,0.18f,0.65f,0.35f}}, {{82.f,1.2f,1.3f,32.8f}}))},
             // 4 BorealBog: quiet damp ground and desaturated peat rather than shiny foliage.
             {"Tourbe froide, mousses sourdes et parois humides bleu vert.",
-             {{"Tourbe humide", "Mousse pale", "Roche humide", "Lichen froid"}},
+             {{"Tourbe humide", "Mousse sourde", "Roche humide", "Lichen froid"}},
              biome(
-                surface(material(0x303D38,0x48574A,0x68745D, {{.47f,.58f,.72f,.65f}}, {{0.7f,0.3f,0.f,0.f}}, .95f,1.167f,.035f),
-                        material(0x70795E,0x939A72,0xB5B997, {{.86f,.93f,.96f,.6f}}, {{0.55f,0.45f,0.f,0.f}}, .8f),
+                surface(material(0x425044,0x48584B,0x505F52, {{0.66f,0.70f,0.75f,.65f}}, {{0.7f,0.3f,0.f,0.f}}, 0.95f,1.067f,.035f),
+                        material(0x495940,0x536348,0x5E6D51, {{0.78f,0.82f,0.86f,.6f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f),
                         {{0.69f,0.18f,0.67f,0.33f}}, {{16.f,1.4f,1.8f,4.f}}),
-                surface(material(0x354B4E,0x526B69,0x758E82, {{.39f,.5f,.66f,.9f}}, {{0.75f,0.2f,0.05f,0.f}}, 0.85f),
-                        material(0x6C7C6D,0x8E9C81,0xB3B99B, {{.83f,.9f,.95f,.65f}}, {{0.59f,0.35f,0.06f,0.f}}, .7f),
+                surface(material(0x506967,0x587170,0x617A78, {{0.62f,0.67f,0.72f,.9f}}, {{0.75f,0.2f,0.05f,0.f}}, 0.85f),
+                        material(0x5B7065,0x657A6F,0x6F8478, {{0.77f,0.82f,0.87f,.65f}}, {{0.59f,0.35f,0.06f,0.f}}, 0.82f),
                         {{0.685f,0.18f,0.45f,0.55f}}, {{92.f,1.4f,-0.7f,44.2f}}))},
             // 5 RockyTundra.
             {"Graviers froids, quartz clair et falaises de graphite stratifie.",
              {{"Gravier gris", "Lichen bronze", "Graphite mineral", "Filons de quartz"}},
              biome(
-                surface(material(0x626B70,0x848B8B,0xACADA2, {{.88f,.93f,.96f,1.1f}}, {{0.75f,0.2f,0.05f,0.f}}),
-                        material(0x746B4C,0x948C65,0xB5AF88, {{.91f,.95f,.97f,.7f}}, {{0.45f,0.55f,0.f,0.f}}, .65f),
+                surface(material(0x758085,0x859092,0x97A1A0, {{.88f,.93f,.96f,1.1f}}, {{0.75f,0.2f,0.05f,0.f}}),
+                        material(0x7C8068,0x8C9076,0x9DA187, {{.91f,.95f,.97f,.7f}}, {{0.45f,0.55f,0.f,0.f}}, 0.82f),
                         {{0.73f,0.18f,0.82f,0.18f}}, {{14.f,1.3f,-0.2f,3.f}}),
-                surface(material(0x3F4A58,0x606D79,0x87939A, {{.76f,.84f,.91f,1.25f}}, {{0.6f,0.2f,0.2f,0.f}}, 0.7f,1.272f),
-                        material(0x9EA7A7,0xBFC4BA,0xDADAC9, {{.45f,.55f,.7f,.8f}}, {{0.5f,0.1f,0.4f,0.f}}, .3f,1.307f,.025f),
+                surface(material(0x536473,0x637587,0x758898, {{.76f,.84f,.91f,1.25f}}, {{0.6f,0.2f,0.2f,0.f}}, 0.82f,1.109f),
+                        material(0x8E9D9F,0xA2AFB0,0xB8C2C0, {{.45f,.55f,.7f,.8f}}, {{0.5f,0.1f,0.4f,0.f}}, 0.82f,1.123f,.025f),
                         {{0.735f,0.16f,0.5f,0.5f}}, {{43.f,1.3f,0.7f,17.2f}}))},
             // 6 ColdSteppe.
             {"Herbes seches cendrees, sable froid et arches de gres bleu gris.",
              {{"Herbe cendree", "Sable froid", "Gres gris", "Couches creme"}},
              biome(
-                surface(material(0x766B50,0x968963,0xB8AC84, {{.92f,.95f,.97f,.7f}}, {{0.75f,0.15f,0.f,0.1f}}),
-                        material(0x8A8C80,0xAAAB96,0xC9C6AA, {{.83f,.88f,.93f,.6f}}, {{0.6f,0.1f,0.f,0.3f}}, .95f),
+                surface(material(0x847D61,0x948D6F,0xA59F80, {{.92f,.95f,.97f,.7f}}, {{0.75f,0.15f,0.f,0.1f}}),
+                        material(0x969988,0xA5AA97,0xB8BBA6, {{.83f,.88f,.93f,.6f}}, {{0.6f,0.1f,0.f,0.3f}}, 0.95f),
                         {{0.67f,0.2f,0.87f,0.13f}}, {{32.f,2.3f,-0.8f,1.5f}}),
-                surface(material(0x536675,0x788B93,0xA2ACA8, {{.8f,.87f,.92f,1.05f}}, {{0.67f,0.15f,0.18f,0.f}}, 0.7f,1.272f),
-                        material(0x9A947C,0xBBB59B,0xD7D1B5, {{.84f,.9f,.95f,.8f}}, {{0.49f,0.15f,0.36f,0.f}}, .35f),
+                surface(material(0x6E808E,0x7E919E,0x92A3AD, {{.8f,.87f,.92f,1.05f}}, {{0.67f,0.15f,0.18f,0.f}}, 0.82f,1.109f),
+                        material(0x969B90,0xA7ADA0,0xB9BFB1, {{.84f,.9f,.95f,.8f}}, {{0.49f,0.15f,0.36f,0.f}}, 0.82f),
                         {{0.675f,0.16f,0.65f,0.35f}}, {{125.f,2.f,0.4f,50.f}}))},
             // 7 BorealForest.
             {"Mousse de foret froide et plateaux rocheux brun gris aux bandes minerales.",
              {{"Mousse boreale", "Litiere rousse", "Roche des plateaux", "Strates calcaires"}},
              biome(
-                surface(material(0x3E553F,0x60764D,0x879566, {{.91f,.95f,.97f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x68513A,0x8A6D46,0xAF9267, {{.9f,.93f,.96f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, .75f),
+                surface(material(0x526447,0x60744F,0x71845B, {{.91f,.95f,.97f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x6D684B,0x7C7555,0x8D8563, {{.9f,.93f,.96f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, 0.82f),
                         {{0.69f,0.19f,0.82f,0.18f}}, {{22.f,1.4f,0.5f,3.f}}),
-                surface(material(0x5A5B55,0x7C8074,0xA5A798, {{.8f,.87f,.93f,1.05f}}, {{0.63f,0.15f,0.22f,0.f}}, 0.7f),
-                        material(0x8F8E75,0xB3B295,0xD0CEB1, {{.79f,.86f,.93f,.8f}}, {{0.5f,0.15f,0.35f,0.f}}, .35f,1.255f),
+                surface(material(0x6D7567,0x7D8575,0x8F9686, {{.8f,.87f,.93f,1.05f}}, {{0.63f,0.15f,0.22f,0.f}}, 0.82f),
+                        material(0x919783,0xA2A792,0xB4B7A3, {{.79f,.86f,.93f,.8f}}, {{0.5f,0.15f,0.35f,0.f}}, 0.82f,1.102f),
                         {{0.665f,0.16f,0.6f,0.4f}}, {{76.f,1.4f,-0.35f,30.4f}}))},
             // 8 ColdForest.
             {"Terre humide et fougeres sourdes, falaises bleutees dans les gouffres.",
              {{"Terre froide", "Couvert vegetal", "Schiste du gouffre", "Veines argileuses"}},
              biome(
-                surface(material(0x3D4840,0x5A6650,0x7E8768, {{.62f,.74f,.85f,.8f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x48634A,0x6C8257,0x95A374, {{.89f,.94f,.97f,.65f}}, {{0.55f,0.45f,0.f,0.f}}, .75f),
+                surface(material(0x4D5A47,0x5B6951,0x6B795D, {{.62f,.74f,.85f,.8f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x576B4D,0x657A57,0x758B64, {{.89f,.94f,.97f,.65f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f),
                         {{0.61f,0.21f,0.67f,0.33f}}, {{20.f,1.6f,0.9f,3.f}}),
-                surface(material(0x3D535E,0x5D7680,0x879B9F, {{.53f,.65f,.8f,1.05f}}, {{0.7f,0.2f,0.1f,0.f}}, 0.7f),
-                        material(0x777D73,0x9EA18D,0xC2C4AA, {{.76f,.86f,.93f,.8f}}, {{0.58f,0.2f,0.22f,0.f}}, .5f),
+                surface(material(0x4E6972,0x5D7B85,0x718E96, {{.53f,.65f,.8f,1.05f}}, {{0.7f,0.2f,0.1f,0.f}}, 0.82f),
+                        material(0x7A877D,0x8C998C,0xA1AA9E, {{.76f,.86f,.93f,.8f}}, {{0.58f,0.2f,0.22f,0.f}}, 0.82f),
                         {{0.685f,0.17f,0.7f,0.3f}}, {{145.f,1.6f,-0.65f,69.6f}}))},
             // 9 ColdMarsh.
             {"Vase bleue froide, ilots de mousse et formations minerales verdatres satinees.",
-             {{"Vase froide", "Mousse des ilots", "Roche satinee", "Croute claire"}},
+             {{"Vase froide", "Mousse des ilots", "Roche satinee", "Croute minerale"}},
              biome(
-                surface(material(0x394A49,0x556864,0x7B8C7F, {{.34f,.44f,.62f,.6f}}, {{0.75f,0.25f,0.f,0.f}}, .95f,1.185f,.025f),
-                        material(0x65784D,0x8A9865,0xAFB78D, {{.87f,.93f,.96f,.65f}}, {{0.5f,0.5f,0.f,0.f}}, .75f),
+                surface(material(0x506660,0x587168,0x627A70, {{0.62f,0.67f,0.73f,.6f}}, {{0.75f,0.25f,0.f,0.f}}, 0.95f,1.074f,.025f),
+                        material(0x5A705B,0x647B65,0x6F866F, {{0.78f,0.82f,0.86f,.65f}}, {{0.5f,0.5f,0.f,0.f}}, 0.82f),
                         {{0.7f,0.18f,0.67f,0.33f}}, {{24.f,1.7f,1.6f,4.f}}),
-                surface(material(0x405D5F,0x63827C,0x90A99A, {{.3f,.43f,.59f,.85f}}, {{0.7f,0.25f,0.05f,0.f}}, 0.9f),
-                        material(0x7E9681,0xA5B59A,0xC7D0B4, {{.66f,.78f,.9f,.7f}}, {{0.65f,0.25f,0.1f,0.f}}, .65f),
+                surface(material(0x5C8177,0x668B81,0x72958B, {{0.60f,0.65f,0.72f,.85f}}, {{0.7f,0.25f,0.05f,0.f}}, 0.90f),
+                        material(0x718C7D,0x7D9788,0x88A392, {{0.73f,0.78f,0.84f,.7f}}, {{0.65f,0.25f,0.1f,0.f}}, 0.82f),
                         {{0.685f,0.17f,0.65f,0.35f}}, {{155.f,1.7f,0.4f,74.4f}}))},
             // 10 DryPlain.
-            {"Terres ocres calmes, poussiere pale et roche sedimentaire chaude.",
-             {{"Terre ocre", "Poussiere claire", "Roche de plaine", "Sediments creme"}},
+            {"Terres ocres sourdes, poussiere ambree et roche sedimentaire chaude.",
+             {{"Terre ocre", "Poussiere ambree", "Roche de plaine", "Sediments ocres"}},
              biome(
-                surface(material(0x96784D,0xBA9B68,0xD3BA88, {{.9f,.94f,.97f,.75f}}, {{0.8f,0.15f,0.f,0.05f}}),
-                        material(0xB4A07A,0xD0BE96,0xE3D3AE, {{.91f,.95f,.98f,.55f}}, {{0.75f,0.1f,0.f,0.15f}}, .95f),
-                        {{0.7f,0.22f,0.92f,0.08f}}, {{25.f,2.f,-0.6f,1.3f}}),
-                surface(material(0x74654E,0x9A8968,0xBDAE88, {{.83f,.89f,.95f,1.05f}}, {{0.56f,0.2f,0.24f,0.f}}, 0.7f),
-                        material(0xB0A07E,0xCEC0A0,0xE3D9BD, {{.85f,.92f,.96f,.7f}}, {{0.52f,0.1f,0.38f,0.f}}, .35f),
-                        {{0.685f,0.17f,0.7f,0.3f}}, {{63.f,2.f,0.2f,25.2f}}))},
+                surface(material(0x926F43,0x9D7D50,0xAA8A5C, {{.9f,.94f,.97f,.75f}}, {{0.8f,0.15f,0.f,0.05f}}),
+                        material(0xA18A60,0xAD976C,0xBBA67B, {{.91f,.95f,.98f,.55f}}, {{0.75f,0.1f,0.f,0.15f}}, 0.95f),
+                        {{0.715f,0.22f,0.92f,0.08f}}, {{25.f,2.f,-0.6f,1.3f}}),
+                surface(material(0x76634B,0x846F55,0x947E61, {{.83f,.89f,.95f,1.05f}}, {{0.56f,0.2f,0.24f,0.f}}, 0.82f),
+                        material(0x988361,0xA6916E,0xB6A17D, {{.85f,.92f,.96f,.7f}}, {{0.52f,0.1f,0.38f,0.f}}, 0.82f),
+                        {{0.700f,0.20f,0.7f,0.3f}}, {{63.f,2.f,0.2f,25.2f}}))},
             // 11 Meadow.
-            {"Prairie vert dore ponctuee de terre, pierre claire aux ombres naturelles.",
-             {{"Herbe de prairie", "Terre exposee", "Pierre de prairie", "Lichen dore"}},
+            {"Prairie olive profonde, terre herbeuse et pierre gris vert.",
+             {{"Herbe de prairie", "Terre herbeuse", "Pierre de prairie", "Lichen olive"}},
              biome(
-                surface(material(0x5D7541,0x819751,0xA8B875, {{.91f,.95f,.97f,.65f}}, {{0.85f,0.15f,0.f,0.f}}, .95f),
-                        material(0x8E754D,0xB09565,0xCDB48B, {{.88f,.93f,.97f,.8f}}, {{0.55f,0.45f,0.f,0.f}}, .75f),
-                        {{0.73f,0.18f,0.77f,0.23f}}, {{17.f,1.3f,0.55f,2.f}}),
-                surface(material(0x697269,0x90978A,0xB5BAA5, {{.81f,.88f,.94f,1.f}}, {{0.71f,0.2f,0.09f,0.f}}, 0.7f),
-                        material(0x91946B,0xB2B58B,0xCFD0AC, {{.9f,.94f,.97f,.65f}}, {{0.47f,0.45f,0.08f,0.f}}, .6f),
-                        {{0.685f,0.19f,0.6f,0.4f}}, {{48.f,1.3f,-0.3f,19.2f}}))},
+                surface(material(0x3C502B,0x495E33,0x566C3D, {{.91f,.95f,.97f,.65f}}, {{0.85f,0.15f,0.f,0.f}}, 0.95f),
+                        material(0x59603D,0x646846,0x727351, {{.88f,.93f,.97f,.8f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f),
+                        {{0.745f,0.20f,0.77f,0.23f}}, {{17.f,1.3f,0.55f,2.f}}),
+                surface(material(0x565C50,0x646B5D,0x747C6B, {{.81f,.88f,.94f,1.f}}, {{0.71f,0.2f,0.09f,0.f}}, 0.82f),
+                        material(0x70785F,0x7C846B,0x899177, {{.9f,.94f,.97f,.65f}}, {{0.47f,0.45f,0.08f,0.f}}, 0.82f),
+                        {{0.700f,0.20f,0.6f,0.4f}}, {{48.f,1.3f,-0.3f,19.2f}}))},
             // 12 TemperateForest.
-            {"Sous-bois vert mousse, litiere ambree et roches gris chauds.",
-             {{"Mousse temperee", "Litiere ambree", "Roche forestiere", "Lichen doux"}},
+            {"Sous-bois vert mousse sombre, litiere humifiee et roches gris chauds.",
+             {{"Mousse temperee", "Litiere humifiee", "Roche forestiere", "Lichen doux"}},
              biome(
-                surface(material(0x3D5A36,0x5F7944,0x8B9A61, {{.92f,.95f,.97f,.7f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x715438,0x987449,0xBB996B, {{.88f,.93f,.96f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, .7f),
-                        {{0.65f,0.2f,0.77f,0.23f}}, {{24.f,1.5f,0.8f,3.f}}),
-                surface(material(0x596253,0x7D8770,0xA5AE91, {{.77f,.85f,.92f,1.05f}}, {{0.7f,0.2f,0.1f,0.f}}, 0.7f),
-                        material(0x8D9471,0xB0B58F,0xD0D0AB, {{.86f,.92f,.96f,.65f}}, {{0.54f,0.4f,0.06f,0.f}}, .6f),
-                        {{0.685f,0.17f,0.6f,0.4f}}, {{84.f,1.5f,-0.7f,33.6f}}))},
+                surface(material(0x2A3D29,0x334A2F,0x3E5736, {{.92f,.95f,.97f,.7f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x41462E,0x4A5034,0x565B3D, {{.88f,.93f,.96f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, 0.82f),
+                        {{0.665f,0.20f,0.77f,0.23f}}, {{24.f,1.5f,0.8f,3.f}}),
+                surface(material(0x3D483D,0x495547,0x566252, {{.77f,.85f,.92f,1.05f}}, {{0.7f,0.2f,0.1f,0.f}}, 0.82f),
+                        material(0x596249,0x646E53,0x707B5D, {{.86f,.92f,.96f,.65f}}, {{0.54f,0.4f,0.06f,0.f}}, 0.82f),
+                        {{0.700f,0.20f,0.6f,0.4f}}, {{84.f,1.5f,-0.7f,33.6f}}))},
             // 13 TemperateRainforest.
-            {"Vert profond humide et pierre bleu vert, avec des accents de mousse jaune sourd.",
-             {{"Humus humide", "Mousse lumineuse", "Roche des ravines", "Patine vegetale"}},
+            {"Verts humides profonds et roche bleu vert, avec une mousse de teinte voisine.",
+             {{"Humus humide", "Mousse humide", "Roche des ravines", "Patine vegetale"}},
              biome(
-                surface(material(0x2F4738,0x48674A,0x6A8B5D, {{.48f,.63f,.78f,.75f}}, {{0.75f,0.25f,0.f,0.f}}),
-                        material(0x617847,0x849B5B,0xACBA7D, {{.85f,.92f,.96f,.6f}}, {{0.55f,0.45f,0.f,0.f}}, .75f),
-                        {{0.67f,0.18f,0.72f,0.28f}}, {{22.f,1.6f,1.2f,3.f}}),
-                surface(material(0x345650,0x54796A,0x7DA18A, {{.35f,.49f,.65f,.9f}}, {{0.68f,0.25f,0.07f,0.f}}, 0.85f),
-                        material(0x69865B,0x90A575,0xB7C29B, {{.75f,.86f,.93f,.7f}}, {{0.44f,0.5f,0.06f,0.f}}, .65f),
-                        {{0.645f,0.18f,0.5f,0.5f}}, {{118.f,1.6f,0.35f,56.6f}}))},
+                surface(material(0x244032,0x2E4B3A,0x385843, {{0.64f,0.69f,0.75f,.75f}}, {{0.75f,0.25f,0.f,0.f}}),
+                        material(0x3C533A,0x465F41,0x536C4C, {{0.78f,0.83f,0.88f,.6f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f),
+                        {{0.685f,0.20f,0.72f,0.28f}}, {{22.f,1.6f,1.2f,3.f}}),
+                surface(material(0x2D4640,0x36534B,0x416056, {{0.60f,0.66f,0.73f,.9f}}, {{0.68f,0.25f,0.07f,0.f}}, 0.85f),
+                        material(0x455D48,0x506A52,0x5C765D, {{0.76f,0.81f,0.87f,.7f}}, {{0.44f,0.5f,0.06f,0.f}}, 0.82f),
+                        {{0.660f,0.20f,0.5f,0.5f}}, {{118.f,1.6f,0.35f,56.6f}}))},
             // 14 TemperateMarsh.
-            {"Vase olive et roseaux dores, parois usees et depots humides.",
+            {"Vase olive sombre et roseaux sourds, parois usees et depots argileux.",
              {{"Vase olive", "Couvert de roseaux", "Argile humide", "Depots secs"}},
              biome(
-                surface(material(0x4C5140,0x6B7152,0x90916C, {{.35f,.46f,.64f,.6f}}, {{0.7f,0.3f,0.f,0.f}}, .95f,1.202f,.025f),
-                        material(0x7B854F,0xA0A564,0xC1C18C, {{.87f,.93f,.97f,.6f}}, {{0.6f,0.4f,0.f,0.f}}, .75f),
-                        {{0.68f,0.18f,0.77f,0.23f}}, {{18.f,1.8f,1.5f,4.f}}),
-                surface(material(0x5A6350,0x7D8668,0xA5AC8B, {{.43f,.57f,.75f,.85f}}, {{0.61f,0.25f,0.14f,0.f}}, 0.75f),
-                        material(0x9A9672,0xBAB793,0xD5D1B1, {{.8f,.88f,.95f,.7f}}, {{0.56f,0.2f,0.24f,0.f}}, .55f),
-                        {{0.695f,0.18f,0.7f,0.3f}}, {{66.f,1.8f,-0.5f,26.4f}}))},
+                surface(material(0x41472E,0x4C5336,0x59603F, {{.35f,.46f,.64f,.6f}}, {{0.7f,0.3f,0.f,0.f}}, 0.95f,1.081f,.025f),
+                        material(0x57603B,0x626B42,0x6F774C, {{.87f,.93f,.97f,.6f}}, {{0.6f,0.4f,0.f,0.f}}, 0.82f),
+                        {{0.695f,0.20f,0.77f,0.23f}}, {{18.f,1.8f,1.5f,4.f}}),
+                surface(material(0x474F3B,0x545C45,0x626A50, {{.43f,.57f,.75f,.85f}}, {{0.61f,0.25f,0.14f,0.f}}, 0.82f),
+                        material(0x62674A,0x6E7354,0x7C8160, {{.8f,.88f,.95f,.7f}}, {{0.56f,0.2f,0.24f,0.f}}, 0.82f),
+                        {{0.710f,0.20f,0.7f,0.3f}}, {{66.f,1.8f,-0.5f,26.4f}}))},
             // 15 RockDesert.
-            {"Gres cuivre, poussiere doree et lits sedimentaires couleur ivoire.",
-             {{"Gravier cuivre", "Sable dore", "Gres du desert", "Lits ivoire"}},
+            {"Gres cuivre sombre, sable chaud et lits sedimentaires ambres.",
+             {{"Gravier cuivre", "Sable cuivre", "Gres du desert", "Lits ambres"}},
              biome(
-                surface(material(0x8C6045,0xB07D54,0xD0A173, {{.86f,.91f,.96f,1.f}}, {{0.75f,0.2f,0.05f,0.f}}),
-                        material(0xB08B5C,0xD0AE77,0xE7C994, {{.85f,.91f,.95f,.6f}}, {{0.65f,0.05f,0.f,0.3f}}, .95f),
-                        {{0.67f,0.2f,0.87f,0.13f}}, {{16.f,1.8f,-0.45f,1.5f}}),
-                surface(material(0x80533F,0xA87552,0xCF9F77, {{.79f,.86f,.93f,1.15f}}, {{0.51f,0.15f,0.34f,0.f}}, 0.7f,1.255f),
-                        material(0xAD9473,0xD0B899,0xE6D4B7, {{.83f,.9f,.95f,.8f}}, {{0.48f,0.1f,0.42f,0.f}}, .25f,1.272f),
-                        {{0.675f,0.16f,0.6f,0.4f}}, {{47.f,1.8f,0.25f,18.8f}}))},
+                surface(material(0x71533F,0x80604A,0x906E57, {{.86f,.91f,.96f,1.f}}, {{0.75f,0.2f,0.05f,0.f}}),
+                        material(0x856A4D,0x937957,0xA28765, {{.85f,.91f,.95f,.6f}}, {{0.65f,0.05f,0.f,0.3f}}, 0.95f),
+                        {{0.685f,0.20f,0.87f,0.13f}}, {{16.f,1.8f,-0.45f,1.5f}}),
+                surface(material(0x6B493B,0x7B5644,0x8B654F, {{.79f,.86f,.93f,1.15f}}, {{0.51f,0.15f,0.34f,0.f}}, 0.82f,1.102f),
+                        material(0x8A6C54,0x987B62,0xA78B72, {{.83f,.9f,.95f,.8f}}, {{0.48f,0.1f,0.42f,0.f}}, 0.82f,1.109f),
+                        {{0.690f,0.20f,0.6f,0.4f}}, {{47.f,1.8f,0.25f,18.8f}}))},
             // 16 DrySavanna.
-            {"Herbes blondes, terre brulee et roche brune dans une palette seche.",
-             {{"Herbe blonde", "Terre brulee", "Roche brune", "Poussiere calcaire"}},
+            {"Herbes paille sourdes, terre brulee et roche brune dans une palette seche.",
+             {{"Herbe paille", "Terre brulee", "Roche brune", "Poussiere ocre"}},
              biome(
-                surface(material(0x9A813F,0xBDA154,0xD9C17D, {{.91f,.95f,.98f,.65f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x80583B,0xA7784B,0xC99D70, {{.88f,.93f,.97f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, .75f),
-                        {{0.66f,0.2f,0.82f,0.18f}}, {{22.f,1.7f,0.65f,2.5f}}),
-                surface(material(0x796247,0x9F8360,0xBFA581, {{.82f,.88f,.94f,1.f}}, {{0.6f,0.2f,0.2f,0.f}}, 0.7f),
-                        material(0xB1A177,0xD0C097,0xE4D6B4, {{.87f,.92f,.96f,.7f}}, {{0.55f,0.15f,0.3f,0.f}}, .4f),
-                        {{0.695f,0.17f,0.7f,0.3f}}, {{69.f,1.7f,-0.35f,27.6f}}))},
+                surface(material(0x80713F,0x8E7E48,0x9D8D54, {{.91f,.95f,.98f,.65f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x776043,0x856D4D,0x947B59, {{.88f,.93f,.97f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, 0.82f),
+                        {{0.675f,0.20f,0.82f,0.18f}}, {{22.f,1.7f,0.65f,2.5f}}),
+                surface(material(0x6D5B40,0x7B684A,0x8B7656, {{.82f,.88f,.94f,1.f}}, {{0.6f,0.2f,0.2f,0.f}}, 0.82f),
+                        material(0x887A55,0x968863,0xA69871, {{.87f,.92f,.96f,.7f}}, {{0.55f,0.15f,0.3f,0.f}}, 0.82f),
+                        {{0.710f,0.20f,0.7f,0.3f}}, {{69.f,1.7f,-0.35f,27.6f}}))},
             // 17 Savanna.
-            {"Vert olive dore et terre rouge, falaises chaudes avec des couches pales.",
-             {{"Herbe olive", "Terre rouge", "Roche de savane", "Couches pales"}},
+            {"Vert olive dore et terre ferrugineuse sourde, falaises aux couches ocres.",
+             {{"Herbe olive", "Terre ferrugineuse", "Roche de savane", "Couches ocres"}},
              biome(
-                surface(material(0x788044,0x9BA151,0xBFC17C, {{.92f,.95f,.98f,.65f}}, {{0.85f,0.15f,0.f,0.f}}),
-                        material(0x8D5137,0xB5744B,0xD29C71, {{.87f,.92f,.96f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, .7f),
-                        {{0.67f,0.19f,0.77f,0.23f}}, {{24.f,1.5f,0.9f,3.f}}),
-                surface(material(0x76684A,0x9B8965,0xBDAB87, {{.8f,.87f,.94f,1.f}}, {{0.62f,0.2f,0.18f,0.f}}, 0.7f),
-                        material(0xABA47A,0xCAC39B,0xE1D8B4, {{.85f,.91f,.96f,.7f}}, {{0.5f,0.2f,0.3f,0.f}}, .45f),
-                        {{0.685f,0.17f,0.6f,0.4f}}, {{82.f,1.5f,0.5f,32.8f}}))},
+                surface(material(0x5C6339,0x687040,0x777D4A, {{.92f,.95f,.98f,.65f}}, {{0.85f,0.15f,0.f,0.f}}),
+                        material(0x76543B,0x825F43,0x906D50, {{.87f,.92f,.96f,.8f}}, {{0.6f,0.4f,0.f,0.f}}, 0.82f),
+                        {{0.685f,0.20f,0.77f,0.23f}}, {{24.f,1.5f,0.9f,3.f}}),
+                surface(material(0x665B42,0x75694C,0x857858, {{.8f,.87f,.94f,1.f}}, {{0.62f,0.2f,0.18f,0.f}}, 0.82f),
+                        material(0x827750,0x91845D,0xA1946B, {{.85f,.91f,.96f,.7f}}, {{0.5f,0.2f,0.3f,0.f}}, 0.82f),
+                        {{0.700f,0.20f,0.6f,0.4f}}, {{82.f,1.5f,0.5f,32.8f}}))},
             // 18 DryJungle.
-            {"Vegetation olive profonde et litiere caramel, roche chaude patinee.",
-             {{"Couvert olive", "Litiere caramel", "Roche chaude", "Patine claire"}},
+            {"Vegetation olive profonde et litiere seche, roche chaude patinee.",
+             {{"Couvert olive", "Litiere seche", "Roche chaude", "Patine olive"}},
              biome(
-                surface(material(0x515F35,0x748047,0x9AA465, {{.91f,.95f,.98f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x795032,0xA07243,0xC39768, {{.86f,.92f,.96f,.85f}}, {{0.55f,0.45f,0.f,0.f}}, .7f),
-                        {{0.67f,0.18f,0.77f,0.23f}}, {{20.f,1.4f,1.1f,3.f}}),
-                surface(material(0x68644B,0x8B8662,0xB0A77E, {{.76f,.84f,.92f,1.05f}}, {{0.67f,0.2f,0.13f,0.f}}, 0.7f),
-                        material(0x91936A,0xB5B48B,0xD2CCAC, {{.85f,.92f,.96f,.7f}}, {{0.52f,0.4f,0.08f,0.f}}, .55f),
-                        {{0.665f,0.18f,0.55f,0.45f}}, {{94.f,1.4f,-0.6f,37.6f}}))},
+                surface(material(0x3B462A,0x475331,0x546039, {{.91f,.95f,.98f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x51432B,0x5D4E32,0x6B5B3B, {{.86f,.92f,.96f,.85f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f),
+                        {{0.685f,0.20f,0.77f,0.23f}}, {{20.f,1.4f,1.1f,3.f}}),
+                surface(material(0x4C4D37,0x595A40,0x67684B, {{.76f,.84f,.92f,1.05f}}, {{0.67f,0.2f,0.13f,0.f}}, 0.82f),
+                        material(0x606346,0x6D7050,0x7C7D5B, {{.85f,.92f,.96f,.7f}}, {{0.52f,0.4f,0.08f,0.f}}, 0.82f),
+                        {{0.680f,0.20f,0.55f,0.45f}}, {{94.f,1.4f,-0.6f,37.6f}}))},
             // 19 TropicalJungle.
-            {"Humus vert sombre, mousses jade et roche humide avec des depots creme.",
-             {{"Humus tropical", "Mousse jade", "Roche tropicale", "Depots creme"}},
+            {"Humus vert sombre, mousses jade et roche humide avec une patine vegetale.",
+             {{"Humus tropical", "Mousse jade", "Roche tropicale", "Patine vegetale"}},
              biome(
-                surface(material(0x294634,0x406748,0x628956, {{.5f,.66f,.81f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x4F7542,0x759754,0xA1B47B, {{.86f,.92f,.97f,.6f}}, {{0.55f,0.45f,0.f,0.f}}, .7f),
-                        {{0.65f,0.19f,0.72f,0.28f}}, {{26.f,1.6f,1.4f,4.f}}),
-                surface(material(0x3E5750,0x5C7C67,0x84A081, {{.34f,.48f,.66f,.95f}}, {{0.62f,0.3f,0.08f,0.f}}, 0.8f),
-                        material(0x91A07A,0xB5BE99,0xD4D7B9, {{.73f,.84f,.93f,.7f}}, {{0.6f,0.3f,0.1f,0.f}}, .6f),
-                        {{0.705f,0.18f,0.65f,0.35f}}, {{125.f,1.6f,0.7f,60.f}}))},
+                surface(material(0x2B4433,0x34523B,0x406147, {{0.65f,0.70f,0.76f,.75f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x405E3A,0x4D6B43,0x5A784F, {{0.78f,0.83f,0.88f,.6f}}, {{0.55f,0.45f,0.f,0.f}}, 0.82f),
+                        {{0.665f,0.20f,0.72f,0.28f}}, {{26.f,1.6f,1.4f,4.f}}),
+                surface(material(0x33493F,0x3E574B,0x4B6557, {{0.60f,0.66f,0.73f,.95f}}, {{0.62f,0.3f,0.08f,0.f}}, 0.82f),
+                        material(0x526751,0x60765D,0x6F856B, {{0.76f,0.82f,0.88f,.7f}}, {{0.6f,0.3f,0.1f,0.f}}, 0.82f),
+                        {{0.720f,0.20f,0.65f,0.35f}}, {{125.f,1.6f,0.7f,60.f}}))},
             // 20 VolcanicDesert: dark still has readable albedo; no fake metallic basalt.
             {"Basalte charbon, cendres bleu gris et rares oxydes chauds sans emission artificielle.",
              {{"Basalte charbon", "Cendre froide", "Basalte des volcans", "Oxydes ferriques"}},
              biome(
-                surface(material(0x252933,0x3C424C,0x59616A, {{.73f,.82f,.91f,.95f}}, {{0.825f,0.15f,0.025f,0.f}}, .95f,1.237f),
-                        material(0x656B70,0x898D8B,0xAFADA1, {{.91f,.95f,.98f,.6f}}, {{0.8f,0.2f,0.f,0.f}}, .95f),
-                        {{0.72f,0.21f,0.92f,0.08f}}, {{20.f,1.8f,0.4f,4.f}}),
-                surface(material(0x292B34,0x434750,0x666C72, {{.59f,.72f,.87f,1.2f}}, {{0.65f,0.2f,0.15f,0.f}}, 0.7f,1.272f),
-                        material(0x633C30,0x89583E,0xAE7D57, {{.81f,.89f,.95f,.9f}}, {{0.5f,0.25f,0.25f,0.f}}, .65f),
-                        {{0.745f,0.17f,0.7f,0.3f}}, {{72.f,1.8f,-0.45f,28.8f}}))},
+                surface(material(0x252A31,0x30363E,0x3D444D, {{.73f,.82f,.91f,.95f}}, {{0.825f,0.15f,0.025f,0.f}}, 0.95f,1.095f),
+                        material(0x454A4F,0x51575B,0x5E6466, {{.91f,.95f,.98f,.6f}}, {{0.8f,0.2f,0.f,0.f}}, 0.95f),
+                        {{0.735f,0.21f,0.92f,0.08f}}, {{20.f,1.8f,0.4f,4.f}}),
+                surface(material(0x292D34,0x343A42,0x414851, {{.59f,.72f,.87f,1.2f}}, {{0.65f,0.2f,0.15f,0.f}}, 0.82f,1.109f),
+                        material(0x554036,0x624A3E,0x705749, {{.81f,.89f,.95f,.9f}}, {{0.5f,0.25f,0.25f,0.f}}, 0.82f),
+                        {{0.760f,0.20f,0.7f,0.3f}}, {{72.f,1.8f,-0.45f,28.8f}}))},
             // 21 RedDesert: the strongest warm palette, with a quiet fine-scale response.
-            {"Dunes terre cuite, sable ambre et gres rouge aux bandes creme.",
-             {{"Sable rouge", "Sable ambre", "Gres rouge", "Gres creme"}},
+            {"Dunes terre cuite, sable ambre et gres rouge aux bandes cuivre sourd.",
+             {{"Sable rouge", "Sable ambre", "Gres rouge", "Gres ambre"}},
              biome(
-                surface(material(0xA34F35,0xC87549,0xE3A273, {{.84f,.89f,.94f,.65f}}, {{0.7f,0.f,0.f,0.3f}}, .95f,1.185f,.035f),
-                        material(0xBB824E,0xD8A66C,0xEAC695, {{.84f,.91f,.95f,.55f}}, {{0.8f,0.f,0.f,0.2f}}, .95f),
-                        {{0.69f,0.24f,0.97f,0.03f}}, {{18.f,2.2f,-0.7f,1.6f}}),
-                surface(material(0x8E4434,0xB76A49,0xD89B73, {{.81f,.88f,.94f,1.05f}}, {{0.52f,0.15f,0.33f,0.f}}, 0.7f,1.255f),
-                        material(0xBEA07F,0xDCC1A1,0xEDD8BA, {{.84f,.91f,.96f,.75f}}, {{0.48f,0.1f,0.42f,0.f}}, .3f),
-                        {{0.675f,0.16f,0.6f,0.4f}}, {{52.f,2.2f,0.3f,20.8f}}))},
+                surface(material(0x914C36,0xA45B3D,0xB76D49, {{.84f,.89f,.94f,.65f}}, {{0.7f,0.f,0.f,0.3f}}, 0.95f,1.074f,.035f),
+                        material(0xA1633E,0xB27448,0xC38556, {{.84f,.91f,.95f,.55f}}, {{0.8f,0.f,0.f,0.2f}}, 0.95f),
+                        {{0.705f,0.24f,0.97f,0.03f}}, {{18.f,2.2f,-0.7f,1.6f}}),
+                surface(material(0x814333,0x934F3A,0xA65E45, {{.81f,.88f,.94f,1.05f}}, {{0.52f,0.15f,0.33f,0.f}}, 0.82f,1.102f),
+                        material(0xA26B4B,0xB17A58,0xC18B66, {{.84f,.91f,.96f,.75f}}, {{0.48f,0.1f,0.42f,0.f}}, 0.82f),
+                        {{0.690f,0.20f,0.6f,0.4f}}, {{52.f,2.2f,0.3f,20.8f}}))},
             // 22 AridPlateau.
-            {"Poussiere de gres pale, croûtes dorees et falaises aux strates larges.",
-             {{"Poussiere du plateau", "Croute doree", "Gres du plateau", "Bancs clairs"}},
+            {"Poussiere de gres ocre, croutes brunes et falaises aux strates larges.",
+             {{"Poussiere du plateau", "Croute ocre", "Gres du plateau", "Bancs ambres"}},
              biome(
-                surface(material(0xAC956B,0xCAB38A,0xE1D0AB, {{.9f,.94f,.97f,.65f}}, {{0.8f,0.1f,0.f,0.1f}}, .95f),
-                        material(0x94723F,0xB79355,0xD3B579, {{.85f,.91f,.96f,.85f}}, {{0.6f,0.35f,0.05f,0.f}}, .7f),
-                        {{0.71f,0.19f,0.82f,0.18f}}, {{32.f,2.5f,0.2f,2.f}}),
-                surface(material(0x8E7654,0xB39870,0xD3BA92, {{.8f,.88f,.94f,1.1f}}, {{0.49f,0.15f,0.36f,0.f}}, 0.7f,1.272f),
-                        material(0xC0B18F,0xDACBAA,0xEDE0C2, {{.85f,.92f,.97f,.75f}}, {{0.46f,0.1f,0.44f,0.f}}, .25f,1.272f),
-                        {{0.665f,0.16f,0.65f,0.35f}}, {{125.f,2.5f,-0.25f,50.f}}))},
+                surface(material(0x8B7859,0x9C8867,0xAD9977, {{.9f,.94f,.97f,.65f}}, {{0.8f,0.1f,0.f,0.1f}}, 0.95f),
+                        material(0x8D7046,0x9C7E50,0xAC8E5E, {{.85f,.91f,.96f,.85f}}, {{0.6f,0.35f,0.05f,0.f}}, 0.82f),
+                        {{0.725f,0.20f,0.82f,0.18f}}, {{32.f,2.5f,0.2f,2.f}}),
+                surface(material(0x806B4D,0x917A59,0xA28B68, {{.8f,.88f,.94f,1.1f}}, {{0.49f,0.15f,0.36f,0.f}}, 0.82f,1.109f),
+                        material(0xA18F6E,0xB1A07E,0xC0AF8E, {{.85f,.92f,.97f,.75f}}, {{0.46f,0.1f,0.44f,0.f}}, 0.82f,1.109f),
+                        {{0.680f,0.20f,0.65f,0.35f}}, {{125.f,2.5f,-0.25f,50.f}}))},
             // 23 BurningJungle.
             {"Sous-bois bronze sombre, cendres chaudes et roche patinee de cuivre mat.",
              {{"Sous-bois bronze", "Cendre chaude", "Roche sombre", "Patine cuivre"}},
              biome(
-                surface(material(0x414532,0x626444,0x88865B, {{.85f,.91f,.96f,.8f}}, {{0.8f,0.2f,0.f,0.f}}),
-                        material(0x795B41,0xA07E56,0xC2A47D, {{.91f,.95f,.98f,.7f}}, {{0.7f,0.3f,0.f,0.f}}, .8f),
-                        {{0.68f,0.19f,0.82f,0.18f}}, {{24.f,1.6f,1.2f,4.f}}),
-                surface(material(0x484638,0x6C6550,0x938A6C, {{.72f,.82f,.91f,1.1f}}, {{0.61f,0.25f,0.14f,0.f}}, 0.7f),
-                        material(0x815A3F,0xA87D53,0xCCA379, {{.8f,.88f,.95f,.85f}}, {{0.48f,0.25f,0.27f,0.f}}, .5f),
-                        {{0.675f,0.17f,0.65f,0.35f}}, {{88.f,1.6f,0.5f,35.2f}}))},
+                surface(material(0x373D2B,0x434A32,0x51573B, {{.85f,.91f,.96f,.8f}}, {{0.8f,0.2f,0.f,0.f}}),
+                        material(0x5A4B36,0x67553D,0x746246, {{.91f,.95f,.98f,.7f}}, {{0.7f,0.3f,0.f,0.f}}, 0.82f),
+                        {{0.695f,0.20f,0.82f,0.18f}}, {{24.f,1.6f,1.2f,4.f}}),
+                surface(material(0x403D30,0x4C4838,0x5A5442, {{.72f,.82f,.91f,1.1f}}, {{0.61f,0.25f,0.14f,0.f}}, 0.82f),
+                        material(0x65503A,0x735C42,0x82694D, {{.8f,.88f,.95f,.85f}}, {{0.48f,0.25f,0.27f,0.f}}, 0.82f),
+                        {{0.690f,0.20f,0.65f,0.35f}}, {{88.f,1.6f,0.5f,35.2f}}))},
             // 24 TropicalMangrove.
-            {"Vase vert brun, depots de sel ivoire et roche humide couleur jade sourd.",
-             {{"Vase de mangrove", "Depots de sel", "Roche jade", "Patine de lichen"}},
+            {"Vase vert brun sombre, sediments secs et roche humide couleur jade sourd.",
+             {{"Vase de mangrove", "Sediments secs", "Roche jade", "Patine de lichen"}},
              biome(
-                surface(material(0x3E5041,0x5D7051,0x81916B, {{.3f,.43f,.62f,.55f}}, {{0.75f,0.25f,0.f,0.f}}, .95f,1.185f,.025f),
-                        material(0x9AA183,0xBEC1A3,0xDADAC0, {{.78f,.87f,.94f,.5f}}, {{0.6f,0.4f,0.f,0.f}}, .7f),
-                        {{0.76f,0.18f,0.82f,0.18f}}, {{21.f,1.8f,1.7f,4.f}}),
-                surface(material(0x3C5D51,0x5D826A,0x88A88A, {{.32f,.46f,.65f,.9f}}, {{0.69f,0.25f,0.06f,0.f}}, 0.8f),
-                        material(0x879C6F,0xADBA8E,0xCCD0AE, {{.75f,.85f,.93f,.65f}}, {{0.49f,0.45f,0.06f,0.f}}, .6f),
-                        {{0.675f,0.18f,0.55f,0.45f}}, {{110.f,1.8f,-0.6f,52.8f}}))},
+                surface(material(0x394B36,0x3F533D,0x485C46, {{0.62f,0.68f,0.74f,.55f}}, {{0.75f,0.25f,0.f,0.f}}, 0.95f,1.074f,.025f),
+                        material(0x45563C,0x4E5F43,0x58694B, {{0.76f,0.81f,0.86f,.5f}}, {{0.6f,0.4f,0.f,0.f}}, 0.82f),
+                        {{0.775f,0.20f,0.82f,0.18f}}, {{21.f,1.8f,1.7f,4.f}}),
+                surface(material(0x345242,0x3A5A49,0x426351, {{0.60f,0.66f,0.73f,.9f}}, {{0.69f,0.25f,0.06f,0.f}}, 0.82f),
+                        material(0x425E46,0x4C6950,0x57745B, {{0.76f,0.81f,0.87f,.65f}}, {{0.49f,0.45f,0.06f,0.f}}, 0.82f),
+                        {{0.690f,0.20f,0.55f,0.45f}}, {{110.f,1.8f,-0.6f,52.8f}}))},
             // 25 Marine: seabed material, never a water surface or baked depth fog.
             {"Sable sous-marin desature et roche vert ardoise, sans brume peinte dans la couleur.",
              {{"Sable marin", "Sediments sombres", "Roche marine", "Depots calcaires"}},
              biome(
-                surface(material(0x7F8E85,0xA4AFA0,0xC8CDB6, {{.81f,.87f,.93f,.55f}}, {{0.7f,0.f,0.f,0.3f}}, .95f,1.167f,.025f),
-                        material(0x4C6460,0x6D8376,0x93A48E, {{.65f,.76f,.88f,.7f}}, {{0.75f,0.25f,0.f,0.f}}, .9f),
-                        {{0.67f,0.21f,0.87f,0.13f}}, {{28.f,2.1f,0.6f,1.8f}}),
-                surface(material(0x3D5B5C,0x5E7A73,0x88A08C, {{.55f,.69f,.83f,1.f}}, {{0.67f,0.2f,0.13f,0.f}}, 0.75f),
-                        material(0x8FABA3,0xB5C8B8,0xD3DCCD, {{.69f,.81f,.92f,.65f}}, {{0.48f,0.3f,0.22f,0.f}}, .6f),
-                        {{0.705f,0.18f,0.6f,0.4f}}, {{93.f,2.1f,-0.4f,37.2f}}))}
+                surface(material(0x69776C,0x79877A,0x8B9889, {{.81f,.87f,.93f,.55f}}, {{0.7f,0.f,0.f,0.3f}}, 0.95f,1.067f,.025f),
+                        material(0x495F54,0x566C5F,0x647A6C, {{.65f,.76f,.88f,.7f}}, {{0.75f,0.25f,0.f,0.f}}, 0.90f),
+                        {{0.685f,0.21f,0.87f,0.13f}}, {{28.f,2.1f,0.6f,1.8f}}),
+                surface(material(0x3B524D,0x48605A,0x576F66, {{.55f,.69f,.83f,1.f}}, {{0.67f,0.2f,0.13f,0.f}}, 0.82f),
+                        material(0x738678,0x839787,0x94A897, {{.69f,.81f,.92f,.65f}}, {{0.48f,0.3f,0.22f,0.f}}, 0.82f),
+                        {{0.720f,0.20f,0.6f,0.4f}}, {{93.f,2.1f,-0.4f,37.2f}}))}
         }};
         return data;
     }
+
+    struct SurfaceProfile
+    {
+        V groundNormal;
+        V wallNormal;
+        V spectrum;
+    };
+
+    // The feature normal is independent of the albedo ramp and its broad masks.
+    // normal = family, feature period (m), warp fraction, fine-grain mix.
+    // spectrum = patch-period multiplier, fine period (m), octaves, octave gain.
+    // Family 0 uses the fine period directly; its feature-period slot is unused.
+    // 0 grain, 1 wind ribs, 2 bedding, 3 fractures, 4 fibres, 5 wet folds,
+    // 6 ice veins, 7 ropy lava. Modest gains prevent successive octaves from
+    // contributing equally strong slopes. These are artistic material motifs,
+    // not a second terrain-height field or a geological simulation.
+    constexpr std::array<SurfaceProfile, BiomeCount> profiles{{
+        //                         Ground normal            Wall normal              Spectrum
+        /*  0 PolarIce */          {{{1.f,1.8f,.65f,.15f}},  {{6.f,4.5f,.35f,.015f}}, {{1.65f,.065f,2.f,.30f}}},
+        /*  1 FrozenTundra */      {{{0.f,.18f,.40f,.50f}},  {{2.f,1.7f,.32f,.18f}},  {{1.18f,.110f,2.f,.32f}}},
+        /*  2 Tundra */            {{{4.f,.28f,.65f,.45f}},  {{3.f,.85f,.40f,.20f}},  {{.84f,.120f,2.f,.34f}}},
+        /*  3 Taiga */             {{{4.f,.17f,.85f,.35f}},  {{3.f,2.4f,.30f,.12f}},  {{1.42f,.140f,2.f,.31f}}},
+        /*  4 BorealBog */         {{{5.f,.45f,.80f,.08f}},  {{5.f,.90f,.30f,.05f}},  {{.68f,.120f,1.f,.30f}}},
+        /*  5 RockyTundra */       {{{0.f,.22f,.40f,.60f}},  {{3.f,1.15f,.22f,.50f}}, {{1.06f,.180f,3.f,.28f}}},
+        /*  6 ColdSteppe */        {{{1.f,.42f,.85f,.30f}},  {{2.f,2.6f,.52f,.14f}},  {{2.15f,.090f,2.f,.32f}}},
+        /*  7 BorealForest */      {{{4.f,.23f,.75f,.40f}},  {{2.f,1.45f,.40f,.12f}}, {{.93f,.110f,2.f,.30f}}},
+        /*  8 ColdForest */        {{{4.f,.32f,.50f,.30f}},  {{3.f,2.15f,.45f,.13f}}, {{1.27f,.160f,2.f,.33f}}},
+        /*  9 ColdMarsh */         {{{5.f,.75f,.65f,.07f}},  {{5.f,1.4f,.50f,.06f}},  {{.74f,.140f,1.f,.30f}}},
+        /* 10 DryPlain */          {{{0.f,.15f,.20f,.50f}},  {{2.f,1.1f,.35f,.20f}},  {{2.30f,.070f,2.f,.30f}}},
+        /* 11 Meadow */            {{{4.f,.12f,.70f,.32f}},  {{3.f,.95f,.30f,.20f}},  {{.88f,.090f,2.f,.32f}}},
+        /* 12 TemperateForest */   {{{4.f,.19f,.65f,.38f}},  {{3.f,1.35f,.50f,.18f}}, {{1.12f,.130f,2.f,.30f}}},
+        /* 13 TemperateRainforest*/{{{4.f,.14f,.95f,.30f}},  {{5.f,.50f,.65f,.05f}},  {{.62f,.120f,2.f,.28f}}},
+        /* 14 TemperateMarsh */    {{{5.f,.36f,.55f,.06f}},  {{2.f,.90f,.60f,.07f}},  {{1.48f,.110f,1.f,.30f}}},
+        /* 15 RockDesert */        {{{0.f,.32f,.30f,.62f}},  {{2.f,1.6f,.25f,.40f}},  {{1.95f,.160f,3.f,.30f}}},
+        /* 16 DrySavanna */        {{{4.f,.33f,.90f,.42f}},  {{2.f,1.8f,.40f,.18f}},  {{2.65f,.170f,2.f,.31f}}},
+        /* 17 Savanna */           {{{4.f,.22f,.65f,.40f}},  {{3.f,1.4f,.35f,.20f}},  {{1.75f,.150f,2.f,.34f}}},
+        /* 18 DryJungle */         {{{4.f,.27f,.85f,.50f}},  {{3.f,1.1f,.55f,.16f}},  {{1.08f,.180f,2.f,.30f}}},
+        /* 19 TropicalJungle */    {{{4.f,.16f,.95f,.32f}},  {{5.f,.65f,.75f,.06f}},  {{.79f,.105f,2.f,.29f}}},
+        /* 20 VolcanicDesert */    {{{7.f,.80f,.45f,.15f}},  {{3.f,.75f,.25f,.55f}},  {{.91f,.130f,3.f,.28f}}},
+        /* 21 RedDesert */         {{{1.f,.38f,.85f,.30f}},  {{2.f,1.25f,.40f,.20f}}, {{3.20f,.035f,2.f,.32f}}},
+        /* 22 AridPlateau */       {{{3.f,.65f,.40f,.38f}},  {{2.f,2.8f,.18f,.15f}},  {{2.85f,.120f,2.f,.30f}}},
+        /* 23 BurningJungle */     {{{0.f,.18f,.30f,.55f}},  {{7.f,.55f,.80f,.15f}},  {{1.33f,.100f,2.f,.31f}}},
+        /* 24 TropicalMangrove */  {{{5.f,.55f,.95f,.04f}},  {{5.f,1.05f,.55f,.05f}}, {{.57f,.150f,1.f,.30f}}},
+        /* 25 Marine */            {{{1.f,.24f,.50f,.25f}},  {{2.f,.70f,.40f,.10f}},  {{2.45f,.050f,2.f,.30f}}}
+    }};
 }
 
 ProceduralTerrain::TerrainAppearance makeTerrainAppearance()
 {
     ProceduralTerrain::TerrainAppearance appearance;
-    // A 96 m patch field leaves broad quiet surfaces between material accents.
+    // Per-biome multipliers vary this reference period from 55 to 307 m.
+    // Fine normal periods and spectra remain independent of color-mask scales.
     appearance.patchPeriod = 96.0f;
     const auto& authored = recipes();
     for (std::size_t i = 0; i < authored.size(); ++i)
+    {
         appearance.biomes[i] = authored[i].appearance;
+        appearance.biomes[i].ground.normal = profiles[i].groundNormal;
+        appearance.biomes[i].wall.normal = profiles[i].wallNormal;
+        appearance.biomes[i].spectrum = profiles[i].spectrum;
+    }
     return appearance;
 }
 

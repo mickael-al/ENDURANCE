@@ -1,33 +1,111 @@
-# Terrain material noise: analytic field versus generated cache
+# Terrain material patterns, filtering, and noise storage
 
-The terrain material implementation keeps analytic noise. A generated 3D cache
-was evaluated as an alternative, but the available measurements showed no
-performance benefit and the cache introduces approximation error and periodic
-repetition. The prototype remains in `Tests/TerrainMaterials/benchmark_noise.py`;
-it is not a runtime resource or an optional production rendering path.
+The revised materials separate broad color variation from local surface relief.
+A color patch no longer automatically produces a rounded bump. A surface selects
+a normal family appropriate to its material, while its base and accent materials
+control palette, roughness, and normal strength. This addresses the repeated
+half-metre pockmarks produced by the initial shared grain and by converting
+macro/patch color gradients directly into bump gradients.
 
-## Shared work and interpolation
+## Field sharing and stable coordinates
 
-The intended material budget is one macro field, one intermediate field, and
-microdetail only where its footprint remains visible. Biome/material mixtures
-reuse these fields instead of evaluating a separate noise for every layer,
-color, roughness value, or normal. Computing a scalar value and its analytic
-gradient together reuses the same eight corner hashes; finite-difference normal
-sampling is unnecessary.
+One broad macro field is shared across the fragment. Each contributing biome
+then evaluates its own intermediate field and fine-detail spectrum once; ground,
+wall, base, and accent reuse that biome context. This gives different biomes
+different scales without evaluating an independent fBm for every material layer.
+The intermediate period is the global patch period multiplied by the biome's
+`spectrum.x`. The other spectrum components select the fine-grain period in
+metres, a fractional octave count from 1 to 3, and gain from 0 to 0.5.
 
-The new material noise uses quintic interpolation and its analytic derivative:
+Climate blending combines the **evaluated results** from these stable domains.
+It must not first interpolate two frequencies and then evaluate noise at
+`worldPosition * mixedFrequency`. In that alternative, even a small change of
+climate weight changes phase proportionally to the absolute world position;
+patterns can stretch or move through the biome transition. Evaluating each
+biome at its own fixed world-space scale and blending its values/gradients keeps
+the material attached to the terrain. The four climate-corner weights remain
+available rather than dropping secondary biomes to hide the additional work.
+
+Computing scalar value and analytic gradient together reuses the same eight
+corner hashes; finite-difference normal sampling is unnecessary. The elementary
+field is **value noise**, not Perlin gradient noise. Its interpolation is quintic:
 
 ```glsl
 vec3 blend = f*f*f*(f*(f*6.0 - 15.0) + 10.0);
 vec3 derivative = 30.0*f*f*(f - 1.0)*(f - 1.0);
 ```
 
-This removes the second-derivative discontinuity of the previous cubic
-interpolant at cell boundaries. It helps bump-mapping continuity; it does not
-guarantee that every possible lattice pattern or aliasing artifact disappears.
-World-space footprint filtering and restrained detail strength are still needed.
+This avoids the second-derivative discontinuity of cubic interpolation at cell
+boundaries. It improves bump continuity but does not, by itself, make a material
+look like stone, snow, or soil. Increasing the octave count alone also does not
+provide that identity.
 
-## Cache prototype
+## Independent normal families
+
+Each ground/wall surface has `normal = (family, featurePeriod, warp, grainMix)`.
+The family is an integer ID from 0 to 7, the feature period is in metres, warp
+controls distortion, and grain mix controls the contribution of the biome's
+fine-detail spectrum. The existing orientation and material normal strengths
+remain separate artistic controls. Feature relief and fine grain are not the
+same scale, and neither is tied to the size of the broad albedo patches.
+
+| ID | Family | Intended material cues |
+|---:|---|---|
+| 0 | Grain | Restrained granular soil, gravel, frost crust, or cinders |
+| 1 | Wind ribs | Directional sand/current ripples or longer snow ridges |
+| 2 | Bedding | Tilted, distorted sediment layers on exposed rock |
+| 3 | Fractures | Sparse mineral grooves and chipped or cracked crust |
+| 4 | Organic | Fine fibrous ground cover and decomposed litter |
+| 5 | Wet sediment | Mostly calm surfaces with low folds and fine silt |
+| 6 | Ice | Smooth areas interrupted by restrained veins or grooves |
+| 7 | Lava | Folded, corded cooled crust, distinct from fine volcanic ash |
+
+These are lightweight artistic approximations, not simulations of erosion,
+vegetation, or lava flow. One family can serve several biomes when periods,
+orientation, grain spectrum, amplitude, and roughness differ. For example,
+marine current ripples and red-desert sand share a directional construction;
+they do not need identical scale, roughness, palette, or orientation. The
+complete authored mapping is in `TerrainMaterialsPalette.md`.
+
+Normal contributions are combined as surface gradients and normalized only
+after composition. This permits smooth material/biome mixtures without blending
+encoded normal-map colors or introducing a tangent-space requirement for caves
+and cliffs. The geometric normal still drives ground/wall classification.
+
+## Detail filtering and octave budget
+
+World-position derivatives are captured before material/climate branches. They
+provide an explicit pixel footprint for all subsequent procedural evaluations;
+implicit derivatives inside nonuniform branches would be undefined in GLSL.
+Detail at frequencies too high for that footprint fades toward its mean value
+and zero gradient. The last partially visible octave fades gradually rather
+than appearing or disappearing in one step. Fractional authored octave counts
+also allow a partial contribution from the highest requested octave.
+
+For a height spectrum `h(p) = sum(gain^i * noise(lacunarity^i * p))`, each octave's
+gradient contains an additional `lacunarity^i` factor. Thus lacunarity 2 and gain
+0.5 give approximately equal slope amplitude at every octave, even though the
+height amplitude decreases. Increasing octaves with those values can make
+normals unnecessarily busy and prone to shimmer. Restrained authored gains,
+typically around 0.28–0.42, leave more of the fine appearance to roughness while
+keeping the larger material cue legible. These are artistic starting points,
+not universal measured physical constants.
+
+The maximum of three octaves limits possible shader cost; footprint rejection
+avoids evaluating invisible fine detail. Distorted waves and narrow grooves
+still need their own filtering: filtering the input noise alone does not
+band-limit nonlinear operations applied afterward. Preview both close surfaces
+and distant oblique views when changing feature width or contrast.
+
+## Historical generated-cache experiment
+
+Before the independent-family revision, a generated 3D cache was compared with
+the earlier shared analytic fields. It showed no performance benefit on the
+available software renderer and introduced approximation error and periodic
+repetition, so it was not adopted. The isolated prototype remains in
+`Tests/TerrainMaterials/benchmark_noise.py`; it is not a runtime resource or an
+optional production rendering path. **The timings below measure that historical
+prototype, not the current complete biome-material shader or its new families.**
 
 The test generates a seeded periodic value-noise volume on the GPU, at texel
 centers, with 16 noise cells along each axis. RGBA16F stores scalar value in R
@@ -52,7 +130,7 @@ The existing atmosphere noise volume has different semantics: its channels
 contain cloud/fog scalar fields, not a value plus its gradient. Reusing that
 resource would not directly preserve the terrain's analytic normal detail.
 
-## Reproduction and measurements
+## Reproducing the historical cache measurements
 
 From the repository root, on a Linux environment with EGL and desktop OpenGL:
 
@@ -83,8 +161,8 @@ contains coordinate wrapping that the nonperiodic production field does not
 need. The texture version also benefits from actual mip filtering, so numerical
 quality is assessed separately at LOD 0 rather than inferred from timings.
 
-These software-renderer numbers are **not a forecast for a hardware GPU or
-complete game frame time**. CPU scheduling and other workloads affect them;
+These software-renderer numbers are **not a forecast for a hardware GPU, the
+revised material pass, or complete game frame time**. CPU scheduling and other workloads affect them;
 small elapsed times are especially sensitive to measurement conditions. They
 provide no reason to add the cache to production, but do not establish that
 analytic noise always wins on every GPU. There is deliberately no timing
@@ -106,6 +184,37 @@ through the mip chain; gradient RMS per mip was 0.38101, 0.30676, 0.20418,
 identical visual quality: the approximation errors above remain present.
 
 ## References and scope
+
+- [Pharr, Jakob, and Humphreys, PBRT: Noise](https://pbr-book.org/3ed-2018/Texture/Noise)
+  describes value noise, fBm, and footprint-limited octave summation with a smooth
+  final-octave transition. The three-octave limit and authored gains here are
+  project choices; the reference does not claim that this exact budget is
+  optimal for every GPU or material.
+- [Morten S. Mikkelsen, Surface Gradient–Based Bump Mapping Framework](https://jcgt.org/published/0009/03/04/)
+  provides the mathematical basis for composing bump gradients, including
+  procedurally defined volume functions. The terrain uses that principle rather
+  than importing the reference renderer.
+- [NSIDC, Sastrugi](https://nsidc.org/learn/cryosphere-glossary/sastrugi) and
+  [Filhol and Sturm, Snow bedforms: A review, new data, and a formation model](https://agupubs.onlinelibrary.wiley.com/doi/full/10.1002/2015JF003529)
+  motivate elongated, interrupted wind-shaped snow features instead of uniform
+  rounded pores. Snow ridges often follow the wind; the shader's orientation is
+  an artistic control, not a simulated wind history.
+- [USGS, Eolian Processes](https://pubs.usgs.gov/gip/deserts/eolian/)
+  describes sand ripples with crest axes transverse to wind, a useful distinction
+  from the longer wind-aligned snow features.
+- [National Park Service, Cross-stratified Sand](https://www.nps.gov/places/cross-stratified-sand.htm)
+  motivates oblique, varied sediment bedding rather than identical horizontal
+  contour bands on every cliff.
+- [National Park Service, Lava Flow Forms](https://www.nps.gov/articles/000/lava-flow-forms.htm)
+  distinguishes smooth/corded pāhoehoe from fragmented, jagged ʻaʻā. This supports
+  separate folded-crust and granular/fragmented treatments within volcanic terrain.
+- [USDA NRCS, The Color of Soil](https://www.nrcs.usda.gov/sites/default/files/2022-11/color-of-soil.pdf)
+  describes dark organic humus, iron-derived earth colors, and changes associated
+  with wet conditions. These inform restrained soil palettes; palette narrowing
+  and darker non-icy presets are artistic decisions, not a global exposure change.
+- [USGS, Mangrove sedimentation and response to relative sea-level rise](https://www.usgs.gov/publications/mangrove-sedimentation-and-response-relative-sea-level-rise)
+  describes mudbanks and organic sediment, supporting a wet-sediment treatment
+  rather than generic porous rock for the mangrove ground.
 
 - [Ken Perlin, GPU Gems chapter 5: Implementing Improved Perlin Noise](https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-5-implementing-improved-perlin-noise)
   explains the cubic interpolant's second-derivative discontinuities and the

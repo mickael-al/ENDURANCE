@@ -77,6 +77,24 @@ namespace
         changed |= boundedDrag("Espacement rides (m)", &s.detail[1], 0.05f, 0.01f, 100000.0f, "%.2f");
         changed |= ImGui::SliderAngle("Orientation", &s.detail[2], -180.0f, 180.0f, "%.0f deg", ImGuiSliderFlags_AlwaysClamp);
         changed |= boundedDrag("Deformation des motifs (m)", &s.detail[3], 0.1f, 0.0f, 10000.0f, "%.2f");
+        ImGui::Separator();
+        ImGui::TextUnformatted("Relief de surface, independant des couleurs");
+        static const char* families[] = {"Grain mineral", "Rides du vent", "Strates rocheuses",
+            "Fissures", "Fibres organiques", "Sediment humide", "Veines de glace", "Lave cordee"};
+        int family = static_cast<int>(s.normal[0]);
+        if (ImGui::Combo("Famille de normale", &family, families, 8))
+        {
+            s.normal[0] = static_cast<float>(family);
+            changed = true;
+        }
+        ImGui::BeginDisabled(family == 0);
+        changed |= boundedDrag("Taille du motif de normale (m)", &s.normal[1],
+            0.02f, 0.01f, 10000.0f, "%.3f");
+        changed |= boundedSlider("Deformation du relief", &s.normal[2], 0.0f, 2.0f);
+        ImGui::EndDisabled();
+        if (family == 0)
+            ImGui::TextDisabled("Grain mineral : regler la taille du grain et les octaves du biome.");
+        changed |= boundedSlider("Part du grain fin", &s.normal[3], 0.0f, 1.0f);
         ImGui::TreePop();
         return changed;
     }
@@ -96,9 +114,16 @@ bool Endurance::drawTerrainMaterialEditor(ProceduralTerrain::TerrainAppearance& 
         4.0f, 1.0f, 100000.0f, "%.1f");
     changed |= boundedDrag("Echelle des plaques (m)", &appearance.patchPeriod,
         0.5f, 0.1f, 100000.0f, "%.1f");
-    changed |= boundedSlider("Force globale du grain", &microDetailStrength, 0.0f, 2.0f);
-    changed |= boundedDrag("Frequence du grain (1/m)", &microDetailScale,
-        0.05f, 0.001f, 1000.0f, "%.3f");
+    changed |= boundedSlider("Force globale du relief", &microDetailStrength, 0.0f, 2.0f);
+    float grainFrequencyMultiplier = microDetailScale * 0.5f;
+    if (boundedDrag("Multiplicateur frequence du grain", &grainFrequencyMultiplier,
+        0.025f, 0.00005f, 500000.0f, "%.3f"))
+    {
+        microDetailScale = grainFrequencyMultiplier * 2.0f;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("1 conserve la taille propre a chaque biome. 2 divise cette taille par deux.");
     static const char* views[] = {"Materiau complet", "Palette", "Sol / paroi",
         "Materiau secondaire", "Rugosite", "Metallic / AO", "Normale"};
     changed |= ImGui::Combo("Vue de controle", &appearance.debugView, views, 7);
@@ -111,12 +136,28 @@ bool Endurance::drawTerrainMaterialEditor(ProceduralTerrain::TerrainAppearance& 
     }
     ImGui::TextWrapped("%s", Endurance::terrainMaterialIntent(static_cast<std::size_t>(selectedBiome)));
     ImGui::TextDisabled("La selection edite la palette ; Biome a tester change la generation.");
-    if (ImGui::Button("Restaurer la palette de ce biome"))
+    if (ImGui::Button("Restaurer les materiaux de ce biome"))
     {
         appearance.biomes[selectedBiome] = Endurance::makeTerrainAppearance().biomes[selectedBiome];
         changed = true;
     }
+    if (ImGui::Button("Restaurer tous les prereglages de materiaux"))
+    {
+        appearance = Endurance::makeTerrainAppearance();
+        microDetailStrength = 0.15f;
+        microDetailScale = 2.0f;
+        changed = true;
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Remplace les palettes, motifs et reglages globaux des 26 biomes par les valeurs du jeu.");
     auto& biome = appearance.biomes[selectedBiome];
+    changed |= boundedDrag("Multiplicateur taille des plaques", &biome.spectrum[0],
+        0.05f, 0.05f, 64.0f, "%.2f");
+    changed |= boundedDrag("Taille du grain du biome (m)", &biome.spectrum[1],
+        0.005f, 0.01f, 1000.0f, "%.3f");
+    changed |= boundedSlider("Octaves du grain", &biome.spectrum[2], 1.0f, 3.0f);
+    changed |= boundedSlider("Gain des octaves", &biome.spectrum[3], 0.0f, 0.5f);
+    ImGui::TextDisabled("Les octaves trop fines pour un pixel sont filtrees automatiquement.");
     changed |= surfaceEditor("Sol", biome.ground, selectedBiome, false);
     changed |= surfaceEditor("Parois et plafonds", biome.wall, selectedBiome, true);
     changed |= boundedSlider("Debut transition sol / paroi", &biome.slope[0], 0.0f,

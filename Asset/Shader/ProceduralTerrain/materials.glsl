@@ -1,7 +1,7 @@
 #ifndef ENDURANCE_TERRAIN_MATERIALS_GLSL
 #define ENDURANCE_TERRAIN_MATERIALS_GLSL
 
-// std140 ABI: Material96, Surface224, Biome464 bytes; table26 = 12,064 bytes.
+// std140 ABI: Material96, Surface240, Biome512 bytes; table26 = 13,312 bytes.
 // Palette RGB is linear. The game supplies presets; the renderer needs no
 // per-biome shader variants, extra mesh attributes or additional terrain draws.
 struct TerrainMaterial
@@ -20,6 +20,7 @@ struct TerrainSurface
     TerrainMaterial accent;
     vec4 blend;  // mask threshold, softness, macro weight, patch weight
     vec4 detail; // strata/ripple metres, azimuth radians, warp metres
+    vec4 normal; // family, feature period metres, warp fraction, fine grain mix
 };
 
 struct TerrainBiomeAppearance
@@ -27,6 +28,7 @@ struct TerrainBiomeAppearance
     TerrainSurface ground;
     TerrainSurface wall;
     vec4 slope; // wall blend start/end, patch distortion, normal multiplier
+    vec4 spectrum; // patch period scale, detail metres, detail octaves, detail gain
 };
 
 layout(std140,binding=6) uniform TerrainMaterialTable
@@ -82,9 +84,7 @@ TerrainAppearanceSample terrainEvaluateMaterial(TerrainMaterial m,
         (1.0-midpoint)*0.5*softness,value,screenWidth);
     vec4 palette = mix(mix(m.colorLow,m.colorMid,lowMid),m.colorHigh,midHigh);
     float roughness = palette.a + m.response.w * (c.grain.value*2.0-1.0);
-    vec3 heightGradient = p.heightGradient * weights
-        + max(microDetailStrength,0.0) * c.grain.gradient * c.grainPeriod;
-    heightGradient *= max(m.response.z,0.0);
+    vec3 heightGradient = p.normalGradient * max(m.response.z,0.0);
     return TerrainAppearanceSample(max(palette.rgb,vec3(0.0)),
         clamp(roughness,0.04,1.0),clamp(m.response.x,0.0,1.0),
         clamp(m.response.y,0.0,1.0),heightGradient,0.0,0.0);
@@ -124,6 +124,8 @@ TerrainAppearanceSample terrainEvaluateSurface(uint id, bool wall, TerrainPatter
         activeWeights = activeWeights*(1.0-accent) + max(top.pattern,vec4(0.0))*accent;
     }
     TerrainPatterns patterns = terrainSurfacePatterns(detail,activeWeights,c);
+    vec4 normalControl = wall ? terrainBiomes[id].wall.normal : terrainBiomes[id].ground.normal;
+    patterns.normalGradient = terrainSurfaceNormal(normalControl,detail,c);
     TerrainAppearanceSample appearance = terrainEvaluateMaterial(base,patterns,c);
     if (partial)
         appearance = terrainMixAppearance(appearance,terrainEvaluateMaterial(top,patterns,c),accent);
@@ -135,6 +137,7 @@ TerrainAppearanceSample terrainEvaluateBiome(uint id, vec3 baseNormal,
     TerrainPatternContext c)
 {
     id = min(id,25u);
+    c = terrainBiomePatterns(id,terrainBiomes[id].spectrum,c);
     vec4 slopeControl = terrainBiomes[id].slope;
     // Use the signed BASE normal. Cave ceilings are walls, and grain must not
     // move material coverage. abs(normal.y) would incorrectly snow the ceilings.
