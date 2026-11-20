@@ -30,4 +30,7 @@ __pycache__/
 /ENDURANCE/Setting.json
 /imgui.ini
 
+# Tree Lab bakes are local authoring outputs; presets and shaders stay tracked.
+/ENDURANCE/Ressources/Trees/Baked/
+
 # OBJ files are source meshes, so do not ignore *.obj globally.
