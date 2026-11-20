@@ -1,6 +1,10 @@
 #include "ProceduralTerrain.hpp"
 #define CLEAR_REGISTRY
 #include "ProceduralGeneration.hpp"
+#include "EnduranceTerrainMaterials.hpp"
+#include "EnduranceTerrainMaterialMigration.hpp"
+#include "EnduranceTerrainMaterialPanel.hpp"
+#include "EnduranceTerrainMaterialSerialization.hpp"
 #include "Editor.hpp"
 #include "Engine.hpp"
 #include "RenderingEngine.hpp"
@@ -18,9 +22,12 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     vertexBudgetMiB, maxResidentChunks, maxSelectedChunks, baseHeight,
     heightAmplitude, heightFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
-    microDetailStrength, microDetailScale, debugLod, collisionEnabled, collisionRadius);
+    microDetailStrength, microDetailScale, appearance, terrainAppearanceRevision,
+    debugLod, collisionEnabled, collisionRadius);
 
-ProceduralTerrainComponent::ProceduralTerrainComponent() = default;
+ProceduralTerrainComponent::ProceduralTerrainComponent()
+    : appearance(Endurance::makeTerrainAppearance()),
+      terrainAppearanceRevision(Endurance::TerrainAppearanceRevision) {}
 
 ProceduralTerrainComponent::~ProceduralTerrainComponent()
 {
@@ -31,6 +38,7 @@ void ProceduralTerrainComponent::start()
 {
     stop();
     m_error.clear();
+    m_materialError.clear();
     m_pc = Ge::Engine::getPtrClassAddr();
     Ge::Editor* editor = Ge::Editor::instance();
     SceneData* scene = editor != nullptr ? editor->getCurrentSceneData() : nullptr;
@@ -65,6 +73,7 @@ void ProceduralTerrainComponent::start()
     config.field.biomeOverride = biomeOverride;
     config.microDetailStrength = microDetailStrength;
     config.microDetailScale = microDetailScale;
+    config.appearance = appearance;
     config.debugLod = debugLod;
     config.collisionEnabled = collisionEnabled;
     config.collisionRadius = collisionRadius;
@@ -116,6 +125,13 @@ void ProceduralTerrainComponent::onGUI()
     int selected = std::clamp<int>(biomeOverride, -1, 25) + 1;
     if (ImGui::Combo("Biome a tester", &selected, biomeNames, 27))
         biomeOverride = selected - 1;
+    if (Endurance::drawTerrainMaterialEditor(appearance, microDetailStrength, microDetailScale, m_materialBiome))
+    {
+        m_materialError.clear();
+        if (m_generator && !m_generator->setTerrainAppearance(appearance, microDetailStrength, microDetailScale))
+            m_materialError = m_generator->getLastError();
+    }
+    if (!m_materialError.empty()) ImGui::TextWrapped("%s", m_materialError.c_str());
     // m_pc remains available after a shader error: fixing the file must not
     // require Stop/Play just to make this button reappear. start() destroys the
     // previous generator and rereads sources/includes. Unchanged programs load
@@ -253,7 +269,24 @@ void ProceduralTerrainComponent::load(std::string data)
 {
     // ParseContext skips removed properties by default, including the old
     // climateFrequency setting; older scenes use the fixed shader recipe.
+    const auto previousAppearance = appearance;
+    const auto previousRevision = terrainAppearanceRevision;
+    // Seed absent fields with this biome's current recipe. Saved artist edits
+    // overwrite them; pre-material scenes simply keep the current defaults.
+    appearance = Endurance::makeTerrainAppearance();
+    terrainAppearanceRevision = 0;
     JS::ParseContext context(data);
-    if (context.parseTo(*this) != JS::Error::NoError)
+    const bool parsed = context.parseTo(*this) == JS::Error::NoError;
+    if (!parsed)
         Ge::Debug::Warn("Invalid ProceduralTerrainComponent parameters; check scene script JSON.");
+    if (!parsed || !ProceduralTerrain::validTerrainAppearance(appearance))
+    {
+        appearance = previousAppearance;
+        terrainAppearanceRevision = previousRevision;
+        Ge::Debug::Warn("Invalid terrain appearance; retaining the previous valid palettes.");
+    }
+    else
+    {
+        Endurance::upgradeTerrainAppearance(appearance, terrainAppearanceRevision);
+    }
 }

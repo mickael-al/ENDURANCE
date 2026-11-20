@@ -7,6 +7,7 @@
 #include "ProceduralTerrainPlanner.hpp"
 #include "ProceduralTerrainVisibility.hpp"
 #include "ProceduralTerrainCollision.hpp"
+#include "ProceduralTerrainBiomes.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
 #include "Camera.hpp"
@@ -18,6 +19,7 @@
 #include <array>
 #include <cmath>
 #include <chrono>
+#include <cstring>
 #include <optional>
 #include <unordered_map>
 #include <unordered_set>
@@ -44,6 +46,29 @@ namespace
         }
     };
     using KeySet = std::unordered_set<ChunkKey, KeyHash>;
+
+    // Only the terrain material pass touches this binding. In particular, the
+    // atmosphere uses UBO 6 too, so restore both an existing range and the
+    // generic binding after a custom terrain draw.
+    struct TerrainMaterialStateGuard
+    {
+        GLint uniform = 0, material = 0;
+        GLint64 start = 0, size = 0;
+        TerrainMaterialStateGuard()
+        {
+            glGetIntegerv(GL_UNIFORM_BUFFER_BINDING, &uniform);
+            glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 6, &material);
+            glGetInteger64i_v(GL_UNIFORM_BUFFER_START, 6, &start);
+            glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, 6, &size);
+        }
+        ~TerrainMaterialStateGuard()
+        {
+            if (material && size > 0)
+                glBindBufferRange(GL_UNIFORM_BUFFER, 6, material, start, size);
+            else glBindBufferBase(GL_UNIFORM_BUFFER, 6, material);
+            glBindBuffer(GL_UNIFORM_BUFFER, uniform);
+        }
+    };
 
     // Custom renderers must leave the enclosing material/shadow pass intact.
     struct TerrainRenderStateGuard
@@ -158,6 +183,27 @@ struct ProceduralGeneration::Impl
     bool planned = false, active = false, converged = false, blocked = false;
     bool collisionDirty = true, collisionUpdated = false;
     GLint shadowIndex = -1;
+    GLuint materialBuffer = 0;
+    struct MaterialUniforms
+    {
+        GLint macroPeriod = -1, patchPeriod = -1, debugView = -1;
+        GLint detailStrength = -1, detailScale = -1;
+        GLint albedoGamma = -1;
+    } materialUniforms;
+    float materialAlbedoGamma = -1.0f;
+
+    void refreshAlbedoGamma()
+    {
+        float gamma = engine->settingManager ? engine->settingManager->getGamma() : 2.2f;
+        if (!finiteFieldValue(gamma) || gamma <= 0.0f) gamma = 2.2f;
+        gamma = (std::max)(gamma, 0.001f);
+        if (gamma == materialAlbedoGamma) return;
+        // Existing deferred lighting decodes gColor with pow(color, gamma).
+        // Encode our linear artist palettes exactly once to preserve that
+        // shared G-buffer contract, including live engine gamma changes.
+        glProgramUniform1f(render->getProgram(), materialUniforms.albedoGamma, gamma);
+        materialAlbedoGamma = gamma;
+    }
 
     ~Impl()
     {
@@ -165,6 +211,7 @@ struct ProceduralGeneration::Impl
         planner.reset();
         collision.shutdown();
         gpu.shutdown();
+        if (materialBuffer) glDeleteBuffers(1, &materialBuffer);
         const auto liveObjects = Ge::GObject::GetGObjects();
         for (const auto& range : cameraRanges)
         {
@@ -239,6 +286,7 @@ bool ProceduralGeneration::initialize(const Config& config)
         || config.collisionRadius > config.viewDistance
         || !finite(config.microDetailStrength) || config.microDetailStrength < 0.0f || config.microDetailStrength > 16.0f
         || !finite(config.microDetailScale) || config.microDetailScale <= 0.0f || config.microDetailScale > 1000000.0f
+        || !validTerrainAppearance(config.appearance)
         || !validFieldParameters(config.field))
     {
         m_lastError = "Invalid terrain configuration (finite values, positive sizes and bounded budgets required).";
@@ -280,11 +328,45 @@ bool ProceduralGeneration::initialize(const Config& config)
             return false;
         }
     }
-    // These programs belong only to this generator. Config/seed stay fixed
-    // until reinitialization, so their uniforms need no per-frame upload.
+    // These programs belong only to this generator. Geometry/seed uniforms
+    // stay fixed; appearance setters update only the controls that change.
     const GLuint render = impl->render->getProgram();
-    glProgramUniform1f(render, glGetUniformLocation(render, "microDetailStrength"), config.microDetailStrength);
-    glProgramUniform1f(render, glGetUniformLocation(render, "microDetailScale"), config.microDetailScale);
+    auto& materialUniforms = impl->materialUniforms;
+    materialUniforms.macroPeriod = glGetUniformLocation(render, "terrainMacroPeriod");
+    materialUniforms.patchPeriod = glGetUniformLocation(render, "terrainPatchPeriod");
+    materialUniforms.debugView = glGetUniformLocation(render, "terrainMaterialDebug");
+    materialUniforms.detailStrength = glGetUniformLocation(render, "microDetailStrength");
+    materialUniforms.detailScale = glGetUniformLocation(render, "microDetailScale");
+    materialUniforms.albedoGamma = glGetUniformLocation(render, "terrainAlbedoGamma");
+    impl->refreshAlbedoGamma();
+    glProgramUniform1f(render, materialUniforms.detailStrength, config.microDetailStrength);
+    glProgramUniform1f(render, materialUniforms.detailScale, config.microDetailScale);
+    glProgramUniform1f(render, materialUniforms.macroPeriod, config.appearance.macroPeriod);
+    glProgramUniform1f(render, materialUniforms.patchPeriod, config.appearance.patchPeriod);
+    glProgramUniform1i(render, materialUniforms.debugView, config.appearance.debugView);
+    // Render and generation use the same authoritative biome matrix. A future
+    // game-side permutation must not silently recolor different biome IDs.
+    glProgramUniform1uiv(render, glGetUniformLocation(render, "terrainBiomeMatrix[0]"),
+        static_cast<GLsizei>(BiomeMatrix2D.size()), BiomeMatrix2D.data());
+    const GLuint materialBlock = glGetUniformBlockIndex(render, "TerrainMaterialTable");
+    GLint materialBlockBytes = 0;
+    if (materialBlock != GL_INVALID_INDEX)
+        glGetActiveUniformBlockiv(render, materialBlock, GL_UNIFORM_BLOCK_DATA_SIZE, &materialBlockBytes);
+    if (materialBlockBytes != static_cast<GLint>(sizeof(TerrainMaterialTable)))
+    {
+        m_lastError = "Terrain material shader/table layout mismatch; reload the terrain shaders.";
+        return false;
+    }
+    glCreateBuffers(1, &impl->materialBuffer);
+    glNamedBufferData(impl->materialBuffer, sizeof(TerrainMaterialTable),
+        config.appearance.biomes.data(), GL_DYNAMIC_DRAW);
+    GLint64 allocatedMaterialBytes = 0;
+    glGetNamedBufferParameteri64v(impl->materialBuffer, GL_BUFFER_SIZE, &allocatedMaterialBytes);
+    if (allocatedMaterialBytes != static_cast<GLint64>(sizeof(TerrainMaterialTable)))
+    {
+        m_lastError = "Terrain material GPU table allocation failed.";
+        return false;
+    }
     glProgramUniform1ui(render, glGetUniformLocation(render, "worldSeed"), m_seed);
     glProgramUniform1i(render, glGetUniformLocation(render, "debugLod"), config.debugLod ? 1 : 0);
     glProgramUniform1i(render, glGetUniformLocation(render, "terrainBiomeOverride"), config.field.biomeOverride);
@@ -315,10 +397,86 @@ bool ProceduralGeneration::initialize(const Config& config)
     }
     m_config = config;
     m_stats = {};
+    m_stats.materialUploads = 1;
+    m_stats.materialUploadBytes = sizeof(TerrainMaterialTable);
     impl->pipelines->addCustomRenderer(this);
     impl->registered = this;
     m_impl = std::move(impl);
     return true;
+}
+
+bool ProceduralGeneration::setTerrainAppearance(const TerrainAppearance& appearance)
+{
+    if (!m_impl)
+    {
+        m_lastError = "Terrain appearance requires an initialized renderer.";
+        return false;
+    }
+    if (!validTerrainAppearance(appearance))
+    {
+        m_lastError = "Invalid terrain material parameters; retaining the last accepted appearance.";
+        return false;
+    }
+    auto& s = *m_impl;
+    const auto& previous = m_config.appearance;
+    if (std::memcmp(previous.biomes.data(), appearance.biomes.data(), sizeof(TerrainMaterialTable)) != 0)
+    {
+        // Replacing the small store lets the driver retain an in-flight draw's
+        // previous data without waiting. No persistent per-frame upload.
+        glNamedBufferData(s.materialBuffer, sizeof(TerrainMaterialTable), appearance.biomes.data(), GL_DYNAMIC_DRAW);
+        ++m_stats.materialUploads;
+        m_stats.materialUploadBytes += sizeof(TerrainMaterialTable);
+    }
+    const GLuint render = s.render->getProgram();
+    if (previous.macroPeriod != appearance.macroPeriod)
+        glProgramUniform1f(render, s.materialUniforms.macroPeriod, appearance.macroPeriod);
+    if (previous.patchPeriod != appearance.patchPeriod)
+        glProgramUniform1f(render, s.materialUniforms.patchPeriod, appearance.patchPeriod);
+    if (previous.debugView != appearance.debugView)
+        glProgramUniform1i(render, s.materialUniforms.debugView, appearance.debugView);
+    m_config.appearance = appearance;
+    if (m_lastError == "Invalid terrain material parameters; retaining the last accepted appearance.")
+        m_lastError.clear();
+    return true;
+}
+
+bool ProceduralGeneration::setTerrainDetail(float strength, float scale)
+{
+    if (!m_impl || !finiteFieldValue(strength) || strength < 0.0f || strength > 16.0f
+        || !finiteFieldValue(scale) || scale <= 0.0f || scale > 1000000.0f)
+    {
+        m_lastError = "Invalid terrain microdetail parameters or renderer not initialized.";
+        return false;
+    }
+    const GLuint render = m_impl->render->getProgram();
+    if (m_config.microDetailStrength != strength)
+        glProgramUniform1f(render, m_impl->materialUniforms.detailStrength, strength);
+    if (m_config.microDetailScale != scale)
+        glProgramUniform1f(render, m_impl->materialUniforms.detailScale, scale);
+    m_config.microDetailStrength = strength;
+    m_config.microDetailScale = scale;
+    if (m_lastError == "Invalid terrain microdetail parameters or renderer not initialized.")
+        m_lastError.clear();
+    return true;
+}
+
+bool ProceduralGeneration::setTerrainAppearance(const TerrainAppearance& appearance,
+    float strength, float scale)
+{
+    // Validate the complete editor transaction before changing either the
+    // table or its controls. An invalid detail value must not partly apply a
+    // palette edit, and vice versa.
+    if (!m_impl || !validTerrainAppearance(appearance)
+        || !finiteFieldValue(strength) || strength < 0.0f || strength > 16.0f
+        || !finiteFieldValue(scale) || scale <= 0.0f || scale > 1000000.0f)
+    {
+        m_lastError = "Invalid terrain appearance or renderer not initialized; retaining all previous material settings.";
+        return false;
+    }
+    const bool applied = setTerrainAppearance(appearance) && setTerrainDetail(strength, scale);
+    if (applied && m_lastError == "Invalid terrain appearance or renderer not initialized; retaining all previous material settings.")
+        m_lastError.clear();
+    return applied;
 }
 
 void ProceduralGeneration::shutdown() noexcept
@@ -672,7 +830,10 @@ void ProceduralGeneration::drawRenderer()
     m_stats.cameraCulledChunks = static_cast<std::uint32_t>(s.visible.size() - s.cameraMeshes.size());
     if (s.cameraMeshes.empty()) return;
     TerrainRenderStateGuard state;
+    TerrainMaterialStateGuard materialState;
+    s.refreshAlbedoGamma();
     glUseProgram(s.render->getProgram());
+    glBindBufferBase(GL_UNIFORM_BUFFER, 6, s.materialBuffer);
     s.gpu.drawMany(s.cameraMeshes, 0);
     m_stats.drawListUploads = s.gpu.stats().drawListUploads;
     m_stats.drawListUploadBytes = s.gpu.stats().drawListUploadBytes;

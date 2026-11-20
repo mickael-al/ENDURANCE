@@ -5,6 +5,7 @@
 #include "ProceduralTerrainField.hpp"
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainLod.hpp"
+#include "ProceduralTerrainMaterials.hpp"
 #include <glm/vec3.hpp>
 #include <cstdint>
 #include <memory>
@@ -32,6 +33,8 @@ public:
         ProceduralTerrain::FieldParameters field;
         float microDetailStrength = 0.15f;
         float microDetailScale = 2.0f;
+        // Game-owned recipes; the renderer only owns their GPU representation.
+        ProceduralTerrain::TerrainAppearance appearance;
         bool debugLod = false;
         bool collisionEnabled = true;
         float collisionRadius = 128.0f;
@@ -69,6 +72,8 @@ public:
         std::uint64_t shadowCullUpdates = 0;
         std::uint64_t drawListUploads = 0;
         std::uint64_t drawListUploadBytes = 0;
+        std::uint64_t materialUploads = 0;
+        std::uint64_t materialUploadBytes = 0;
         std::uint32_t largestLodTransaction = 0;
         double lastPlanningMilliseconds = 0.0;
         double lastGenerationMilliseconds = 0.0;
@@ -92,6 +97,12 @@ public:
 
     // Lifecycle and drawing run on the thread owning the OpenGL context.
     bool initialize(const Config& config);
+    // Live appearance edits run on the GL thread and never regenerate terrain.
+    // Invalid data is rejected without changing the last accepted appearance.
+    bool setTerrainAppearance(const ProceduralTerrain::TerrainAppearance& appearance);
+    bool setTerrainAppearance(const ProceduralTerrain::TerrainAppearance& appearance,
+        float microDetailStrength, float microDetailScale);
+    bool setTerrainDetail(float strength, float scale);
     void update(const glm::vec3& cameraWorldPosition);
     void shutdown() noexcept;
     void prepareRenderer() override;

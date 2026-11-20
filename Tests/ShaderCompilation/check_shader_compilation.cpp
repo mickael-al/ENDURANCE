@@ -5,6 +5,7 @@
 #include "ComputeShader.hpp"
 #include "GraphiquePipeline.hpp"
 #include "ShaderCompilation.hpp"
+#include "ShaderBinaryCache.hpp"
 #include "ShaderPair.hpp"
 #include <algorithm>
 #include <array>
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -161,6 +163,8 @@ void checkVersionComment(const fs::path& directory)
             bad.getLastError().find("UNDECLARED_AFTER_COMMENT")!=std::string::npos &&
             reportsLine(bad.getLastError(),3),
             "Definitions after a multiline version comment lost the original source line");
+    require(bad.getLastError().find("injected shader definition | #define COMMENT_VALUE 29u")!=std::string::npos,
+            "Injected definition was incorrectly attributed to an original source line");
     require(glGetError()==GL_NO_ERROR,"Version comment failure made invalid OpenGL calls");
     std::cout << "PASS version comment: defines outside multiline comment, same-line GLSL execution and original line3 diagnostic\n";
 }
@@ -222,18 +226,105 @@ void GLAPIENTRY shaderLog(GLuint, GLsizei capacity, GLsizei* length, GLchar* tex
     if(capacity>0){std::memcpy(text,oversizedDiagnostic.data(),count);text[count]='\0';}
     if(length)*length=static_cast<GLsizei>(count);
 }
+struct QueryScope
+{
+    QueryScope(){originalShaderQuery=__glewGetShaderiv;originalShaderLog=__glewGetShaderInfoLog;
+                 originalProgramQuery=__glewGetProgramiv;originalProgramLog=__glewGetProgramInfoLog;
+                 __glewGetShaderiv=shaderQuery;__glewGetShaderInfoLog=shaderLog;
+                 __glewGetProgramiv=programQuery;__glewGetProgramInfoLog=shaderLog;}
+    ~QueryScope(){__glewGetShaderiv=originalShaderQuery;__glewGetShaderInfoLog=originalShaderLog;
+                  __glewGetProgramiv=originalProgramQuery;__glewGetProgramInfoLog=originalProgramLog;}
+};
+void checkSourceContext(const fs::path& directory)
+{
+    write(directory/"macro/defines.glsl", "#define BAD_VALUE 1.5 q\n/*\n#line 999 8\n"
+          "#define BAD_VALUE COMMENTED_OUT\n*/\n#define CLIMATE_VALUE BAD_VALUE\n");
+    write(directory/"macro/use.glsl", "// mapped first line\n// mapped second line\n"
+          "float broken = clamp(CLIMATE_VALUE, 0.0, 1.0);\n");
+    write(directory/"macro.comp", "#version 450 core\n#include \"macro/defines.glsl\"\n"
+          "#include \"macro/use.glsl\"\n"+compute("1u").substr(18));
+    const auto stages=std::vector<Ge::ShaderFile>{{GL_COMPUTE_SHADER,(directory/"macro.comp").string(),""}};
+    const auto check=[&](const std::string& error)
+    {
+        require(error.find(" > 3 | float broken = clamp(CLIMATE_VALUE")!=std::string::npos,
+                "Source diagnostic did not show the exact line from the include snapshot");
+        require(error.find("defines.glsl:1 | #define BAD_VALUE 1.5 q")!=std::string::npos &&
+                error.find("defines.glsl:6 | #define CLIMATE_VALUE BAD_VALUE")!=std::string::npos,
+                "Source diagnostic lost recursively referenced macro definitions");
+        require(error.find("COMMENTED_OUT")==std::string::npos,
+                "Commented directives corrupted the diagnostic source/macro map");
+    };
+    std::string error;
+    require(Ge::buildShaderProgram(stages,error)==0,"Malformed macro unexpectedly compiled");
+    check(error);
+    // Preserve a genuine failed compilation, substituting only the driver log
+    // format. This exercises NVIDIA and colon-separated locations on any GPU.
+    for(const auto* diagnostic : {"2(3) : error C0000: unexpected identifier q\n",
+                                  "ERROR: 2:3: unexpected identifier q\n"})
+    {
+        oversizedDiagnostic=diagnostic;
+        QueryScope scope;
+        require(Ge::buildShaderProgram(stages,error)==0,"Malformed macro unexpectedly compiled");
+        check(error);
+        require(error.find(diagnostic)!=std::string::npos,"Original driver diagnostic was changed");
+    }
+    std::cout << "PASS source context: original include lines, recursive macro values, ignored comment directives, NVIDIA/Mesa/AMD locations\n";
+}
+void checkTerrainEntryPoints(const fs::path& root)
+{
+    // Climate values and source layout are intentionally user-editable. Derive
+    // this negative control from the current file instead of freezing its tune.
+    const std::string macro="ENDURANCE_CLIMATE_CONTRAST";
+    std::ifstream climate(root/"Asset/Shader/Noise/climate_2d.glsl");
+    require(climate.good(),"Cannot read climate regression source");
+    std::string line, definition;
+    unsigned lineNumber=0, definitionLine=0, useLine=0;
+    while(std::getline(climate,line))
+    {
+        ++lineNumber;
+        std::istringstream tokens(line);
+        std::string first, name;
+        tokens>>first>>name;
+        if(first=="#define" && name==macro)
+        {definition=line;definitionLine=lineNumber;}
+        else if(!first.empty() && first[0]!='#' && first.compare(0,2,"//")!=0 &&
+                line.find(macro)!=std::string::npos && !useLine)
+            useLine=lineNumber;
+    }
+    require(definitionLine && useLine,"Climate contrast definition/use is missing");
+    const auto comment=(std::min)(definition.find("//"),definition.find("/*"));
+    const auto end=definition.find_last_not_of(" \t\r",comment==std::string::npos ? comment : comment-1)+1;
+    std::string malformedDefinition=definition;
+    malformedDefinition.insert(end," q");
+    for(const auto* name : {"Asset/Shader/ProceduralTerrain/field_batch_classify.C.glsl",
+                            "ENDURANCE/Ressources/Shader/Atmosphere/palette.C.glsl"})
+    {
+        const std::vector<Ge::ShaderFile> stages{{GL_COMPUTE_SHADER,(root/name).string(),"#define EMIT_PASS 0\n"}};
+        std::string error;
+        auto program=Ge::buildShaderProgram(stages,error);
+        require(program!=0,error);
+        glDeleteProgram(program);
+        Ge::ShaderSource source;
+        require(Ge::loadShaderSource(stages[0].filename,stages[0].defines,source,error,"430 core"),error);
+        const auto location=source.text.find(definition+"\n");
+        require(location!=std::string::npos,"Climate contrast regression fixture needs updating");
+        // Mutate only the prepared in-memory snapshot, never an application file.
+        source.text.replace(location,definition.size(),malformedDefinition);
+        const std::vector<Ge::ShaderSource> sources{source};
+        Ge::detail::ShaderBinaryCache cache(stages,sources,{},"");
+        program=Ge::detail::buildPreparedShaderProgram(stages,sources,error,"",cache);
+        require(program==0,"Invalid climate contrast unexpectedly compiled");
+        require(error.find("climate_2d.glsl:"+std::to_string(useLine))!=std::string::npos &&
+                error.find("climate_2d.glsl:"+std::to_string(definitionLine)+" | "+malformedDefinition)!=std::string::npos,
+                "Climate failure lost its original line and malformed macro definition: "+error);
+        std::cout << "PASS production entrypoint and malformed climate macro diagnostic: " << name << '\n';
+    }
+    require(glGetError()==GL_NO_ERROR,"Production entrypoint checks made invalid OpenGL calls");
+}
 void checkLongDiagnostic(const fs::path& directory)
 {
     oversizedDiagnostic="DRIVER_LOG_BEGIN\n"+std::string(131073,'x')+"\nDRIVER_LOG_END\n";
-    struct QueryScope
-    {
-        QueryScope(){originalShaderQuery=__glewGetShaderiv;originalShaderLog=__glewGetShaderInfoLog;
-                     originalProgramQuery=__glewGetProgramiv;originalProgramLog=__glewGetProgramInfoLog;
-                     __glewGetShaderiv=shaderQuery;__glewGetShaderInfoLog=shaderLog;
-                     __glewGetProgramiv=programQuery;__glewGetProgramInfoLog=shaderLog;}
-        ~QueryScope(){__glewGetShaderiv=originalShaderQuery;__glewGetShaderInfoLog=originalShaderLog;
-                      __glewGetProgramiv=originalProgramQuery;__glewGetProgramInfoLog=originalProgramLog;}
-    } scope;
+    QueryScope scope;
     std::string error;
     const auto program=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,(directory/"bad.comp").string(),""}},error);
     require(program==0 && error.find(oversizedDiagnostic)!=std::string::npos,
@@ -247,7 +338,7 @@ void checkLongDiagnostic(const fs::path& directory)
     std::cout << "PASS engine diagnostics: 128 KiB compiler/linker logs retained completely without Debug/Console dependencies\n";
 }
 }
-extern "C" int shader_compilation_tests(const char* temporaryDirectory)
+extern "C" int shader_compilation_tests(const char* temporaryDirectory, const char* repositoryRoot)
 {
     try
     {
@@ -256,7 +347,8 @@ extern "C" int shader_compilation_tests(const char* temporaryDirectory)
         require(status==GLEW_OK || status==GLEW_ERROR_NO_GLX_DISPLAY,"GLEW initialization failed");
         while(glGetError()!=GL_NO_ERROR){}
         const fs::path directory(temporaryDirectory);
-        checkLoader(directory);checkCompute(directory);checkVersionComment(directory);checkGraphics(directory);checkLongDiagnostic(directory);
+        checkLoader(directory);checkCompute(directory);checkVersionComment(directory);checkGraphics(directory);
+        checkSourceContext(directory);checkTerrainEntryPoints(fs::path(repositoryRoot));checkLongDiagnostic(directory);
         return 0;
     }
     catch(const std::exception& error)

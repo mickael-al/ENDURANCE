@@ -33,11 +33,26 @@ namespace Ge
             std::unique_ptr<detail::ShaderBinaryCache> cache;
         };
 
-        std::string sourceTables(const PreparedProgram& program)
+        std::string sourceTables(const PreparedProgram& program, const std::string& diagnostic = {})
         {
             std::string result;
+            bool contextAdded = false;
             for (std::size_t stage = 0; stage < program.sources.size(); ++stage)
             {
+                // Match each source map only to its own compiler log. Keep the
+                // excerpt bounded to the first failed stage; full logs survive.
+                const auto marker = "\nStage " + std::to_string(stage) + ":\n";
+                const auto begin = diagnostic.find(marker);
+                if (!contextAdded && begin != std::string::npos)
+                {
+                    const auto textBegin = begin + marker.size();
+                    auto end = diagnostic.find("\nStage ", textBegin);
+                    const auto link = diagnostic.find("\nLink:\n", textBegin);
+                    if (link != std::string::npos && (end == std::string::npos || link < end)) end = link;
+                    result += detail::shaderSourceContext(program.sources[stage], diagnostic.substr(textBegin,
+                        end == std::string::npos ? end : end - textBegin));
+                    contextAdded = true;
+                }
                 result += "\nStage " + std::to_string(stage) + " GLSL source files (source ID : file):\n";
                 const auto& files = program.sources[stage].files;
                 for (std::size_t i = 0; i < files.size(); ++i)
@@ -151,7 +166,7 @@ namespace Ge
                     {
                         error = compiler.error(it->ticket);
                         if (error.empty()) error = "Lost pending shader program: " + requests[it->index].label;
-                        error += sourceTables(prepared[it->index]);
+                        error += sourceTables(prepared[it->index], error);
                         return {};
                     }
                     if (state != ParallelShaderCompiler::State::Ready) { ++it; continue; }
