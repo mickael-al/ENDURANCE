@@ -36,8 +36,9 @@ void main()
         float scale=instance.positionScale.w;
         vec3 centre=instance.positionScale.xyz+treeRotate(model.centreRadius.xyz*scale,instance.rotation);
         float radius=model.centreRadius.w*scale;
+        float sweptRadius=radius+model.crownShape.w*scale;
         bool accepted=true;
-        for(int p=0;p<6;++p) accepted=accepted && dot(uPlanes[p],vec4(centre,1))>=-radius;
+        for(int p=0;p<6;++p) accepted=accepted && dot(uPlanes[p],vec4(centre,1))>=-sweptRadius;
         float distance=length(centre-uCamera);
         accepted=accepted && distance<uLod.w;
         if(accepted)

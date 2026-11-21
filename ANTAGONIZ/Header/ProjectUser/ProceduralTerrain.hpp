@@ -64,6 +64,11 @@ public:
     float treeImpostorCoverage = 0.06f;
     float treeLodTransition = 0.15f;
     std::uint32_t treeModelBudgetMiB = 512;
+    float treeFoliageNormalBlend = 0.8f;
+    bool treeWindEnabled = true;
+    float treeWindStrength = 0.015f;
+    float treeWindSpeedX = 6.0f, treeWindSpeedZ = 2.0f;
+    float treeWindScale = 64.0f, treeWindDistance = 256.0f;
 
 private:
     std::unique_ptr<ProceduralGeneration> m_generator;

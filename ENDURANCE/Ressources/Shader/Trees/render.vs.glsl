@@ -1,5 +1,8 @@
 #version 460 core
 #include "common.glsl"
+#if TREE_WIND || TREE_CROWN_NORMALS
+#include "deformation.glsl"
+#endif
 #if TREE_IMPOSTOR
 #include "impostor.glsl"
 #endif
@@ -30,8 +33,9 @@ void main()
     TreeInstance instance=instances[reference.x];
     vec2 rotationValue=instance.rotation; fadeMask=reference.y; siteHash=instance.hash;
     vec3 local=inPosition;
+    TreeModel model=models[instance.model];
 #if TREE_IMPOSTOR
-    TreeModel model=models[instance.model]; rotation=rotationValue;
+    rotation=rotationValue;
         vec3 centre=instance.positionScale.xyz+treeRotate(model.impostorCentre.xyz*instance.positionScale.w,rotation);
 #if TREE_PARALLEL
         vec3 delta=uEye;
@@ -63,9 +67,21 @@ void main()
         captureUV0=coords[0]; captureUV1=coords[1]; captureUV2=coords[2];
 #endif
     vec3 world=instance.positionScale.xyz+treeRotate(local*instance.positionScale.w,rotationValue);
+    vec3 normal=inNormal;
+#if TREE_WIND || TREE_CROWN_NORMALS
+    float distanceToCamera;
+    float effectWeight=treeEffectWeight(instance,model,distanceToCamera);
+#if TREE_CROWN_NORMALS
+    normal=treeCrownNormal(local,normal,model,effectWeight);
+#endif
+#endif
+    normal=treeRotate(normal,rotationValue);
+#if TREE_WIND
+    treeBend(local,instance,model,treeWindDisplacement(instance,model,effectWeight,distanceToCamera),world,normal);
+#endif
     uv=inUV;
 #if !TREE_SHADOW
-    worldNormal=treeRotate(inNormal,rotationValue); color=inColor.rgb;
+    worldNormal=normal; color=inColor.rgb;
     viewPosition=(uView*vec4(world,1)).xyz;
 #endif
     gl_Position=uClip*vec4(world,1);

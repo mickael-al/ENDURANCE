@@ -10,7 +10,7 @@ moteur fournit les passes G-buffer, les matrices des lumières et le cache d'omb
 
 Le panneau **Affichage des arbres / LOD** expose ces paramètres sérialisés.
 **Afficher les arbres** agit immédiatement, sans régénérer le terrain. Les
-distances, seuils et budgets nécessitent **Régénérer avec ces réglages**.
+distances, seuils, budgets, normales et vent nécessitent **Régénérer avec ces réglages**.
 
 | Paramètre | Défaut | Rôle |
 |---|---:|---|
@@ -20,6 +20,12 @@ distances, seuils et budgets nécessitent **Régénérer avec ces réglages**.
 | `treeImpostorCoverage` | 0,06 | Au-dessous : imposteur LOD3 à 17 vues ; entre les deux : maillage LOD1 |
 | `treeLodTransition` | 0,15 | Demi-largeur relative du fondu autour de chaque seuil |
 | `treeModelBudgetMiB` | 512 Mio | Budget GPU des maillages et textures chargés |
+| `treeFoliageNormalBlend` | 0,8 | Mélange des normales de touffes exportées avec un volume de couronne arrondi ; 0 conserve le bake |
+| `treeWindEnabled` | `true` | Active le vent ; désactivé, le code est retiré à la compilation |
+| `treeWindStrength` | 0,015 | Déplacement horizontal maximal / hauteur de l'arbre, soit 1,5 % |
+| `treeWindSpeedX`, `treeWindSpeedZ` | 6, 2 m/s | Vitesse de déplacement du bruit et direction du vent dans le monde |
+| `treeWindScale` | 64 m | Taille d'une cellule du bruit de rafales ; plus grand = variations plus lentes et plus larges |
+| `treeWindDistance` | 256 m | Portée de l'animation ; fondu sur les derniers 30 % |
 
 Les seuils comparent le diamètre projeté de la sphère englobante à la hauteur
 de l'écran. La projection, la taille de l'export et l'échelle de l'instance sont
@@ -80,11 +86,12 @@ Les positions compactes de 8 octets restent dans le pool du placement.
 |---|---:|
 | Métadonnées des blocs publiés | 48 octets par page |
 | Métadonnées des transformations à recalculer | 48 octets par page modifiée |
-| Métadonnées des modèles | 96 octets par modèle, dont 32 octets d'offsets des LOD regroupés |
+| Métadonnées des modèles | 128 octets par modèle, dont 32 octets pour la couronne et le vent |
 | Transformations | 2 048 octets par emplacement de page réservé |
 | Sélection, par passe | 16 octets par page sélectionnée |
 | Références visibles, par passe | 1 536 octets par page sélectionnée |
 | Commandes indirectes, par passe | 100 octets par modèle sélectionné |
+| Bruit du vent, partagé | 16 Kio : une texture 128 × 128 R8, allouée uniquement si le vent est actif |
 
 Les buffers de travail grandissent par puissances de deux à partir de 4 Kio et
 conservent leur capacité pour les publications suivantes. L'agrandissement des
@@ -110,7 +117,8 @@ Le chargement initial est progressif ; un upload GL peut néanmoins avoir un co�
 ponctuel. Les budgets n'incluent pas les allocations internes du pilote.
 
 Le worker compacte les sommets de 64 à **48 octets** en retirant le seul attribut
-de vent inutilisé ; positions, normales, UV et couleurs conservent leur précision.
+de vent exporté ; l'animation en jeu utilise directement le Y local. Positions,
+normales, UV et couleurs conservent leur précision.
 La recherche de couverture des mipmaps alpha utilise un histogramme de 256
 valeurs, au lieu de parcourir tous les pixels à chaque étape de recherche. Le
 résultat reste identique octet par octet. Une table précalculée remplace les
@@ -133,11 +141,12 @@ Le renderer utilise un compute de transformation et deux variantes de culling
 couvrent bois, feuilles, imposteur perspective et imposteur parallèle, chacun
 en G-buffer et en ombres. Seuls trois sont utilisés dans une passe. Il ne compile
 aucune variante par biome. `TREE_FOLIAGE`, `TREE_IMPOSTOR`, `TREE_PARALLEL`,
-`TREE_SHADOW`, `TREE_ORTHOGRAPHIC` et `TREE_LOD_TRANSITIONS` retirent les choix
+`TREE_SHADOW`, `TREE_ORTHOGRAPHIC`, `TREE_LOD_TRANSITIONS`, `TREE_WIND` et
+`TREE_CROWN_NORMALS` retirent les choix
 stables à la compilation. Les programmes sont préparés à l'initialisation et
 réutilisent le cache de binaires ; aucun shader ne compile pendant un draw.
 Le shader maillage n'embarque pas les projections et interpolants des 17 vues ;
-le bois en passe d'ombre ne lit aucune texture. La visibilité, le LOD, le fondu
+le bois en passe d'ombre ne lit aucune texture de matériau. La visibilité, le LOD, le fondu
 et le rejet alpha restent des décisions dynamiques par instance ou pixel.
 
 Le LOD3 utilise les 17 captures exportées : 8 azimuts à 15°, 8 à 60° et le zénith.
@@ -151,8 +160,63 @@ Les transitions utilisent deux masques de couverture complémentaires, stables
 pour une caméra immobile. Elles limitent les sauts de silhouette mais peuvent
 laisser une trame visible en mouvement sans antialiasing temporel. L'imposteur
 reste une approximation : pas de profondeur par pixel ni d'auto-ombrage
-géométrique, et les vues sous 15° utilisent l'anneau inférieur. Le vent est
-désactivé dans ce renderer pour tous les LOD.
+géométrique, et les vues sous 15° utilisent l'anneau inférieur.
+
+## Normales du feuillage et vent
+
+Le chargement mesure une seule fois le volume du feuillage LOD0. Les deux LOD
+géométriques partagent ce repère. Le vertex shader mélange les normales de
+petites touffes déjà exportées avec des normales dirigées vers l'extérieur de
+la couronne, avec un biais doux vers le haut. Cela adoucit les variations entre
+cartes tout en gardant l'éclairage différé et les ombres. Les normales du bois,
+les palettes, les masques alpha et les fichiers exportés restent inchangés.
+Ce contrôle artistique n'est pas un modèle de transmission ou de subsurface.
+
+Le vent échantillonne une grille de valeurs aléatoires précalculée, répétée et
+filtrée linéairement. Ses coordonnées sont `origineXZ / (128 * windScale)` moins
+`temps * windSpeed / (128 * windScale)`. Le signe fait avancer les rafales dans
+la direction du vent. Tous les sommets d'une instance partagent ce signal ;
+il n'y a ni hash par sommet, ni bruit par fragment, ni attribut supplémentaire.
+La période spatiale vaut 8 192 m avec le réglage par défaut. Le temps accumulé
+en double précision est ramené à une phase périodique avant son upload float.
+
+Avec `h = clamp(Ylocal / hauteur, 0, 1)`, le déplacement horizontal vaut
+`direction * rafale * hauteur * échelleInstance * force * h²`, multiplié par
+les fondus. Le pied et les racines sous Y = 0 restent fixes. C'est une flexion
+simple du tronc et de sa couronne ; pas une simulation de branches ni un
+flottement indépendant de chaque feuille. La normale suit l'inverse-transposée
+analytique de cette déformation. Le même code et la même phase servent au
+G-buffer et aux ombres, y compris pour les arbres hors champ.
+
+Les captures LOD3 existantes représentent la pose et les normales exportées.
+Le vent **et la correction de couronne** s'effacent donc progressivement avant
+le début du fondu vers ces captures : poids nul à
+`impostorCoverage * (1 + transitionFraction)`, poids complet au double de cette
+couverture. Le vent a également son fondu de distance. Les imposteurs restent
+statiques, sans calcul de vent ; aucun rebake des 17 vues n'est nécessaire.
+Les exports sans imposteur gardent leur correction de normales sur le LOD1.
+
+Les sphères de culling et les limites de pages incluent le déplacement maximal
+possible, indépendamment du temps. La taille utilisée pour choisir le LOD reste
+celle du modèle au repos. L'animation n'invalide donc ni les transformations,
+ni les sélections, ni les commandes indirectes. Seules les couches d'ombre
+pouvant contenir une géométrie animée reçoivent un nouveau token quand la phase
+change. Les couches vides, éloignées et entièrement sous le seuil des imposteurs
+restent réutilisables ; l'éligibilité par page est conservatrice.
+
+Le vent a un coût : calcul et lecture de texture dans les vertex shaders,
+et redessin des couches d'ombre proches concernées. Il n'ajoute aucun draw,
+aucune passe de génération et aucun octet par instance ou sommet. Les réglages
+de distance et la case de désactivation permettent de comparer ce coût sur
+la GTX 1660. Les précédentes mesures de cache sans animation ne représentent
+pas le coût des ombres animées.
+
+Référence de principe pour une flexion pondérée par la hauteur dans le vertex
+shader : [GPU Gems 3, chapitre 16 — Vegetation Procedural Animation and Shading in Crysis](https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-16-vegetation-procedural-animation-and-shading-crysis).
+Ici, le signal est une simple texture de bruit advectée et l'amplitude est
+volontairement bornée ; ce n'est pas une reproduction du système complet.
+
+## Cohérence des ombres
 
 Les ombres utilisent les mêmes transformations, distances et seuils de LOD que
 la caméra principale, mais leur propre frustum et leur propre orientation
@@ -161,7 +225,8 @@ feuilles et imposteurs appliquent leur découpe alpha dans la passe d'ombre ;
 leurs cartes ne projettent pas de rectangles opaques. Les révisions de contenu
 propres à chaque couche comparent exactement les pages sélectionnées, leurs
 identités d'allocation, les versions des modèles chargés et la caméra contrôlant
-les LOD/fondus. Une publication extérieure à la couche ne l'invalide plus.
+les LOD/fondus, ainsi que la phase du vent pour les couches animées.
+Une publication extérieure à la couche ne l'invalide plus.
 Les couches sans arbres ignorent les mouvements de caméra sans effet sur leur
 contenu. Cette interrogation reste entièrement CPU, sans lecture GPU ni hash
 susceptible de collision. Si les buffers de visibilité échouent à s'allouer,
@@ -182,7 +247,7 @@ deux instants pour mesurer le travail d'une période. `instances`, `cameraBlocks
 et `shadowBlocks` décrivent le dernier état préparé/rendu, pas un total cumulé.
 
 `workingBytes` additionne les capacités réellement réservées des buffers du
-renderer ; `modelBytes` couvre les maillages et textures chargés. Les temps
+renderer et la texture de vent partagée ; `modelBytes` couvre les maillages et textures chargés. Les temps
 `assetLoadMilliseconds` et `assetUploadMilliseconds` sont des durées CPU, pas
 des temps GPU ni une durée totale de génération. Aucune lecture de compteur GPU
 n'est ajoutée au chemin de rendu pour alimenter ces statistiques.
@@ -194,6 +259,7 @@ n'est ajoutée au chemin de rendu pour alimenter ces statistiques.
 - `ENDURANCE/Ressources/Shader/Trees/instances.C.glsl` : transformations stables.
 - `ENDURANCE/Ressources/Shader/Trees/cull.C.glsl` : visibilité, LOD et commandes indirectes.
 - `ENDURANCE/Ressources/Shader/Trees/render.vs.glsl` et `render.fs.glsl` : G-buffer et ombres.
+- `ENDURANCE/Ressources/Shader/Trees/deformation.glsl` : normales de couronne, fondus et vent.
 - `ENDURANCE/Ressources/Shader/Trees/impostor.glsl` : sélection et repères des captures.
 
 `python Tests/Trees/check_runtime.py` exerce le renderer de production dans un
@@ -207,6 +273,13 @@ recyclage des pages et le regroupement de plusieurs pages/modèles en commandes.
 Les régressions couvrent aussi les trois appels regroupés, les variantes sans
 transition/orthographiques, les publications identiques, les invalidations par
 couche et une allocation de visibilité volontairement refusée puis rétablie.
+Les tests du vent vérifient la flexion des deux LOD, les racines immobiles,
+la normale perpendiculaire à la surface déformée, les limites conservatrices,
+l'identité des profondeurs de feuillage entre G-buffer et ombres, les caches
+statiques conservés et le retour au bake avant la transition LOD3. La correction
+de couronne ne modifie ni l'albédo, ni la profondeur, ni les normales du bois.
+Les captures `canopy_before/after` utilisent une lumière diffuse fixe de test,
+sans prétendre reproduire l'éclairage complet du moteur.
 `python Tests/Trees/check_core.py` compare les mipmaps optimisées à l'ancienne
 méthode sur plusieurs dimensions et seuils alpha, avec et sans fast-math.
 Mesa logiciel valide le fonctionnement, pas les performances sur le GPU cible.

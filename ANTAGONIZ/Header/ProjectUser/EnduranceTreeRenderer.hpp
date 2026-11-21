@@ -32,6 +32,8 @@ private:
     EnduranceTrees::TreeRenderGpu m_gpu;
     EnduranceTrees::RenderView m_view;
     std::uint64_t m_revision=0,m_boundsToken=0,m_contentToken=0;
+    double m_animationTime=0;
+    bool m_windActive=false;
     bool m_registered=false,m_hasView=false,m_enabled=true;
 };
 }

@@ -2,6 +2,7 @@
 #include "TreeRenderGpu.hpp"
 #include "ProceduralTreeBake.hpp"
 #include "ProceduralTerrainField.hpp"
+#include "ShaderCompilation.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
 #include <chrono>
@@ -26,6 +27,7 @@ std::vector<glm::uvec2> references;
 std::vector<Instance> transforms;
 PFNGLMULTIDRAWELEMENTSINDIRECTPROC realDraw=nullptr;
 bool executeDraw=true;
+bool foliageOnly=false;
 void GLAPIENTRY inspectDraw(GLenum mode,GLenum type,const void* offset,GLsizei draws,GLsizei stride)
 {
     GLint commands=0,visible=0,instances=0;
@@ -47,7 +49,8 @@ void GLAPIENTRY inspectDraw(GLenum mode,GLenum type,const void* offset,GLsizei d
             references.push_back(ref); transforms.push_back(instance);
         }
     }
-    if(executeDraw) realDraw(mode,type,offset,draws,stride);
+    if(executeDraw && (!foliageOnly || (reinterpret_cast<std::uintptr_t>(offset)/sizeof(Command))%5==1))
+        realDraw(mode,type,offset,draws,stride);
 }
 struct Hook
 {
@@ -121,6 +124,32 @@ struct Target
     {
         std::vector<unsigned char> pixels(Size*Size*4);
         glGetTextureImage(colors[2],0,GL_RGBA,GL_UNSIGNED_BYTE,static_cast<GLsizei>(pixels.size()),pixels.data()); return pixels;
+    }
+    std::vector<float> normalsRead() const
+    {
+        std::vector<float> pixels(Size*Size*3);
+        glGetTextureImage(colors[1],0,GL_RGB,GL_FLOAT,static_cast<GLsizei>(pixels.size()*4),pixels.data()); return pixels;
+    }
+    std::vector<float> depthRead() const
+    {
+        std::vector<float> pixels(Size*Size);
+        glGetTextureImage(depth,0,GL_DEPTH_COMPONENT,GL_FLOAT,static_cast<GLsizei>(pixels.size()*4),pixels.data()); return pixels;
+    }
+    // A fixed diffuse inspection light, not an engine screenshot. This makes
+    // the canopy-normal change visible in optional validation captures.
+    void captureLighting(const char* name) const
+    {
+        const char* directory=std::getenv("ENDURANCE_TREE_TEST_CAPTURE_DIR"); if(!directory) return;
+        auto color=colorsRead(); auto normal=normalsRead();
+        const glm::vec3 light=glm::normalize(glm::vec3(-.3f,1,.4f));
+        std::ofstream out(std::filesystem::path(directory)/(std::string(name)+".ppm"),std::ios::binary);
+        out<<"P6\n"<<Size<<' '<<Size<<"\n255\n";
+        for(int y=Size-1;y>=0;--y) for(int x=0;x<Size;++x)
+        {
+            const int i=y*Size+x; const glm::vec3 n(normal[i*3],normal[i*3+1],normal[i*3+2]);
+            const float shade=.18f+.82f*std::max(glm::dot(n,light),0.0f);
+            for(int c=0;c<3;++c) out.put(static_cast<unsigned char>(color[i*4+c]*shade));
+        }
     }
     unsigned checkGBuffer(const char* name,bool expect=true) const
     {
@@ -201,6 +230,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         prototype.boundingRadius=radius*2;
         RenderSettings settings; settings.shaderDirectory=(std::filesystem::path(root)/"ENDURANCE/Ressources/Shader/Trees").string();
         settings.maximumDistance=3000; settings.modelBudgetMiB=64;
+        settings.windEnabled=false; settings.foliageNormalBlend=0;
         TreeRenderGpu gpu; require(gpu.initialize({prototype},settings),gpu.error());
         GLuint pool=0,foreign=0; glCreateBuffers(1,&pool); glCreateBuffers(1,&foreign);
         glNamedBufferData(foreign,4096,nullptr,GL_DYNAMIC_COPY);
@@ -394,6 +424,96 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         require(noFade==std::array<unsigned,3>{{2,0,0}} || noFade==std::array<unsigned,3>{{0,2,0}},
             "Transition-disabled shader emitted two LODs");
         gpu.shutdown(); settings.transitionFraction=.15f;
+        // Existing bakes: canopy normals change only normals, never geometry,
+        // coverage, colors or wood shading. Both adjacent geometric LODs work.
+        positions.assign(512,position); glNamedBufferSubData(pool,0,positions.size()*sizeof(position),positions.data());
+        blocks={block}; blocks[0].allocationRevision=9100;
+        view=viewAt(centre,radius*4);
+        require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
+        draw(gpu,target,0,view.clip); target.captureLighting("canopy_before");
+        const auto originalColors=target.colorsRead(); const auto originalNormals=target.normalsRead(),originalDepth=target.depthRead();
+        std::vector<unsigned char> originalPbr(Target::Size*Target::Size*3);
+        glGetTextureImage(target.colors[3],0,GL_RGB,GL_UNSIGNED_BYTE,originalPbr.size(),originalPbr.data());
+        std::vector<Ge::ShadowCasterBounds> originalBounds; gpu.appendBounds(originalBounds);
+        view.projectionScale=.065f*glm::length(view.camera-centre)/radius;
+        gpu.prepare(pool,blocks,1,view); draw(gpu,target,0,view.clip);
+        const auto transitionColors=target.colorsRead(); const auto transitionNormals=target.normalsRead(),transitionDepth=target.depthRead();
+        gpu.shutdown(); settings.foliageNormalBlend=.8f;
+        view=viewAt(centre,radius*4);
+        require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
+        draw(gpu,target,0,view.clip); target.checkGBuffer("canopy"); target.captureLighting("canopy_after");
+        const auto roundedNormals=target.normalsRead(); unsigned changedLeaves=0,unchangedWood=0;
+        require(target.colorsRead()==originalColors && target.depthRead()==originalDepth,"Canopy normals modified geometry/albedo");
+        for(unsigned pixel=0;pixel<originalColors.size()/4;++pixel) if(originalColors[pixel*4+3])
+        {
+            const float d=glm::length(glm::vec3(roundedNormals[pixel*3]-originalNormals[pixel*3],
+                roundedNormals[pixel*3+1]-originalNormals[pixel*3+1],roundedNormals[pixel*3+2]-originalNormals[pixel*3+2]));
+            if(originalPbr[pixel*3+1]>220) { require(d<1e-5f,"Canopy correction changed wood normals"); ++unchangedWood; }
+            else if(d>.05f) ++changedLeaves;
+        }
+        require(changedLeaves>100 && unchangedWood>10,"Canopy normal correction was not exercised");
+        gpu.shutdown(); settings.windEnabled=true; settings.windStrength=.05f; settings.windScale=8;
+        require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
+        draw(gpu,target,0,view.clip); target.checkGBuffer("wind0"); const auto windDepth0=target.depthRead();
+        draw(gpu,target,21,light); const auto windShadow0=target.depthRead();
+        const auto movingToken=gpu.shadowContentRevision(21,light),emptyWindToken=gpu.shadowContentRevision(22,emptyClip);
+        const auto windStats=gpu.stats();
+        view.timeSeconds=9; gpu.prepare(pool,blocks,1,view); draw(gpu,target,0,view.clip); target.checkGBuffer("wind9");
+        require(target.depthRead()!=windDepth0,"Wind did not animate the rendered tree");
+        draw(gpu,target,21,light);
+        require(target.depthRead()!=windShadow0 && gpu.shadowContentRevision(21,light)!=movingToken,"Wind left a frozen shadow");
+        require(gpu.shadowContentRevision(22,emptyClip)==emptyWindToken,"Wind invalidated an empty shadow layer");
+        require(gpu.stats().transformBuilds==windStats.transformBuilds && gpu.stats().cullDispatches==windStats.cullDispatches &&
+            gpu.stats().selectionUploads==windStats.selectionUploads && gpu.stats().revision==windStats.revision,
+            "Animation rebuilt static transforms/visibility/publication");
+        const auto heldToken=gpu.shadowContentRevision(21,light);
+        gpu.prepare(pool,blocks,1,view);
+        require(gpu.shadowContentRevision(21,light)==heldToken,"Unchanged animation phase invalidated shadow cache");
+        std::vector<Ge::ShadowCasterBounds> sweptBounds; gpu.appendBounds(sweptBounds);
+        require(sweptBounds.size()==1 && glm::all(glm::lessThan(sweptBounds[0].minimum,originalBounds[0].minimum)) &&
+            glm::all(glm::greaterThan(sweptBounds[0].maximum,originalBounds[0].maximum)),"Wind caster bounds exclude swept geometry");
+        // Same main-camera fades and same deformation in color and shadow;
+        // exclude wood here because the engine deliberately culls opposite faces.
+        foliageOnly=true; draw(gpu,target,0,view.clip); const auto leafDepth=target.depthRead();
+        draw(gpu,target,23,view.clip); require(target.depthRead()==leafDepth,"Wind geometry differs between color and shadow passes");
+        foliageOnly=false;
+        view.projectionScale=.065f*glm::length(view.camera-centre)/radius;
+        gpu.prepare(pool,blocks,1,view); draw(gpu,target,0,view.clip);
+        const auto fadedNormals=target.normalsRead(),fadedDepth=target.depthRead();
+        float normalError=0,depthError=0;
+        for(unsigned i=0;i<fadedNormals.size();++i) normalError=std::max(normalError,std::abs(fadedNormals[i]-transitionNormals[i]));
+        for(unsigned i=0;i<fadedDepth.size();++i) depthError=std::max(depthError,std::abs(fadedDepth[i]-transitionDepth[i]));
+        require(target.colorsRead()==transitionColors && depthError<1e-7f && normalError<.002f,
+            "Wind/canopy correction was not fully faded before the baked-impostor transition; normal="+std::to_string(normalError)+
+            " depth="+std::to_string(depthError)+" colorEqual="+std::to_string(target.colorsRead()==transitionColors));
+        std::cout<<"Impostor transition: max normal error "<<normalError<<", max depth error "<<depthError<<'\n';
+        view.projectionScale=.12f*glm::length(view.camera-centre)/radius;
+        gpu.prepare(pool,blocks,1,view); draw(gpu,target,0,view.clip); target.checkGBuffer("wind_lod1");
+        require(lodCounts()==std::array<unsigned,3>{{0,2,0}},"Animated LOD1 was not exercised");
+        const auto lod1WindDepth=target.depthRead(); view.timeSeconds+=5;
+        gpu.prepare(pool,blocks,1,view); draw(gpu,target,0,view.clip);
+        require(target.depthRead()!=lod1WindDepth,"LOD1 wind stopped prematurely");
+        view.orthographic=true; view.projectionScale=.01f/radius;
+        gpu.prepare(pool,blocks,1,view); const auto impostorOnlyToken=gpu.shadowContentRevision(21,light);
+        view.timeSeconds+=3; gpu.prepare(pool,blocks,1,view);
+        require(gpu.shadowContentRevision(21,light)==impostorOnlyToken,"Impostor-only layer invalidated by wind");
+        view=viewAt(centre,settings.windDistance+2*radius+2*block.extent);
+        gpu.prepare(pool,blocks,1,view); const auto farWindToken=gpu.shadowContentRevision(21,light);
+        view.timeSeconds+=3; gpu.prepare(pool,blocks,1,view);
+        require(gpu.shadowContentRevision(21,light)==farWindToken,"Distant static trees still invalidate shadows for wind");
+        gpu.shutdown(); settings.windEnabled=false; settings.foliageNormalBlend=0;
+        // Production deformation function: anchored roots, quadratic height,
+        // scale-aware bounded displacement and inverse-transpose normals.
+        const auto probe=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,(std::filesystem::path(root)/"Tests/Trees/deformation_probe.C.glsl").string(),{}}},error);
+        require(probe!=0,error); GLuint probeBuffer=0; glCreateBuffers(1,&probeBuffer);
+        glNamedBufferData(probeBuffer,6*sizeof(glm::vec4),nullptr,GL_DYNAMIC_READ);
+        glUseProgram(probe); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,probeBuffer); glDispatchCompute(1,1,1);
+        glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT); std::array<glm::vec4,6> results{};
+        glGetNamedBufferSubData(probeBuffer,0,sizeof(results),results.data());
+        require(glm::length(glm::vec3(results[0]))<1e-6f && glm::length(glm::vec3(results[3]))<1e-6f,"Wind moved roots/below-ground vertices");
+        require(std::abs(results[1].x-1)<1e-5f && std::abs(results[2].x-4)<1e-5f,"Wind height/scale envelope is incorrect");
+        require(std::abs(glm::dot(glm::vec3(results[4]),glm::vec3(results[5])))<.001f,"Wind normal is not perpendicular to the bent surface");
+        glUseProgram(0); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,0); glDeleteBuffers(1,&probeBuffer); glDeleteProgram(probe);
         // Old bakes without LOD3 retain the simplified mesh; bad assets fail once.
         auto small=generate(preset(Family::Broadleaf)); const auto fallback=std::filesystem::path(temporary)/"no-impostor";
         require(bake(small,fallback,error),error); prototype.asset=fallback.string();
@@ -410,7 +530,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         gpu.shutdown();
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0); glPixelStorei(GL_UNPACK_ROW_LENGTH,0); glPixelStorei(GL_UNPACK_SKIP_ROWS,0);
         glDeleteBuffers(1,&pool); glDeleteBuffers(1,&foreign); clean("shutdown");
-        std::cout<<"Tree runtime: real bake, LOD0/1/3, fades, GPU commands, stable transforms, full pages, scale LOD, 17-view selection, G-buffer, shadows, state, cache eviction, budgets and fallback OK\n";
+        std::cout<<"Tree runtime: real bake, LOD0/1/3, fades, GPU commands, stable transforms, full pages, scale LOD, 17-view selection, G-buffer, canopy normals, wind/root anchoring, animated shadows, state, cache eviction, budgets and fallback OK\n";
         return 0;
     }
     catch(const std::exception& e) { std::cerr<<"Tree runtime: "<<e.what()<<'\n'; return 1; }

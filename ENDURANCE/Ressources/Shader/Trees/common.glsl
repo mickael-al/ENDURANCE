@@ -11,6 +11,8 @@ struct TreeModel
     uvec4 counts; // LOD0 wood/leaf, LOD1 wood/leaf
     uvec4 firstIndices;
     ivec4 baseVertices;
+    vec4 crown; // Foliage centre, positive local tree height.
+    vec4 crownShape; // Inverse foliage extents, maximum local wind displacement.
 };
 struct TreeInstance { vec4 positionScale; vec2 rotation; uint hash; uint model; };
 layout(std430,binding=5) readonly buffer TreeBlocks { TreeBlock blocks[]; };

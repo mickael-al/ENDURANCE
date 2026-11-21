@@ -31,11 +31,12 @@ struct ModelData
     glm::vec4 centreRadius,scales,impostorCentre;
     glm::uvec4 counts,firstIndices;
     glm::ivec4 baseVertices;
+    glm::vec4 crown,crownShape;
 };
-static_assert(sizeof(BlockGpu)==48 && sizeof(ModelData)==96,"std430 tree layout");
+static_assert(sizeof(BlockGpu)==48 && sizeof(ModelData)==128,"std430 tree layout");
 constexpr unsigned InstanceBytes=32,CommandBytes=20,VisibleBytes=8;
-// Wind is disabled at runtime; keep the authored position/normal/color exactly
-// while omitting the unused vec4 from vertex fetches and VRAM.
+constexpr unsigned WindNoiseSize=128;
+// Wind derives its weight from local Y; no extra per-vertex/instance attribute.
 struct DrawVertex { glm::vec3 position,normal; glm::vec2 uv; glm::vec4 color; };
 struct DrawMesh { std::vector<DrawVertex> vertices; std::vector<std::uint32_t> indices; };
 static_assert(sizeof(DrawVertex)==48,"Runtime tree vertex layout");
@@ -50,15 +51,15 @@ struct State
 {
     GLint program=0,vao=0,storage=0,indirect=0,active=0,cullMode=0;
     bool culling=false,graphics=false;
-    unsigned textureUnits=0;
+    std::array<bool,4> textureUsed{};
     static constexpr std::array<GLuint,6> indices{{1,2,4,5,6,7}};
     std::array<bool,6> used{};
     std::array<GLint,6> buffers{}; std::array<GLint64,6> starts{},sizes{};
-    std::array<GLint,3> textures{},samplers{};
+    std::array<GLint,4> textures{},samplers{};
     // Build touches only compute bindings; cached draws only three SSBO slots.
     // Culling and drawing together touch all six. Preserve every changed state
     // without querying/restoring unrelated targets, including SSBO zero.
-    explicit State(bool draw=false,bool cull=false,bool normals=true):graphics(draw),textureUnits(normals?3:2)
+    explicit State(bool draw=false,bool cull=false,bool normals=true,bool wind=false):graphics(draw),textureUsed{{true,true,normals,wind}}
     {
         glGetIntegerv(GL_CURRENT_PROGRAM,&program); glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING,&storage);
         for(unsigned i=0;i<indices.size();++i)
@@ -74,10 +75,10 @@ struct State
         glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao); glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING,&indirect);
         glGetIntegerv(GL_ACTIVE_TEXTURE,&active); glGetIntegerv(GL_CULL_FACE_MODE,&cullMode);
         culling=glIsEnabled(GL_CULL_FACE)==GL_TRUE;
-        for(unsigned i=0;i<textureUnits;++i)
+        for(unsigned i=0;i<textureUsed.size();++i) if(textureUsed[i])
         {
             glActiveTexture(GL_TEXTURE0+i);
-            glGetIntegerv(i?GL_TEXTURE_BINDING_2D_ARRAY:GL_TEXTURE_BINDING_2D,&textures[i]);
+            glGetIntegerv(i==1 || i==2?GL_TEXTURE_BINDING_2D_ARRAY:GL_TEXTURE_BINDING_2D,&textures[i]);
             glGetIntegeri_v(GL_SAMPLER_BINDING,i,&samplers[i]);
         }
     }
@@ -90,9 +91,9 @@ struct State
         glBindBuffer(GL_SHADER_STORAGE_BUFFER,storage); glUseProgram(program);
         if(!graphics) return;
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER,indirect);
-        for(unsigned i=0;i<textureUnits;++i)
+        for(unsigned i=0;i<textureUsed.size();++i) if(textureUsed[i])
         {
-            glActiveTexture(GL_TEXTURE0+i); glBindTexture(i?GL_TEXTURE_2D_ARRAY:GL_TEXTURE_2D,textures[i]);
+            glActiveTexture(GL_TEXTURE0+i); glBindTexture(i==1 || i==2?GL_TEXTURE_2D_ARRAY:GL_TEXTURE_2D,textures[i]);
             glBindSampler(i,samplers[i]);
         }
         glActiveTexture(active); glBindVertexArray(vao);
@@ -167,6 +168,7 @@ using Mips=std::vector<Image>;
 struct Asset
 {
     Tree tree; std::vector<ImpostorView> views;
+    glm::vec3 crownCentre{0},crownInverseExtent{1};
     Mips bark,leaf; std::array<Mips,2> impostors;
     // Both geometric LODs share one draw buffer per material. Commands retain
     // their original index counts, with offsets instead of rebaked indices.
@@ -187,6 +189,17 @@ Asset loadAsset(const std::string& path)
     try
     {
         if(!loadBakedTree(path,asset.tree,asset.error,&asset.views)) return asset;
+        // Reuse existing bakes. Compute the macro canopy once, before releasing
+        // source meshes; both geometric LODs use this identical reference frame.
+        const auto& foliage=asset.tree.lods[0].foliage.vertices;
+        glm::vec3 lo=asset.tree.boundsMin,hi=asset.tree.boundsMax;
+        if(!foliage.empty())
+        {
+            lo=hi=foliage.front().position;
+            for(const auto& v:foliage) { lo=glm::min(lo,v.position); hi=glm::max(hi,v.position); }
+        }
+        asset.crownCentre=(lo+hi)*0.5f;
+        asset.crownInverseExtent=1.0f/glm::max((hi-lo)*0.5f,glm::vec3(0.01f));
         asset.tree.branches.clear();
         asset.bark=coverageMipmaps(asset.tree.barkTexture); asset.leaf=coverageMipmaps(asset.tree.leafMask);
         const auto addBytes=[&](const Mips& mips){ for(const auto& mip:mips) asset.bytes+=mip.rgba.size(); };
@@ -299,10 +312,13 @@ struct Program
 {
     GLuint id=0;
     GLint clip=-1,view=-1,eye=-1,gamma=-1;
+    GLint effectCamera=-1,effectLod=-1,wind=-1,windDirection=-1;
     void discover()
     {
         clip=glGetUniformLocation(id,"uClip"); view=glGetUniformLocation(id,"uView"); eye=glGetUniformLocation(id,"uEye");
         gamma=glGetUniformLocation(id,"uGamma");
+        effectCamera=glGetUniformLocation(id,"uEffectCamera"); effectLod=glGetUniformLocation(id,"uEffectLod");
+        wind=glGetUniformLocation(id,"uWind"); windDirection=glGetUniformLocation(id,"uWindDirection");
     }
 };
 struct Group { unsigned model=0,first=0,count=0; };
@@ -337,6 +353,8 @@ struct Pass
     std::vector<Content> content,pendingContent;
     RenderView contentView;
     std::uint64_t contentSerial=0,contentToken=0;
+    bool animated=false;
+    glm::vec2 contentWindPhase{0};
     void clear() { selection.clear(); commands.clear(); visible.clear(); groups.clear(); blocks.clear();
         scratchBlocks.clear(); scratchGroups.clear(); content.clear(); pendingContent.clear(); selected=valid=false; }
 };
@@ -369,6 +387,9 @@ struct TreeRenderGpu::Impl
     unsigned transformPageEnd=0;
     MeshGpu quad;
     GLuint build=0,sourceBuffer=0;
+    GLuint windNoise=0;
+    bool windActive=false;
+    glm::vec2 windPhase{0},windDirection{0};
     // Three material kinds; only impostors need a parallel-view variant.
     std::array<Program,4> opaque,shadow; // wood / foliage / perspective impostor / parallel impostor
     struct CullProgram { GLuint id=0; GLint planes=-1,cam=-1,lod=-1,projection=-1; };
@@ -442,7 +463,9 @@ struct TreeRenderGpu::Impl
                     const auto centre=(asset.tree.boundsMin+asset.tree.boundsMax)*0.5f;
                     const float radius=glm::length(asset.tree.boundsMax-centre);
                     d.centreRadius=glm::vec4(centre,radius);
-                    model.radius=glm::length(glm::max(glm::abs(asset.tree.boundsMin),glm::abs(asset.tree.boundsMax)))*prototypes[loadingID].maximumScale+2.0f;
+                    d.crown=glm::vec4(asset.crownCentre,std::max(asset.tree.boundsMax.y,0.001f));
+                    d.crownShape=glm::vec4(asset.crownInverseExtent,windActive?d.crown.w*settings.windStrength:0.0f);
+                    model.radius=(glm::length(glm::max(glm::abs(asset.tree.boundsMin),glm::abs(asset.tree.boundsMax)))+d.crownShape.w)*prototypes[loadingID].maximumScale+2.0f;
                     if(!asset.views.empty())
                     { d.scales.z=asset.views[0].halfExtent; d.scales.w=1; d.impostorCentre=glm::vec4(asset.views[0].centre,0); }
                     d.counts=asset.counts; d.firstIndices=asset.firstIndices; d.baseVertices=asset.baseVertices;
@@ -583,6 +606,17 @@ struct TreeRenderGpu::Impl
             if(!equal) { pass.groups.swap(groups); pass.uploadSelection=true; }
         }
         pass.clip=clip; pass.view=camera; pass.revision=statistics.revision; pass.selected=true;
+        pass.animated=false;
+        if(windActive) for(unsigned index:pass.blocks)
+        {
+            const auto& b=sources[index];
+            const auto& model=data[b.prototype];
+            const double nearest=std::sqrt(distance2(b,models[b.prototype].radius,camera.camera));
+            const double projected=model.centreRadius.w*double(model.scales.y)*camera.projectionScale/
+                (camera.orthographic?1.0:std::max(nearest,0.01));
+            if(nearest<settings.windDistance && (model.scales.w<0.5f || projected>settings.impostorCoverage*(1+settings.transitionFraction)))
+            { pass.animated=true; break; }
+        }
         ++pass.selectionSerial;
         if(pass.blocks.empty()) { pass.valid=true; pass.gpuFailed=false; }
     }
@@ -592,7 +626,13 @@ struct TreeRenderGpu::Impl
         // A failed draw must not leave an empty shadow cached under a valid
         // content token. Zero requests a conservative retry on the next frame.
         if(pass.gpuFailed) return 0;
-        if(pass.contentToken && pass.contentSerial==pass.selectionSerial) return pass.contentToken;
+        const bool animationChanged=pass.animated && pass.contentWindPhase!=windPhase;
+        if(pass.contentToken && pass.contentSerial==pass.selectionSerial)
+        {
+            if(animationChanged) pass.contentToken=Ge::nextShadowCasterBoundsRevision();
+            pass.contentWindPhase=windPhase;
+            return pass.contentToken;
+        }
         pass.pendingContent.clear(); pass.pendingContent.reserve(pass.blocks.size());
         for(unsigned i:pass.blocks)
         {
@@ -601,12 +641,13 @@ struct TreeRenderGpu::Impl
         }
         const bool lodChanged=!pass.blocks.empty() && (pass.contentView.camera!=camera.camera ||
             pass.contentView.projectionScale!=camera.projectionScale || pass.contentView.orthographic!=camera.orthographic);
-        if(!pass.contentToken || lodChanged || pass.content!=pass.pendingContent)
+        if(!pass.contentToken || lodChanged || animationChanged || pass.content!=pass.pendingContent)
         {
             pass.content.swap(pass.pendingContent);
             pass.contentToken=Ge::nextShadowCasterBoundsRevision();
         }
         pass.contentView=camera; pass.contentSerial=pass.selectionSerial;
+        pass.contentWindPhase=windPhase;
         return pass.contentToken;
     }
     void cache(Pass& pass)
@@ -660,7 +701,7 @@ struct TreeRenderGpu::Impl
     }
     void memory()
     {
-        statistics.workingBytes=blocks.capacity+updates.capacity+instances.capacity+modelBuffer.capacity;
+        statistics.workingBytes=blocks.capacity+updates.capacity+instances.capacity+modelBuffer.capacity+(windNoise?WindNoiseSize*WindNoiseSize:0);
         for(const auto& entry:passes) statistics.workingBytes+=entry.second.selection.capacity+entry.second.commands.capacity+entry.second.visible.capacity;
     }
 };
@@ -670,12 +711,16 @@ TreeRenderGpu::~TreeRenderGpu() { shutdown(); }
 bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectPrototype>& prototypes,const RenderSettings& settings)
 {
     shutdown(); auto& s=*m; s.failure.clear(); s.settings=settings; s.prototypes=prototypes;
-    const float values[]={settings.lod0Coverage,settings.impostorCoverage,settings.transitionFraction,settings.maximumDistance};
+    const float values[]={settings.lod0Coverage,settings.impostorCoverage,settings.transitionFraction,settings.maximumDistance,
+        settings.foliageNormalBlend,settings.windStrength,settings.windScale,settings.windDistance,settings.windSpeed.x,settings.windSpeed.y};
     for(float v:values) if(!finiteFieldValue(v)) { s.failure="Non-finite tree rendering setting"; return false; }
     if(prototypes.empty() || prototypes.size()>255 || settings.maximumDistance<=0 || settings.impostorCoverage<=0 ||
         settings.lod0Coverage*(1-settings.transitionFraction)<=settings.impostorCoverage*(1+settings.transitionFraction) ||
         settings.transitionFraction<0 || settings.transitionFraction>0.4f || !settings.modelBudgetMiB || settings.modelBudgetMiB>4096 ||
-        !settings.maximumResidentModels || settings.maximumResidentModels>255)
+        !settings.maximumResidentModels || settings.maximumResidentModels>255 ||
+        settings.foliageNormalBlend<0 || settings.foliageNormalBlend>1 || settings.windStrength<0 || settings.windStrength>0.1f ||
+        settings.windScale<0.1f || settings.windScale>10000 || settings.windDistance<=0 || settings.windDistance>100000 ||
+        std::abs(settings.windSpeed.x)>10000 || std::abs(settings.windSpeed.y)>10000)
     { s.failure="Invalid tree render settings"; return false; }
     for(const auto& prototype:prototypes)
         if(prototype.asset.empty() || !finiteFieldValue(prototype.minimumScale) || !finiteFieldValue(prototype.maximumScale) ||
@@ -683,6 +728,8 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
             prototype.maximumScale<prototype.minimumScale || prototype.boundingRadius<0)
         { s.failure="Invalid tree model settings"; return false; }
     State state;
+    s.windActive=settings.windEnabled && settings.windStrength>0 && glm::dot(settings.windSpeed,settings.windSpeed)>0;
+    s.windDirection=s.windActive?glm::normalize(settings.windSpeed):glm::vec2(0);
     GLint64 storageLimit=0; glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&storageLimit);
     s.storageLimit=static_cast<std::uint64_t>(std::max<GLint64>(0,storageLimit));
     const auto path=[&](const char* name){return settings.shaderDirectory+"/"+name;};
@@ -704,7 +751,9 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
         const std::string define=std::string(i?"#define TREE_SHADOW 1\n":"#define TREE_SHADOW 0\n")+
             (kind>=2?"#define TREE_IMPOSTOR 1\n":"#define TREE_IMPOSTOR 0\n")+
             (kind==1?"#define TREE_FOLIAGE 1\n":"#define TREE_FOLIAGE 0\n")+
-            (kind==3?"#define TREE_PARALLEL 1\n":"#define TREE_PARALLEL 0\n");
+            (kind==3?"#define TREE_PARALLEL 1\n":"#define TREE_PARALLEL 0\n")+
+            (kind<2 && s.windActive?"#define TREE_WIND 1\n":"#define TREE_WIND 0\n")+
+            (kind==1 && !i && settings.foliageNormalBlend>0?"#define TREE_CROWN_NORMALS 1\n":"#define TREE_CROWN_NORMALS 0\n");
         p.id=Ge::buildShaderProgram({{GL_VERTEX_SHADER,path("render.vs.glsl"),define},{GL_FRAGMENT_SHADER,path("render.fs.glsl"),define}},s.failure,i?"Tree shadows":"Tree G-buffer",{true,{}});
         if(!p.id) { shutdown(); return false; }
         p.discover();
@@ -716,12 +765,30 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
     quad.vertices[0].position={-1,-1,0}; quad.vertices[1].position={1,-1,0}; quad.vertices[2].position={1,1,0}; quad.vertices[3].position={-1,1,0};
     quad.indices={0,1,2,0,2,3};
     if(!s.quad.upload(packMesh(quad)) || s.modelBuffer.capacity!=s.data.size()*sizeof(ModelData)) { s.failure="Cannot initialize tree renderer buffers"; shutdown(); return false; }
+    if(s.windActive)
+    {
+        // One cached, periodic value-noise lattice (16 KiB). Nearby vertices of
+        // an instance sample the same texel; no procedural hash per vertex.
+        std::array<std::uint8_t,WindNoiseSize*WindNoiseSize> noise{};
+        for(unsigned i=0;i<noise.size();++i)
+        { unsigned x=i+0x724ba349u; x^=x>>16; x*=0x7feb352du; x^=x>>15; x*=0x846ca68bu; noise[i]=static_cast<std::uint8_t>((x^(x>>16))>>24); }
+        UnpackState unpack;
+        glCreateTextures(GL_TEXTURE_2D,1,&s.windNoise); glTextureStorage2D(s.windNoise,1,GL_R8,WindNoiseSize,WindNoiseSize);
+        glTextureSubImage2D(s.windNoise,0,0,0,WindNoiseSize,WindNoiseSize,GL_RED,GL_UNSIGNED_BYTE,noise.data());
+        glTextureParameteri(s.windNoise,GL_TEXTURE_MIN_FILTER,GL_LINEAR); glTextureParameteri(s.windNoise,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
+        glTextureParameteri(s.windNoise,GL_TEXTURE_WRAP_S,GL_REPEAT); glTextureParameteri(s.windNoise,GL_TEXTURE_WRAP_T,GL_REPEAT);
+        GLint width=0; glGetTextureLevelParameteriv(s.windNoise,0,GL_TEXTURE_WIDTH,&width);
+        if(width!=WindNoiseSize) { s.failure="Cannot initialize tree wind noise"; shutdown(); return false; }
+    }
     s.initialized=true; return true;
 }
 void TreeRenderGpu::prepare(unsigned buffer,const std::vector<ProceduralTerrain::ObjectBlock>& blocks,std::uint64_t revision,const RenderView& view)
 {
     auto& s=*m; if(!s.initialized) return;
     s.camera=view;
+    // Wrap in double precision before uploading, including for long sessions.
+    if(s.windActive && finiteFieldValue(static_cast<float>(view.timeSeconds))) for(unsigned axis=0;axis<2;++axis)
+        s.windPhase[axis]=static_cast<float>(std::fmod(view.timeSeconds*(double(s.settings.windSpeed[axis])/(WindNoiseSize*s.settings.windScale)),1.0));
     bool changed=!s.haveSource || s.sourceBuffer!=buffer || s.sourceRevision!=revision;
     // A publisher revision is a notification, not necessarily changed content.
     // Exact immutable-page identity permits reusing the complete command cache.
@@ -746,7 +813,7 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
     if(passID==0) s.statistics.cameraBlocks=static_cast<unsigned>(pass.blocks.size());
     else s.statistics.shadowBlocks+=static_cast<unsigned>(pass.blocks.size());
     if(pass.blocks.empty()) return;
-    State state(true,!pass.valid,passID==0); s.cache(pass);
+    State state(true,!pass.valid,passID==0,s.windActive); s.cache(pass);
     if(!pass.valid) return;
     bool parallel=false; glm::vec3 eye=s.camera.camera;
     if(passID || s.camera.orthographic)
@@ -764,6 +831,7 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,s.instances.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,s.modelBuffer.id);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,pass.visible.id); glBindBuffer(GL_DRAW_INDIRECT_BUFFER,pass.commands.id);
     for(unsigned i=0;i<(passID?2u:3u);++i) glBindSampler(i,0);
+    if(s.windActive) { glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D,s.windNoise); glBindSampler(3,0); }
     GLuint program=0;
     for(unsigned kind=0;kind<3;++kind)
     {
@@ -776,6 +844,11 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
             if(p.view>=0) glUniformMatrix4fv(p.view,1,GL_FALSE,glm::value_ptr(s.camera.view));
             if(p.gamma>=0) glUniform1f(p.gamma,s.camera.albedoGamma);
             if(p.eye>=0) glUniform3fv(p.eye,1,glm::value_ptr(eye));
+            if(p.effectCamera>=0) glUniform4f(p.effectCamera,s.camera.camera.x,s.camera.camera.y,s.camera.camera.z,s.camera.projectionScale);
+            if(p.effectLod>=0) glUniform4f(p.effectLod,s.settings.impostorCoverage*(1+s.settings.transitionFraction),
+                s.camera.orthographic?1.0f:0.0f,s.settings.windDistance,s.settings.foliageNormalBlend);
+            if(p.wind>=0) glUniform4f(p.wind,s.windPhase.x,s.windPhase.y,1.0f/(WindNoiseSize*s.settings.windScale),0);
+            if(p.windDirection>=0) glUniform2fv(p.windDirection,1,glm::value_ptr(s.windDirection));
         }
         if(billboard || foliage) glDisable(GL_CULL_FACE);
         else { glEnable(GL_CULL_FACE); glCullFace(passID?GL_FRONT:GL_BACK); }
@@ -822,6 +895,8 @@ void TreeRenderGpu::shutdown() noexcept
     s.blocks.clear(); s.updates.clear(); s.instances.clear(); s.modelBuffer.clear(); s.quad.clear();
     for(auto* programs:{&s.opaque,&s.shadow}) for(auto& p:*programs) { if(p.id) glDeleteProgram(p.id); p.id=0; }
     if(s.build) glDeleteProgram(s.build);
+    if(s.windNoise) glDeleteTextures(1,&s.windNoise);
+    s.windNoise=0; s.windActive=false; s.windPhase={};
     for(auto& p:s.cull) { if(p.id) glDeleteProgram(p.id); p={}; }
     s.build=0; s.sources.clear(); s.sourceOrder.clear(); s.candidates.clear(); s.candidateRevision=0; s.wanted.clear();
     s.transformPages.clear(); s.freeTransformPages.clear(); s.transformPageEnd=0;
