@@ -47,7 +47,7 @@ namespace Ge
         float ozoneCenterHeight=25000.0f;
         float ozoneHalfWidth=15000.0f;
         glm::vec3 groundAlbedo{0.15f};
-        float sunAngularRadius=0.266f; // degrees (half of the apparent diameter)
+        float sunAngularRadius=0.798f; // degrees; 3x apparent radius, independent of illuminance
         glm::vec3 sunDiskColor{1.0f,0.96f,0.88f};
         float sunDiskIntensity=25.0f;
         float sunIlluminanceScale=12.0f;
