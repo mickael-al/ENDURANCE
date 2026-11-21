@@ -2,8 +2,9 @@
 
 The tree lab is an offline authoring scene. It generates reusable tree assets;
 opening an ordinary terrain scene does not initialize it, run its generator, or
-add a vegetation pass. Forest placement and runtime tree instancing are a
-separate integration step.
+add a vegetation pass. The first terrain object-placement stage is documented
+in [object-placement.md](object-placement.md); runtime tree instancing remains
+a subsequent integration step.
 
 ## Authoring
 
@@ -49,7 +50,8 @@ remains usable independently of changes to the generator.
 The fourteen editable starter files are included in
 `ENDURANCE/Ressources/Trees/Presets/`.
 They were written through the same serializer as the lab and checked by its
-loader. No generated mesh library is committed to the project.
+loader. The game-owned `Baked/` catalogue currently contains 102 user-exported
+variants in 17 groups; authoring does not automatically overwrite that library.
 
 Roots are optional curves attached around the trunk base, tapering outward along
 the ground. Their count, length and starting radius are independent controls.

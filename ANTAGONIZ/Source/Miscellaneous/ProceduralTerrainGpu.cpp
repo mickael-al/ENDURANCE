@@ -13,6 +13,7 @@
 #include <map>
 #include <numeric>
 #include <utility>
+#include "ProceduralTerrainObjects.inl"
 
 namespace ProceduralTerrain
 {
@@ -47,6 +48,7 @@ namespace ProceduralTerrain
             GLint cells=-1, origin=-1, lod=-1, spacing=-1, seed=-1, mask=-1, parity=-1;
             GLint vertexBase=-1, capacity=-1;
             GLint fieldStateIndex=-1;
+            GLint objectJob=-1;
             std::uint32_t cellCount=64;
             void discover()
             {
@@ -56,6 +58,7 @@ namespace ProceduralTerrain
                 parity=glGetUniformLocation(id,"uChunkParity");
                 vertexBase=glGetUniformLocation(id,"uVertexBase"); capacity=glGetUniformLocation(id,"uVertexCapacity");
                 fieldStateIndex=glGetUniformLocation(id,"uFieldStateIndex");
+                objectJob=glGetUniformLocation(id,"uObjectJobBase");
             }
             void field(const GpuConfig& config,std::uint32_t columnStride,std::uint32_t densityStride,std::uint32_t stateStride)
             {
@@ -100,7 +103,7 @@ namespace ProceduralTerrain
         enum ProgramIndex
         {
             ClassifyColumns, FinalizeColumns, PrepareVolume, BuildWorkLists, InitializeDensity,
-            CountRegular, CountTransition, EmitRegular, EmitTransition,
+            CountRegular, CountTransition, EmitRegular, EmitTransition, EmitObjects,
             SharedProgramCount, ReliefFirst=SharedProgramCount,
             VolumeFirst=ReliefFirst+BiomeCount, ProgramCount=VolumeFirst+BiomeCount
         };
@@ -151,6 +154,7 @@ namespace ProceduralTerrain
         GLuint fieldJobs=0, fieldWorkQueue=0;
         std::uint32_t densityStride=0, columnStride=0, stateStride=0, groupStride=0;
         FieldSlotCache columnCache, densityCache;
+        ObjectPlacementGpu objects;
         std::array<Timing,TimingCapacity> timings{};
         std::vector<Job> jobs;
         std::vector<Slot> slots;
@@ -459,12 +463,16 @@ namespace ProceduralTerrain
                 static_cast<GLintptr>(slot.first)*VertexBytes,
                 static_cast<GLsizeiptr>(slot.allocation)*VertexBytes);
             auto* timing=beginTiming(false);
-            regular(programs[EmitRegular],job);
+            const auto objectBase=objects.begin(job.fieldSlot,job.request);
+            auto& emitProgram=programs[objectBase?EmitObjects:EmitRegular];
+            if(objectBase) glProgramUniform1ui(emitProgram.id,emitProgram.objectJob,objectBase);
+            regular(emitProgram,job);
             if (job.request.transitionMask)
             {
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                 transition(programs[EmitTransition],job);
             }
+            objects.compactHits(job.fieldSlot);
             // poll() validates cursor/overflow before publishing a handle.
             // Draw lists use that validated handle; no GPU command-copy pass.
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|
@@ -540,17 +548,18 @@ namespace ProceduralTerrain
 
         const char* files[SharedProgramCount]={"field_batch_classify.C.glsl","field_batch_finalize.C.glsl",
             "field_batch_prepare.C.glsl","field_batch_jobs.C.glsl","field_batch_density.C.glsl","meshing.C.glsl",
-            "transition.C.glsl","meshing.C.glsl","transition.C.glsl"};
+            "transition.C.glsl","meshing.C.glsl","transition.C.glsl","meshing.C.glsl"};
         Ge::ShaderCacheOptions shaderCache;
         shaderCache.enabled=true;
         std::vector<Ge::ShaderProgramRequest> requests;
         requests.reserve(ProgramCount);
         for (unsigned i=0;i<SharedProgramCount;++i)
         {
-            const bool emitPass = i==EmitRegular || i==EmitTransition;
+            const bool emitPass = i==EmitRegular || i==EmitTransition || i==EmitObjects;
             std::string define=emitPass?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
-            if (i==CountRegular || i==CountTransition || i==EmitRegular || i==EmitTransition)
+            if (i==CountRegular || i==CountTransition || i==EmitRegular || i==EmitTransition || i==EmitObjects)
                 define+="#define TERRAIN_GROUP_COUNTS 1\n#define TERRAIN_FIELD_STATE 1\n";
+            if(i==EmitObjects && config.objects.enabled) define+="#define TERRAIN_OBJECTS 1\n";
             requests.push_back({{{GL_COMPUTE_SHADER,config.shaderDirectory+"/"+files[i],define}},
                 "Terrain "+std::string(files[i])+" EMIT_PASS="+(emitPass ? "1" : "0")});
         }
@@ -573,6 +582,7 @@ namespace ProceduralTerrain
             program.discover();
             program.field(config,s.columnStride,s.densityStride,s.stateStride);
         }
+        if(!s.objects.initialize(config,error)) { shutdown(); s.error=error; return false; }
         glCreateBuffers(1,&s.biomeCells);
         constexpr auto biomeCells=makeBiomeCellTable();
         glNamedBufferStorage(s.biomeCells,sizeof(biomeCells),biomeCells.data(),0);
@@ -644,6 +654,7 @@ namespace ProceduralTerrain
     void GpuMesher::shutdown() noexcept
     {
         auto& s=*m_impl;
+        s.objects.shutdown();
         for (auto& job:s.jobs)
         {
             if (job.fence) glDeleteSync(job.fence);
@@ -736,6 +747,7 @@ namespace ProceduralTerrain
     {
         auto& s=*m_impl;
         if (!s.initialized) return;
+        s.objects.poll();
         if (!s.broken) s.collectTimings();
         const auto failPending=[&]()
         {
@@ -791,6 +803,7 @@ namespace ProceduralTerrain
             if (!job.cancelled) completion.hasMarineSurface=job.mapped->hasMarineSurface!=0;
             if (job.cancelled)
             {
+                s.objects.complete(job.fieldSlot,false);
                 if (job.mesh.slot!=UINT32_MAX) s.freeSlot(job.mesh.slot);
                 completion.status=CompletionStatus::Cancelled;
             }
@@ -814,11 +827,13 @@ namespace ProceduralTerrain
             {
                 if (job.mapped->overflow!=0 || job.mapped->cursor!=job.mesh.vertexCount)
                 {
+                    s.objects.complete(job.fieldSlot,false);
                     completion.error="Terrain mesh emission exceeded its reserved allocation";
                     s.freeSlot(job.mesh.slot); ++s.statistics.failedJobs;
                 }
                 else
                 {
+                    s.objects.complete(job.fieldSlot,true);
                     completion.status=CompletionStatus::Ready; completion.mesh=job.mesh;
                     s.slots[job.mesh.slot].live=true;
                     ++s.statistics.residentChunks; s.statistics.residentVertices+=job.mesh.vertexCount;
@@ -908,6 +923,14 @@ namespace ProceduralTerrain
     unsigned int GpuMesher::vertexBuffer() const noexcept { return m_impl->vertices; }
     unsigned int GpuMesher::descriptorBuffer() const noexcept { return m_impl->descriptors; }
     unsigned int GpuMesher::vertexArray() const noexcept { return m_impl->vao; }
+    void GpuMesher::publishObjectCoverage(const std::vector<LodChunk>& chunks,std::uint32_t seed)
+    { m_impl->objects.publish(chunks,seed); }
+    void GpuMesher::discardUnpublishedObjects() { m_impl->objects.discardUnpublished(); }
+    void GpuMesher::trimObjectSectors(const glm::vec3& camera) { m_impl->objects.trim(camera); }
+    unsigned int GpuMesher::objectInstanceBuffer() const noexcept { return m_impl->objects.buffer(); }
+    const std::vector<ObjectBlock>& GpuMesher::objectBlocks() const noexcept { return m_impl->objects.blocks(); }
+    ObjectPlacementStats GpuMesher::objectStats() const noexcept { return m_impl->objects.stats(); }
+    const std::string& GpuMesher::objectError() const noexcept { return m_impl->objects.error(); }
     const GpuConfig& GpuMesher::config() const noexcept { return m_impl->config; }
     GpuStats GpuMesher::stats() const noexcept
     {

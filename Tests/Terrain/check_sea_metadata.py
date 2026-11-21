@@ -84,7 +84,7 @@ def main():
             'ShaderCompilation','ShaderBinaryCache','ShaderProgramBatch',
             'ParallelShaderCompiler','ComputeShader')]
         includes=['ANTAGONIZ/Header/'+part for part in (
-            'Struct','Miscellaneous','Rendering/Shader')]+['ThirdParty']
+            'Struct','Miscellaneous','Rendering/Shader')]+['ThirdParty','ThirdParty/glm']
         command=[os.environ.get('CXX','c++'),'-std=c++17','-O2','-ffast-math',
                  '-Wall','-Wextra','-fPIC','-shared','-DGLEW_NO_GLU']
         for include in includes:command+=['-I',str(ROOT/include)]

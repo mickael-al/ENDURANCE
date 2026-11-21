@@ -28,6 +28,7 @@ def main():
                    "-I", str(ROOT / "ANTAGONIZ/Header/Struct"),
                    "-I", str(ROOT / "ANTAGONIZ/Header/Miscellaneous"),
                    "-I", str(ROOT / "ANTAGONIZ/Header/Rendering/Shader"),
+                   "-I", str(ROOT / "ThirdParty/glm"),
                    "-I", str(ROOT / "ThirdParty"), str(ROOT / "Tests/Terrain/check_reload.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
                    str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp"),

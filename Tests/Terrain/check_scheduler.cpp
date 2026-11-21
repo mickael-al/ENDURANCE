@@ -73,6 +73,13 @@ void GpuMesher::drawMany(const std::vector<MeshHandle>& meshes,std::uint32_t){fo
 const GpuConfig& GpuMesher::config()const noexcept{return m_impl->config;}
 GpuStats GpuMesher::stats()const noexcept{return m_impl->stats;}
 const std::string& GpuMesher::lastError()const noexcept{return m_impl->error;}
+void GpuMesher::publishObjectCoverage(const std::vector<LodChunk>&,std::uint32_t){}
+void GpuMesher::discardUnpublishedObjects(){}
+void GpuMesher::trimObjectSectors(const glm::vec3&){}
+unsigned int GpuMesher::objectInstanceBuffer()const noexcept{return 0;}
+const std::vector<ObjectBlock>& GpuMesher::objectBlocks()const noexcept{static const std::vector<ObjectBlock> empty;return empty;}
+ObjectPlacementStats GpuMesher::objectStats()const noexcept{return {};}
+const std::string& GpuMesher::objectError()const noexcept{static const std::string empty;return empty;}
 struct CollisionCache::Impl {std::string error;};
 CollisionCache::CollisionCache():m_impl(new Impl){}CollisionCache::~CollisionCache()=default;
 bool CollisionCache::initialize(Ge::PhysicsWraper*,const CollisionConfig&){return true;}

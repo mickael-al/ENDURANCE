@@ -32,6 +32,7 @@ public:
         std::uint32_t maxResidentChunks = 2048;
         std::uint32_t maxSelectedChunks = 2048;
         ProceduralTerrain::FieldParameters field;
+        ProceduralTerrain::ObjectPlacementConfig objects;
         float microDetailStrength = 0.15f;
         float microDetailScale = 2.0f;
         // Game-owned recipes; the renderer only owns their GPU representation.
@@ -122,6 +123,10 @@ public:
     // terrain chunks. Borrowed until update()/shutdown(); no per-frame copy.
     const std::vector<ProceduralTerrain::SeaTile>& getSeaTiles() const noexcept;
     std::uint64_t getCoverageRevision() const noexcept;
+    unsigned int getObjectInstanceBuffer() const noexcept;
+    const std::vector<ProceduralTerrain::ObjectBlock>& getObjectBlocks() const noexcept;
+    ProceduralTerrain::ObjectPlacementStats getObjectPlacementStats() const noexcept;
+    const std::string& getObjectPlacementError() const noexcept;
 
     SceneData& getScene() noexcept { return m_scene; }
     const SceneData& getScene() const noexcept { return m_scene; }

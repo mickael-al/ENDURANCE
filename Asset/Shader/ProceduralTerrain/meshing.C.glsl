@@ -48,6 +48,10 @@ vec3 tileGradient(uint i)
 }
 #endif
 
+#if EMIT_PASS && TERRAIN_OBJECTS
+#include "objects_collect.glsl"
+#endif
+
 void main()
 {
     uint lane=gl_LocalInvocationIndex;
@@ -93,6 +97,11 @@ void main()
     if(lane==0u) outputBase=scan[127]>0u?atomicAdd(cursor,scan[127]):0u;
     barrier();
     uint first=outputBase+scan[lane]-count;
+#if TERRAIN_OBJECTS
+    // Sparse site tests share the existing density/column data. Transition
+    // stitching is deliberately excluded; it is not additional world surface.
+    if(count>0u) collectCellObjects(cell,caseIndex,count,values);
+#endif
     // Every output is owned by this lane; the three uint words never require
     // atomic bitfield updates and cannot race with a neighbouring vertex.
 #if TERRAIN_EDGE_REUSE

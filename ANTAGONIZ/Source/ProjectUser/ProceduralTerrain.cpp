@@ -3,6 +3,7 @@
 #include "ProceduralGeneration.hpp"
 #include "EnduranceTerrainMaterials.hpp"
 #include "EnduranceSea.hpp"
+#include "EnduranceObjectPlacement.hpp"
 #include "EnduranceTerrainMaterialMigration.hpp"
 #include "EnduranceTerrainMaterialPanel.hpp"
 #include "EnduranceTerrainMaterialSerialization.hpp"
@@ -24,7 +25,7 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     heightAmplitude, heightFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
     microDetailStrength, microDetailScale, appearance, terrainAppearanceRevision,
-    debugLod, collisionEnabled, collisionRadius);
+    debugLod, collisionEnabled, collisionRadius, objectPlacementEnabled, objectPlacementFile);
 
 ProceduralTerrainComponent::ProceduralTerrainComponent()
     : appearance(Endurance::makeTerrainAppearance()),
@@ -41,6 +42,7 @@ void ProceduralTerrainComponent::start()
     m_error.clear();
     m_materialError.clear();
     m_seaError.clear();
+    m_objectError.clear();
     m_pc = Ge::Engine::getPtrClassAddr();
     Ge::Editor* editor = Ge::Editor::instance();
     SceneData* scene = editor != nullptr ? editor->getCurrentSceneData() : nullptr;
@@ -79,6 +81,8 @@ void ProceduralTerrainComponent::start()
     config.debugLod = debugLod;
     config.collisionEnabled = collisionEnabled;
     config.collisionRadius = collisionRadius;
+    if(objectPlacementEnabled && !Endurance::loadObjectPlacement(objectPlacementFile,config.objects,m_objectError))
+        config.objects.enabled=false; // Catalogue failure must not disable terrain.
     try
     {
         m_generator = std::make_unique<ProceduralGeneration>(*scene, seed);
@@ -185,6 +189,25 @@ void ProceduralTerrainComponent::onGUI()
                 "Apres une erreur GLSL, corrigez le fichier et cliquez a nouveau.");
     }
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
+    if(ImGui::CollapsingHeader("Points d'apparition des objets"))
+    {
+        ImGui::Checkbox("Generer les points (apres regeneration)", &objectPlacementEnabled);
+        ImGui::TextWrapped("Etape 1 : positions GPU uniquement. Le rendu des modeles sera branche sur ces blocs.");
+        ImGui::TextWrapped("Catalogue : %s", objectPlacementFile.c_str());
+        if(!m_objectError.empty()) ImGui::TextWrapped("%s",m_objectError.c_str());
+        if(m_generator)
+        {
+            const auto objects=m_generator->getObjectPlacementStats();
+            ImGui::Text("%u points publies / %u blocs / %u secteurs",objects.instances,objects.blocks,objects.sectors);
+            ImGui::Text("Pools %.2f Mio / temporaire %.2f Mio",objects.poolBytes/1048576.0,objects.scratchBytes/1048576.0);
+            ImGui::Text("Collectes %llu / reutilisations %llu",static_cast<unsigned long long>(objects.captureJobs),
+                static_cast<unsigned long long>(objects.cachedJobs));
+            ImGui::Text("Budgets atteints : pool %llu / secteurs %llu",static_cast<unsigned long long>(objects.capacityFailures),
+                static_cast<unsigned long long>(objects.sectorFailures));
+            if(!m_generator->getObjectPlacementError().empty())
+                ImGui::TextWrapped("%s",m_generator->getObjectPlacementError().c_str());
+        }
+    }
     if (!m_seaError.empty()) ImGui::TextWrapped("Mer : %s", m_seaError.c_str());
     if (m_generator && m_sea)
     {

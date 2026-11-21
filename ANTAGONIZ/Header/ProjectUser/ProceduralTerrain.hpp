@@ -56,6 +56,8 @@ public:
     bool debugLod = false;
     bool collisionEnabled = true;
     float collisionRadius = 128.0f;
+    bool objectPlacementEnabled = true;
+    std::string objectPlacementFile = "../ENDURANCE/Ressources/Trees/object_placement.json";
 
 private:
     std::unique_ptr<ProceduralGeneration> m_generator;
@@ -64,6 +66,7 @@ private:
     std::string m_error;
     std::string m_materialError;
     std::string m_seaError;
+    std::string m_objectError;
     bool m_showSea = true;
     int m_materialBiome = 0;
 };

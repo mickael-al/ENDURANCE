@@ -266,6 +266,7 @@ struct ProceduralGeneration::Impl
         discardPlannerResult = planner && planner->busy();
         collisionDirty = true;
         discardUnused();
+        gpu.discardUnpublishedObjects();
     }
 };
 
@@ -317,6 +318,7 @@ bool ProceduralGeneration::initialize(const Config& config)
     gpuConfig.measureGenerationTimings = config.measureGenerationTimings;
     gpuConfig.shaderDirectory = config.shaderDirectory;
     gpuConfig.field = config.field;
+    gpuConfig.objects = config.objects;
     if (!impl->gpu.initialize(gpuConfig, m_lastError)) return false;
 
     const auto path = [&config](const char* name) { return config.shaderDirectory + "/" + name; };
@@ -534,6 +536,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     if (s.gpu.stats().pendingJobs) computeState.emplace();
     s.completions.clear();
     s.gpu.poll(s.completions);
+    s.gpu.trimObjectSectors(cameraPosition);
     bool failed = false;
     for (const auto& result : s.completions)
     {
@@ -649,6 +652,7 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         s.target.clear();
         s.collisionDirty = true;
         s.discardUnused();
+        s.gpu.publishObjectCoverage(s.visibleSelection,m_seed);
         return true;
     };
     const auto activatePrepared = [&]
@@ -919,4 +923,19 @@ const std::vector<ProceduralTerrain::SeaTile>& ProceduralGeneration::getSeaTiles
 std::uint64_t ProceduralGeneration::getCoverageRevision() const noexcept
 {
     return m_impl ? m_impl->visibleRevision : 0;
+}
+
+unsigned int ProceduralGeneration::getObjectInstanceBuffer() const noexcept
+{ return m_impl ? m_impl->gpu.objectInstanceBuffer() : 0; }
+const std::vector<ProceduralTerrain::ObjectBlock>& ProceduralGeneration::getObjectBlocks() const noexcept
+{
+    static const std::vector<ProceduralTerrain::ObjectBlock> empty;
+    return m_impl ? m_impl->gpu.objectBlocks() : empty;
+}
+ProceduralTerrain::ObjectPlacementStats ProceduralGeneration::getObjectPlacementStats() const noexcept
+{ return m_impl ? m_impl->gpu.objectStats() : ProceduralTerrain::ObjectPlacementStats{}; }
+const std::string& ProceduralGeneration::getObjectPlacementError() const noexcept
+{
+    static const std::string empty;
+    return m_impl ? m_impl->gpu.objectError() : empty;
 }

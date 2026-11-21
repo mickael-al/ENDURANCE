@@ -2,6 +2,8 @@
 #define ENDURANCE_PROCEDURAL_TERRAIN_GPU_HPP
 
 #include "ProceduralTerrainField.hpp"
+#include "ProceduralTerrainObjects.hpp"
+#include "ProceduralTerrainLod.hpp"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -24,6 +26,7 @@ namespace ProceduralTerrain
         bool measureGenerationTimings = true;
         std::string shaderDirectory = "../Asset/Shader/ProceduralTerrain";
         FieldParameters field;
+        ObjectPlacementConfig objects;
     };
 
     struct ChunkRequest
@@ -137,6 +140,15 @@ namespace ProceduralTerrain
         unsigned int vertexBuffer() const noexcept;
         unsigned int descriptorBuffer() const noexcept;
         unsigned int vertexArray() const noexcept;
+        // Placement stage only: GPU positions + immutable per-page draw metadata.
+        // Call publication with real terrain coverage, not speculative jobs.
+        void publishObjectCoverage(const std::vector<LodChunk>& chunks, std::uint32_t seed);
+        void discardUnpublishedObjects();
+        void trimObjectSectors(const glm::vec3& camera);
+        unsigned int objectInstanceBuffer() const noexcept;
+        const std::vector<ObjectBlock>& objectBlocks() const noexcept;
+        ObjectPlacementStats objectStats() const noexcept;
+        const std::string& objectError() const noexcept;
         const GpuConfig& config() const noexcept;
         GpuStats stats() const noexcept;
         const std::string& lastError() const noexcept;
