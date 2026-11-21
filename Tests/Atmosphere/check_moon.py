@@ -17,14 +17,19 @@ from check_volumes import VolumeFixture
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--preview',type=Path)
+    parser.add_argument('--surface',type=Path,default=ROOT/'ENDURANCE/Ressources/Atmosphere/moon.surface')
+    parser.add_argument('--size',type=int,default=321)
     args=parser.parse_args()
-    blob=(ROOT/'ENDURANCE/Ressources/Atmosphere/moon.surface').read_bytes()
+    if not 64<=args.size<=1024: parser.error('size must be between 64 and 1024')
+    blob=args.surface.read_bytes()
     assert blob[:8]==b'EMOON001'
     w,h,mean=struct.unpack_from('<IIf',blob,8)
     assert len(blob)==20+w*h*4 and (w,h)==(2048,1024)
     pixels=np.frombuffer(blob[20:],np.uint8).reshape(h,w,4)
     assert abs(pixels[...,3].mean()/255-mean)<1e-6
-    assert pixels[...,3].std()>5 and .07<pixels[...,3].min()/255<.3
+    assert pixels[...,3].std()>5 and .02<pixels[...,3].min()/255<.3
+    assert pixels[...,3].max()/255<.65, 'Lunar material saturates to white'
+    assert .20<mean<.22, 'Surface detail unexpectedly changes total moon lighting'
     normals=pixels[...,:3].astype(np.float32)/127.5-1
     assert np.max(np.abs(np.linalg.norm(normals,axis=-1)-1))<.008
     with AtmosphereGL() as gl:
@@ -36,7 +41,7 @@ def main():
         gl.glBindTexture(0x0DE1,atlas)
         gl.glTexImage2D(0x0DE1,0,0x8058,w,h,0,0x1908,0x1401,C.c_char_p(blob[20:]))
         gl.glTexParameteri(0x0DE1,0x2802,0x2901); gl.glGenerateMipmap(0x0DE1)
-        size=(321,321); output=gl.texture(size)
+        size=(args.size,args.size); output=gl.texture(size)
         probe=ROOT/'Tests/Atmosphere/moon_probe.fs.glsl'
         programs=[gl.compile([(0x8B31,FULLSCREEN_VERTEX),(0x8B30,shader_source(probe,defines))],defines)
                   for defines in ('','#define PROBE_ATMOSPHERE 1',

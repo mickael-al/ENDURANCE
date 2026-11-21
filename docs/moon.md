@@ -82,15 +82,34 @@ bloom, de l'exposition ou de la géométrie du terrain n'est nécessaire.
 python Tools/bake_moon.py
 ```
 
-Outil développeur nécessitant NumPy, SciPy et Pillow, absent du chemin de rendu.
+Outil développeur nécessitant NumPy et Pillow, absent du chemin de rendu.
 `--seed`, `--width` et `--output` permettent de fabriquer une autre surface.
-Les grandes taches grises utilisent un **fBm simplex 3D à cinq octaves**,
-lacunarity 2.03 et gain 0.48, avec une légère déformation du domaine. Le bruit
-est évalué sur les coordonnées cartésiennes de la sphère pour éviter une couture
-d'UV. Il est calculé uniquement par cet outil, puis enregistré dans l'albédo
-existant : aucun calcul GPU, canal ni mémoire supplémentaire à l'exécution.
-Les cratères et leurs normales restent inchangés. Aucun éclairage n'est baked.
+La surface combine **deux fBm simplex 3D**, avec une lacunarité de 2.03 et
+jusqu'à huit octaves. Les octaves trop fines pour les texels sont progressivement
+retirées au bake pour éviter du bruit sous-pixel ; augmenter leur nombre seul
+ne force donc pas des détails que la texture ne peut pas représenter.
+
+| Réglage dans `Tools/bake_moon.py` | Valeur | Effet |
+| --- | --- | --- |
+| `macro_scale`, fonction `lunar_fields` | 2.4 | Échelle conservée des grandes mers sombres, avec déformation du domaine. |
+| `detail_scale`, même fonction | 18.0 | Motifs 7,5 fois plus fins, avec un décalage indépendant. |
+| Gain du fBm large / fin | 0.52 / 0.60 | Poids des octaves de détail. |
+| `highland` / `basalt`, fonction `bake` | Palettes d'albédo en gris linéaire | Reliefs clairs plus texturés et plaines sombres plus homogènes. |
+| Boucle `impact` / seuil `young` | 1 800 / 24 | Impacts de tailles variées ; quelques cratères jeunes possèdent des traînées d'éjecta clairs. |
+
+Les deux bruits sont évalués sur les coordonnées cartésiennes de la sphère,
+sans couture d'UV. Les petites variations restent présentes à l'intérieur des
+grandes taches, sans transformer toute la surface en un bruit uniforme. Les
+cratères fournissent aussi des normales ; leurs traces claires sont une variation
+de matériau, pas un éclairage précalculé. Aucun soleil ni ombre n'est baked.
+
+L'albédo moyen reste proche de **0.2084**, celui de l'asset précédent : le contraste
+local augmente sans modifier sensiblement la puissance globale de la lumière
+lunaire. Le format, la résolution, les mipmaps et les shaders de rendu restent
+identiques : aucun échantillon, canal ni mémoire GPU supplémentaire.
 Redémarrer la scène après avoir remplacé le fichier au même emplacement.
+
+![Avant / après, mêmes shaders et exposition](images/moon-surface-comparison.png)
 
 Format : signature `EMOON001`, largeur et hauteur uint32 little-endian, albédo
 moyen float32 little-endian, puis RGBA8. Le chargeur vérifie dimensions, ratio,
@@ -117,6 +136,8 @@ désactivation et libération. Les régressions mer vérifient aussi l'opacité
 profonde à 0.97 et l'absence de transparence vers un ciel sans fond marin.
 L'aperçu ci-dessus est issu des shaders, pas d'une capture de la scène complète.
 Ces vérifications ne mesurent pas le coût sur GTX 1660 ni la compilation MSVC.
+Pour comparer un autre atlas sans remplacer celui du jeu :
+`python Tests/Atmosphere/check_moon.py --surface chemin/moon.surface --size 641 --preview comparaison.png`.
 
 Le vent des nuages passe de `(12, 4)` à `(48, 16)` m/s dans les valeurs par défaut
 et dans la scène terrain. Le déplacement reste intégré dans le temps, sans

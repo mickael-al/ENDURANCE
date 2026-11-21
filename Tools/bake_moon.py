@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bake ENDURANCE's fictional moon. Requires numpy, scipy and Pillow.
+"""Bake ENDURANCE's fictional moon. Requires numpy and Pillow.
 
 The runtime asset is linear RGBA8: RGB object-space normal, A albedo.
 Header: EMOON001, little-endian uint32 width/height, float32 mean albedo.
@@ -10,7 +10,6 @@ import argparse
 import math
 import struct
 import numpy as np
-from scipy.ndimage import map_coordinates
 from PIL import Image
 
 
@@ -46,36 +45,47 @@ def simplex3(p, permutation):
     return result*32.0
 
 
-def fbm3(p, permutation, octaves=5, lacunarity=2.03, gain=.48):
-    """Zero-centred, amplitude-normalized simplex fBm."""
+def fbm3(p, permutation, octaves=8, lacunarity=2.03, gain=.52, footprint=0.):
+    """Normalized fBm; fade octaves which cannot be resolved by the baked texel."""
     result = np.zeros(p.shape[:-1], np.float32)
-    amplitude = total = 1.0
+    amplitude = frequency = 1.0
+    total = 0.0
     for octave in range(octaves):
         if octave:
             p = p*lacunarity
+            frequency *= lacunarity
             amplitude *= gain
-            total += amplitude
-        result += amplitude*simplex3(p, permutation)
-    return result/total
+        weight = amplitude*(1.0-smooth(.25, .5, footprint*frequency))
+        if weight<=0.: break
+        total += weight
+        result += weight*simplex3(p, permutation)
+    return result/max(total, 1e-8)
 
 
-def lunar_maria(n, seed):
-    """Broad distorted dark deposits with quiet fine detail, baked to albedo.
+def lunar_fields(n, seed, texel_angle):
+    """Two independent spherical fBms: continental deposits and fine mottling.
 
     Fixed row batches bound temporary tetrahedral arrays even at 4096 pixels.
-    A separate RNG preserves the existing crater/normal generation exactly.
+    A separate RNG keeps the noise independent of crater count and placement.
     """
     rng = np.random.default_rng(seed ^ 0x4D4F4F4E)
     permutation = np.tile(rng.permutation(256), 2)
-    result = np.empty(n.shape[:-1], np.float32)
-    offsets = rng.uniform(-50, 50, (4,3)).astype(np.float32)
+    deposits = np.empty(n.shape[:-1], np.float32)
+    detail = np.empty_like(deposits)
+    offsets = rng.uniform(-50, 50, (5,3)).astype(np.float32)
+    macro_scale, detail_scale = 2.4, 18.0
     for row in range(0, n.shape[0], 32):
         p = n[row:row+32]
         warp = np.stack([simplex3(p*.85+offset, permutation) for offset in offsets[:3]], axis=-1)
-        field = fbm3((p+.18*warp)*2.4+offsets[3], permutation)
-        # This soft contrast defines deposits, not a binary black/white speckle.
-        result[row:row+32] = smooth(-.05, .22, field)
-    return result
+        field = fbm3((p+.18*warp)*macro_scale+offsets[3], permutation,
+                     footprint=texel_angle*macro_scale)
+        fine = fbm3(p*detail_scale+offsets[4], permutation, gain=.60,
+                    footprint=texel_angle*detail_scale)
+        # Soft transitions with broad, dark interiors: detail must not erase
+        # the distinction between basalt plains and cratered highlands.
+        deposits[row:row+32] = smooth(-.09, .11, field+.05*fine)
+        detail[row:row+32] = fine
+    return deposits, detail
 
 
 def bake(width, seed):
@@ -88,40 +98,52 @@ def bake(width, seed):
     n[..., 0] = cl*np.cos(lon)
     n[..., 1] = sl
     n[..., 2] = cl*np.sin(lon)
-    grid = rng.random((32, 32, 32), dtype=np.float32)
-    def noise(frequency):
-        return map_coordinates(grid, np.moveaxis(n*frequency+15, -1, 0),
-                               order=1, mode='grid-wrap', prefilter=False)*2-1
-    broad, medium, fine = noise(3), noise(11), noise(38)
-    terrain = (.0012*broad + .00035*medium + .00008*fine).astype(np.float32)
-    maria = np.zeros((height, width), np.float32)
-    # A small number of overlapping, irregular basins define the visual identity.
-    for _ in range(13):
-        center = rng.normal(size=3); center /= np.linalg.norm(center)
-        radius = rng.uniform(.18, .50)
-        distance = np.arccos(np.clip(n @ center, -1, 1))
-        shape = 1-smooth(radius*.60, radius, distance+.055*broad+.018*medium)
-        maria = np.maximum(maria, shape)
-    terrain -= maria*.003
-    # Latitude culling keeps the offline crater pass proportional to footprint.
-    for _ in range(420):
+    texel_angle = 2*np.pi/width
+    maria, detail = lunar_fields(n, seed, texel_angle)
+    mineral = np.clip(.5+2.4*detail, 0, 1)
+    # Dark plains still contain detail; bright highlands are not a flat tint.
+    highland = .28+.18*mineral
+    basalt = .055+.035*mineral
+    albedo = (highland*(1-maria)+basalt*maria).astype(np.float32)
+    terrain = (-.0018*maria+.00018*detail).astype(np.float32)
+    # Mostly small old impacts; a few larger young ones have bright ejecta.
+    # All marks are material/relief, not baked sunlight or ambient occlusion.
+    for impact in range(1800):
         latitude = math.asin(rng.uniform(-1, 1)); longitude = rng.uniform(-np.pi, np.pi)
-        radius = float(np.exp(rng.uniform(math.log(.008), math.log(.16))))
-        rows = np.where(np.abs(lat-latitude) < radius*1.30)[0]
+        radius = float(np.exp(rng.uniform(math.log(.004), math.log(.085))))
+        ray_count = int(rng.integers(11, 29))
+        phase = rng.uniform(-np.pi, np.pi)
+        young = impact<24
+        if young: radius = rng.uniform(.015, .033)
+        extent = radius*(13.0 if young else 1.65)
+        rows = np.where(np.abs(lat-latitude) < extent)[0]
         if not len(rows): continue
         a, b = int(rows[0]), int(rows[-1])+1
         center = np.array([math.cos(latitude)*math.cos(longitude), math.sin(latitude),
                            math.cos(latitude)*math.sin(longitude)], np.float32)
-        r = np.arccos(np.clip(n[a:b] @ center, -1, 1))/radius
-        depth = radius*rng.uniform(.055, .095)
+        # Chord distance remains well-conditioned for the smallest craters.
+        delta = n[a:b]-center
+        r = np.sqrt((delta*delta).sum(axis=-1))/(2*math.sin(radius*.5))
+        r *= 1.0+.10*detail[a:b]
+        depth = radius*rng.uniform(.025, .055)
         floor = -depth*(1-smooth(.16, 1.0, r))
-        rim = depth*.30*np.exp(-((r-1.0)/.085)**2)
+        rim = depth*.30*np.exp(-((r-1.0)/.13)**2)
         terrain[a:b] += (floor+rim)*(1-.65*maria[a:b])
-    deposits = lunar_maria(n, seed)
-    # Neutral material shades remain independent of solar lighting and phase.
-    # Existing basins still influence deposition very gently; simplex fBm now
-    # controls the broad irregular shapes instead of the circular basin masks.
-    albedo = np.clip(.275-.175*deposits-.018*maria+.008*broad+.004*medium+.002*fine, .08, .36)
+        rim_color = np.exp(-((r-1.04)/.22)**2)
+        floor_color = 1-smooth(.45, .95, r)
+        albedo[a:b] += (.14 if young else .055)*rim_color - .025*floor_color
+        if young:
+            east = np.array([-math.sin(longitude),0,math.cos(longitude)], np.float32)
+            north = np.cross(center,east)
+            angle = np.arctan2(n[a:b] @ north, n[a:b] @ east)
+            rays = np.maximum(np.sin(angle*ray_count+phase+detail[a:b]*3),0)**14
+            rays *= smooth(1.0, 1.8, r)*(1-smooth(3.0, 13.0, r))*np.exp(-r/5)
+            albedo[a:b] += .26*rays + .05*np.exp(-((r-1.3)/.60)**2)
+    # Keep the whole sphere's reflected energy near the previous asset; change
+    # local contrast rather than brightening the entire sky/IBL configuration.
+    albedo = np.clip(albedo, .035, .60)
+    albedo *= .2084/float(np.mean(albedo))
+    albedo = np.clip(albedo, .035, .60)
     # Height derivatives in the local spherical tangent frame; renormalize
     # object-space normals after filtering at runtime, including polar mips.
     du = (np.roll(terrain, -1, 1)-np.roll(terrain, 1, 1))/(4*np.pi/width)
