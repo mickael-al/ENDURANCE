@@ -119,6 +119,7 @@
     "tint_saturation": 1.0,
     "tint_contrast": 1.0,
     "oil_painting": false,
-    "oilp_radius": 1
+    "oilp_radius": 1,
+    "oilp_strength": 0.65
   }
 }
