@@ -584,10 +584,73 @@ namespace
         const auto transmission=readTexture(textureAt(13,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D);
         for(float value:transmission) require(value>=0 && value<=1,"Runtime transmittance escaped [0,1]");
     }
+    void checkTexturedMoon()
+    {
+        Ge::LightManager lights; Ge::Lights sun,moon;
+        moon.index=1; moon.direction={0,-1,0}; sun.direction={0,1,0};
+        lights.lights={&sun,&moon}; ptrClass pc; pc.lightManager=&lights;
+        GraphicsDataMisc graphics; Ge::Camera camera; Targets targets;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        auto& s=atmosphere.settings(); s=smallSettings();
+        s.physicalAtmosphere=false; s.moonSurface=true; s.moonAngularRadius=10;
+        s.moonDiskIntensity=1; s.moonIlluminanceScale=1; s.moonNormalStrength=0;
+        s.moonElevation=90; s.moonAzimuth=0; s.environmentBlendSeconds=0;
+        s.iblMaxWorkUnitsPerFrame=64; s.wind={0,0};
+        atmosphere.setSun(&sun); atmosphere.setMoon(&moon);
+        const std::uint8_t pixels[8]={128,255,128,51,128,255,128,51};
+        require(atmosphere.setMoonSurface(pixels,2,1,.2f),"Moon atlas upload rejected");
+        const auto allocated=atmosphere.stats().gpuTextureBytes;
+        require(!atmosphere.setMoonSurface(pixels,9000,1,.2f) && atmosphere.stats().gpuTextureBytes==allocated,
+            "Invalid moon atlas mutated current resources");
+        const auto frame=[&]() { atmosphere.prepare(&camera,0); atmosphere.renderSky(0); checkGL("lunar runtime frame"); };
+        const auto settle=[&]() {
+            for(int i=0;i<100;++i) {
+                frame();
+                if(atmosphere.stats().environmentReady && !atmosphere.stats().environmentCaptureActive &&
+                    atmosphere.stats().publishedEnvironmentRevision==atmosphere.stats().requestedEnvironmentRevision) return;
+            }
+            throw std::runtime_error("Lunar capture failed to settle: "+atmosphere.error());
+        };
+        const auto parameters=[&]() {
+            GLint buffer=0; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING,6,&buffer);
+            std::array<float,168> data{}; glGetNamedBufferSubData(GLuint(buffer),0,sizeof(data),data.data()); return data;
+        };
+        settle(); const auto full=parameters();
+        require(full[9*4]>0 && full[9*4+3]==1,"Textured moon has no phase-driven direct irradiance");
+        const float expected=12.f*s.moonDiskColor.x*.2f*(2.f/3.f)*std::pow(std::sin(glm::radians(10.f)),2.f);
+        require(std::abs(full[9*4]-expected)<1e-5f,"Moon irradiance differs from Lambert sphere integral");
+        const auto cachedSky=atmosphere.stats().skyUpdates;
+        const auto revision=atmosphere.stats().requestedEnvironmentRevision;
+        camera.position.x+=s.movementThreshold*.25f; frame();
+        require(atmosphere.stats().requestedEnvironmentRevision==revision,"Tiny lunar parallax bypassed the IBL movement threshold");
+        camera.position.x=10000; settle(); const auto moved=parameters();
+        require(atmosphere.stats().requestedEnvironmentRevision>revision,"Lunar IBL ignored camera motion with clouds disabled");
+        require(atmosphere.stats().skyUpdates==cachedSky,"Lunar parallax invalidated clear-air LUTs");
+        GLint moonBuffer=0; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING,7,&moonBuffer);
+        std::array<float,8> geometry{}; glGetNamedBufferSubData(GLuint(moonBuffer),0,sizeof(geometry),geometry.data());
+        require(std::abs(geometry[0]+10000.f)<.01f,"Moon follows the camera instead of its finite world position");
+        require(full[9*4]==moved[9*4],"Directional moon illumination follows camera translation");
+        sun.direction={-1,0,0}; settle(); const auto quarter=parameters();
+        require(std::abs(quarter[9*4]/full[9*4]-1.f/3.14159265f)<1e-4f,"Incorrect quarter-moon phase");
+        sun.direction=moon.direction; settle(); const auto dark=parameters();
+        require(dark[9*4]<1e-7f,"New moon lights the terrain");
+        sun.direction={0,1,0}; atmosphere.setMoon(nullptr); lights.lights={&sun}; settle();
+        require(parameters()[9*4+3]==2,"Unassigned moon should use diffuse IBL without a new light");
+        s.iblMaxWorkUnitsPerFrame=1; s.moonRotation=45; frame();
+        require(atmosphere.stats().environmentCaptureActive,"Expected a pending lunar capture");
+        const auto cancelled=atmosphere.stats().environmentCapturesCancelled;
+        require(atmosphere.setMoonSurface(pixels,2,1,.2f),"Atlas replacement failed");
+        require(atmosphere.stats().environmentCapturesCancelled==cancelled+1,"Atlas replacement mixed capture epochs");
+        s.iblMaxWorkUnitsPerFrame=64; settle();
+        s.moonSurface=false; settle(); atmosphere.release();
+        require(atmosphere.stats().gpuTextureBytes==0,"Lunar surface/reflection resources leaked");
+        std::cout<<"PASS textured moon runtime: upload bounds, phase irradiance, finite parallax, stable LUTs, optional source, immutable captures, toggle/release\n"<<std::flush;
+    }
     void run(const std::filesystem::path& root)
     {
         std::filesystem::current_path(root/"ENDURANCE");
         checkSettings();
+        checkTexturedMoon();
         checkParameterStreaming();
         checkShaderVariants();
         checkInitialPalette(true,.3f);

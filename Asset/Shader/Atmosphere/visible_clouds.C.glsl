@@ -8,6 +8,7 @@ void main()
     ivec2 p=ivec2(gl_GlobalInvocationID.xy),size=imageSize(geAtmVisibleCloudOutput);
     if(any(greaterThanEqual(p,size))) return;
     vec3 delta=vec3(0.0);
+    float transmission=1.0;
     if(geAtmHasClouds())
     {
         vec3 direction=geAtmViewDirection((vec2(p)+0.5)/vec2(size));
@@ -16,7 +17,9 @@ void main()
         // Clear-air gradients and sub-pixel solar/lunar disks retain the
         // full display resolution. Camera, wind and sources are CURRENT;
         // this pass never samples the delayed lighting cubemap.
-        delta=geSkyRadiance(direction,false,true)-clear;
+        delta=geSkyRadiance(direction,false,true,transmission)-clear;
     }
-    imageStore(geAtmVisibleCloudOutput,p,vec4(clamp(delta,vec3(-65000.0),vec3(65000.0)),1.0));
+    // Reuse the existing alpha for celestial attenuation: no new target and
+    // no second cloud raymarch over every full-resolution lunar pixel.
+    imageStore(geAtmVisibleCloudOutput,p,vec4(clamp(delta,vec3(-65000.0),vec3(65000.0)),transmission));
 }

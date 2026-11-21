@@ -55,6 +55,12 @@ namespace Ge
         glm::vec3 moonDiskColor{0.55f,0.65f,0.85f};
         float moonDiskIntensity=0.15f;
         float moonIlluminanceScale=0.05f;
+        // Optional finite textured body. Its material is provided by the game;
+        // existing scenes keep their legacy disk until this is enabled.
+        bool moonSurface=false;
+        float moonDistance=1000000.0f; // centre from world (0, seaLevel, 0), metres
+        float moonAzimuth=140.0f, moonElevation=35.0f; // fallback without a moon light
+        float moonRotation=0.0f, moonNormalStrength=0.65f;
         float aerialDistance=32768.0f;
         float altitudeUpdateThreshold=1.0f;
         float shadowCasterMargin=4000.0f; // base; available caster bounds may extend each cascade
@@ -74,7 +80,7 @@ namespace Ge
         float cloudWeatherContrast=1.4f;
         float cloudProfileVariation=0.7f;
         glm::vec3 cloudProfileMix{0.25f,0.5f,0.25f}; // stratus, cumulus, towers
-        glm::vec2 wind{12.0f,4.0f}; // m/s XZ; integrated at render time, stopping preserves position
+        glm::vec2 wind{48.0f,16.0f}; // m/s XZ; integrated at render time, stopping preserves position
         std::uint32_t cloudSeed=1337;
         // Zero selects the preset. Explicit overrides are clamped on upload.
         int cubemapSize=0, irradianceSize=0, prefilterSize=0;
@@ -135,6 +141,9 @@ namespace Ge
         void reloadShaders();
         void setSun(Lights* sun);
         void setMoon(Lights* moon);
+        // Copies a linear RGBA8 atlas: object-space normal RGB, albedo A.
+        // nullptr releases it; the renderer owns its GPU copy. No frame readback.
+        bool setMoonSurface(const std::uint8_t* rgba, unsigned width, unsigned height, float meanAlbedo);
         // Optional caller-owned HDR source, excluding directional-source disks.
         // A revision change schedules a complete environment transaction.
         void setExternalEnvironment(unsigned int cubemap, std::uint64_t revision=0);

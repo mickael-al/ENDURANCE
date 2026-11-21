@@ -1,5 +1,6 @@
 #version 450 core
 #include "atmosphere_common.glsl"
+#include "moon_surface.glsl"
 #ifdef GE_PHYSICAL_SKY
 #define GE_ATM_TRANSMITTANCE_BINDING 15
 #define GE_ATM_MULTISCATTER_BINDING 11
@@ -23,21 +24,28 @@ void main()
     // transaction is pending. Published environments already carry this tint.
     if(geRawExternalEnvironment) color=geAtmArtistic(color,direction);
     #ifdef GE_PHYSICAL_SKY
+    float cloudTransmission=1.0;
     if(geCurrentCloudView)
+    {
+        vec4 clouds=textureLod(geAtmVisibleClouds,geSkyUV,0.0);
+        cloudTransmission=geAtmHasClouds()?clouds.a:1.0;
         color=max(textureLod(geAtmSkyView,geAtmSkyUV(direction),0.0).rgb
-            +textureLod(geAtmVisibleClouds,geSkyUV,0.0).rgb,vec3(0.0));
+            +clouds.rgb,vec3(0.0));
+    }
     // Resolve sub-texel angular disks analytically at display resolution. The
     // complete public cubemap still contains them. Visible clouds use the
     // current camera view; the independent IBL transaction may be older.
-    color+=geSkyDisks(direction);
+    color+=geSkySunAndLegacyMoon(direction)
+        +(geCurrentCloudView?geSkyMoon(direction,cloudTransmission):geSkyMoon(direction));
 #else
-    for(int body=0;body<2;++body)
+    for(int body=0;body<(GE_ATM_MOON_SURFACE!=0?1:2);++body)
     {
         vec4 source=body==0?geAtmSunDirection:geAtmMoonDirection;
         vec4 disk=body==0?geAtmSunDisk:geAtmMoonDisk;
         if(source.w>0.5)
-            color+=disk.rgb*geAtmDiskMask(direction,source.xyz,disk.w);
+            color+=disk.rgb*geAtmDiskMask(direction,source.xyz,disk.w)*(1.0-geMoonCoverage(direction));
     }
+    color+=geAtmArtistic(geMoonRadiance(direction),direction);
 #endif
     // Dedicated negative marker bypasses material gamma and direct lighting.
     // The HDR G-buffer carries sky radiance unchanged to deferred composition.

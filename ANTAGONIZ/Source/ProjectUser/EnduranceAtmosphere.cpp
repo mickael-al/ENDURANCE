@@ -21,13 +21,36 @@
 #include <utility>
 
 REGISTER(Behaviour,EnduranceAtmosphereComponent,paletteFile,palettes,engineSettings,
-         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent,fogWind);
+         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent,fogWind,moonSurfaceFile);
 
 namespace
 {
     using Clock=std::chrono::steady_clock;
     constexpr const char* ShaderRoot="../ENDURANCE/Ressources/Shader/Atmosphere/";
     EnduranceAtmosphereComponent* activeComponent=nullptr;
+
+    bool loadMoonSurface(Ge::Atmosphere& atmosphere,const std::string& path,std::string& error)
+    {
+        // Small game-owned baked asset; GPU allocation/upload belongs to the engine.
+        // Explicit little-endian header, bounded size, exact payload validation.
+        std::ifstream file(path,std::ios::binary);
+        std::array<unsigned char,20> header{};
+        if(!file.read(reinterpret_cast<char*>(header.data()),header.size()) ||
+            std::memcmp(header.data(),"EMOON001",8)!=0)
+        { error="Cannot read baked moon surface: "+path; return false; }
+        const auto u32=[&](unsigned i) { return std::uint32_t(header[i]) | (std::uint32_t(header[i+1])<<8)
+            | (std::uint32_t(header[i+2])<<16) | (std::uint32_t(header[i+3])<<24); };
+        const auto width=u32(8),height=u32(12),meanBits=u32(16);
+        float mean=0; std::memcpy(&mean,&meanBits,sizeof mean);
+        if(width<2 || width>4096 || height<1 || height>2048 || width!=height*2 ||
+            !std::isfinite(mean) || mean<0 || mean>1)
+        { error="Invalid baked moon dimensions/albedo: "+path; return false; }
+        std::vector<std::uint8_t> pixels(std::size_t(width)*height*4);
+        if(!file.read(reinterpret_cast<char*>(pixels.data()),std::streamsize(pixels.size())) ||
+            file.peek()!=std::char_traits<char>::eof())
+        { error="Invalid baked moon payload: "+path; return false; }
+        return atmosphere.setMoonSurface(pixels.data(),width,height,mean);
+    }
 
     struct PaletteAsset
     {
@@ -177,6 +200,8 @@ struct EnduranceAtmosphereComponent::Impl
     bool lightSelectionDirty=false;
     bool registered=false,stylesDirty=true,forceSample=true,reloadRequested=false;
     bool atlasValid=false,atlasDirty=true,hasPosition=false;
+    bool moonLoadAttempted=false;
+    std::string loadedMoonFile;
     std::string error;
     GLuint paletteProgram=0,fogProgram=0,mapping=0,styleBuffer=0;
     GLuint fogMedium=0,fogShape=0;
@@ -360,6 +385,11 @@ void EnduranceAtmosphereComponent::start()
             m->error="Invalid saved atmosphere settings; keeping the engine defaults.";
     }
     else m->atmosphere->settings().enabled=true;
+    if(m->atmosphere->settings().moonSurface && !moonSurfaceFile.empty())
+    {
+        m->moonLoadAttempted=true; m->loadedMoonFile=moonSurfaceFile;
+        loadMoonSurface(*m->atmosphere,moonSurfaceFile,m->error);
+    }
     m->atmosphere->setPaletteTarget(enginePalette(palettes[12]),true);
     const auto mapping=ProceduralTerrain::makeBiomeCellTable();
     glCreateBuffers(1,&m->mapping);
@@ -393,6 +423,7 @@ void EnduranceAtmosphereComponent::stop()
             m->atmosphere->setGameFogBinding({});
             m->atmosphere->setGameFogShader({});
             m->atmosphere->setSun(nullptr); m->atmosphere->setMoon(nullptr);
+            m->atmosphere->setMoonSurface(nullptr,0,0,0);
         }
         activeComponent=nullptr;
     }
@@ -441,6 +472,12 @@ void EnduranceAtmosphereComponent::prepareRenderer()
     {
         m->collect();
         return;
+    }
+    if(m->atmosphere->settings().moonSurface && (!m->moonLoadAttempted || m->loadedMoonFile!=moonSurfaceFile))
+    {
+        m->moonLoadAttempted=true; m->loadedMoonFile=moonSurfaceFile;
+        if(!moonSurfaceFile.empty()) loadMoonSurface(*m->atmosphere,moonSurfaceFile,m->error);
+        else m->atmosphere->setMoonSurface(nullptr,0,0,0);
     }
 
     ProceduralGeneration* terrain=nullptr;

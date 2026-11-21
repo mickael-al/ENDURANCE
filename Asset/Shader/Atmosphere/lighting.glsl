@@ -14,11 +14,19 @@ uniform vec2 uAtmosphereInvResolution;
 vec3 geAtmosphereDirect(vec3 radiance,int index,vec3 world,vec3 direction)
 {
     if(!uAtmosphereActive) return radiance;
+    if(index==uAtmosphereMoonIndex && geAtmMoonRadiance.w>0.5)
+        return geAtmMoonRadiance.rgb*geAtmDirectTransmission(world,direction);
     float multiplier=1.0;
     if(index==uAtmosphereSunIndex) multiplier=uAtmosphereSunScale;
     else if(index==uAtmosphereMoonIndex) multiplier=uAtmosphereMoonScale;
     else return radiance;
     return radiance*max(multiplier,0.0)*geAtmDirectTransmission(world,direction);
+}
+float geAtmosphereDirectSpecular(int index)
+{
+    // Textured moons already appear in the GGX environment as an area source.
+    return uAtmosphereActive && uAtmosphereIblActive && index==uAtmosphereMoonIndex
+        && geAtmMoonRadiance.w>0.5 ? 0.0 : 1.0;
 }
 float geAtmosphereShadow(int index,float visibility,float legacyAmbient)
 {

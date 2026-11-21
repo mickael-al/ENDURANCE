@@ -310,7 +310,7 @@ void main()
 
 			vec3 numerator = NDF * G * F;
 			float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * max(dot(normal.rgb, L), 0.0) + 0.0001;
-			vec3 specular = (numerator / denominator);
+			vec3 specular = (numerator / denominator) * geAtmosphereDirectSpecular(i);
 
 			// Add to outgoing radiance Lo
 			float NdotL = max(dot(normal.rgb, L), 0.0);

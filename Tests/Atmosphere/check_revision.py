@@ -351,6 +351,8 @@ def check_current_visible_clouds(gl, fixture):
         gl.dispatch_extent(visible_program, *size)
         cloud_delta = gl.texels(delta, size)
         finite(cloud_delta, "current visible cloud delta including odd dispatch tails")
+        assert all(0 <= value <= 1 for value in cloud_delta[3::4]), "Invalid cached celestial transmittance"
+        assert min(cloud_delta[3::4]) < .8, "Cloud alpha did not retain occlusion for celestial bodies"
         gl.image(0, direct, internal=RGBA32F)
         gl.dispatch_extent(reference_program, *size)
         expected = gl.texels(direct, size)
@@ -389,6 +391,7 @@ def check_current_visible_clouds(gl, fixture):
     gl.image(0, delta)
     gl.dispatch_extent(visible_program, *size)
     assert all(value == 0 for value in rgb(gl.texels(delta, size))), "Coverage-zero visible cloud pass retained stale cloud pixels"
+    assert all(value == 1 for value in gl.texels(delta, size)[3::4]), "Empty cloud view still hides celestial bodies"
     print(f"PASS current visible sky: real sky.fs matches current cloud ray, ignores changed frozen IBL and clock-only changes, advances with cloud displacement at fixed camera (+{offset_difference:.4f} HDR) and after camera XZ motion (+{position_difference:.4f}); empty view clears stale delta", flush=True)
 
 

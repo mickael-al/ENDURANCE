@@ -2,6 +2,7 @@
 #define GE_ATMOSPHERE_SKY_EVALUATE_GLSL
 #include "physical.glsl"
 #include "cloud_common.glsl"
+#include "moon_surface.glsl"
 layout(binding=2) uniform sampler2D geAtmSkyView;
 
 vec3 geAtmSkyCloudSource(vec3 world,vec3 planetPosition,vec3 direction,float extinction)
@@ -28,7 +29,31 @@ vec3 geAtmSkyCloudSource(vec3 world,vec3 planetPosition,vec3 direction,float ext
     return geAtmArtistic(source,direction);
 }
 
-vec3 geSkyDisks(vec3 direction)
+vec3 geSkyMoon(vec3 direction,float cloudTransmission)
+{
+#if GE_ATM_MOON_SURFACE
+    vec3 surface=geMoonRadiance(direction);
+    if(all(lessThanEqual(surface,vec3(0)))) return vec3(0);
+    // Every lunar pixel gets its OWN atmosphere/cloud ray. A giant disk spans
+    // many cloud columns and cannot reuse attenuation towards its centre.
+    surface*=geAtmSunTransmittance(geAtmOrigin(),direction)*cloudTransmission;
+    return geAtmArtistic(surface,direction);
+#else
+    return vec3(0);
+#endif
+}
+
+vec3 geSkyMoon(vec3 direction)
+{
+#if GE_ATM_MOON_SURFACE
+    if(geMoonCoverage(direction)<=0.0) return vec3(0);
+    return geSkyMoon(direction,geAtmCloudLightRay(geAtmCamera.xyz,direction,geAtmSamples.z));
+#else
+    return vec3(0);
+#endif
+}
+
+vec3 geSkySunAndLegacyMoon(vec3 direction)
 {
     vec3 result=vec3(0.0),origin=geAtmOrigin();
     if(geAtmSunDirection.w>0.5 && geAtmSunDisk.w>0.0)
@@ -36,9 +61,10 @@ vec3 geSkyDisks(vec3 direction)
         vec3 light=normalize(geAtmSunDirection.xyz);
         float disk=geAtmDiskMask(direction,light,geAtmSunDisk.w);
         if(disk>0.0)
-            result+=geAtmSunDisk.rgb*disk*geAtmSunTransmittance(origin,light)
+            result+=geAtmSunDisk.rgb*disk*(1.0-geMoonCoverage(direction))*geAtmSunTransmittance(origin,light)
                 *geAtmCloudLightRay(geAtmCamera.xyz,light,geAtmSamples.z);
     }
+#if !GE_ATM_MOON_SURFACE
     if(geAtmMoonDirection.w>0.5 && geAtmMoonDisk.w>0.0)
     {
         vec3 light=normalize(geAtmMoonDirection.xyz);
@@ -47,11 +73,18 @@ vec3 geSkyDisks(vec3 direction)
             result+=geAtmMoonDisk.rgb*disk*geAtmSunTransmittance(origin,light)
                 *geAtmCloudLightRay(geAtmCamera.xyz,light,geAtmSamples.z);
     }
+#endif
     return geAtmArtistic(result,direction);
 }
 
-vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
+vec3 geSkyDisks(vec3 direction)
 {
+    return geSkySunAndLegacyMoon(direction)+geSkyMoon(direction);
+}
+
+vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds,out float cloudTransmission)
+{
+    cloudTransmission=1.0;
     direction=normalize(direction);
     vec3 sky=max(textureLod(geAtmSkyView,geAtmSkyUV(direction),0.0).rgb,vec3(0.0));
     if(includeClouds && GE_ATM_CLOUDS_ON && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0)
@@ -66,6 +99,7 @@ vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
             vec3 baselineS=vec3(0.0),baselineT=vec3(1.0);
             vec3 combinedS=vec3(0.0),combinedT=vec3(1.0);
             bool cloudEncountered=false;
+            float cloudOpticalDepth=0.0;
             // Clear-air prefix is smooth: reserve the actual cloud-step budget
             // for the layer, instead of spending most samples below its base.
             if(path.x>0.0)
@@ -92,6 +126,7 @@ vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
                 vec3 physicalExtinction;
                 vec3 physical=geAtmPhysicalSource(planet,direction,vec2(1.0),physicalExtinction);
                 float cloud=geAtmCloudDensityAtFootprint(world,(end-begin)*0.5);
+                cloudOpticalDepth+=cloud*(end-begin);
                 cloudEncountered=cloudEncountered || cloud>0.0;
                 vec3 cloudSource=cloud>0.0 ? geAtmSkyCloudSource(world,planet,direction,cloud) : vec3(0.0);
                 geAtmIntegrate(baselineS,baselineT,physical,physicalExtinction,end-begin);
@@ -102,11 +137,19 @@ vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
             // Recover only the attenuated tail contribution; this ratio form
             // cannot amplify numerical noise when baseline transmission is tiny.
             if(cloudEncountered)
+            {
+                cloudTransmission=exp(-cloudOpticalDepth);
                 sky=max(combinedS+(sky-baselineS)
                     *clamp(combinedT/max(baselineT,vec3(1e-5)),vec3(0.0),vec3(1.0)),vec3(0.0));
+            }
         }
     }
     if(includeDisk) sky+=geSkyDisks(direction);
     return max(sky,vec3(0.0));
+}
+vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
+{
+    float unused;
+    return geSkyRadiance(direction,includeDisk,includeClouds,unused);
 }
 #endif

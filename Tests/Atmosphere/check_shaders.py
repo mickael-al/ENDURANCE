@@ -21,6 +21,13 @@ def compile_shaders(gl):
     environment=DIRECTORY/"environment.C.glsl"
     programs["environment.physical"]=gl.compute(environment,"#define GE_PHYSICAL_SKY 1")
     print("PASS compile physical sky/environment integration variant",flush=True)
+    for physical in (False,True):
+        defines="#define GE_ATM_MOON_SURFACE 1\n"+("#define GE_PHYSICAL_SKY 1\n" if physical else "")
+        programs[f"environment.moon.{physical}"]=gl.compute(environment,defines)
+        fragment=shader_source(DIRECTORY/"sky.fs.glsl",defines)
+        programs[f"sky.moon.{physical}"]=gl.compile([(0x8B31,shader_source(DIRECTORY/"sky.vs.glsl")),
+                                                    (0x8B30,fragment)],"textured moon sky")
+    print("PASS textured lunar sphere: physical and gradient variants",flush=True)
     for path in sorted(DIRECTORY.glob("*.fs.glsl")):
         vertex = path.with_name(path.name.replace(".fs.glsl", ".vs.glsl"))
         source = shader_source(vertex) if vertex.exists() else FULLSCREEN_VERTEX

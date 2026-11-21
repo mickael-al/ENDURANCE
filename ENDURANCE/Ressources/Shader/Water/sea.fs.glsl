@@ -177,6 +177,7 @@ void main()
     const vec3 deepColor=vec3(0.006,0.025,0.045);
     const vec3 foamColor=vec3(0.66,0.72,0.71);
     const float deepDistance=36.0;
+    const float deepOpacity=0.85; // retain a faint view of an existing seabed
     const float foamDistance=0.9;
     const float foamFrequency=0.60;
     ivec2 pixel=clamp(ivec2(gl_FragCoord.xy),ivec2(0),textureSize(opaquePosition,0)-1);
@@ -205,7 +206,7 @@ void main()
     }
     float deepBlend=clamp(depth/deepDistance,0.0,1.0);
     vec4 col=vec4(mix(mix(shallowColor,deepColor,deepBlend),foamColor,foam),
-        mix(mix(0.50,1.0,deepBlend),0.98,foam));
+        mix(mix(0.50,hasOpaque?deepOpacity:1.0,deepBlend),0.98,foam));
     vec4 normal=vec4(n,0.0);
     vec3 other=vec3(0.0,mix(0.20,0.72,foam),1.0);
     vec3 color=col.rgb;
@@ -252,7 +253,7 @@ void main()
 
 			vec3 numerator = NDF * G * F;
 			float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * NdotL + 0.0001;
-			vec3 specular = (numerator / denominator);
+			vec3 specular = (numerator / denominator) * geAtmosphereDirectSpecular(i);
 
 			// Add to outgoing radiance Lo
 			if (ubl.ubl[i].status == 0) // DirLight

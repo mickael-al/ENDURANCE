@@ -50,6 +50,7 @@ public:
     void load(std::string data) override;
 
     std::string paletteFile="../ENDURANCE/Ressources/Atmosphere/biome_palettes.json";
+    std::string moonSurfaceFile="../ENDURANCE/Ressources/Atmosphere/moon.surface";
     std::vector<EnduranceSkyBiomeStyle> palettes;
     std::string engineSettings;
     // -2 = first directional fallback; -1 = deliberately unassigned.
