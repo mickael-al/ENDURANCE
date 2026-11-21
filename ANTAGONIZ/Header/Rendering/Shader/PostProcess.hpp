@@ -11,6 +11,7 @@ namespace Ge
 	class Bloom;
 	class DepthOfField;
 	class ColorTint;
+	class OilPainting;
 	class PostProcess final : public InitializerAPI
 	{
 	public:
@@ -38,6 +39,7 @@ namespace Ge
 		Bloom* m_bloom = nullptr;
 		DepthOfField* m_depthOfField = nullptr;
 		ColorTint* m_colorTint = nullptr;
+		OilPainting* m_oilPainting = nullptr;
 		unsigned int m_postFrameBuffers[2] = {};
 		unsigned int m_postTextures[2] = {};
 		int m_postWidth = 0;

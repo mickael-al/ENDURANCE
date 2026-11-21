@@ -24,6 +24,8 @@ def main():
         command += ["-I", str(include)]
     sources = ("Rendering/RenderingEngine.cpp", "Rendering/FrameGpuProfiler.cpp",
                "Rendering/Camera/Camera.cpp", "Rendering/Camera/CameraManager.cpp",
+               "Rendering/Shader/PostProcess.cpp", "Rendering/Shader/OilPainting.cpp",
+               "Rendering/Shader/Bloom.cpp", "Rendering/Shader/DepthOfField.cpp", "Rendering/Shader/ColorTint.cpp",
                "Rendering/Shader/ShaderDataMisc.cpp", "Rendering/Shader/GraphiquePipeline.cpp",
                "Rendering/Light/Lights.cpp",
                "Rendering/Light/LightManager.cpp", "Rendering/Light/SpotLight.cpp",
