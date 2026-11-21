@@ -21,7 +21,7 @@ def cases():
                   testAxisX=(8.,0.,0.), testAxisY=(0.,0.,8.), testNormal=(0.,1.,0.),
                   testClimate=(.375,.625), worldSeed=1337, terrainAlbedoGamma=2.2,
                   microDetailStrength=.15, microDetailScale=2., testLod=0,
-                  terrainSeaLevel=0., terrainSeaBlendWidth=48.)
+                  terrainSeaLevel=0., terrainSeaBlendWidth=48., debugLod=0, terrainMaterialDebug=0)
     for biome in range(26):
         for label,normal in (('ground',(0.,1.,0.)),('wall',(1.,0.,0.)),
                              ('ceiling',(0.,-1.,0.)),('slope',(.8,.6,0.))):
@@ -40,6 +40,15 @@ def cases():
             yield f'offset/seed{seed}/gamma{gamma}',dict(defaults,terrainBiomeOverride=-1,
                 testOrigin=(12345.,.5,-4567.),worldSeed=seed,terrainAlbedoGamma=gamma,
                 testNormal=(.8,.6,0.),testAxisX=(2.,0.,0.),testAxisY=(0.,0.,2.),testLod=7)
+    # Compile-time diagnostics and no-detail variants must preserve exact
+    # historical precedence, including LOD overriding material diagnostics.
+    for lod in (0,1):
+        for debug in range(7):
+            for detail in (0.,.15):
+                yield f'debugLOD{lod}/material{debug}/detail{detail}',dict(defaults,
+                    debugLod=lod,terrainMaterialDebug=debug,microDetailStrength=detail,
+                    terrainBiomeOverride=-1,testLod=7)
+
 
 
 def valid_bound_tables():
@@ -75,12 +84,15 @@ def valid_bound_tables():
         yield mode,struct.pack(f'<{len(values)}f',*values)
 
 
-def run(baseline_ref='5487e13',epsilon=2e-6,bounds=False,current_fragment=None):
+def run(baseline_ref='5487e13',epsilon=2e-6,bounds=False,current_fragment=None,normal_epsilon=None):
     sha,old_table,old_settings,fragment=revision_baseline(baseline_ref)
     table,settings=export_appearance()
     if table!=old_table or settings!=old_settings:
         raise AssertionError('Authoring data changed; this oracle requires identical materials and settings')
     maximum=[0.,0.,0.,0.]
+    mismatches=[]
+    maximum_normal_angle=0.
+    if normal_epsilon is None: normal_epsilon=epsilon
     with AtmosphereGL() as gl:
         old=MaterialRig(gl,old_table,(24,18),fragment=fragment)
         new=MaterialRig(gl,table,(24,18),
@@ -88,6 +100,7 @@ def run(baseline_ref='5487e13',epsilon=2e-6,bounds=False,current_fragment=None):
         old.set(**old_settings);new.set(**settings)
         count=0
         def compare(label,controls):
+            nonlocal maximum_normal_angle
             old.set(**controls);new.set(**controls)
             before=old.read();after=new.read()
             for attachment,(a,b) in enumerate(zip(before,after)):
@@ -95,14 +108,22 @@ def run(baseline_ref='5487e13',epsilon=2e-6,bounds=False,current_fragment=None):
                     raise AssertionError((label,attachment,'non-finite output'))
                 error=max(abs(x-y) for x,y in zip(a,b))
                 maximum[attachment]=max(maximum[attachment],error)
-                if error>epsilon: raise AssertionError((label,attachment,error,epsilon))
+                threshold=normal_epsilon if attachment==1 else epsilon
+                if error>threshold: mismatches.append((label,attachment,error,threshold))
+                if attachment==1:
+                    for offset in range(0,len(a),4):
+                        x,y=a[offset:offset+3],b[offset:offset+3]
+                        cross=(x[1]*y[2]-x[2]*y[1],x[2]*y[0]-x[0]*y[2],x[0]*y[1]-x[1]*y[0])
+                        angle=math.degrees(math.atan2(math.sqrt(sum(c*c for c in cross)),sum(p*q for p,q in zip(x,y))))
+                        maximum_normal_angle=max(maximum_normal_angle,angle)
         for label,controls in cases():
             compare(label,controls)
             count+=1
         if bounds:
             controls=dict(testOrigin=(-.7,180.,-1.8),testAxisX=(8.,0.,0.),
                           testAxisY=(0.,0.,8.),testClimate=(.375,.625),
-                          worldSeed=1337,terrainAlbedoGamma=2.2,testLod=0)
+                          worldSeed=1337,terrainAlbedoGamma=2.2,testLod=0,
+                          debugLod=0,terrainMaterialDebug=0,microDetailStrength=.15)
             for label,bound_table in valid_bound_tables():
                 old.upload(bound_table);new.upload(bound_table)
                 for biome in range(26):
@@ -113,7 +134,10 @@ def run(baseline_ref='5487e13',epsilon=2e-6,bounds=False,current_fragment=None):
                                 testAxisX=(extent,0.,0.),testAxisY=(0.,0.,extent)))
                             count+=1
         gl.check('historical material shader equivalence')
-    print(f'PASS {count} cases / four G-buffer attachments against {sha}; maximum errors {maximum}',flush=True)
+    if mismatches:
+        raise AssertionError(dict(cases=count, maximum_errors=maximum, maximum_normal_angle_degrees=maximum_normal_angle, mismatches=len(mismatches),
+                                  worst=sorted(mismatches,key=lambda value:value[2],reverse=True)[:8]))
+    print(f'PASS {count} cases / four G-buffer attachments against {sha}; maximum errors {maximum}; maximum normal angle {maximum_normal_angle:.8f} degrees',flush=True)
     return maximum
 
 
@@ -121,11 +145,12 @@ def main():
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--baseline-ref',default='5487e13')
     parser.add_argument('--epsilon',type=float,default=2e-6)
+    parser.add_argument('--normal-epsilon',type=float,help='Optional normal-component tolerance for compiler reassociation; other attachments retain --epsilon')
     parser.add_argument('--bounds',action='store_true',help='Also compare valid authoring range endpoints')
     parser.add_argument('--current-fragment',type=Path,
                         help='Check an expanded prototype without changing the working tree')
     args=parser.parse_args()
-    run(args.baseline_ref,args.epsilon,args.bounds,args.current_fragment)
+    run(args.baseline_ref,args.epsilon,args.bounds,args.current_fragment,args.normal_epsilon)
 
 
 if __name__=='__main__':main()

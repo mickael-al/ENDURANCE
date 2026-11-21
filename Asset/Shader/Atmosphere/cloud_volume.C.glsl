@@ -7,7 +7,7 @@ void main()
     ivec3 p=ivec3(gl_GlobalInvocationID),size=imageSize(geAtmSourceOutput);
     if(any(greaterThanEqual(p,size))) return;
     vec3 source=vec3(0.0); float extinction=0.0;
-    if(p.z>0 && geAtmControl.z!=0)
+    if(p.z>0 && geAtmHasClouds())
     {
         vec3 direction=geAtmViewDirection((vec2(p.xy)+0.5)/vec2(size.xy));
         float begin=geAtmSliceDistance(p.z-1,size.z),end=geAtmSliceDistance(p.z,size.z);

@@ -1,29 +1,29 @@
-#ifndef __OIL_PAINTING__
-#define __OIL_PAINTING__
+#ifndef GE_OIL_PAINTING_HPP
+#define GE_OIL_PAINTING_HPP
 
 #include "ModulePP.hpp"
-#include "glm/glm.hpp"
-#include <vector>
+#include <array>
 
 namespace Ge
 {
-	class GraphiquePipeline;
-	class OilPainting final : public ModulePP
-	{
-	public:
-		bool initialize(GraphicsDataMisc* gdm);
-		void resize(int width, int height);
-		void compute(unsigned int frameBuffer, unsigned int texture, unsigned int depthtexture, ShapeBuffer* sb, PPSetting* settings);
-		void onGui(PPSetting* target, PPSetting* current);
-		void release();
-	private:
-		const ptrClass* m_pc;
-		GraphicsDataMisc* m_gdm;
-		GraphiquePipeline* m_oilPainting = nullptr;
-		unsigned int oilp_radius = 0;
-		unsigned int oilp_size = 0;
-		unsigned int m_fColor = 0;
-	};
+    class GraphiquePipeline;
+    class OilPainting final : public ModulePP
+    {
+    public:
+        static constexpr unsigned MaxRadius = 4;
+        static bool requested(const PPSetting* settings);
+        bool initialize(GraphicsDataMisc* gdm) override;
+        void resize(int width, int height) override;
+        void compute(unsigned frameBuffer, unsigned texture, unsigned depthTexture,
+            ShapeBuffer* sb, PPSetting* settings) override;
+        void onGui(PPSetting* target, PPSetting* current) override;
+        void release() override;
+    private:
+        const ptrClass* m_pc = nullptr;
+        GraphicsDataMisc* m_gdm = nullptr;
+        // Fixed, bounded kernels. Radius zero is an exact copy for direct users.
+        std::array<GraphiquePipeline*, MaxRadius + 1> m_programs{};
+        std::array<int, MaxRadius + 1> m_strengthLocations{};
+    };
 }
-
-#endif // !__OIL_PAINTING__
+#endif

@@ -79,7 +79,7 @@ JS_OBJ_EXT(glm::vec3, x, y, z);
 #endif // !VEC3_JS
 JS_OBJ_EXT(glm::vec4, x, y, z,w);
 JS_OBJ_EXT(glm::quat, x, y, z,w);
-JS_OBJ_EXT(PPSetting, bloom, bloom_filter, bloom_threshold, bloom_intensity, exposure, fog, fog_min_distance, fog_max_distance, fog_mode, fog_color, depth_of_field, dof_focus_distance, dof_focal_length, dof_f_number, dof_sensor_height, dof_max_radius, dof_match_camera_fov, color_tint, tint_color, tint_strength, tint_saturation, tint_contrast, oil_painting, oilp_radius);
+JS_OBJ_EXT(PPSetting, bloom, bloom_filter, bloom_threshold, bloom_intensity, exposure, fog, fog_min_distance, fog_max_distance, fog_mode, fog_color, depth_of_field, dof_focus_distance, dof_focal_length, dof_f_number, dof_sensor_height, dof_max_radius, dof_match_camera_fov, color_tint, tint_color, tint_strength, tint_saturation, tint_contrast, oil_painting, oilp_radius, oilp_strength);
 
 struct CollisionData
 {
@@ -123,12 +123,13 @@ struct ModelData : public GObjectData
 {
 	int idMaterial;
 	int idBuffer;
+    bool immutableShadowContent = false;
 	ModelData()
 	{
 		idMaterial = -1;
 		idBuffer = -1;
 	}
-	JS_OBJ(name,position, rotation, scale,idMaterial, idBuffer, idParent, scripts, collisions, tags);
+	JS_OBJ(name,position, rotation, scale,idMaterial, idBuffer, idParent, scripts, collisions, tags, immutableShadowContent);
 };
 
 enum BufferSource

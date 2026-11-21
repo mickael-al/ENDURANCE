@@ -1,0 +1,276 @@
+{
+  "accessors": [
+    {
+      "bufferView": 0,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 4587,
+      "max": [
+        7.171494007110596,
+        16.801557540893555,
+        4.761019229888916
+      ],
+      "min": [
+        -4.361837387084961,
+        0.0,
+        -7.205559253692627
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 4587,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 24,
+      "componentType": 5126,
+      "count": 4587,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 32,
+      "componentType": 5126,
+      "count": 4587,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 48,
+      "componentType": 5126,
+      "count": 4587,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 0,
+      "componentType": 5125,
+      "count": 23880,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 790,
+      "max": [
+        6.73614501953125,
+        16.80144691467285,
+        4.325380802154541
+      ],
+      "min": [
+        -3.6244499683380127,
+        0.0,
+        -6.4022321701049805
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 790,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 24,
+      "componentType": 5126,
+      "count": 790,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 32,
+      "componentType": 5126,
+      "count": 790,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 48,
+      "componentType": 5126,
+      "count": 790,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 3,
+      "byteOffset": 0,
+      "componentType": 5125,
+      "count": 3738,
+      "type": "SCALAR"
+    }
+  ],
+  "asset": {
+    "generator": "ENDURANCE Tree Lab",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 293568,
+      "byteOffset": 0,
+      "byteStride": 64,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 95520,
+      "byteOffset": 293568,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 50560,
+      "byteOffset": 389088,
+      "byteStride": 64,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 14952,
+      "byteOffset": 439648,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 454600,
+      "uri": "tree.bin"
+    }
+  ],
+  "extras": {
+    "format": "ENDURANCE.TreeAsset",
+    "lodSelection": "Two independent scenes. Default scene is LOD0; select LOD1 explicitly.",
+    "version": 3,
+    "windAttributes": "_WIND: normalized height, flexibility, phase, palette weight"
+  },
+  "images": [
+    {
+      "uri": "bark.png"
+    },
+    {
+      "uri": "leaves.png"
+    }
+  ],
+  "materials": [
+    {
+      "name": "Bark",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.9
+      }
+    },
+    {
+      "alphaCutoff": 0.5,
+      "alphaMode": "MASK",
+      "doubleSided": true,
+      "name": "Foliage",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 1
+        },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.82
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Tree_LOD0",
+      "primitives": [
+        {
+          "attributes": {
+            "COLOR_0": 3,
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TEXCOORD_0": 2,
+            "_WIND": 4
+          },
+          "indices": 5,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    },
+    {
+      "name": "Tree_LOD1",
+      "primitives": [
+        {
+          "attributes": {
+            "COLOR_0": 9,
+            "NORMAL": 7,
+            "POSITION": 6,
+            "TEXCOORD_0": 8,
+            "_WIND": 10
+          },
+          "indices": 11,
+          "material": 0,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "extras": {
+        "lod": 0
+      },
+      "mesh": 0,
+      "name": "Tree_LOD0"
+    },
+    {
+      "extras": {
+        "lod": 1
+      },
+      "mesh": 1,
+      "name": "Tree_LOD1"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    },
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 33071,
+      "wrapT": 33071
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "LOD0",
+      "nodes": [
+        0
+      ]
+    },
+    {
+      "name": "LOD1",
+      "nodes": [
+        1
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 1,
+      "source": 1
+    }
+  ]
+}

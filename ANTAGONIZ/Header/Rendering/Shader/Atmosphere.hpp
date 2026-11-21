@@ -98,6 +98,8 @@ namespace Ge
         std::uint64_t requestedEnvironmentRevision=0, captureRevision=0, publishedEnvironmentRevision=0;
         std::uint64_t dispatches=0, aerialDispatches=0, cloudVolumeDispatches=0;
         std::uint64_t cloudShadowDispatches=0, visibleCloudDispatches=0, fogDispatches=0;
+        std::uint64_t programVariantBuilds=0, programVariantHits=0, lightingLocationQueries=0;
+        unsigned residentProgramVariants=0;
         // CPU accounting of owned texel storage; excludes driver allocation
         // overhead and includes retained published/capture resources.
         std::uint64_t gpuTextureBytes=0, captureTextureBytes=0;
@@ -147,7 +149,9 @@ namespace Ge
         void renderSky(unsigned int cameraSSBO);
         void computeVolumes(Camera* camera);
         // Deferred and forward materials share the same completed IBL/volume set.
-        void bindLighting(unsigned int program, bool transparent=false);
+        // A nonzero lifetime/relink revision permits cached uniform locations.
+        // Raw external program IDs retain the conservative uncached path.
+        void bindLighting(unsigned int program, bool transparent=false, std::uint64_t programRevision=0);
         std::string serializeSettings() const;
         bool loadSettings(const std::string& json);
         void onGUI();

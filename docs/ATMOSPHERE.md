@@ -559,3 +559,11 @@ prioritaires pour la verification visuelle sur le materiel cible.
   <https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine>.
 - Google, *Filament*, modele d’eclairage indirect et environnement :
   <https://google.github.io/filament/main/filament.html>.
+
+### Variantes et mesure du moteur
+
+Les programmes internes spécialisent les options physiques, fog, nuages et
+rayons via des defines, avec un cache borné et des captures IBL conservant leurs
+programmes jusqu'à publication. Les programmes de matériaux partagés gardent
+un chemin générique. Les règles de durée de vie, les mesures et leurs limites
+sont détaillées dans [la seconde passe moteur](performance-engine-pass2.md).

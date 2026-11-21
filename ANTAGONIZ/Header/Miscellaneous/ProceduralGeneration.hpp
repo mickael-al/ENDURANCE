@@ -32,6 +32,7 @@ public:
         std::uint32_t maxResidentChunks = 2048;
         std::uint32_t maxSelectedChunks = 2048;
         ProceduralTerrain::FieldParameters field;
+        ProceduralTerrain::ObjectPlacementConfig objects;
         float microDetailStrength = 0.15f;
         float microDetailScale = 2.0f;
         // Game-owned recipes; the renderer only owns their GPU representation.
@@ -82,6 +83,12 @@ public:
         ProceduralTerrain::GpuStats generation;
         double coverageMilliseconds = 0.0;
         bool rebuilding = false;
+        // Render coverage has reached the current camera selection and all
+        // terrain planning/submissions have drained. Empty chunks count too.
+        bool coverageComplete = false;
+        // A stopped failed/capacity-limited transaction is incomplete, not idle
+        // success. Collision capacity is reported separately by resourceLimited.
+        bool generationBlocked = false;
         bool resourceLimited = false;
         // Outstanding CPU request/result, retained successor, and lack of an
         // active GPU transaction specifically because CPU planning is pending.
@@ -104,6 +111,8 @@ public:
     bool setTerrainAppearance(const ProceduralTerrain::TerrainAppearance& appearance,
         float microDetailStrength, float microDetailScale);
     bool setTerrainDetail(float strength, float scale);
+    // Changes only the render variant; never rebuilds terrain or shadow meshes.
+    bool setTerrainDebugLod(bool enabled);
     void update(const glm::vec3& cameraWorldPosition);
     void shutdown() noexcept;
     void prepareRenderer() override;
@@ -111,6 +120,7 @@ public:
     void drawShadowRenderer(unsigned int shadowIndex) override;
     std::uint64_t shadowCasterBoundsRevision() const override;
     std::uint64_t shadowContentRevision() const override;
+    std::uint64_t shadowLayerContentRevision(unsigned layer, const glm::mat4& clip) const override;
     void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const override;
     bool isInitialized() const noexcept;
     const Stats& getStats() const noexcept;
@@ -122,18 +132,24 @@ public:
     // terrain chunks. Borrowed until update()/shutdown(); no per-frame copy.
     const std::vector<ProceduralTerrain::SeaTile>& getSeaTiles() const noexcept;
     std::uint64_t getCoverageRevision() const noexcept;
+    unsigned int getObjectInstanceBuffer() const noexcept;
+    const std::vector<ProceduralTerrain::ObjectBlock>& getObjectBlocks() const noexcept;
+    ProceduralTerrain::ObjectPlacementStats getObjectPlacementStats() const noexcept;
+    const std::string& getObjectPlacementError() const noexcept;
 
     SceneData& getScene() noexcept { return m_scene; }
     const SceneData& getScene() const noexcept { return m_scene; }
     std::uint32_t getSeed() const noexcept { return m_seed; }
 
 private:
+    bool applyTerrainAppearance(const ProceduralTerrain::TerrainAppearance& appearance,
+        float strength, float scale, bool debugLod);
     struct Impl;
     SceneData& m_scene;
     std::uint32_t m_seed;
     std::unique_ptr<Impl> m_impl;
     Config m_config;
-    Stats m_stats;
+    mutable Stats m_stats; // Per-layer visibility is a logical rendering cache.
     std::string m_lastError;
 };
 

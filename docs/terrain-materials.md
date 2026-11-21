@@ -265,3 +265,9 @@ Sources informing the implementation:
 The material recipes are an ENDURANCE adaptation, not a reproduction of
 Journey's shaders. Dedicated sparkle lighting, displacement and additional
 lighting models are outside this change.
+
+Stable terrain debug/detail modes now use a bounded cache of compiled variants;
+continuous authoring controls remain uniforms. See
+[the second engine optimization pass](performance-engine-pass2.md) for the
+cache contract and historical output comparison, including the normal-only
+floating-point tolerance.

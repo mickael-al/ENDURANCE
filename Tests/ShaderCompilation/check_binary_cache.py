@@ -40,6 +40,7 @@ def main():
                    '-fPIC', '-shared', '-Wl,-Bsymbolic-functions', '-DGLEW_NO_GLU',
                    '-I', str(ROOT / 'ANTAGONIZ/Header/Struct'),
                    '-I', str(ROOT / 'ANTAGONIZ/Header/Rendering/Shader'),
+                   '-I', str(ROOT / 'ANTAGONIZ/Header/Interface'),
                    '-I', str(ROOT / 'ThirdParty'),
                    str(ROOT / 'Tests/ShaderCompilation/check_binary_cache.cpp')]
         command.extend(str(ROOT / 'ANTAGONIZ/Source/Rendering/Shader' / name) for name in sources)

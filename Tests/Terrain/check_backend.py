@@ -21,6 +21,7 @@ def main():
         command=[os.environ.get("CXX","c++"),"-std=c++17","-O3","-ffast-math","-fPIC","-shared","-DGLEW_NO_GLU",
                  "-I",str(ROOT/"ANTAGONIZ/Header/Struct"),"-I",str(ROOT/"ANTAGONIZ/Header/Miscellaneous"),
                  "-I",str(ROOT/"ANTAGONIZ/Header/Rendering/Shader"),
+                 "-I",str(ROOT/"ThirdParty/glm"),
                  "-I",str(ROOT/"ThirdParty"),str(ROOT/"Tests/Terrain/check_backend.cpp"),
                  str(ROOT/"ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp"),
                  str(ROOT / "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp"),

@@ -23,7 +23,8 @@ target_include_directories(terrain_generation_benchmark PRIVATE
     "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/Struct"
     "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/Miscellaneous"
     "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/Rendering/Shader"
-    "${ENDURANCE_SOURCE_ROOT}/ThirdParty")
+    "${ENDURANCE_SOURCE_ROOT}/ThirdParty"
+    "${ENDURANCE_SOURCE_ROOT}/ThirdParty/glm")
 target_link_libraries(terrain_generation_benchmark PRIVATE GLEW::GLEW glfw OpenGL::GL Threads::Threads)
 target_compile_definitions(terrain_generation_benchmark PRIVATE GLFW_INCLUDE_NONE
     "TERRAIN_DEFAULT_SHADERS=\"${ENDURANCE_SOURCE_ROOT}/Asset/Shader/ProceduralTerrain\"")

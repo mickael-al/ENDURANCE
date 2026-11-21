@@ -40,6 +40,11 @@ public:
     // Renderer callback remains active while the editor pauses behaviours.
     void prepareRenderer() override;
     void drawRenderer() override {}
+    // This component only updates atmosphere inputs; it never emits depth
+    // geometry. Mark that empty content as tracked so registering this hook
+    // does not force every terrain/tree shadow cascade to redraw every frame.
+    std::uint64_t shadowCasterBoundsRevision() const override { return m_emptyShadowRevision; }
+    std::uint64_t shadowContentRevision() const override { return m_emptyShadowRevision; }
     void onGUI() override;
     std::string serialize() override;
     void load(std::string data) override;
@@ -58,6 +63,7 @@ public:
     std::array<float,3> fogWind{{4.0f,0.0f,1.0f}};
 
 private:
+    const std::uint64_t m_emptyShadowRevision = Ge::nextShadowCasterBoundsRevision();
     struct Impl;
     std::unique_ptr<Impl> m;
     bool loadPaletteFile();

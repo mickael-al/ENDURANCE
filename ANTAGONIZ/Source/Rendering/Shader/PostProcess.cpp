@@ -12,7 +12,9 @@
 #include "Debug.hpp"
 #include <algorithm>
 #include <climits>
-//#include "OilPainting.hpp"
+#ifdef GE_ENABLE_OIL_PAINTING
+#include "OilPainting.hpp"
+#endif
 
 namespace Ge
 {
@@ -27,6 +29,10 @@ namespace Ge
 		m_colorTint = new ColorTint();
 		m_modules.push_back(m_bloom);
 		m_modules.push_back(m_depthOfField);
+#ifdef GE_ENABLE_OIL_PAINTING
+		m_oilPainting = new OilPainting();
+		m_modules.push_back(m_oilPainting);
+#endif
 		m_modules.push_back(m_colorTint);
 		for (int i = 0; i < m_modules.size(); i++)
 		{
@@ -86,13 +92,21 @@ namespace Ge
 			return;
 		bool useDof = m_setting->depth_of_field && m_gdm->current_camera;
 		bool useTint = m_setting->color_tint;
-		if ((useDof || useTint) && !ensurePostTargets(
+		bool usePost = useDof || useTint;
+#ifdef GE_ENABLE_OIL_PAINTING
+		bool useOil = OilPainting::requested(m_setting);
+		usePost = usePost || useOil;
+#endif
+		if (usePost && !ensurePostTargets(
 			static_cast<int>(m_gdm->str_width), static_cast<int>(m_gdm->str_height)))
 		{
 			// A failed optional target must still leave the original presentation usable.
-			useDof = useTint = false;
+			useDof = useTint = usePost = false;
+#ifdef GE_ENABLE_OIL_PAINTING
+			useOil = false;
+#endif
 		}
-		m_bloom->setOutputFrameBuffer((useDof || useTint) ? m_postFrameBuffers[0] : 0);
+		m_bloom->setOutputFrameBuffer(usePost ? m_postFrameBuffers[0] : 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);//fix ghost triangle bug !!!
 		for (unsigned int i = 0; i < m_externalModules.size(); ++i)
 		{
@@ -103,14 +117,40 @@ namespace Ge
 		{
 			if (m_modules[i] == m_depthOfField || m_modules[i] == m_colorTint)
 				continue;
+#ifdef GE_ENABLE_OIL_PAINTING
+			if (m_modules[i] == m_oilPainting)
+				continue;
+#endif
 			if (m_atmosphereActive && (dynamic_cast<Fog*>(m_modules[i]) || dynamic_cast<VolumetricFog*>(m_modules[i]))) continue;
 			m_modules[i]->compute(frameBuffer, texture, depthTexture, sb, m_setting);
 		}
+#ifdef GE_ENABLE_OIL_PAINTING
+		// Display-referred chain: tonemapping -> DoF -> oil paint -> grading.
+		// Alternate the existing two targets; never sample the draw attachment.
+		unsigned source = 0;
+		if (useDof)
+		{
+			m_depthOfField->compute((useOil || useTint) ? m_postFrameBuffers[1] : 0,
+				m_postTextures[source], depthTexture, sb, m_setting);
+			source = 1;
+		}
+		if (useOil)
+		{
+			const unsigned destination = 1 - source;
+			m_oilPainting->compute(useTint ? m_postFrameBuffers[destination] : 0,
+				m_postTextures[source], depthTexture, sb, m_setting);
+			source = destination;
+		}
+		if (useTint)
+			m_colorTint->compute(0, m_postTextures[source], depthTexture, sb, m_setting);
+#else
+		// Original chain, with no oil paint registration, shaders or draw calls.
 		if (useDof)
 			m_depthOfField->compute(useTint ? m_postFrameBuffers[1] : 0,
 				m_postTextures[0], depthTexture, sb, m_setting);
 		if (useTint)
 			m_colorTint->compute(0, m_postTextures[useDof ? 1 : 0], depthTexture, sb, m_setting);
+#endif
 		m_bloom->setOutputFrameBuffer(0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glActiveTexture(GL_TEXTURE0);
@@ -176,6 +216,9 @@ namespace Ge
 		m_bloom = nullptr;
 		m_depthOfField = nullptr;
 		m_colorTint = nullptr;
+#ifdef GE_ENABLE_OIL_PAINTING
+		m_oilPainting = nullptr;
+#endif
 		glDeleteTextures(2, m_postTextures);
 		glDeleteFramebuffers(2, m_postFrameBuffers);
 		for (auto& texture : m_postTextures) texture = 0;

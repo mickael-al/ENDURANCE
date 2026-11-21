@@ -1,0 +1,51 @@
+{
+  "format": "ENDURANCE.TreePreset",
+  "generatorVersion": 2,
+  "params": {
+    "barkHigh": [
+      0.3199999928474426,
+      0.23999999463558197,
+      0.1599999964237213
+    ],
+    "barkLow": [
+      0.11999999731779099,
+      0.08500000089406967,
+      0.054999999701976776
+    ],
+    "branchAngle": 57.0,
+    "branchCount": 8,
+    "branchStart": 0.6899999976158142,
+    "branchTaper": 0.5699999928474426,
+    "branchingLevels": 3,
+    "clumpSize": 1.7999999523162842,
+    "crownHeight": 7.0,
+    "crownWidth": 18.0,
+    "curvature": 0.4000000059604645,
+    "family": 7,
+    "foliageNormalBlend": 0.7200000286102295,
+    "height": 20.0,
+    "leafDensity": 0.7200000286102295,
+    "leafHigh": [
+      0.18000000715255737,
+      0.30000001192092896,
+      0.054999999701976776
+    ],
+    "leafLow": [
+      0.02500000037252903,
+      0.06499999761581421,
+      0.017999999225139618
+    ],
+    "leafSize": 0.949999988079071,
+    "rootCount": 8,
+    "rootLength": 6.5,
+    "rootRadius": 0.8500000238418579,
+    "seed": 1378,
+    "trunkBend": 0.02500000037252903,
+    "trunkRadius": 2.5,
+    "twigDensity": 1.0,
+    "vineCount": 0,
+    "vineLength": 4.0,
+    "vineRadius": 0.04500000178813934
+  },
+  "version": 2
+}

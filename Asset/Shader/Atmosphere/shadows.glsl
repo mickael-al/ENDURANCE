@@ -25,7 +25,7 @@ float geAtmShadowSample(vec3 receiver,int layer)
 float geAtmTerrainVisibility(vec3 worldPosition,int firstLayer)
 {
     int layerCount=min(geAtmShadow.z,min(geAtmShadowMatrices.length(),textureSize(geAtmTerrainShadow,0).z));
-    if(geAtmControl.w==0 || firstLayer<0 || firstLayer>=layerCount) return 1.0;
+    if(!GE_ATM_TERRAIN_SHADOWS_ON || firstLayer<0 || firstLayer>=layerCount) return 1.0;
     float viewZ=(geAtmView*vec4(worldPosition,1.0)).z;
     int preferred=0;
     for(int i=0;i<3;++i)

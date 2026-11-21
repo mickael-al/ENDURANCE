@@ -12,7 +12,7 @@ layout(binding=GE_ATM_CLOUD_SHADOW_BINDING) uniform sampler2D geAtmCloudShadow;
 
 bool geAtmHasClouds()
 {
-    return geAtmControl.z!=0 && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0;
+    return GE_ATM_CLOUDS_ON && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0;
 }
 
 float geAtmCloudMaximumRayDistance()

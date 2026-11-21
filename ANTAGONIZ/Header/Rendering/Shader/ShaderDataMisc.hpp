@@ -24,7 +24,7 @@ namespace Ge
 		void update(Camera * cam);
 	private:		
 		GraphicsDataMisc * m_gdm;
-		UniformBufferDiver m_ubd;
+		UniformBufferDiver m_ubd{};
 		Time * m_time;
 		SettingManager * m_settingManager;
 	};

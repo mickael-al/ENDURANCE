@@ -1,5 +1,9 @@
 #version 450
 
+#ifndef GE_BLOOM_THRESHOLD
+#define GE_BLOOM_THRESHOLD -1
+#endif
+
 // This shader performs downsampling on a texture,
 // as taken from Call Of Duty method, presented at ACM Siggraph 2014.
 // This particular method was customly designed to eliminate
@@ -45,7 +49,10 @@ void main()
     vec3 l = texture(srcTexture, vec2(texCoord.x - x, texCoord.y - y)).rgb;
     vec3 m = texture(srcTexture, vec2(texCoord.x + x, texCoord.y - y)).rgb;
 
+#if GE_BLOOM_THRESHOLD != 0
+#if GE_BLOOM_THRESHOLD < 0
     if (threshold >= 0.0f)
+#endif
     {
         vec3 bright = vec3(0.2126, 0.7152, 0.0722);
         if (dot(a, bright) <= threshold) { a = vec3(0.0f); }
@@ -63,6 +70,7 @@ void main()
         if (dot(m, bright) <= threshold) { m = vec3(0.0f); }
     }
 
+#endif
     // Apply weighted distribution:
     // 0.5 + 0.125 + 0.125 + 0.125 + 0.125 = 1
     // a,b,d,e * 0.125

@@ -13,6 +13,7 @@
 #include <map>
 #include <numeric>
 #include <utility>
+#include "ProceduralTerrainObjects.inl"
 
 namespace ProceduralTerrain
 {
@@ -47,6 +48,8 @@ namespace ProceduralTerrain
             GLint cells=-1, origin=-1, lod=-1, spacing=-1, seed=-1, mask=-1, parity=-1;
             GLint vertexBase=-1, capacity=-1;
             GLint fieldStateIndex=-1;
+            GLint objectJob=-1;
+            GLint resetDensityHeaders=-1;
             std::uint32_t cellCount=64;
             void discover()
             {
@@ -56,6 +59,8 @@ namespace ProceduralTerrain
                 parity=glGetUniformLocation(id,"uChunkParity");
                 vertexBase=glGetUniformLocation(id,"uVertexBase"); capacity=glGetUniformLocation(id,"uVertexCapacity");
                 fieldStateIndex=glGetUniformLocation(id,"uFieldStateIndex");
+                objectJob=glGetUniformLocation(id,"uObjectJobBase");
+                resetDensityHeaders=glGetUniformLocation(id,"uResetDensityHeaders");
             }
             void field(const GpuConfig& config,std::uint32_t columnStride,std::uint32_t densityStride,std::uint32_t stateStride)
             {
@@ -67,6 +72,7 @@ namespace ProceduralTerrain
                 glUniform1ui(glGetUniformLocation(id,"uColumnStride"),columnStride);
                 glUniform1ui(glGetUniformLocation(id,"uDensityStride"),densityStride);
                 glUniform1ui(glGetUniformLocation(id,"uStateStride"),stateStride);
+                glUniform1i(glGetUniformLocation(id,"uUseGroupBounds"),1);
                 const auto& f=config.field;
                 const auto set=[&](const char* name,float value){ glUniform1f(glGetUniformLocation(id,name),value); };
                 set("uBaseHeight",f.baseHeight); set("uHeightAmplitude",f.heightAmplitude);
@@ -100,7 +106,7 @@ namespace ProceduralTerrain
         enum ProgramIndex
         {
             ClassifyColumns, FinalizeColumns, PrepareVolume, BuildWorkLists, InitializeDensity,
-            CountRegular, CountTransition, EmitRegular, EmitTransition,
+            CountRegular, CountTransition, EmitRegular, EmitTransition, EmitObjects,
             SharedProgramCount, ReliefFirst=SharedProgramCount,
             VolumeFirst=ReliefFirst+BiomeCount, ProgramCount=VolumeFirst+BiomeCount
         };
@@ -147,10 +153,12 @@ namespace ProceduralTerrain
         bool initialized=false, broken=false, flushPending=false;
         Program programs[ProgramCount];
         GLuint vertices=0, vao=0, tables=0, descriptors=0, biomeCells=0;
+        Descriptor* mappedDescriptors=nullptr;
         GLuint densityArena=0, columnArena=0, scratchArena=0, fieldStates=0, groupCounts=0;
         GLuint fieldJobs=0, fieldWorkQueue=0;
         std::uint32_t densityStride=0, columnStride=0, stateStride=0, groupStride=0;
         FieldSlotCache columnCache, densityCache;
+        ObjectPlacementGpu objects;
         std::array<Timing,TimingCapacity> timings{};
         std::vector<Job> jobs;
         std::vector<Slot> slots;
@@ -268,7 +276,17 @@ namespace ProceduralTerrain
                 {request.lod,static_cast<std::uint32_t>(mesh.baseChunkCoordinate[0]),
                  static_cast<std::uint32_t>(mesh.baseChunkCoordinate[1]),
                  static_cast<std::uint32_t>(mesh.baseChunkCoordinate[2])}};
-            glNamedBufferSubData(descriptors,static_cast<GLintptr>(slotIndex)*sizeof(Descriptor),sizeof(Descriptor),&descriptor);
+            // A slot enters freeSlots only initially or after its retirement
+            // fence signals. No queued draw can still read this descriptor.
+            // Coherent host writes are visible to subsequent GL commands;
+            // unrelated live slots are never overwritten or orphaned.
+            if(mappedDescriptors) std::memcpy(mappedDescriptors+slotIndex,&descriptor,sizeof(Descriptor));
+            else
+            {
+                glNamedBufferSubData(descriptors,static_cast<GLintptr>(slotIndex)*sizeof(Descriptor),sizeof(Descriptor),&descriptor);
+                ++statistics.descriptorUploadCalls;
+            }
+            ++statistics.descriptorWrites; statistics.descriptorWriteBytes+=sizeof(Descriptor);
             return true;
         }
 
@@ -359,16 +377,15 @@ namespace ProceduralTerrain
                 jobExtent=(std::max)(jobExtent,job.fieldSlot+1);
                 const Counters zero{};
                 glNamedBufferSubData(job.counter,0,sizeof(Counters),&zero);
-                if (density.build)
-                {
-                    const std::uint32_t header[4]={0,UINT32_MAX,0,0};
-                    glNamedBufferSubData(fieldStates,static_cast<GLintptr>(density.slot)*stateStride*16,16,header);
-                }
             }
             ++statistics.fieldBatches;
             statistics.lastFieldBatchJobs=active;
             auto* timing=beginTiming(true);
-            glNamedBufferSubData(fieldJobs,0,config.maxInFlight*sizeof(FieldJobDescriptor),descriptions.data());
+            // Previous batches can still read/write their descriptors. A fresh
+            // data store avoids making this CPU upload wait for all those GPU
+            // dispatches. Only this small transient table is orphaned; cached
+            // column/density arenas keep their persistent contents.
+            glNamedBufferData(fieldJobs,config.maxInFlight*sizeof(FieldJobDescriptor),descriptions.data(),GL_STREAM_DRAW);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,densityArena);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,scratchArena);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,columnArena);
@@ -384,9 +401,10 @@ namespace ProceduralTerrain
                 glDispatchCompute((side+7)/8,(side+7)/8,jobExtent);
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             };
-            const auto buildLists=[&]()
+            const auto buildLists=[&](bool resetHeaders)
             {
                 glUseProgram(programs[BuildWorkLists].id);
+                glUniform1i(programs[BuildWorkLists].resetDensityHeaders,resetHeaders);
                 glDispatchCompute(1,1,1);
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_COMMAND_BARRIER_BIT);
             };
@@ -408,7 +426,7 @@ namespace ProceduralTerrain
             if (columnsNeeded)
             {
                 columnPass(ClassifyColumns);
-                buildLists();
+                buildLists(true);
                 accumulate(ReliefFirst,0);
                 columnPass(FinalizeColumns);
             }
@@ -416,10 +434,14 @@ namespace ProceduralTerrain
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,columnArena);
             if (densityNeeded)
             {
+                // Reset new density headers on the GPU, in command order.
+                // CPU SubData writes to this shared arena can serialize behind
+                // older jobs even when they touch a different cache slot.
+                if (!columnsNeeded) buildLists(true);
                 // A separate pass is required: aliases of a newly built XZ tile
                 // must only read it after all finalization workgroups complete.
                 columnPass(PrepareVolume);
-                buildLists();
+                buildLists(false);
                 glUseProgram(programs[InitializeDensity].id);
                 glDispatchCompute((side+7)/8,(side+3)/4,((side+3)/4)*jobExtent);
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
@@ -459,12 +481,16 @@ namespace ProceduralTerrain
                 static_cast<GLintptr>(slot.first)*VertexBytes,
                 static_cast<GLsizeiptr>(slot.allocation)*VertexBytes);
             auto* timing=beginTiming(false);
-            regular(programs[EmitRegular],job);
+            const auto objectBase=objects.begin(job.fieldSlot,job.request);
+            auto& emitProgram=programs[objectBase?EmitObjects:EmitRegular];
+            if(objectBase) glProgramUniform1ui(emitProgram.id,emitProgram.objectJob,objectBase);
+            regular(emitProgram,job);
             if (job.request.transitionMask)
             {
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
                 transition(programs[EmitTransition],job);
             }
+            objects.compactHits(job.fieldSlot);
             // poll() validates cursor/overflow before publishing a handle.
             // Draw lists use that validated handle; no GPU command-copy pass.
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT|
@@ -540,17 +566,18 @@ namespace ProceduralTerrain
 
         const char* files[SharedProgramCount]={"field_batch_classify.C.glsl","field_batch_finalize.C.glsl",
             "field_batch_prepare.C.glsl","field_batch_jobs.C.glsl","field_batch_density.C.glsl","meshing.C.glsl",
-            "transition.C.glsl","meshing.C.glsl","transition.C.glsl"};
+            "transition.C.glsl","meshing.C.glsl","transition.C.glsl","meshing.C.glsl"};
         Ge::ShaderCacheOptions shaderCache;
         shaderCache.enabled=true;
         std::vector<Ge::ShaderProgramRequest> requests;
         requests.reserve(ProgramCount);
         for (unsigned i=0;i<SharedProgramCount;++i)
         {
-            const bool emitPass = i==EmitRegular || i==EmitTransition;
+            const bool emitPass = i==EmitRegular || i==EmitTransition || i==EmitObjects;
             std::string define=emitPass?"#define EMIT_PASS 1\n":"#define EMIT_PASS 0\n";
-            if (i==CountRegular || i==CountTransition || i==EmitRegular || i==EmitTransition)
+            if (i==CountRegular || i==CountTransition || i==EmitRegular || i==EmitTransition || i==EmitObjects)
                 define+="#define TERRAIN_GROUP_COUNTS 1\n#define TERRAIN_FIELD_STATE 1\n";
+            if(i==EmitObjects && config.objects.enabled) define+="#define TERRAIN_OBJECTS 1\n";
             requests.push_back({{{GL_COMPUTE_SHADER,config.shaderDirectory+"/"+files[i],define}},
                 "Terrain "+std::string(files[i])+" EMIT_PASS="+(emitPass ? "1" : "0")});
         }
@@ -573,6 +600,7 @@ namespace ProceduralTerrain
             program.discover();
             program.field(config,s.columnStride,s.densityStride,s.stateStride);
         }
+        if(!s.objects.initialize(config,error)) { shutdown(); s.error=error; return false; }
         glCreateBuffers(1,&s.biomeCells);
         constexpr auto biomeCells=makeBiomeCellTable();
         glNamedBufferStorage(s.biomeCells,sizeof(biomeCells),biomeCells.data(),0);
@@ -599,7 +627,30 @@ namespace ProceduralTerrain
         const auto table=Transvoxel::makePackedTables();
         glNamedBufferData(s.tables,sizeof(table),table.data(),GL_STATIC_DRAW);
         glCreateBuffers(1,&s.descriptors);
-        glNamedBufferData(s.descriptors,static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Descriptor),nullptr,GL_DYNAMIC_DRAW);
+        const auto descriptorBytes=static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Descriptor);
+        // Do not hide an earlier allocation failure while handling the optional
+        // mapping fallback. All existing buffers must already be valid.
+        const GLenum priorDescriptorError=glGetError();
+        if(priorDescriptorError!=GL_NO_ERROR)
+        { error="OpenGL terrain allocation failed (error "+std::to_string(priorDescriptorError)+")"; shutdown(); s.error=error; return false; }
+        constexpr GLbitfield descriptorFlags=GL_MAP_WRITE_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT;
+        glNamedBufferStorage(s.descriptors,descriptorBytes,nullptr,descriptorFlags);
+        GLenum descriptorError=glGetError();
+        if(descriptorError==GL_NO_ERROR)
+        {
+            s.mappedDescriptors=static_cast<Descriptor*>(glMapNamedBufferRange(s.descriptors,0,descriptorBytes,descriptorFlags));
+            descriptorError=glGetError();
+        }
+        if(!s.mappedDescriptors)
+        {
+            if(descriptorError!=GL_NO_ERROR && descriptorError!=GL_OUT_OF_MEMORY)
+            { error="Cannot map terrain descriptors (error "+std::to_string(descriptorError)+")"; shutdown(); s.error=error; return false; }
+            // Mapping address space can be exhausted even when a small GPU
+            // buffer still fits. Retain the previous correct upload path.
+            glDeleteBuffers(1,&s.descriptors); glCreateBuffers(1,&s.descriptors);
+            glNamedBufferData(s.descriptors,descriptorBytes,nullptr,GL_DYNAMIC_DRAW);
+        }
+        s.statistics.persistentDescriptors=s.mappedDescriptors!=nullptr;
         glCreateVertexArrays(1,&s.vao);
         glVertexArrayVertexBuffer(s.vao,0,s.vertices,0,VertexBytes);
         for (unsigned i=0;i<3;++i)
@@ -644,6 +695,7 @@ namespace ProceduralTerrain
     void GpuMesher::shutdown() noexcept
     {
         auto& s=*m_impl;
+        s.objects.shutdown();
         for (auto& job:s.jobs)
         {
             if (job.fence) glDeleteSync(job.fence);
@@ -661,6 +713,8 @@ namespace ProceduralTerrain
         for (auto& entry:s.drawLists)
             if (entry.second.buffer) glDeleteBuffers(1,&entry.second.buffer);
         s.drawLists.clear();
+        if(s.mappedDescriptors) glUnmapNamedBuffer(s.descriptors);
+        s.mappedDescriptors=nullptr;
         const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.biomeCells,
             s.columnArena,s.densityArena,s.fieldJobs,s.fieldWorkQueue,s.scratchArena,s.fieldStates,s.groupCounts};
         if (std::any_of(std::begin(buffers),std::end(buffers),[](GLuint id){return id!=0;}))
@@ -736,6 +790,7 @@ namespace ProceduralTerrain
     {
         auto& s=*m_impl;
         if (!s.initialized) return;
+        s.objects.poll();
         if (!s.broken) s.collectTimings();
         const auto failPending=[&]()
         {
@@ -791,6 +846,7 @@ namespace ProceduralTerrain
             if (!job.cancelled) completion.hasMarineSurface=job.mapped->hasMarineSurface!=0;
             if (job.cancelled)
             {
+                s.objects.complete(job.fieldSlot,false);
                 if (job.mesh.slot!=UINT32_MAX) s.freeSlot(job.mesh.slot);
                 completion.status=CompletionStatus::Cancelled;
             }
@@ -814,11 +870,13 @@ namespace ProceduralTerrain
             {
                 if (job.mapped->overflow!=0 || job.mapped->cursor!=job.mesh.vertexCount)
                 {
+                    s.objects.complete(job.fieldSlot,false);
                     completion.error="Terrain mesh emission exceeded its reserved allocation";
                     s.freeSlot(job.mesh.slot); ++s.statistics.failedJobs;
                 }
                 else
                 {
+                    s.objects.complete(job.fieldSlot,true);
                     completion.status=CompletionStatus::Ready; completion.mesh=job.mesh;
                     s.slots[job.mesh.slot].live=true;
                     ++s.statistics.residentChunks; s.statistics.residentVertices+=job.mesh.vertexCount;
@@ -908,6 +966,14 @@ namespace ProceduralTerrain
     unsigned int GpuMesher::vertexBuffer() const noexcept { return m_impl->vertices; }
     unsigned int GpuMesher::descriptorBuffer() const noexcept { return m_impl->descriptors; }
     unsigned int GpuMesher::vertexArray() const noexcept { return m_impl->vao; }
+    void GpuMesher::publishObjectCoverage(const std::vector<LodChunk>& chunks,std::uint32_t seed)
+    { m_impl->objects.publish(chunks,seed); }
+    void GpuMesher::discardUnpublishedObjects() { m_impl->objects.discardUnpublished(); }
+    void GpuMesher::trimObjectSectors(const glm::vec3& camera) { m_impl->objects.trim(camera); }
+    unsigned int GpuMesher::objectInstanceBuffer() const noexcept { return m_impl->objects.buffer(); }
+    const std::vector<ObjectBlock>& GpuMesher::objectBlocks() const noexcept { return m_impl->objects.blocks(); }
+    ObjectPlacementStats GpuMesher::objectStats() const noexcept { return m_impl->objects.stats(); }
+    const std::string& GpuMesher::objectError() const noexcept { return m_impl->objects.error(); }
     const GpuConfig& GpuMesher::config() const noexcept { return m_impl->config; }
     GpuStats GpuMesher::stats() const noexcept
     {

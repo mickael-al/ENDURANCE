@@ -43,6 +43,9 @@ inline std::map<unsigned,std::vector<unsigned char>> buffers;
 inline std::map<unsigned,Binding> uniformBindings;
 inline std::map<std::string,int> locations;
 inline std::map<int,float> floatUniforms;
+inline std::map<std::pair<unsigned,int>,float> programFloatUniforms;
+inline std::map<std::pair<unsigned,int>,unsigned> programUIntUniforms;
+inline std::map<std::pair<unsigned,int>,std::vector<unsigned>> programUIntArrays;
 }
 inline void glGetIntegerv(unsigned pname,GLint* x){
  *x=pname==GL_UNIFORM_BUFFER_BINDING?TerrainFixtureGL::uniform:
@@ -62,10 +65,13 @@ inline void glBindBufferBase(unsigned target,unsigned index,unsigned p){
 inline GLint glGetUniformLocation(unsigned,const char* name){
  auto& locations=TerrainFixtureGL::locations;auto it=locations.find(name);
  if(it!=locations.end())return it->second;int result=int(locations.size());locations[name]=result;return result;}
-inline void glProgramUniform1f(unsigned,int where,float value){
+inline void glProgramUniform1f(unsigned program,int where,float value){
+ TerrainFixtureGL::programFloatUniforms[{program,where}]=value;
  TerrainFixtureGL::floatUniforms[where]=value;++TerrainFixtureGL::uniformWrites;}
-inline void glProgramUniform1ui(unsigned,int,unsigned){}
-inline void glProgramUniform1uiv(unsigned,int,int,const unsigned*){}
+inline void glProgramUniform1ui(unsigned program,int where,unsigned value){
+ TerrainFixtureGL::programUIntUniforms[{program,where}]=value;}
+inline void glProgramUniform1uiv(unsigned program,int where,int count,const unsigned* values){
+ TerrainFixtureGL::programUIntArrays[{program,where}]={values,values+count};}
 inline void glProgramUniform1i(unsigned,int,int){} inline void glUniform1i(int,int){}
 inline GLuint glGetUniformBlockIndex(unsigned,const char*){return 0;}
 inline void glGetActiveUniformBlockiv(unsigned,unsigned,unsigned,GLint* value){*value=TerrainFixtureGL::blockBytes;}
@@ -107,14 +113,22 @@ class SettingManager {public:float gamma=2.2f;float getGamma()const{return gamma
 class ShaderPair {};
 struct ShaderCacheOptions {bool enabled=false;};
 class GraphiquePipeline {
- ShaderPair* pair=new ShaderPair;std::string error;
-public:bool isValid()const{return true;}const std::string& getLastError()const{return error;}
- unsigned getProgram()const{return 1;}ShaderPair* getShaderPair(){return pair;}
+ ShaderPair* pair=new ShaderPair;std::string error;unsigned program;bool valid;
+public:
+ GraphiquePipeline(unsigned id=1,bool success=true):program(id),valid(success){if(!valid)error="injected shader link failure";}
+ bool isValid()const{return valid;}const std::string& getLastError()const{return error;}
+ unsigned getProgram()const{return program;}ShaderPair* getShaderPair(){return pair;}
 };
 class GraphiquePipelineManager {
 public:
- unsigned activePipelines=0,registeredRenderers=0;
- template<class... T>GraphiquePipeline* createPipeline(T&&...){++activePipelines;return new GraphiquePipeline;}
+ unsigned activePipelines=0,registeredRenderers=0,createdPipelines=0;
+ bool failNextPipeline=false;
+ std::vector<std::string> createdDefines;
+ GraphiquePipeline* createPipeline(const std::string&,const std::string&,bool=false,bool=true,bool=false,
+  int=1,std::string define="",const ShaderCacheOptions& = ShaderCacheOptions{}) {
+  ++activePipelines;++createdPipelines;createdDefines.push_back(define);
+  const bool valid=!failNextPipeline;failNextPipeline=false;return new GraphiquePipeline(createdPipelines,valid);
+ }
  void destroyPipeline(GraphiquePipeline* p){--activePipelines;delete p;}
  void addCustomRenderer(CustomRenderer*){++registeredRenderers;}
  void removeCustomRenderer(CustomRenderer*){--registeredRenderers;}
@@ -130,7 +144,7 @@ namespace Ge {class Engine {public:static ptrClass* getPtrClassAddr(){static ptr
 '''
 
 
-def build_and_run(source_root, temporary, label, baseline=False):
+def build_and_run(source_root, temporary, label, baseline=False, instant_gpu=False, update_source=None):
     stub = temporary / 'stubs'
     stub.mkdir(exist_ok=True)
     (stub / 'glcore.hpp').write_text(GL_STUB)
@@ -142,6 +156,9 @@ def build_and_run(source_root, temporary, label, baseline=False):
     header = source_root / MISC / 'ProceduralGeneration.hpp'
     if 'sameFrameHandoffs' in header.read_text():
         flags.append('-DTERRAIN_SCHEDULER_LOOKAHEAD')
+    if 'coverageComplete' in header.read_text() and (not update_source or
+            'coverageComplete' in update_source.read_text()):
+        flags.append('-DTERRAIN_SCHEDULER_COMPLETION')
     for include in (stub, source_root / MISC, ROOT / MISC,
                     ROOT / 'ANTAGONIZ/Header/Interface', ROOT / 'ThirdParty/glm',
                     ROOT / 'ThirdParty'):
@@ -150,8 +167,11 @@ def build_and_run(source_root, temporary, label, baseline=False):
     files += [source_root / SOURCES / (name + '.cpp') for name in
               ('ProceduralGeneration', 'ProceduralTerrainPlanner',
                'ProceduralTerrainStreaming', 'ProceduralTerrainLod')]
+    if update_source:
+        files[1] = update_source.resolve()
     subprocess.run(flags + [str(p) for p in files] + ['-o', str(binary)], check=True)
-    result = subprocess.run([str(binary)] + (['--baseline'] if baseline else []),
+    result = subprocess.run([str(binary)] + (['--baseline'] if baseline else [])
+                            + (['--instant-gpu'] if instant_gpu else []),
                             text=True, capture_output=True, check=False)
     if result.returncode:
         raise RuntimeError(result.stdout + result.stderr)
@@ -161,20 +181,29 @@ def build_and_run(source_root, temporary, label, baseline=False):
     report['production_source_sha256'] = hashlib.sha256(
         b''.join(p.read_bytes() for p in production)).hexdigest()
     report['fixture_sha256'] = hashlib.sha256(files[0].read_bytes()).hexdigest()
-    report['controlled_gpu_latency_updates'] = 6
+    report['controlled_gpu_latency_updates'] = 0 if instant_gpu else 6
+    report['controlled_gpu_stages'] = 'count/emit with deterministic empty-chunk pattern' if instant_gpu else 'single completion'
     report['worker_frame_pause_ms'] = 1
     return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--reference-ref', help='Earlier local Git commit, compared with the same harness')
+    reference = parser.add_mutually_exclusive_group()
+    reference.add_argument('--reference-ref', help='Earlier local Git commit, compared with the same harness')
+    reference.add_argument('--reference-update', type=Path, help='Earlier ProceduralGeneration.cpp, same other sources')
+    parser.add_argument('--instant-gpu', action='store_true',
+                        help='Immediately ready count/emit fences and empty chunks, 3 in flight/16 per frame')
     parser.add_argument('--output', type=Path)
     args = parser.parse_args()
     with tempfile.TemporaryDirectory(prefix='terrain-scheduler-') as temp:
         temp = Path(temp)
         report = {'scope': 'Actual CPU scheduler/worker; controlled GPU completion, not hardware timing',
-                  'current': build_and_run(ROOT, temp, 'current')}
+                  'current': build_and_run(ROOT, temp, 'current', instant_gpu=args.instant_gpu)}
+        if args.reference_update:
+            report['reference_update'] = str(args.reference_update)
+            report['reference'] = build_and_run(ROOT, temp, 'reference', baseline=True,
+                instant_gpu=args.instant_gpu, update_source=args.reference_update)
         if args.reference_ref:
             baseline = temp / 'reference'
             paths = [MISC / (name + '.hpp') for name in
@@ -188,7 +217,8 @@ def main():
                 destination.write_bytes(subprocess.check_output(
                     ['git', 'show', args.reference_ref + ':' + path.as_posix()], cwd=ROOT))
             report['reference_ref'] = args.reference_ref
-            report['reference'] = build_and_run(baseline, temp, 'reference', baseline=True)
+            report['reference'] = build_and_run(baseline, temp, 'reference', baseline=True,
+                instant_gpu=args.instant_gpu)
     text = json.dumps(report, indent=2) + '\n'
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

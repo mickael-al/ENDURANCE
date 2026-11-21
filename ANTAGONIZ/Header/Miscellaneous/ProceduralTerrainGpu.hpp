@@ -2,6 +2,8 @@
 #define ENDURANCE_PROCEDURAL_TERRAIN_GPU_HPP
 
 #include "ProceduralTerrainField.hpp"
+#include "ProceduralTerrainObjects.hpp"
+#include "ProceduralTerrainLod.hpp"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -24,6 +26,7 @@ namespace ProceduralTerrain
         bool measureGenerationTimings = true;
         std::string shaderDirectory = "../Asset/Shader/ProceduralTerrain";
         FieldParameters field;
+        ObjectPlacementConfig objects;
     };
 
     struct ChunkRequest
@@ -78,6 +81,11 @@ namespace ProceduralTerrain
         // CPU-to-GPU command uploads, not vertex/field transfers.
         std::uint64_t drawListUploads = 0;
         std::uint64_t drawListUploadBytes = 0;
+        // Newly owned descriptor slots only; coherent mapping avoids a GL
+        // upload call. The mutable-buffer fallback preserves the same contract.
+        std::uint64_t descriptorWrites = 0, descriptorWriteBytes = 0;
+        std::uint64_t descriptorUploadCalls = 0;
+        bool persistentDescriptors = false;
         double lastGenerationMilliseconds = 0.0;
         std::uint64_t transientFieldBytes = 0;
         std::uint64_t biomeMetadataBytes = 0;
@@ -137,6 +145,15 @@ namespace ProceduralTerrain
         unsigned int vertexBuffer() const noexcept;
         unsigned int descriptorBuffer() const noexcept;
         unsigned int vertexArray() const noexcept;
+        // Placement stage only: GPU positions + immutable per-page draw metadata.
+        // Call publication with real terrain coverage, not speculative jobs.
+        void publishObjectCoverage(const std::vector<LodChunk>& chunks, std::uint32_t seed);
+        void discardUnpublishedObjects();
+        void trimObjectSectors(const glm::vec3& camera);
+        unsigned int objectInstanceBuffer() const noexcept;
+        const std::vector<ObjectBlock>& objectBlocks() const noexcept;
+        ObjectPlacementStats objectStats() const noexcept;
+        const std::string& objectError() const noexcept;
         const GpuConfig& config() const noexcept;
         GpuStats stats() const noexcept;
         const std::string& lastError() const noexcept;

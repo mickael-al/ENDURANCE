@@ -81,9 +81,12 @@ def literal_table(colors=None, wall_colors=None, *, metallic=0., roughness=.6, a
 class MaterialRig:
     def __init__(self, gl, table, size=(32, 24), fragment=None, formats=None):
         self.gl, self.size = gl, size
-        self.program = gl.compile([(0x8B31, PLANE_VERTEX),
-                                   (0x8B30, fragment or shader_source(TERRAIN/'render.fs.glsl'))],
-                                  'actual terrain material fragment on controlled plane')
+        self.vertex_source = PLANE_VERTEX
+        self.fragment_source = fragment or shader_source(TERRAIN/'render.fs.glsl')
+        self.specialized = 'ENDURANCE_TERRAIN_RENDER_OPTIONS_GLSL' in self.fragment_source
+        self.variants, self.program = {}, None
+        self.table_size = len(table)
+        self.matrix_values = tuple(range(25))
         self.table = gl.buffer(table)
         gl.glBindBufferBase(UNIFORM_BUFFER, 6, self.table)
         if formats is None: formats=(RG32F,RGBA32F,RGBA32F,RGBA32F)
@@ -101,12 +104,6 @@ class MaterialRig:
         gl._fn('glUniform1uiv', None, C.c_int, C.c_int, C.POINTER(C.c_uint))
         gl._fn('glGetUniformBlockIndex', C.c_uint, C.c_uint, C.c_char_p)
         gl._fn('glGetActiveUniformBlockiv', None, C.c_uint, C.c_uint, C.c_uint, C.POINTER(C.c_int))
-        index = gl.glGetUniformBlockIndex(self.program, b'TerrainMaterialTable')
-        if index != 0xffffffff:
-            extent = C.c_int()
-            gl.glGetActiveUniformBlockiv(self.program, index, 0x8A40, C.byref(extent))
-            assert extent.value == len(table), ('std140 table extent', extent.value, len(table))
-        self.matrix(tuple(range(25)))
         self.uniforms = {
             'microDetailStrength': ('1f', .15), 'microDetailScale': ('1f', 2.),
             'worldSeed': ('1ui', 1337), 'debugLod': ('1i', 0),
@@ -119,15 +116,52 @@ class MaterialRig:
             'testNormal': ('3f', 0., 1., 0.), 'testViewOffset': ('3f', 0., 0., 0.),
             'testClimate': ('2f', .3, .6), 'testLod': ('1ui', 0),
         }
+        self._select_variant()
+
+    def _select_variant(self):
+        gl = self.gl
+        lod = int(self.uniforms['debugLod'][1])
+        debug = 0 if lod else int(self.uniforms['terrainMaterialDebug'][1])
+        biome = int(self.uniforms['terrainBiomeOverride'][1])
+        detail = int(self.uniforms['microDetailStrength'][1] > 0.)
+        key = (lod, debug, biome, detail) if self.specialized else ()
+        if key not in self.variants:
+            defines = (f'#define DEBUG_TERRAIN_MATERIAL {debug}\n'
+                       f'#define TERRAIN_FIXED_BIOME {biome}\n'
+                       f'#define TERRAIN_MICRODETAIL_ENABLED {detail}\n'
+                       + ('#define DEBUG_TERRAIN_LOD\n' if lod else '')) if self.specialized else ''
+            def source(text):
+                version, body = text.split('\n', 1)
+                return version + '\n' + defines + body
+            program = gl.compile([(0x8B31, source(self.vertex_source)),
+                                  (0x8B30, source(self.fragment_source))],
+                                 f'actual terrain material variant {key}')
+            index = gl.glGetUniformBlockIndex(program, b'TerrainMaterialTable')
+            if index != 0xffffffff:
+                extent = C.c_int()
+                gl.glGetActiveUniformBlockiv(program, index, 0x8A40, C.byref(extent))
+                assert extent.value == self.table_size, ('std140 table extent', extent.value, self.table_size)
+            self.variants[key] = program
+        program = self.variants[key]
+        if self.program == program: return False
+        self.program = program
         for name, (kind, *values) in self.uniforms.items():
-            gl.uniform(self.program, name, kind, *values)
+            gl.uniform(program, name, kind, *values)
+        self.matrix(self.matrix_values)
+        return True
+
+    def set_vertex(self, vertex_source):
+        self.vertex_source = vertex_source
+        self.variants = {}
+        self._select_variant()
 
     def matrix(self, values):
+        self.matrix_values = tuple(values)
         gl = self.gl
         gl.glUseProgram(self.program)
         location = gl.glGetUniformLocation(self.program, b'terrainBiomeMatrix[0]')
         if location >= 0:
-            gl.glUniform1uiv(location, 25, (C.c_uint*25)(*values))
+            gl.glUniform1uiv(location, 25, (C.c_uint*25)(*self.matrix_values))
 
     def upload(self, table):
         self.gl.resize(self.table, table)
@@ -137,6 +171,10 @@ class MaterialRig:
         for name, values in settings.items():
             kind = self.uniforms[name][0]
             if not isinstance(values, tuple): values = (values,)
+            self.uniforms[name] = (kind, *values)
+        if self._select_variant(): return
+        for name in settings:
+            kind, *values = self.uniforms[name]
             self.gl.uniform(self.program, name, kind, *values)
 
     def draw(self):
@@ -500,10 +538,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
     biomes=list(range(26)) if biomes is None else biomes
     scale=extent/1024.
     rig=MaterialRig(gl,table,size)
-    rig.program=gl.compile([(0x8B31,shader_source(TERRAIN/'render.vs.glsl')),
-                            (0x8B30,shader_source(TERRAIN/'render.fs.glsl'))],
-                           'packed terrain material preview')
-    for name,(kind,*values) in rig.uniforms.items(): gl.uniform(rig.program,name,kind,*values)
+    rig.set_vertex(shader_source(TERRAIN/'render.vs.glsl'))
     if settings: rig.set(**settings)
     rig.matrix(tuple(range(25)))
     for name,signature in {

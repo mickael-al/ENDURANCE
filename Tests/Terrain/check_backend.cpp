@@ -7,6 +7,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstring>
 #include <iostream>
 #include <stdexcept>
 #include <thread>
@@ -72,13 +73,17 @@ void collectRetired(GpuMesher& mesher,std::uint64_t expectedAllocated=0)
     require(mesher.stats().allocatedBytes==expectedAllocated,"Idle retirement did not reclaim its allocation");
     require(ignored.empty(),"Unexpected duplicate completion");
 }
-void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& second)
+void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& second,unsigned passBase=0)
 {
     // A complete target/program and transform feedback exercise real direct
     // and indirect submissions under a surfaceless GL context.
     const char* vertex="#version 450 core\n#extension GL_ARB_shader_draw_parameters : require\n"
-        "out uint capturedVertex;out uint capturedSlot;"
+        "struct Descriptor{vec4 originExtent;uvec4 metadata;};"
+        "layout(std430,binding=8) readonly buffer Descriptors{Descriptor descriptors[];};"
+        "out uint capturedVertex;out uint capturedSlot;out uvec4 capturedOrigin;out uvec4 capturedMetadata;"
         "void main(){capturedVertex=uint(gl_VertexID);capturedSlot=uint(gl_BaseInstanceARB);"
+        "capturedOrigin=floatBitsToUint(descriptors[gl_BaseInstanceARB].originExtent);"
+        "capturedMetadata=descriptors[gl_BaseInstanceARB].metadata;"
         "gl_Position=vec4(float(gl_VertexID%2),float((gl_VertexID/2)%2),0,1);}";
     const char* fragment="#version 450 core\nlayout(location=0) out vec4 color;void main(){color=vec4(1);}";
     const GLuint program=glCreateProgram();
@@ -92,8 +97,8 @@ void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& 
         require(compiled==GL_TRUE,"Draw-list test shader failed");
         glAttachShader(program,shader);glDeleteShader(shader);
     }
-    const char* capturedNames[]={"capturedVertex","capturedSlot"};
-    glTransformFeedbackVaryings(program,2,capturedNames,GL_INTERLEAVED_ATTRIBS);
+    const char* capturedNames[]={"capturedVertex","capturedSlot","capturedOrigin","capturedMetadata"};
+    glTransformFeedbackVaryings(program,4,capturedNames,GL_INTERLEAVED_ATTRIBS);
     glLinkProgram(program);
     GLint linked=GL_FALSE;glGetProgramiv(program,GL_LINK_STATUS,&linked);
     require(linked==GL_TRUE,"Draw-list test program failed");
@@ -106,41 +111,51 @@ void checkDrawLists(GpuMesher& mesher,const MeshHandle& first,const MeshHandle& 
     GLuint feedback=0,primitiveQuery=0;
     glGenQueries(1,&primitiveQuery);
     glCreateBuffers(1,&feedback);
-    glNamedBufferStorage(feedback,(first.vertexCount+second.vertexCount)*2*sizeof(GLuint),nullptr,GL_DYNAMIC_STORAGE_BIT);
+    glNamedBufferStorage(feedback,(first.vertexCount+second.vertexCount)*10*sizeof(GLuint),nullptr,GL_DYNAMIC_STORAGE_BIT);
     glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER,0,feedback);
     auto checkCaptured=[&](const std::vector<MeshHandle>& handles)
     {
         std::size_t count=0;for(const auto& handle:handles)count+=handle.vertexCount;
         GLuint primitives=0;glGetQueryObjectuiv(primitiveQuery,GL_QUERY_RESULT,&primitives);
         require(primitives*3==count,"Draw submitted wrong vertex count");
-        std::vector<GLuint> values(count*2);
+        std::vector<GLuint> values(count*10);
         glGetNamedBufferSubData(feedback,0,values.size()*sizeof(GLuint),values.data());
         std::size_t index=0;
         for(const auto& handle:handles)for(unsigned i=0;i<handle.vertexCount;++i,++index)
-            require(values[index*2]==handle.firstVertex+i && values[index*2+1]==handle.slot,
+        {
+            require(values[index*10]==handle.firstVertex+i && values[index*10+1]==handle.slot,
                 "Draw submitted wrong vertex range or descriptor base instance");
+            const float origin[]={handle.origin[0],handle.origin[1],handle.origin[2],handle.extent};
+            std::uint32_t encoded[4]; std::memcpy(encoded,origin,sizeof(encoded));
+            require(std::equal(encoded,encoded+4,values.begin()+index*10+2),
+                "GPU descriptor origin/extent is stale or overwrote another live slot");
+            require(values[index*10+6]==handle.lod,"GPU descriptor LOD is stale");
+            for(unsigned a=0;a<3;++a)
+                require(values[index*10+7+a]==static_cast<std::uint32_t>(handle.baseChunkCoordinate[a]),
+                    "GPU descriptor lattice coordinate is stale");
+        }
     };
     glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN,primitiveQuery);
     glBeginTransformFeedback(GL_TRIANGLES);mesher.draw(first);glEndTransformFeedback();
     glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
     checkCaptured({first});
     const std::vector<MeshHandle> camera{first},shadow{second},changedShadow{first,second};
-    require(mesher.stats().drawListUploads==0 && mesher.stats().drawListUploadBytes==0,"Initial draw cache is not empty");
+    const auto initialUploads=mesher.stats().drawListUploads,initialBytes=mesher.stats().drawListUploadBytes;
     glBeginQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN,primitiveQuery);
     glBeginTransformFeedback(GL_TRIANGLES);
-    mesher.drawMany(camera,0);mesher.drawMany(shadow,1);
+    mesher.drawMany(camera,passBase);mesher.drawMany(shadow,passBase+1);
     glEndTransformFeedback();glEndQuery(GL_TRANSFORM_FEEDBACK_PRIMITIVES_WRITTEN);
     checkCaptured({first,second});
-    require(mesher.stats().drawListUploads==2 && mesher.stats().drawListUploadBytes==32,"First camera/shadow lists did not upload exactly once");
+    require(mesher.stats().drawListUploads==initialUploads+2 && mesher.stats().drawListUploadBytes==initialBytes+32,"First camera/shadow lists did not upload exactly once");
     for (unsigned frame=0;frame<8;++frame)
     {
-        mesher.drawMany(camera,0);mesher.drawMany(shadow,1);
+        mesher.drawMany(camera,passBase);mesher.drawMany(shadow,passBase+1);
     }
-    require(mesher.stats().drawListUploads==2 && mesher.stats().drawListUploadBytes==32,"Static interleaved passes reuploaded their draw lists");
-    mesher.drawMany(changedShadow,1);mesher.drawMany(camera,0);
-    require(mesher.stats().drawListUploads==3 && mesher.stats().drawListUploadBytes==64,"Changing one pass invalidated another pass's draw cache");
-    mesher.drawMany({},0);mesher.drawMany(camera,0);
-    require(mesher.stats().drawListUploads==3,"Empty pass invalidated an unchanged command buffer");
+    require(mesher.stats().drawListUploads==initialUploads+2 && mesher.stats().drawListUploadBytes==initialBytes+32,"Static interleaved passes reuploaded their draw lists");
+    mesher.drawMany(changedShadow,passBase+1);mesher.drawMany(camera,passBase);
+    require(mesher.stats().drawListUploads==initialUploads+3 && mesher.stats().drawListUploadBytes==initialBytes+64,"Changing one pass invalidated another pass's draw cache");
+    mesher.drawMany({},passBase);mesher.drawMany(camera,passBase);
+    require(mesher.stats().drawListUploads==initialUploads+3,"Empty pass invalidated an unchanged command buffer");
     require(glGetError()==GL_NO_ERROR,"OpenGL error during cached indirect draws");
     glBindBufferBase(GL_TRANSFORM_FEEDBACK_BUFFER,0,0);glDeleteBuffers(1,&feedback);glDeleteQueries(1,&primitiveQuery);
     glUseProgram(0);glBindFramebuffer(GL_FRAMEBUFFER,0);
@@ -617,6 +632,63 @@ void checkEmissionSubmission(GpuMesher& mesher,GpuConfig config)
     std::cout<<"PASS emission submission: poll flushes two emissions once without new jobs; zero idle flushes and zero blocking waits\n";
 }
 
+PFNGLMAPNAMEDBUFFERRANGEPROC normalMapNamedBufferRange=nullptr;
+unsigned refusedDescriptorMaps=0;
+void* GLAPIENTRY refuseDescriptorMapping(GLuint buffer,GLintptr offset,GLsizeiptr length,GLbitfield access)
+{
+    if(access&GL_MAP_WRITE_BIT) { ++refusedDescriptorMaps; return nullptr; }
+    return normalMapNamedBufferRange(buffer,offset,length,access);
+}
+struct DescriptorMappingFailure
+{
+    DescriptorMappingFailure()
+    { refusedDescriptorMaps=0; normalMapNamedBufferRange=__glewMapNamedBufferRange; __glewMapNamedBufferRange=refuseDescriptorMapping; }
+    ~DescriptorMappingFailure() { __glewMapNamedBufferRange=normalMapNamedBufferRange; }
+};
+void checkDescriptorFallback(GpuMesher& mesher,const GpuConfig& config)
+{
+    std::string error;
+    {
+        DescriptorMappingFailure simulateAddressSpaceFailure;
+        require(mesher.initialize(config,error),error);
+    }
+    require(refusedDescriptorMaps==1 && !mesher.stats().persistentDescriptors,
+        "Unavailable descriptor mapping did not select the mutable fallback");
+    const auto first=one(mesher,{{0,0,0},0,0,1337},1800);
+    const auto second=one(mesher,{{8,0,0},0,0,1337},1801);
+    require(first.status==CompletionStatus::Ready && second.status==CompletionStatus::Ready,
+        "Descriptor fallback could not generate meshes");
+    require(mesher.stats().descriptorWrites==2 && mesher.stats().descriptorWriteBytes==64 &&
+        mesher.stats().descriptorUploadCalls==2,"Descriptor fallback did not upload exactly the two new slots");
+    checkDrawLists(mesher,first.mesh,second.mesh);
+    mesher.shutdown();
+    std::cout<<"PASS descriptor fallback: unavailable persistent mapping retains correct CPU uploads and GPU draws\n";
+}
+PFNGLFENCESYNCPROC descriptorNormalFence=nullptr;
+PFNGLCLIENTWAITSYNCPROC descriptorNormalWait=nullptr;
+GLsync heldDescriptorFence=nullptr;
+GLsync GLAPIENTRY captureDescriptorRetirement(GLenum condition,GLbitfield flags)
+{
+    const auto fence=descriptorNormalFence(condition,flags);
+    if(!heldDescriptorFence) heldDescriptorFence=fence;
+    return fence;
+}
+GLenum GLAPIENTRY holdDescriptorRetirement(GLsync fence,GLbitfield flags,GLuint64 timeout)
+{
+    return fence==heldDescriptorFence?GL_TIMEOUT_EXPIRED:descriptorNormalWait(fence,flags,timeout);
+}
+struct DescriptorRetirementHold
+{
+    DescriptorRetirementHold()
+    {
+        heldDescriptorFence=nullptr;
+        descriptorNormalFence=__glewFenceSync; descriptorNormalWait=__glewClientWaitSync;
+        __glewFenceSync=captureDescriptorRetirement; __glewClientWaitSync=holdDescriptorRetirement;
+    }
+    ~DescriptorRetirementHold()
+    { __glewFenceSync=descriptorNormalFence; __glewClientWaitSync=descriptorNormalWait; }
+};
+
 }
 
 extern "C" int terrain_backend_tests(const char* shaderDirectory)
@@ -635,8 +707,10 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         config.cells=8;config.maxInFlight=2;config.maxResidentChunks=2;config.vertexBudgetMiB=1;
         config.shaderDirectory=shaderDirectory;config.field.mode=FieldMode::Plane;config.field.baseHeight=3.25f;
         checkEmissionSubmission(mesher,config);
+        checkDescriptorFallback(mesher,config);
         std::string error;
         require(mesher.initialize(config,error),error);
+        require(mesher.stats().persistentDescriptors,"Expected the available persistent descriptor mapping");
         ChunkRequest a,b,c;
         b.origin[0]=8;c.origin[0]=16;
         require(mesher.submit(a,1),mesher.lastError());
@@ -659,18 +733,29 @@ extern "C" int terrain_backend_tests(const char* shaderDirectory)
         require(mesher.stats().pendingJobs==0 && mesher.stats().residentChunks==1,"Pending/resident accounting");
         auto second=one(mesher,b,3);
         require(second.status==CompletionStatus::Ready,"Second resident plane failed");
+        require(mesher.stats().descriptorWrites==2 && mesher.stats().descriptorWriteBytes==64 &&
+            mesher.stats().descriptorUploadCalls==0,"Persistent descriptors performed per-mesh GL uploads");
         checkDrawLists(mesher,first,second.mesh);
         const auto allocated=mesher.stats().allocatedBytes;
         auto overflow=one(mesher,c,4);
         require(overflow.status==CompletionStatus::Failed && !overflow.error.empty(),"Resident slot overflow not reported");
         require(mesher.stats().allocatedBytes==allocated && mesher.stats().residentChunks==2,"Failed job leaked allocation");
-        mesher.release(first);
-        mesher.release(first); // Idempotent, including before retirement fence.
-        require(!mesher.valid(first) && mesher.stats().residentChunks==1,"Released mesh remained valid");
+        {
+            DescriptorRetirementHold unfinishedDraw;
+            mesher.release(first);
+            mesher.release(first); // Idempotent, including before retirement fence.
+            require(!mesher.valid(first) && mesher.stats().residentChunks==1,"Released mesh remained valid");
+            const auto tooEarly=one(mesher,c,4000);
+            require(tooEarly.status==CompletionStatus::Failed && mesher.stats().descriptorWrites==2,
+                "A retired descriptor slot was rewritten before its last draw fence completed");
+        }
         collectRetired(mesher,allocated/2);
         auto replacement=one(mesher,c,5);
         require(replacement.status==CompletionStatus::Ready && mesher.valid(replacement.mesh),"Released slot not reusable");
         require(!mesher.valid(first) && replacement.mesh.generation!=first.generation,"Stale handle alias after reuse");
+        checkDrawLists(mesher,replacement.mesh,second.mesh,100);
+        require(mesher.stats().descriptorWrites==3 && mesher.stats().descriptorUploadCalls==0,
+            "Descriptor reuse did not stay within newly owned slots");
         mesher.release(second.mesh);mesher.release(replacement.mesh);
         collectRetired(mesher);
         require(mesher.stats().allocatedBytes==0 && mesher.stats().residentVertices==0,"Released vertex allocation leaked");

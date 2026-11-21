@@ -23,6 +23,27 @@ namespace Ge
         if (m_program) glDeleteProgram(m_program);
     }
 
+    void GraphiquePipeline::updateDrawLocations() const
+    {
+        const auto revision = shadowContentRevision();
+        if (m_drawLocationsRevision == revision) return;
+        m_objectOffsetLocation = m_program ? glGetUniformLocation(m_program, "offsetUbo") : -1;
+        m_shadowOffsetLocation = m_program ? glGetUniformLocation(m_program, "offsetShadow") : -1;
+        m_drawLocationsRevision = revision;
+    }
+
+    int GraphiquePipeline::getObjectOffsetLocation() const
+    {
+        updateDrawLocations();
+        return m_objectOffsetLocation;
+    }
+
+    int GraphiquePipeline::getShadowOffsetLocation() const
+    {
+        updateDrawLocations();
+        return m_shadowOffsetLocation;
+    }
+
     ShaderPair* GraphiquePipeline::getShaderPair() const
     {
         return m_shaderPair;

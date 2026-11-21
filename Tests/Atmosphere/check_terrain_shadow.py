@@ -142,14 +142,19 @@ class TerrainGL(ScreenGL):
 class Scene:
     def __init__(self, gl):
         self.gl = gl
-        self.render = gl.compile([(0x8B31, shader_source(TERRAIN / "render.vs.glsl")),
-                                  (0x8B30, shader_source(TERRAIN / "render.fs.glsl"))], "actual packed terrain GBuffer")
-        full_writer = shader_source(TERRAIN / "render.fs.glsl").replace(
+        def terrain_source(name):
+            version, body = shader_source(TERRAIN / name).split('\n', 1)
+            return version + '\n#define TERRAIN_FIXED_BIOME 1\n' + body
+        terrain_vertex = terrain_source('render.vs.glsl')
+        terrain_fragment = terrain_source('render.fs.glsl')
+        self.render = gl.compile([(0x8B31, terrain_vertex),
+                                  (0x8B30, terrain_fragment)], "actual packed terrain GBuffer")
+        full_writer = terrain_fragment.replace(
             "out vec2 gPosition;", "out vec4 gPosition;")
         full_writer = re.sub(r"gPosition\s*=\s*geGBufferPackPosition\(viewPosition,\s*geometryTag\);",
             "gPosition = vec4(viewPosition, geometryTag);", full_writer)
         assert "gPosition = vec4(viewPosition, geometryTag);" in full_writer
-        self.reference_render = gl.compile([(0x8B31, shader_source(TERRAIN / "render.vs.glsl")),
+        self.reference_render = gl.compile([(0x8B31, terrain_vertex),
                                             (0x8B30, full_writer)], "reference terrain XYZ GBuffer encoding")
         # The terrain renderer now supplies a fixed std140 appearance table.
         # A neutral constant material keeps this test about shadow geometry,
@@ -327,7 +332,6 @@ float geDirectionalSurfaceShadow(sampler2DArray depthMap,vec4 shadowCoord,int la
         gl.uniform(self.render, "microDetailStrength", "1f", .3 if microdetail else 0)
         gl.uniform(self.render, "microDetailScale", "1f", .01 if microdetail else 1)
         gl.uniform(self.render, "worldSeed", "1ui", 1337)
-        gl.uniform(self.render, "terrainBiomeOverride", "1i", 1)
         gl.glDrawArraysInstancedBaseInstance(0x0004, 0, self.count, 1, 0)
         gl.glBindFramebuffer(0x8D40, 0)
         gl.glMemoryBarrier(gl.ALL_BARRIER_BITS)
@@ -600,7 +604,6 @@ def packing_ab_case(scene):
         gl.uniform(scene.reference_render,"microDetailStrength","1f",0)
         gl.uniform(scene.reference_render,"microDetailScale","1f",1)
         gl.uniform(scene.reference_render,"worldSeed","1ui",1337)
-        gl.uniform(scene.reference_render,"terrainBiomeOverride","1i",1)
         gl.glDrawArraysInstancedBaseInstance(0x0004,0,scene.count,1,0)
         gl.glBindFramebuffer(0x8D40,0);gl.glMemoryBarrier(gl.ALL_BARRIER_BITS)
         scene.gbuffer[0]=full_position

@@ -5,6 +5,7 @@
 #include "../Terrain/check_scheduler.cpp"
 #undef main
 #include <limits>
+#include "ProceduralTerrainBiomes.hpp"
 
 int main()
 {
@@ -98,6 +99,82 @@ int main()
             && identities(published(terrain)) == geometry && terrain.shadowContentRevision() == shadowRevision,
             "Appearance changes restarted generation or invalidated geometry/shadow coverage");
 
+        const auto beforeCachedSwitch = pipelines.createdPipelines;
+        edited.debugView = 0;
+        edited.macroPeriod = 768.0f;
+        require(terrain.setTerrainAppearance(edited), terrain.getLastError());
+        terrain.drawRenderer();
+        require(pipelines.createdPipelines == beforeCachedSwitch
+            && programFloatUniforms[{lastDrawProgram,locations.at("terrainMacroPeriod")}] == 768.0f
+            && programFloatUniforms[{lastDrawProgram,locations.at("terrainPatchPeriod")}] == 48.0f
+            && programFloatUniforms[{lastDrawProgram,locations.at("microDetailStrength")}] == 0.25f
+            && programFloatUniforms[{lastDrawProgram,locations.at("microDetailScale")}] == 3.0f,
+            "Cached normal variant was recompiled or retained stale numeric controls");
+        const auto normalProgram = lastDrawProgram;
+        const auto beforeRejectedUpload = uploads;
+        const auto beforeRejectedPipelines = pipelines.activePipelines;
+        auto rejected = edited;
+        rejected.debugView = 6;
+        rejected.biomes[0].ground.base.colorLow[0] = 0.73f;
+        pipelines.failNextPipeline = true;
+        require(!terrain.setTerrainAppearance(rejected,0.0f,6.0f), "Failed shader variant was accepted");
+        terrain.drawRenderer();
+        require(lastDrawProgram == normalProgram && uploads == beforeRejectedUpload
+            && pipelines.activePipelines == beforeRejectedPipelines
+            && terrain.getConfig().appearance.debugView == 0
+            && terrain.getConfig().microDetailStrength == 0.25f
+            && terrain.getConfig().appearance.biomes[0].ground.base.colorLow[0] == edited.biomes[0].ground.base.colorLow[0],
+            "Shader failure partly changed the visible program, palette or detail controls");
+        blockBytes = 16;
+        require(!terrain.setTerrainAppearance(rejected,0.0f,6.0f), "Incompatible shader ABI variant was accepted");
+        blockBytes = sizeof(TerrainMaterialTable);
+        terrain.drawRenderer();
+        require(lastDrawProgram == normalProgram && uploads == beforeRejectedUpload
+            && pipelines.activePipelines == beforeRejectedPipelines,
+            "Failed shader ABI check evicted the valid program, leaked or partly uploaded its palette");
+        require(terrain.setTerrainAppearance(edited), terrain.getLastError());
+        require(terrain.getLastError().empty(), "Successful edit retained a previous variant compilation error");
+        require(terrain.setTerrainDebugLod(true), terrain.getLastError());
+        require(pipelines.createdDefines.back().find("#define DEBUG_TERRAIN_LOD 1") != std::string::npos,
+            "LOD inspection was not compiled as a shader variant");
+        const auto beforeLodUnchanged = pipelines.createdPipelines;
+        require(terrain.setTerrainDebugLod(true) && pipelines.createdPipelines == beforeLodUnchanged,
+            "Unchanged LOD inspection caused recompilation");
+        require(terrain.setTerrainDebugLod(false), terrain.getLastError());
+        terrain.drawRenderer();
+        require(lastDrawProgram == normalProgram, "Leaving LOD debug did not reuse production program");
+        for (unsigned detail=0; detail<2; ++detail) for (int debug=0; debug<7; ++debug)
+        {
+            edited.debugView = debug;
+            require(terrain.setTerrainAppearance(edited,detail ? 0.25f : 0.0f,3.0f),terrain.getLastError());
+            require(pipelines.activePipelines <= 9, "Unbounded terrain variant cache");
+            terrain.drawRenderer();
+            require(programUIntUniforms[{lastDrawProgram,locations.at("worldSeed")}] == 1337u
+                && programUIntArrays[{lastDrawProgram,locations.at("terrainBiomeMatrix[0]")}]
+                    == std::vector<unsigned>(BiomeMatrix2D.begin(),BiomeMatrix2D.end())
+                && programFloatUniforms[{lastDrawProgram,locations.at("terrainSeaLevel")}] == config.field.seaLevel
+                && programFloatUniforms[{lastDrawProgram,locations.at("terrainSeaBlendWidth")}] == config.field.seaBlendWidth
+                && programFloatUniforms[{lastDrawProgram,locations.at("terrainAlbedoGamma")}] == settings.gamma,
+                "A terrain variant missed immutable fields, biome matrix or gamma initialization");
+        }
+        edited.debugView = 0;
+        require(terrain.setTerrainAppearance(edited,0.25f,3.0f),terrain.getLastError());
+        require(submissions == oldSubmissions && terrain.shadowContentRevision() == shadowRevision,
+            "Render variant changes touched terrain or shadow geometry");
+        // Per-layer visibility queries reuse the draw's existing frustum cache.
+        const auto culls = terrain.getStats().shadowCullUpdates;
+        const auto nearToken = terrain.shadowLayerContentRevision(0,glm::mat4(1));
+        require(nearToken != 0 && terrain.getStats().shadowCullUpdates == culls,
+            "Layer token query repeated the draw's unchanged culling work");
+        require(terrain.shadowLayerContentRevision(0,glm::mat4(1)) == nearToken,
+            "Unchanged layer returned a new token");
+        glm::mat4 outside(1.0f); outside[3][0]=1000000.0f;
+        const auto emptyToken = terrain.shadowLayerContentRevision(0,outside);
+        require(emptyToken != nearToken && terrain.shadowLayerContentRevision(0,outside) == emptyToken,
+            "Empty shadow selection did not invalidate exactly once");
+        require(terrain.shadowLayerContentRevision(0,glm::mat4(1)) != emptyToken,
+            "Returning casters reused an empty-map token");
+
         const auto unchangedWrites = uniformWrites;
         terrain.drawRenderer();
         require(uniformWrites == unchangedWrites, "Steady gamma was reuploaded every draw");
@@ -135,7 +212,7 @@ int main()
         require(terrain.initialize(config), terrain.getLastError());
         terrain.shutdown();
         std::cout << "PASS production terrain materials: live edits without remeshing, upload deduplication, "
-            "atomic invalid-data rejection, UBO range restoration, gamma updates, restart/failure cleanup\n";
+            "bounded compiled variants, atomic failed-build rejection, uniform restoration, UBO range restoration, gamma updates, shared shadow selection, restart/failure cleanup\n";
         return 0;
     }
     catch (const std::exception& error)

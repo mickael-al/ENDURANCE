@@ -3,6 +3,8 @@
 #include "ProceduralGeneration.hpp"
 #include "EnduranceTerrainMaterials.hpp"
 #include "EnduranceSea.hpp"
+#include "EnduranceObjectPlacement.hpp"
+#include "EnduranceTreeRenderer.hpp"
 #include "EnduranceTerrainMaterialMigration.hpp"
 #include "EnduranceTerrainMaterialPanel.hpp"
 #include "EnduranceTerrainMaterialSerialization.hpp"
@@ -24,7 +26,10 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     heightAmplitude, heightFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
     microDetailStrength, microDetailScale, appearance, terrainAppearanceRevision,
-    debugLod, collisionEnabled, collisionRadius);
+    debugLod, collisionEnabled, collisionRadius, objectPlacementEnabled, objectPlacementFile,
+    treeRenderingEnabled, treeRenderDistance, treeLod0Coverage, treeImpostorCoverage,
+    treeLodTransition, treeModelBudgetMiB, treeFoliageTransmission,
+    treeWindEnabled, treeWindStrength, treeWindSpeedX, treeWindSpeedZ, treeWindScale, treeWindDistance);
 
 ProceduralTerrainComponent::ProceduralTerrainComponent()
     : appearance(Endurance::makeTerrainAppearance()),
@@ -41,6 +46,8 @@ void ProceduralTerrainComponent::start()
     m_error.clear();
     m_materialError.clear();
     m_seaError.clear();
+    m_objectError.clear();
+    m_treeError.clear();
     m_pc = Ge::Engine::getPtrClassAddr();
     Ge::Editor* editor = Ge::Editor::instance();
     SceneData* scene = editor != nullptr ? editor->getCurrentSceneData() : nullptr;
@@ -79,6 +86,8 @@ void ProceduralTerrainComponent::start()
     config.debugLod = debugLod;
     config.collisionEnabled = collisionEnabled;
     config.collisionRadius = collisionRadius;
+    if(objectPlacementEnabled && !Endurance::loadObjectPlacement(objectPlacementFile,config.objects,m_objectError))
+        config.objects.enabled=false; // Catalogue failure must not disable terrain.
     try
     {
         m_generator = std::make_unique<ProceduralGeneration>(*scene, seed);
@@ -129,6 +138,24 @@ void ProceduralTerrainComponent::start()
             m_sea.reset();
         }
     }
+    if(m_generator && m_generator->getConfig().objects.enabled)
+    {
+        try
+        {
+            EnduranceTrees::RenderSettings settings;
+            settings.maximumDistance=treeRenderDistance; settings.lod0Coverage=treeLod0Coverage;
+            settings.impostorCoverage=treeImpostorCoverage; settings.transitionFraction=treeLodTransition;
+            settings.modelBudgetMiB=treeModelBudgetMiB;
+            settings.foliageTransmission=treeFoliageTransmission;
+            settings.windEnabled=treeWindEnabled; settings.windStrength=treeWindStrength;
+            settings.windSpeed={treeWindSpeedX,treeWindSpeedZ}; settings.windScale=treeWindScale; settings.windDistance=treeWindDistance;
+            m_trees=std::make_unique<Endurance::TreeRenderer>();
+            if(!m_trees->initialize(*m_pc,*m_generator,settings))
+            { m_treeError=m_trees->error(); m_trees.reset(); }
+            else m_trees->setEnabled(treeRenderingEnabled);
+        }
+        catch(const std::exception& error) { m_treeError=error.what(); m_trees.reset(); }
+    }
 }
 
 void ProceduralTerrainComponent::fixedUpdate() {}
@@ -146,6 +173,7 @@ void ProceduralTerrainComponent::stop()
     if (m_pc && m_pc->renderingEngine)
         m_pc->renderingEngine->removeTransparencyCallback(this);
     m_sea.reset();
+    m_trees.reset(); // Uses the generator's published GPU buffer; detach first.
     m_generator.reset();
     m_pc = nullptr;
 }
@@ -164,6 +192,19 @@ void ProceduralTerrainComponent::onGUI()
     int selected = std::clamp<int>(biomeOverride, -1, 25) + 1;
     if (ImGui::Combo("Biome a tester", &selected, biomeNames, 27))
         biomeOverride = selected - 1;
+    ImGui::Checkbox("Afficher les LOD (shader debug)", &debugLod);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Change de variante de shader sans regenerer le terrain.\n"
+            "La premiere activation peut compiler le programme ; le rendu normal ne contient pas ce debug.");
+    if (m_generator && debugLod != m_generator->getConfig().debugLod)
+    {
+        if (!m_generator->setTerrainDebugLod(debugLod))
+        {
+            debugLod = m_generator->getConfig().debugLod;
+            m_materialError = m_generator->getLastError();
+        }
+        else m_materialError.clear();
+    }
     if (Endurance::drawTerrainMaterialEditor(appearance, microDetailStrength, microDetailScale, m_materialBiome))
     {
         m_materialError.clear();
@@ -185,6 +226,67 @@ void ProceduralTerrainComponent::onGUI()
                 "Apres une erreur GLSL, corrigez le fichier et cliquez a nouveau.");
     }
     if (!m_error.empty()) ImGui::TextWrapped("%s", m_error.c_str());
+    if(ImGui::CollapsingHeader("Points d'apparition des objets"))
+    {
+        ImGui::Checkbox("Generer les points (apres regeneration)", &objectPlacementEnabled);
+        ImGui::TextWrapped("Positions GPU stables partagees par tous les LOD des arbres.");
+        ImGui::TextWrapped("Catalogue : %s", objectPlacementFile.c_str());
+        if(!m_objectError.empty()) ImGui::TextWrapped("%s",m_objectError.c_str());
+        if(m_generator)
+        {
+            const auto objects=m_generator->getObjectPlacementStats();
+            ImGui::Text("%u points publies / %u blocs / %u secteurs",objects.instances,objects.blocks,objects.sectors);
+            ImGui::Text("Pools %.2f Mio / temporaire %.2f Mio",objects.poolBytes/1048576.0,objects.scratchBytes/1048576.0);
+            ImGui::Text("Collectes %llu / reutilisations %llu",static_cast<unsigned long long>(objects.captureJobs),
+                static_cast<unsigned long long>(objects.cachedJobs));
+            ImGui::Text("Budgets atteints : pool %llu / secteurs %llu",static_cast<unsigned long long>(objects.capacityFailures),
+                static_cast<unsigned long long>(objects.sectorFailures));
+            if(!m_generator->getObjectPlacementError().empty())
+                ImGui::TextWrapped("%s",m_generator->getObjectPlacementError().c_str());
+        }
+    }
+    if(ImGui::CollapsingHeader("Affichage des arbres / LOD"))
+    {
+        if(ImGui::Checkbox("Afficher les arbres",&treeRenderingEnabled) && m_trees)
+            m_trees->setEnabled(treeRenderingEnabled);
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("Effet immediat, sans regenerer le terrain. Suspend le rendu et la preparation des arbres.\n"
+                "Les modeles deja charges restent en cache pour comparer les performances sans rechargement.");
+        ImGui::DragFloat("Distance maximale (m)",&treeRenderDistance,16.0f,64.0f,16384.0f,"%.0f");
+        ImGui::SliderFloat("LOD0 : taille projetee",&treeLod0Coverage,0.15f,0.8f,"%.3f");
+        ImGui::SliderFloat("LOD3 : taille projetee",&treeImpostorCoverage,0.005f,0.09f,"%.3f");
+        ImGui::SliderFloat("Largeur des transitions",&treeLodTransition,0.0f,0.2f,"%.2f");
+        int budget=static_cast<int>(treeModelBudgetMiB);
+        if(ImGui::SliderInt("Cache modeles (Mio)",&budget,64,2048)) treeModelBudgetMiB=static_cast<std::uint32_t>(budget);
+        ImGui::SliderFloat("Transmission du feuillage",&treeFoliageTransmission,0.0f,1.0f,"%.2f");
+        ImGui::Checkbox("Vent sur les arbres",&treeWindEnabled);
+        ImGui::SliderFloat("Vent : amplitude / hauteur",&treeWindStrength,0.0f,0.05f,"%.3f");
+        ImGui::DragFloat("Vent : vitesse X (m/s)",&treeWindSpeedX,0.1f,-100.0f,100.0f,"%.1f");
+        ImGui::DragFloat("Vent : vitesse Z (m/s)",&treeWindSpeedZ,0.1f,-100.0f,100.0f,"%.1f");
+        ImGui::DragFloat("Vent : taille des rafales (m)",&treeWindScale,1.0f,1.0f,2048.0f,"%.0f");
+        ImGui::DragFloat("Vent : distance maximale (m)",&treeWindDistance,8.0f,16.0f,4096.0f,"%.0f");
+        ImGui::TextWrapped("Regenerer pour appliquer ces reglages. Le vent se desactive progressivement avec la distance et avant les imposteurs. "
+            "Les feuilles utilisent une diffusion douce et une transmission de lumiere ; le bois reste opaque. LOD0 detaille, LOD1 simplifie, LOD3 imposteur 17 vues. "
+            "Les seuils sont des fractions de la hauteur de l'ecran, adaptees a la taille de chaque arbre. "
+            "La distance ne cree pas de nouveaux points au-dela des secteurs deja generes.");
+        if(!m_treeError.empty()) ImGui::TextWrapped("%s",m_treeError.c_str());
+        if(m_trees)
+        {
+            const auto& s=m_trees->stats();
+            ImGui::Text("Modeles : %u charges / %u en chargement / %u en erreur",s.loadedModels,s.pendingModels,s.failedModels);
+            ImGui::Text("Limite memoire : %u modeles reportes",s.budgetSkippedModels);
+            ImGui::Text("GPU : modeles %.2f Mio / instances et culling %.2f Mio",s.modelBytes/1048576.0,s.workingBytes/1048576.0);
+            ImGui::Text("%u instances / %u blocs camera / %u blocs ombres",s.instances,s.cameraBlocks,s.shadowBlocks);
+            ImGui::Text("Cache transformations : %llu pages nouvelles / %llu reutilisees",
+                static_cast<unsigned long long>(s.transformPagesBuilt),static_cast<unsigned long long>(s.transformPagesReused));
+            ImGui::Text("Chargement CPU cumule %.1f ms / appels d'upload GL %.1f ms",
+                s.assetLoadMilliseconds,s.assetUploadMilliseconds);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("Le chargement travaille en arriere-plan. Ces temps CPU cumules\n"
+                    "ne sont ni une duree totale de generation, ni des temps GPU de rendu.");
+            if(!m_trees->error().empty()) ImGui::TextWrapped("%s",m_trees->error().c_str());
+        }
+    }
     if (!m_seaError.empty()) ImGui::TextWrapped("Mer : %s", m_seaError.c_str());
     if (m_generator && m_sea)
     {
@@ -201,7 +303,7 @@ void ProceduralTerrainComponent::onGUI()
         if (ImGui::Checkbox("Mesurer les saccades", &timings))
             rendering.setFrameTimingsEnabled(timings);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Mesure les appels CPU et leurs attentes pendant drawFrame, pas le temps GPU.\n"
+            ImGui::SetTooltip("Mesure le CPU et une chronologie GPU recueillie sans attente bloquante.\n"
                 "Les comportements executes avant drawFrame ne sont pas inclus.\n"
                 "Desactiver fige les mesures. Remettre a zero apres le chargement pour isoler un nouveau pic.\n"
                 "Ne pas interrompre le debogueur pendant la capture : la pause serait comptee dans le pic.");
@@ -225,6 +327,24 @@ void ProceduralTerrainComponent::onGUI()
                         "Swap peut inclure l'attente VSync : ce n'est pas une mesure isolee du GPU.");
             }
             else ImGui::TextUnformatted("Waiting for a complete measured frame...");
+            const auto& profiler = rendering.getGpuFrameProfiler();
+            const auto& gpu = profiler.last();
+            const auto& gpuPeak = profiler.peak();
+            if (gpu.sampleNumber)
+            {
+                ImGui::Text("Chronologie GPU : %.3f ms / pic %.3f ms", gpu.totalMilliseconds, gpuPeak.totalMilliseconds);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Resultats differes, sans HUD ni presentation.\n"
+                        "Les intervalles peuvent inclure les pauses du GPU en attente de commandes CPU.\n"
+                        "Les valeurs suivantes appartiennent a la derniere image GPU mesuree.");
+                static const char* labels[] = {"Preparation", "Opaque", "Ombres", "Atmosphere", "Eclairage", "Transparence", "Post-traitement"};
+                for (unsigned i = 0; i < Ge::FrameGpuProfiler::StageCount; ++i)
+                    ImGui::Text("  %s : %.3f ms", labels[i], gpu.milliseconds[i]);
+            }
+            else if (timings) ImGui::TextUnformatted("Chronologie GPU en attente de resultats...");
+            if (profiler.droppedSamples())
+                ImGui::Text("Echantillons GPU ignores (file pleine) : %llu",
+                    static_cast<unsigned long long>(profiler.droppedSamples()));
         }
     }
     if (!m_generator) return;
@@ -267,8 +387,13 @@ void ProceduralTerrainComponent::onGUI()
     const auto& generation = stats.generation;
     if (!m_generator->getConfig().measureGenerationTimings)
         ImGui::TextUnformatted("GPU timing disabled; coverage and cache counters remain available.");
-    ImGui::Text("Coverage generation: %.1f ms%s", stats.coverageMilliseconds,
-        stats.rebuilding ? " (running)" : "");
+    const char* coverageStatus=stats.coverageComplete?"complete":stats.generationBlocked?"blocked / incomplete":
+        stats.rebuilding?"running":"waiting / incomplete";
+    ImGui::Text("Coverage generation: %.3f s (%s)",stats.coverageMilliseconds/1000.0,coverageStatus);
+    if(ImGui::IsItemHovered())
+        ImGui::SetTooltip("Elapsed terrain streaming time, including frame scheduling and CPU waits.\n"
+            "Initial shader compilation and tree asset loading are separate.\n"
+            "Only 'complete' means the requested terrain coverage has converged.");
     ImGui::Text("GPU last batch: 2D %.3f / preparation %.3f / 3D %.3f / count %.3f ms",
         generation.lastField2DMilliseconds, generation.lastFieldPreparationMilliseconds,
         generation.lastVolumeMilliseconds, generation.lastCountMilliseconds);
@@ -299,7 +424,11 @@ void ProceduralTerrainComponent::onGUI()
             static_cast<unsigned long long>(generation.droppedTimingSamples));
     if (stats.rebuilding && stats.visibleChunks == 0)
         ImGui::TextWrapped("Preparing nearby terrain. Ready local coverage appears progressively.");
-    if (stats.rebuilding || stats.pendingJobs)
+    if(stats.coverageComplete)
+        ImGui::TextUnformatted("Requested terrain coverage is complete.");
+    else if(stats.generationBlocked)
+        ImGui::TextUnformatted("Terrain generation stopped before completion; check budgets and errors.");
+    else if (stats.rebuilding || stats.pendingJobs)
         ImGui::TextUnformatted("Background terrain work is still active.");
     else
         ImGui::TextUnformatted("Terrain generation is idle.");

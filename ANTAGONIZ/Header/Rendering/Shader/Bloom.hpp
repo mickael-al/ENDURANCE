@@ -4,6 +4,7 @@
 #include "ModulePP.hpp"
 #include "glm/glm.hpp"
 #include <vector>
+#include <array>
 
 struct bloomMip
 {
@@ -28,15 +29,16 @@ namespace Ge
 		GraphicsDataMisc* m_gdm;
 		int mipChainLength = 5;
 		std::vector<bloomMip> mMipChain;
-		GraphiquePipeline* m_downSampleShader = nullptr;
+        // Only two stable modes per pass; scene changes select a ready program.
+        std::array<GraphiquePipeline*,2> m_downSampleShaders{};
+        std::array<GraphiquePipeline*,2> m_tomeGammaShaders{};
 		GraphiquePipeline* m_upSampleShader = nullptr;
-		GraphiquePipeline* m_tomeGammaShader = nullptr;
-		int srcResolutionLocation = -1;
-		int filterRadiusLocation = -1;
-		int gammaLocation = -1;
-		int exposureLocation = -1;
-		int intensityLocation = -1;
-		int thresholdLocation = -1;
+        std::array<int,2> srcResolutionLocations{{-1,-1}};
+        std::array<int,2> gammaLocations{{-1,-1}};
+        std::array<int,2> exposureLocations{{-1,-1}};
+        int filterRadiusLocation = -1;
+        int intensityLocation = -1;
+        int thresholdLocation = -1;
 		unsigned int m_outputFrameBuffer = 0;
 	};
 }

@@ -33,7 +33,8 @@ namespace Ge
 		float tint_saturation;
 		float tint_contrast;
 		bool oil_painting;
-		unsigned int oilp_radius;		
+		unsigned int oilp_radius;
+		float oilp_strength;
 		PPSetting()
 		{
 			bloom = true;
@@ -64,7 +65,8 @@ namespace Ge
 			fog_color = glm::vec3(1,1,1);
 
 			oil_painting = false;
-			oilp_radius = 1;
+			oilp_radius = 2;
+			oilp_strength = 0.65f;
 		}
 		void copy(PPSetting pp)
 		{
@@ -96,6 +98,7 @@ namespace Ge
 
 			oil_painting = pp.oil_painting;
 			oilp_radius = pp.oilp_radius;
+			oilp_strength = pp.oilp_strength;
 		}		
 	};
 	class ShapeBuffer;

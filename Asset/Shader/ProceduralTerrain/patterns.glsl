@@ -1,5 +1,6 @@
 #ifndef ENDURANCE_TERRAIN_PATTERNS_GLSL
 #define ENDURANCE_TERRAIN_PATTERNS_GLSL
+#include "render_options.glsl"
 
 // Appearance controls have passed validTerrainAppearance on the CPU before
 // upload. Their documented ranges are trusted here; computed-field, frequency
@@ -303,7 +304,9 @@ TerrainNoise terrainGroove(float phase, vec3 phaseGradient, float width,
 
 TerrainNoise terrainSurfaceRelief(vec4 control, vec4 detail, TerrainPatternContext c)
 {
-    if (microDetailStrength <= 0.0) return TerrainNoise(0.0,vec3(0.0));
+#if !TERRAIN_MICRODETAIL_ENABLED
+    return TerrainNoise(0.0,vec3(0.0));
+#else
     int family = int(control.x);
     float grainMix = control.w;
     // The small detail field is shared by ground/wall/layers of this biome.
@@ -437,6 +440,7 @@ TerrainNoise terrainSurfaceRelief(vec4 control, vec4 detail, TerrainPatternConte
     }
     float strength = max(microDetailStrength,0.0);
     return TerrainNoise(height*strength,gradient*strength);
+#endif
 }
 
 vec3 terrainSurfaceNormal(vec4 control, vec4 detail, TerrainPatternContext c)

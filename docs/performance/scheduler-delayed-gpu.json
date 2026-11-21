@@ -1,0 +1,96 @@
+{
+  "scope": "Actual CPU scheduler/worker; controlled GPU completion, not hardware timing",
+  "current": {
+    "initial": {
+      "frames": 285,
+      "unfinished_zero_job_frames": 0,
+      "publication_zero_job_frames": 0,
+      "publication_refilled_frames": 6,
+      "publications": 7,
+      "submitted_chunks": 184
+    },
+    "moved": {
+      "frames": 1154,
+      "unfinished_zero_job_frames": 1,
+      "publication_zero_job_frames": 1,
+      "publication_refilled_frames": 58,
+      "publications": 61,
+      "submitted_chunks": 652
+    },
+    "recovered": {
+      "frames": 503,
+      "unfinished_zero_job_frames": 0,
+      "publication_zero_job_frames": 0,
+      "publication_refilled_frames": 27,
+      "publications": 28,
+      "submitted_chunks": 298
+    },
+    "lookahead_plans_used": 98,
+    "same_frame_handoffs": 92,
+    "stale_plans_discarded": 8,
+    "planning_wait_frames": 6,
+    "peak_polls_per_update": 2,
+    "peak_dispatches_per_update": 1,
+    "checks": [
+      "actual update/worker",
+      "submission budgets",
+      "bounded polls/dispatches",
+      "published seams",
+      "moving camera",
+      "failure invalidation",
+      "idle stability"
+    ],
+    "production_source_sha256": "9ee44bc6e851282ecc74370902e7b7e352587ac9727cd99a5fef8ecfd58b08e5",
+    "fixture_sha256": "23cd4bc61d48829c27c3b08727bd5334870f967fe077e0a1d1e776b9119db38f",
+    "controlled_gpu_latency_updates": 6,
+    "controlled_gpu_stages": "single completion",
+    "worker_frame_pause_ms": 1
+  },
+  "reference_update": "/tmp/ProceduralGeneration-before-opportunistic.cpp",
+  "reference": {
+    "initial": {
+      "frames": 285,
+      "unfinished_zero_job_frames": 0,
+      "publication_zero_job_frames": 0,
+      "publication_refilled_frames": 6,
+      "publications": 7,
+      "submitted_chunks": 184
+    },
+    "moved": {
+      "frames": 1155,
+      "unfinished_zero_job_frames": 1,
+      "publication_zero_job_frames": 1,
+      "publication_refilled_frames": 58,
+      "publications": 61,
+      "submitted_chunks": 652
+    },
+    "recovered": {
+      "frames": 503,
+      "unfinished_zero_job_frames": 0,
+      "publication_zero_job_frames": 0,
+      "publication_refilled_frames": 27,
+      "publications": 28,
+      "submitted_chunks": 298
+    },
+    "lookahead_plans_used": 98,
+    "same_frame_handoffs": 91,
+    "stale_plans_discarded": 8,
+    "planning_wait_frames": 7,
+    "peak_polls_per_update": 1,
+    "peak_dispatches_per_update": 1,
+    "checks": [
+      "actual update/worker",
+      "submission budgets",
+      "bounded polls/dispatches",
+      "published seams",
+      "moving camera",
+      "failure invalidation",
+      "idle stability"
+    ],
+    "production_source_sha256": "4c36d481c1f2681d7e5ad9f219f2165b5db1febf5636e028a0b143c6f8754fa0",
+    "fixture_sha256": "23cd4bc61d48829c27c3b08727bd5334870f967fe077e0a1d1e776b9119db38f",
+    "controlled_gpu_latency_updates": 6,
+    "controlled_gpu_stages": "single completion",
+    "worker_frame_pause_ms": 1
+  }
+}

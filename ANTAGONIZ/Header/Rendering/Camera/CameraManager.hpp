@@ -31,9 +31,9 @@ namespace Ge
 		FlyCamera* getFlyCamera() const;
     private:				
 		std::vector<Camera *> m_cameras;
-        Camera * m_currentCamera;
-		GraphicsDataMisc * m_gdm;
-        FlyCamera * m_flyCamera;
+        Camera * m_currentCamera = nullptr;
+		GraphicsDataMisc * m_gdm = nullptr;
+        FlyCamera * m_flyCamera = nullptr;
     };
 }
 

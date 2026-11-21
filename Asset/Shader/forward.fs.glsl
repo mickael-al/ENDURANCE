@@ -3,6 +3,7 @@
 #include "Atmosphere/lighting.glsl"
 #include "Shadow/spot_surface.glsl"
 #include "Geometry/gbuffer_geometry.glsl"
+#include "Lighting/foliage.glsl"
 
 #define SHADOW_MAP_CASCADE_COUNT 4
 #define SHADOW_MAP_CUBE_COUNT 6
@@ -255,6 +256,11 @@ void main()
 	color = pow(color, vec3(ubd.gamma));
 
 	vec3 V = normalize(ubc.camPos - worldPos);
+	float foliage = geFoliageAmount(col.a);
+	// Authored clump normals keep a stable diffuse response on both card sides.
+	// Orient only the specular frame toward the viewer for a thin two-sided leaf.
+	vec3 specularNormal = normal;
+	if (foliage > 0.0 && dot(normal, V) < 0.0) specularNormal = -normal;
 
 	vec3 F0 = vec3(0.04);
 	F0 = mix(F0, color, other.x);
@@ -277,11 +283,12 @@ void main()
 			{
 				L = normalize(-ubl.ubl[i].direction);
 			}
-			vec3 H = normalize(V + L);
+			vec3 halfVector = V + L;
+			vec3 H = halfVector * inversesqrt(max(dot(halfVector, halfVector), 1e-8));
 
 			// Cook-Torrance BRDF
-			float NDF = DistributionGGX(normal.rgb, H, other.y);
-			float G = GeometrySmith(normal.rgb, V, L, other.y);
+			float NDF = DistributionGGX(specularNormal, H, other.y);
+			float G = GeometrySmith(specularNormal, V, L, other.y);
 			vec3 F = fresnelSchlick(max(dot(H, V), 0.001), F0);
 
 			vec3 kS = F;
@@ -289,11 +296,21 @@ void main()
 			kD *= 1.0 - other.x;
 
 			vec3 numerator = NDF * G * F;
-			float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * max(dot(normal.rgb, L), 0.0) + 0.0001;
+			float denominator = 4.0 * max(dot(specularNormal, V), 0.0) * max(dot(specularNormal, L), 0.0) + 0.0001;
 			vec3 specular = (numerator / denominator);
 
 			// Add to outgoing radiance Lo
 			float NdotL = max(dot(normal.rgb, L), 0.0);
+			vec3 lightResponse = (kD * color / PI + specular) * NdotL;
+			if (foliage > 0.0)
+			{
+				vec2 leafDiffuse = geFoliageDiffuse(normal, V, L, foliage);
+				float leafSpecular = mix(NdotL, max(dot(specularNormal, L), 0.0), foliage) * (1.0 - 0.5 * foliage);
+				// The reflection half-vector degenerates in exact backlight;
+				// it must not suppress the separate thin-leaf transmission.
+				lightResponse = color / PI * (kD * leafDiffuse.x + (1.0 - F0) * leafDiffuse.y)
+					+ specular * leafSpecular;
+			}
 
 			if (ubl.ubl[i].status == 0) // DirLight
 			{
@@ -327,7 +344,7 @@ void main()
 						}
 					}
 				}
-				Lo += ((kD * color / PI + specular) * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, worldPos, L) * NdotL) * geAtmosphereShadow(i, shadow, ubd.ambiant);
+				Lo += (lightResponse * geAtmosphereDirect(ubl.ubl[i].color * (ubl.ubl[i].range / 10.0), i, worldPos, L)) * geAtmosphereShadow(i, shadow, ubd.ambiant);
 			}
 			else if (ubl.ubl[i].status == 1) // PointLight
 			{
@@ -340,7 +357,7 @@ void main()
 						shadow *= filterPCF(shadowCoord, ubl.ubl[i].shadowID + k, bias);
 					}
 				}
-				Lo += (kD * color / PI + specular) * radiance * NdotL * mix(ubd.ambiant,1.0, shadow);
+				Lo += lightResponse * radiance * mix(ubd.ambiant,1.0, shadow);
 			}
 			else if (ubl.ubl[i].status == 2) // SpotLight
 			{
@@ -362,25 +379,33 @@ void main()
 					float edge1 = cos(spotAngle / 2.0);
 					float smoothFactor = smoothstep(edge1, edge0, spotEffect);
 
-					Lo += (kD * color / PI + specular) * radiance * NdotL * pow(smoothFactor, 2.0) * mix(ubd.ambiant, 1.0, shadow);
+					Lo += lightResponse * radiance * pow(smoothFactor, 2.0) * mix(ubd.ambiant, 1.0, shadow);
 				}
 			}
 		}
 		//IBL PBR
+		float materialNdotV = mix(max(dot(normal, V), 0.0), max(dot(specularNormal, V), 0.0), foliage);
 		vec3 R = reflect(-V, normal.rgb);
-		vec3 F = fresnelSchlickRoughness(max(dot(normal.rgb, V), 0.0), F0, other.y);
+		vec3 F = fresnelSchlickRoughness(materialNdotV, F0, other.y);
 
 		vec3 kS = F;
 		vec3 kD = 1.0 - kS;
 		kD *= 1.0 - other.x;
 
 		vec3 irradiance = geAtmosphereIbl(texture(irradianceMap, normal.rgb).rgb);
+		if (foliage > 0.0)
+		{
+			// One extra low-frequency cubemap lookup on foliage pixels only.
+			// A constant environment stays constant; no unlit brightness floor.
+			vec3 backIrradiance = geAtmosphereIbl(texture(irradianceMap, -normal).rgb);
+			irradiance = (irradiance + foliage * backIrradiance) / (1.0 + foliage);
+		}
 		vec3 diffuse = vec3(ubd.ambiant) * irradiance * color;
 
 		// sample both the pre-filter map and the BRDF lut and combine them together as per the Split-Sum approximation to get the IBL specular part.
 		const float MAX_REFLECTION_LOD = 4.0;
 		vec3 prefilteredColor = geAtmosphereIbl(textureLod(prefilterMap, R, other.y * MAX_REFLECTION_LOD).rgb);
-		vec2 brdf = texture(brdfLUT, vec2(max(dot(normal.rgb, V), 0.0), other.y)).rg;
+		vec2 brdf = texture(brdfLUT, vec2(materialNdotV, other.y)).rg;
 		vec3 specular = prefilteredColor * (F * brdf.x + brdf.y);
 		//IBL PBR
 
