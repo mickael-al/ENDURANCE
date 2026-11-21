@@ -5,6 +5,7 @@ Window/editor/camera services and disabled fog are doubled; PostProcess, Bloom,
 DepthOfField, OilPainting, ColorTint and shader compilation are production code.
 """
 import ctypes
+import argparse
 import os
 from pathlib import Path
 import subprocess
@@ -14,6 +15,9 @@ from check_bloom import ROOT, SERVICES, AtmosphereGL
 
 
 def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--enable-preview", action="store_true", help="Compile the archived postprocess integration")
+    args = parser.parse_args()
     services = dict(SERVICES)
     services.update({
         "Camera.hpp": '''#pragma once
@@ -68,6 +72,8 @@ namespace Ge { class NAME final : public ModulePP { public:
         library = directory / "oil.so"
         command = [os.environ.get("CXX", "c++"), "-std=c++17", "-O2", "-Wall", "-Wextra",
                    "-Wno-sign-compare", "-fPIC", "-shared", "-DGLEW_NO_GLU", "-pthread", "-fvisibility=hidden"]
+        if args.enable_preview:
+            command.append("-DGE_ENABLE_OIL_PAINTING")
         for path in (directory, ROOT/"ANTAGONIZ/Header/Rendering/Shader", ROOT/"ANTAGONIZ/Header/Interface",
                      ROOT/"ANTAGONIZ/Header/Struct", ROOT/"ThirdParty", ROOT/"ThirdParty/glm"):
             command += ["-I", str(path)]

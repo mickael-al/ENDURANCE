@@ -5,13 +5,18 @@
 #include "ModulePP.hpp"
 #include <vector>
 
+// Oil painting preview is parked. Uncomment to restore its editor/render integration.
+// #define GE_ENABLE_OIL_PAINTING
+
 namespace Ge
 {
 	class ShapeBuffer;
 	class Bloom;
 	class DepthOfField;
 	class ColorTint;
+#ifdef GE_ENABLE_OIL_PAINTING
 	class OilPainting;
+#endif
 	class PostProcess final : public InitializerAPI
 	{
 	public:
@@ -39,7 +44,9 @@ namespace Ge
 		Bloom* m_bloom = nullptr;
 		DepthOfField* m_depthOfField = nullptr;
 		ColorTint* m_colorTint = nullptr;
+#ifdef GE_ENABLE_OIL_PAINTING
 		OilPainting* m_oilPainting = nullptr;
+#endif
 		unsigned int m_postFrameBuffers[2] = {};
 		unsigned int m_postTextures[2] = {};
 		int m_postWidth = 0;

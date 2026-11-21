@@ -119,7 +119,19 @@ void run(const char* root)
     Ge::PostProcess post; require(Ge::RenderingEngine::init(post,&graphics),"PostProcess initialization failed");
     Ge::OilPainting* oil=nullptr;
     for(auto* module:post.getModules()) if(auto* match=dynamic_cast<Ge::OilPainting*>(module)) oil=match;
+    Ge::OilPainting archivedOil;
+#ifdef GE_ENABLE_OIL_PAINTING
+    constexpr bool integrated=true;
     require(oil,"Oil paint missing from the editor's module list");
+#else
+    constexpr bool integrated=false;
+    require(!oil,"Parked oil paint is still registered in the editor");
+    require(manager.owned.size()==9,"Disabled oil paint initialized extra shaders");
+    // Preserve numerical coverage of the corrected standalone filter, without
+    // registering it in the production chain that must ignore old scene flags.
+    require(archivedOil.initialize(&graphics),"Standalone oil initialization failed");
+    oil=&archivedOil;
+#endif
     require(!Ge::RenderingEngine::target(post,0),"Post targets allocated while all optional effects were off");
     auto* setting=post.getPPSetting();
     setting->bloom=false; setting->fog=false; setting->dof_max_radius=0;
@@ -174,18 +186,24 @@ void run(const char* root)
         glBindTexture(GL_TEXTURE_2D,src); glTexSubImage2D(GL_TEXTURE_2D,0,0,0,w,h,GL_RGBA,GL_FLOAT,input.data());
         glDeleteTextures(1,&target); target=texture(w,h,nullptr,GL_RGBA16F); attach(output,target);
         Image baseline;
-        for(unsigned combination=0;combination<8;++combination)
+        for(unsigned combination:{0u,2u,1u,3u,4u,5u,6u,7u})
         {
             setting->depth_of_field=(combination&1)!=0; setting->oil_painting=(combination&2)!=0;
             setting->color_tint=(combination&4)!=0; setting->oilp_radius=2; setting->oilp_strength=.65f;
             { RedirectPresentation redirect(output); Ge::RenderingEngine::draw(post,sourceFbo,src,depth,&quad); }
             const auto actual=read(target,w,h);
             if(!combination) baseline=actual;
-            Image expected=setting->oil_painting?painted(baseline,w,h,2,.65f):baseline;
+            const bool useOil=integrated && setting->oil_painting;
+            Image expected=useOil?painted(baseline,w,h,2,.65f):baseline;
             if(setting->color_tint) for(auto& p:expected)
                 p=Pixel(glm::vec3(p)*glm::mix(glm::vec3(1),setting->tint_color,setting->tint_strength),p.a);
             compare(actual,expected,.0015f,false);
-            require(draws==1u+bool(combination&1)+bool(combination&2)+bool(combination&4),"Unexpected fullscreen pass count");
+            require(draws==1u+bool(combination&1)+useOil+bool(combination&4),"Unexpected fullscreen pass count");
+            if(!integrated && combination==2 && w==31)
+            {
+                compare(actual,baseline,0,false);
+                require(!Ge::RenderingEngine::target(post,0),"Old oil scene flag allocated post targets");
+            }
             require(!feedback,"Postprocess samples its own draw attachment");
             require(glGetError()==GL_NO_ERROR,"Postprocess OpenGL error"); ++chainCases;
         }
@@ -204,12 +222,13 @@ void run(const char* root)
     }
     const GLuint intermediate[]={Ge::RenderingEngine::target(post,0),Ge::RenderingEngine::target(post,1)};
     Ge::RenderingEngine::release(post);
+    archivedOil.release();
     require(manager.owned.empty(),"Postprocess leaked pipelines");
     for(auto id:intermediate) require(!glIsTexture(id),"Postprocess leaked color targets");
     Ge::RenderingEngine::release(post);
     glDeleteFramebuffers(1,&sourceFbo); glDeleteFramebuffers(1,&output);
     glDeleteBuffers(1,&vertices); glDeleteBuffers(1,&quad.ibo); glDeleteVertexArrays(1,&quad.vao);
-    std::cout<<"PASS oil paint: "<<comparisons<<" image comparisons, "<<chainCases
+    std::cout<<"PASS oil paint (integration "<<(integrated?"enabled":"disabled")<<"): "<<comparisons<<" image comparisons, "<<chainCases
         <<" postprocess combinations, HDR bounds, alpha, resize, bypass, no feedback, release\n"<<std::flush;
 }
 }
