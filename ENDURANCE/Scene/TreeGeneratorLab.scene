@@ -14,15 +14,24 @@
     "x": 0.0,
     "y": 0.0
   },
-  "skeletonData": [],
-  "bufferData": [],
-  "shaderData": [],
-  "materialData": [],
-  "textureData": [],
-  "modelData": [],
-  "lightData": [],
-  "soundBufferData": [],
-  "audioData": [],
+  "skeletonData": [
+  ],
+  "bufferData": [
+  ],
+  "shaderData": [
+  ],
+  "materialData": [
+  ],
+  "textureData": [
+  ],
+  "modelData": [
+  ],
+  "lightData": [
+  ],
+  "soundBufferData": [
+  ],
+  "audioData": [
+  ],
   "emptyData": [
     {
       "name": "Tree Generator Lab",
@@ -49,8 +58,10 @@
           "data": "{\"presetJson\": \"\", \"exportDirectory\": \"../ENDURANCE/Ressources/Trees/Baked\", \"maskPath\": \"\", \"bakeCount\": 10, \"autoGenerate\": true, \"showWindow\": true}"
         }
       ],
-      "collisions": [],
-      "tags": []
+      "collisions": [
+      ],
+      "tags": [
+      ]
     }
   ],
   "path": {

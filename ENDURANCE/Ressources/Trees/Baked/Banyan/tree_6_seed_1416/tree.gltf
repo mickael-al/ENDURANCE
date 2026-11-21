@@ -1,0 +1,430 @@
+{
+  "accessors": [
+    {
+      "bufferView": 0,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 13413,
+      "max": [
+        14.030069351196289,
+        19.208738327026367,
+        15.473054885864258
+      ],
+      "min": [
+        -10.747879981994629,
+        -0.17635366320610046,
+        -17.254701614379883
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 13413,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 24,
+      "componentType": 5126,
+      "count": 13413,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 32,
+      "componentType": 5126,
+      "count": 13413,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 0,
+      "byteOffset": 48,
+      "componentType": 5126,
+      "count": 13413,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 1,
+      "byteOffset": 0,
+      "componentType": 5125,
+      "count": 68934,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 27888,
+      "max": [
+        16.028329849243164,
+        20.968814849853516,
+        17.408641815185547
+      ],
+      "min": [
+        -12.62862777709961,
+        0.6342564821243286,
+        -19.291515350341797
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 27888,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 24,
+      "componentType": 5126,
+      "count": 27888,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 32,
+      "componentType": 5126,
+      "count": 27888,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 2,
+      "byteOffset": 48,
+      "componentType": 5126,
+      "count": 27888,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 3,
+      "byteOffset": 0,
+      "componentType": 5125,
+      "count": 41832,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 4,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 2404,
+      "max": [
+        13.086153984069824,
+        19.20894432067871,
+        13.827569007873535
+      ],
+      "min": [
+        -9.916376113891602,
+        -0.1460239440202713,
+        -16.665760040283203
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 4,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 2404,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 4,
+      "byteOffset": 24,
+      "componentType": 5126,
+      "count": 2404,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 4,
+      "byteOffset": 32,
+      "componentType": 5126,
+      "count": 2404,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 4,
+      "byteOffset": 48,
+      "componentType": 5126,
+      "count": 2404,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 5,
+      "byteOffset": 0,
+      "componentType": 5125,
+      "count": 11172,
+      "type": "SCALAR"
+    },
+    {
+      "bufferView": 6,
+      "byteOffset": 0,
+      "componentType": 5126,
+      "count": 9336,
+      "max": [
+        16.116533279418945,
+        21.127809524536133,
+        17.233051300048828
+      ],
+      "min": [
+        -12.73541259765625,
+        0.5675934553146362,
+        -19.552814483642578
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "byteOffset": 12,
+      "componentType": 5126,
+      "count": 9336,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 6,
+      "byteOffset": 24,
+      "componentType": 5126,
+      "count": 9336,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 6,
+      "byteOffset": 32,
+      "componentType": 5126,
+      "count": 9336,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 6,
+      "byteOffset": 48,
+      "componentType": 5126,
+      "count": 9336,
+      "type": "VEC4"
+    },
+    {
+      "bufferView": 7,
+      "byteOffset": 0,
+      "componentType": 5125,
+      "count": 14004,
+      "type": "SCALAR"
+    }
+  ],
+  "asset": {
+    "generator": "ENDURANCE Tree Lab",
+    "version": "2.0"
+  },
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 858432,
+      "byteOffset": 0,
+      "byteStride": 64,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 275736,
+      "byteOffset": 858432,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 1784832,
+      "byteOffset": 1134168,
+      "byteStride": 64,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 167328,
+      "byteOffset": 2919000,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 153856,
+      "byteOffset": 3086328,
+      "byteStride": 64,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 44688,
+      "byteOffset": 3240184,
+      "target": 34963
+    },
+    {
+      "buffer": 0,
+      "byteLength": 597504,
+      "byteOffset": 3284872,
+      "byteStride": 64,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 56016,
+      "byteOffset": 3882376,
+      "target": 34963
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 3938392,
+      "uri": "tree.bin"
+    }
+  ],
+  "extras": {
+    "format": "ENDURANCE.TreeAsset",
+    "lodSelection": "Two independent scenes. Default scene is LOD0; select LOD1 explicitly.",
+    "version": 3,
+    "windAttributes": "_WIND: normalized height, flexibility, phase, palette weight"
+  },
+  "images": [
+    {
+      "uri": "bark.png"
+    },
+    {
+      "uri": "leaves.png"
+    }
+  ],
+  "materials": [
+    {
+      "name": "Bark",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.9
+      }
+    },
+    {
+      "alphaCutoff": 0.5,
+      "alphaMode": "MASK",
+      "doubleSided": true,
+      "name": "Foliage",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 1
+        },
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.82
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Tree_LOD0",
+      "primitives": [
+        {
+          "attributes": {
+            "COLOR_0": 3,
+            "NORMAL": 1,
+            "POSITION": 0,
+            "TEXCOORD_0": 2,
+            "_WIND": 4
+          },
+          "indices": 5,
+          "material": 0,
+          "mode": 4
+        },
+        {
+          "attributes": {
+            "COLOR_0": 9,
+            "NORMAL": 7,
+            "POSITION": 6,
+            "TEXCOORD_0": 8,
+            "_WIND": 10
+          },
+          "indices": 11,
+          "material": 1,
+          "mode": 4
+        }
+      ]
+    },
+    {
+      "name": "Tree_LOD1",
+      "primitives": [
+        {
+          "attributes": {
+            "COLOR_0": 15,
+            "NORMAL": 13,
+            "POSITION": 12,
+            "TEXCOORD_0": 14,
+            "_WIND": 16
+          },
+          "indices": 17,
+          "material": 0,
+          "mode": 4
+        },
+        {
+          "attributes": {
+            "COLOR_0": 21,
+            "NORMAL": 19,
+            "POSITION": 18,
+            "TEXCOORD_0": 20,
+            "_WIND": 22
+          },
+          "indices": 23,
+          "material": 1,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "extras": {
+        "lod": 0
+      },
+      "mesh": 0,
+      "name": "Tree_LOD0"
+    },
+    {
+      "extras": {
+        "lod": 1
+      },
+      "mesh": 1,
+      "name": "Tree_LOD1"
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 10497,
+      "wrapT": 10497
+    },
+    {
+      "magFilter": 9729,
+      "minFilter": 9987,
+      "wrapS": 33071,
+      "wrapT": 33071
+    }
+  ],
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "LOD0",
+      "nodes": [
+        0
+      ]
+    },
+    {
+      "name": "LOD1",
+      "nodes": [
+        1
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 1,
+      "source": 1
+    }
+  ]
+}
