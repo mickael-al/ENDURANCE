@@ -1,10 +1,10 @@
-# Placement des objets — première étape
+# Placement des objets
 
 Le terrain produit des **positions GPU regroupées par modèle** pendant son
 émission. Cette étape ne charge pas les maillages, les PNG ni `tree.bin`, et
-n'affiche pas encore les arbres. Le laboratoire de création reste indépendant.
-Le futur renderer instancié pourra consommer les blocs publiés, pour la caméra
-comme pour les ombres.
+n'affiche pas elle-même les arbres. Le laboratoire de création reste indépendant.
+Le [renderer instancié](tree-rendering.md) consomme maintenant les blocs publiés,
+pour la caméra comme pour les ombres.
 
 ## Réglages du jeu
 
@@ -31,7 +31,7 @@ ouvertes ont une densité réduite. Ce sont des réglages artistiques modifiable
 | `minimumDistance` | 8 m | Exclusion horizontale entre sites voisins, avant quantification |
 | `retentionDistance` | 2 048 m | Évacuation des secteurs trop éloignés, avec une marge d'un chunk fin |
 | `capacity` par modèle | 65 536 | Réserve de positions ; multiple de 64, modifiable individuellement |
-| `minimumScale` / `maximumScale` | 0,8 / 5 | Plage prévue pour le renderer ; les limites de culling incluent déjà l'échelle maximale |
+| `minimumScale` / `maximumScale` | 0,8 / 5 | Plage utilisée par le renderer ; les limites de culling incluent l'échelle maximale |
 
 La collecte garde au maximum 16 × 16 sites horizontaux par secteur. Avec
 64 cellules et `cellSize = 1`, un secteur fait 256 m et le pas est bien 16 m.
@@ -108,8 +108,8 @@ Les positions permanentes occupent **8 octets** en `std430 uvec2` :
 Décodage : `world = block.origin + localUNORM16 * block.extent / 65535`.
 Pour 256 m, le pas de quantification vaut environ 3,9 mm. Le type, la seed et
 l'origine du secteur sont communs au bloc ; aucune matrice n'est stockée par
-instance. Le renderer pourra dériver rotation, échelle et variation de couleur
-du hash du site et de la seed, sans se servir de l'index d'allocation.
+instance. Le renderer dérive rotation et échelle du hash du site et de la seed,
+sans se servir de l'index d'allocation. Les palettes restent celles des exports.
 
 Chaque modèle possède sa plage dans un buffer unique. Des pages de 64 places
 sont attribuées aux secteurs. Avec les 102 variantes à 65 536 places chacune,
@@ -136,8 +136,8 @@ API de `ProceduralGeneration` :
 `ProceduralTerrain::selectObjectBlocks(blocks, frustum, visible)` utilise le
 frustum existant. Les limites incluent le volume du secteur, les modèles à
 l'échelle maximale et une marge pour le vent. La sélection de caméra et celle
-de chaque passe d'ombre devront rester distinctes. Le filtrage est testé et
-prêt à brancher ; aucun draw d'arbre n'est ajouté à cette étape.
+de chaque passe d'ombre restent distinctes. Le renderer ajoute un second test
+GPU par instance et choisit les LOD sans lire les positions côté CPU.
 
 ## Fichiers et validation
 

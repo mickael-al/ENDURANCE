@@ -1,10 +1,10 @@
 # ENDURANCE Tree Lab
 
 The tree lab is an offline authoring scene. It generates reusable tree assets;
-opening an ordinary terrain scene does not initialize it, run its generator, or
-add a vegetation pass. The first terrain object-placement stage is documented
-in [object-placement.md](object-placement.md); runtime tree instancing remains
-a subsequent integration step.
+opening an ordinary terrain scene does not initialize the lab or run its generator.
+Terrain object placement is documented in
+[object-placement.md](object-placement.md); automatic instanced LOD rendering
+has its own [runtime documentation](tree-rendering.md).
 
 ## Authoring
 
@@ -114,17 +114,17 @@ attribute layouts, skeleton parents, and bounds before replacing the output.
 It is intentionally not a general glTF importer. ENDURANCE's generic model
 importer currently handles OBJ/FBX, so this does not claim that glTF can already
 be dragged into the ordinary world scene. The exported glTF is usable in
-compatible DCC software, and the restricted loader provides the data for later
-runtime vegetation integration. Asset format is version 3; recipes remain version
+compatible DCC software, and the restricted loader also supplies the runtime
+vegetation renderer. Asset format is version 3; recipes remain version
 2 and the generator remains version 2. Version 1/2 presets and bakes remain readable;
 missing root/vine controls default to disabled and missing branch kinds default
 to ordinary wood. Existing 17-view sets reload directly; old two-view metadata
 is ignored, so those legacy PNGs are no longer required to open a bake.
 
 The manifest records coverage-preserving leaf mips because generic glTF image
-loaders commonly generate their own mip chain. A future runtime importer should
-upload the supplied levels (or rebuild them with `coverageMipmaps`) instead of
-using uncorrected alpha downsampling. RGB conversion to/from 8-bit sRGB can
+loaders commonly generate their own mip chain. The runtime renderer rebuilds
+the levels with `coverageMipmaps` instead of using uncorrected alpha downsampling.
+RGB conversion to/from 8-bit sRGB can
 introduce one quantization step on a reloaded grayscale mask; geometry and
 floating-point vertex attributes remain exact.
 
@@ -166,9 +166,10 @@ from the loaded mesh. Toggling the export checkbox does not disable inspection.
 This remains a distant approximation: blending can soften narrow branches,
 there is no depth/parallax texture or reconstructed branch self-shadowing, and
 views below 15 degrees use the lower ring. Preview wind is disabled for LOD3;
-mesh LODs retain animated wind. Forest streaming, automatic distance selection
-and instanced billboard rendering in the world are still the separate
-vegetation-integration step.
+mesh LODs retain animated wind in the lab. The separate runtime renderer now
+provides asset streaming, automatic projected-size selection and instancing.
+Runtime wind remains disabled for every LOD so mesh and impostor silhouettes
+agree and static shadow caching remains valid.
 
 ## Performance and scope
 
@@ -180,8 +181,8 @@ it does not disturb the engine's HUD/render passes.
 
 The generation safety budget bounds the number of branches and cards and reports
 when a setting reaches that limit. Instance count, shadow-map overdraw, distance
-culling, LOD selection, and terrain placement still need their own runtime
-budget. A low draw-call count alone does not make a dense forest inexpensive.
+culling, LOD selection, and terrain placement have separate runtime budgets.
+A low draw-call count alone does not make a dense forest inexpensive.
 
 For first art validation, compare a few distinctly different silhouettes and
 both mesh LODs before baking a full seed set. Check the result from beneath the

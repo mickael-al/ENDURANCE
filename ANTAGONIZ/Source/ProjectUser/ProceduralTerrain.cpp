@@ -4,6 +4,7 @@
 #include "EnduranceTerrainMaterials.hpp"
 #include "EnduranceSea.hpp"
 #include "EnduranceObjectPlacement.hpp"
+#include "EnduranceTreeRenderer.hpp"
 #include "EnduranceTerrainMaterialMigration.hpp"
 #include "EnduranceTerrainMaterialPanel.hpp"
 #include "EnduranceTerrainMaterialSerialization.hpp"
@@ -25,7 +26,9 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     heightAmplitude, heightFrequency, bandOffset, bandOffsetVariation, detailScale,
     seaLevel, seaBlendWidth, biomeOverride,
     microDetailStrength, microDetailScale, appearance, terrainAppearanceRevision,
-    debugLod, collisionEnabled, collisionRadius, objectPlacementEnabled, objectPlacementFile);
+    debugLod, collisionEnabled, collisionRadius, objectPlacementEnabled, objectPlacementFile,
+    treeRenderingEnabled, treeRenderDistance, treeLod0Coverage, treeImpostorCoverage,
+    treeLodTransition, treeModelBudgetMiB);
 
 ProceduralTerrainComponent::ProceduralTerrainComponent()
     : appearance(Endurance::makeTerrainAppearance()),
@@ -43,6 +46,7 @@ void ProceduralTerrainComponent::start()
     m_materialError.clear();
     m_seaError.clear();
     m_objectError.clear();
+    m_treeError.clear();
     m_pc = Ge::Engine::getPtrClassAddr();
     Ge::Editor* editor = Ge::Editor::instance();
     SceneData* scene = editor != nullptr ? editor->getCurrentSceneData() : nullptr;
@@ -133,6 +137,20 @@ void ProceduralTerrainComponent::start()
             m_sea.reset();
         }
     }
+    if(m_generator && m_generator->getConfig().objects.enabled && treeRenderingEnabled)
+    {
+        try
+        {
+            EnduranceTrees::RenderSettings settings;
+            settings.maximumDistance=treeRenderDistance; settings.lod0Coverage=treeLod0Coverage;
+            settings.impostorCoverage=treeImpostorCoverage; settings.transitionFraction=treeLodTransition;
+            settings.modelBudgetMiB=treeModelBudgetMiB;
+            m_trees=std::make_unique<Endurance::TreeRenderer>();
+            if(!m_trees->initialize(*m_pc,*m_generator,settings))
+            { m_treeError=m_trees->error(); m_trees.reset(); }
+        }
+        catch(const std::exception& error) { m_treeError=error.what(); m_trees.reset(); }
+    }
 }
 
 void ProceduralTerrainComponent::fixedUpdate() {}
@@ -150,6 +168,7 @@ void ProceduralTerrainComponent::stop()
     if (m_pc && m_pc->renderingEngine)
         m_pc->renderingEngine->removeTransparencyCallback(this);
     m_sea.reset();
+    m_trees.reset(); // Uses the generator's published GPU buffer; detach first.
     m_generator.reset();
     m_pc = nullptr;
 }
@@ -192,7 +211,7 @@ void ProceduralTerrainComponent::onGUI()
     if(ImGui::CollapsingHeader("Points d'apparition des objets"))
     {
         ImGui::Checkbox("Generer les points (apres regeneration)", &objectPlacementEnabled);
-        ImGui::TextWrapped("Etape 1 : positions GPU uniquement. Le rendu des modeles sera branche sur ces blocs.");
+        ImGui::TextWrapped("Positions GPU stables partagees par tous les LOD des arbres.");
         ImGui::TextWrapped("Catalogue : %s", objectPlacementFile.c_str());
         if(!m_objectError.empty()) ImGui::TextWrapped("%s",m_objectError.c_str());
         if(m_generator)
@@ -206,6 +225,29 @@ void ProceduralTerrainComponent::onGUI()
                 static_cast<unsigned long long>(objects.sectorFailures));
             if(!m_generator->getObjectPlacementError().empty())
                 ImGui::TextWrapped("%s",m_generator->getObjectPlacementError().c_str());
+        }
+    }
+    if(ImGui::CollapsingHeader("Affichage des arbres / LOD"))
+    {
+        ImGui::Checkbox("Afficher les arbres (apres regeneration)",&treeRenderingEnabled);
+        ImGui::DragFloat("Distance maximale (m)",&treeRenderDistance,16.0f,64.0f,16384.0f,"%.0f");
+        ImGui::SliderFloat("LOD0 : taille projetee",&treeLod0Coverage,0.15f,0.8f,"%.3f");
+        ImGui::SliderFloat("LOD3 : taille projetee",&treeImpostorCoverage,0.005f,0.09f,"%.3f");
+        ImGui::SliderFloat("Largeur des transitions",&treeLodTransition,0.0f,0.2f,"%.2f");
+        int budget=static_cast<int>(treeModelBudgetMiB);
+        if(ImGui::SliderInt("Cache modeles (Mio)",&budget,64,2048)) treeModelBudgetMiB=static_cast<std::uint32_t>(budget);
+        ImGui::TextWrapped("Appliquer avec Regenerer. LOD0 detaille, LOD1 simplifie, LOD3 imposteur 17 vues. "
+            "Les seuils sont des fractions de la hauteur de l'ecran, adaptees a la taille de chaque arbre. "
+            "La distance ne cree pas de nouveaux points au-dela des secteurs deja generes.");
+        if(!m_treeError.empty()) ImGui::TextWrapped("%s",m_treeError.c_str());
+        if(m_trees)
+        {
+            const auto& s=m_trees->stats();
+            ImGui::Text("Modeles : %u charges / %u en chargement / %u en erreur",s.loadedModels,s.pendingModels,s.failedModels);
+            ImGui::Text("Limite memoire : %u modeles reportes",s.budgetSkippedModels);
+            ImGui::Text("GPU : modeles %.2f Mio / instances et culling %.2f Mio",s.modelBytes/1048576.0,s.workingBytes/1048576.0);
+            ImGui::Text("%u instances / %u blocs camera / %u blocs ombres",s.instances,s.cameraBlocks,s.shadowBlocks);
+            if(!m_trees->error().empty()) ImGui::TextWrapped("%s",m_trees->error().c_str());
         }
     }
     if (!m_seaError.empty()) ImGui::TextWrapped("Mer : %s", m_seaError.c_str());
