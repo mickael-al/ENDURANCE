@@ -52,15 +52,15 @@ std::vector<Point> read(GpuMesher& gpu)
     }
     std::sort(points.begin(),points.end()); return points;
 }
-void checkPlane(const std::vector<Point>& points,float height,float minimum)
+void checkPlane(const std::vector<Point>& points,float height,float minimum,float tolerance=.003f)
 {
     for(std::size_t i=0;i<points.size();++i)
     {
-        require(std::abs(points[i].y-height)<0.003f,"Object is not on the emitted terrain surface");
+        require(std::abs(points[i].y-height)<tolerance,"Object is not on the emitted terrain surface");
         for(std::size_t j=0;j<i;++j)
         {
             const float dx=points[i].x-points[j].x,dz=points[i].z-points[j].z;
-            require(dx*dx+dz*dz>=(minimum-.004f)*(minimum-.004f),"Duplicate or insufficiently spaced sites");
+            require(dx*dx+dz*dz>=(minimum-2*tolerance)*(minimum-2*tolerance),"Duplicate or insufficiently spaced sites");
         }
     }
 }
@@ -189,7 +189,10 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         for(int i=0;i<16;++i) gpu.poll(ignored);
         require(read(gpu)==snapshot && gpu.objectStats().captureJobs==idleCaptures,"Idle frames regenerated positions");
         gpu.trimObjectSectors(glm::vec3(10000,0,0));
-        require(gpu.objectBlocks().empty() && gpu.objectStats().sectors==0,"Object retention radius failed");
+        require(gpu.objectBlocks().empty() && gpu.objectStats().sectors==1,"Object publication radius failed");
+        gpu.trimObjectSectors(glm::vec3(0,0,0));
+        require(read(gpu)==snapshot && gpu.objectStats().captureJobs==idleCaptures,
+            "Returning to resident terrain lost trees or regenerated their positions");
         gpu.shutdown();
 
         // Staging capacity depends on total site count, not prototype count.
@@ -220,6 +223,56 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         require(!read(gpu).empty(),"Initial partial sector has no sites");
         generate(gpu,root,44); gpu.publishObjectCoverage({{root.origin,2,0}},root.seed);
         require(read(gpu)==original,"Filling a partially captured sector changed or duplicated sites");
+        gpu.shutdown();
+
+        // Coarse terrain must populate previously unvisited land, preserving
+        // one global lattice when a voxel covers multiple candidate cells.
+        auto farConfig=c; farConfig.objects.maximumLod=6; farConfig.objects.retentionDistance=10240;
+        farConfig.objects.biomes[12].density=.2f;
+        for(auto& p:farConfig.objects.prototypes) p.capacity=32768;
+        const ChunkRequest farRoot{{-1024,0,0},6,0,root.seed};
+        require(gpu.initialize(farConfig,error),error);
+        generate(gpu,farRoot,100); gpu.publishObjectCoverage({{farRoot.origin,6,0}},root.seed);
+        const auto farPoints=read(gpu);
+        require(farPoints.size()>2000 && !gpu.objectStats().capacityFailures,"LOD6 did not collect all world-grid candidates");
+        checkPlane(farPoints,farConfig.field.baseHeight,farConfig.objects.minimumDistance,.02f);
+        const auto farCaptures=gpu.objectStats().captureJobs;
+        std::vector<LodChunk> farChildren;
+        for(int z=0;z<2;++z) for(int y=0;y<2;++y) for(int x=0;x<2;++x)
+        {
+            ChunkRequest request{{-1024+x*512,y*512,z*512},5,0,root.seed};
+            generate(gpu,request,110+farChildren.size()); farChildren.push_back({request.origin,5,0});
+        }
+        gpu.publishObjectCoverage(farChildren,root.seed);
+        require(read(gpu)==farPoints && gpu.objectStats().captureJobs==farCaptures,"Distant refinement moved or duplicated trees");
+        gpu.shutdown();
+        // A tiny, offset Morton interval can be captured before its ancestor.
+        // The remaining coarse capture must keep precisely the same population.
+        const ChunkRequest farPartial{{-64,0,960},2,0,root.seed};
+        require(gpu.initialize(farConfig,error),error);
+        generate(gpu,farPartial,120); gpu.publishObjectCoverage({{farPartial.origin,2,0}},root.seed);
+        require(read(gpu).size()>3,"Offset partial sector fixture has no trees");
+        generate(gpu,farRoot,121); gpu.publishObjectCoverage({{farRoot.origin,6,0}},root.seed);
+        require(read(gpu)==farPoints,"Partial-to-LOD6 capture changed world sites or overlapped claimed coverage");
+        gpu.shutdown();
+        require(gpu.initialize(farConfig,error),error);
+        require(gpu.submit(farPartial,122) && gpu.submit(farRoot,123),"Concurrent distant claims could not start");
+        finish(gpu,2); gpu.publishObjectCoverage({{farRoot.origin,6,0}},root.seed);
+        require(read(gpu)==farPoints,"Concurrent coarse/fine claims duplicated or lost sites");
+        gpu.shutdown();
+        // On first arrival, a fresh 8-km-away chunk is populated. Hiding and
+        // returning to it never triggers another field/mesh/placement pass.
+        const ChunkRequest distant{{8192,0,0},6,0,root.seed};
+        require(gpu.initialize(farConfig,error),error); gpu.trimObjectSectors(glm::vec3(0));
+        generate(gpu,distant,124); gpu.publishObjectCoverage({{distant.origin,6,0}},root.seed);
+        const auto distantPoints=read(gpu); const auto distantStats=gpu.objectStats();
+        require(distantPoints.size()>2000,"New distant terrain has no trees inside the extended radius");
+        gpu.trimObjectSectors(glm::vec3(50000,0,0)); require(gpu.objectBlocks().empty(),"Far terrain still publishes tree transforms");
+        gpu.trimObjectSectors(glm::vec3(0));
+        require(read(gpu)==distantPoints && gpu.objectStats().captureJobs==distantStats.captureJobs,
+            "Returning to a resident distant chunk requires regeneration");
+        gpu.publishObjectCoverage({},root.seed);
+        require(gpu.objectStats().sectors==0 && gpu.objectBlocks().empty(),"Unloaded distant terrain retained its positions");
         gpu.shutdown();
 
         // Abandonment can race with an in-flight claim in a sector containing

@@ -61,14 +61,14 @@ def main():
     with GL() as gl:
         report["renderer"]=gl.renderer
         reference=gl.compile([(0x91B9,"#version 450 core\n"+common+REFERENCE)],"old per-type slab oracle")
-        for sites,types in ((1,1),(64,3),(256,102),(1024,255)):
+        for sites,types in ((1,1),(64,3),(256,102),(1024,255),(65536,3)):
             defines=f"#define TERRAIN_OBJECT_SITE_COUNT {sites}\n#define TERRAIN_OBJECT_TYPE_COUNT {types}\n"
             current=gl.compute(directory/"objects_compact.C.glsl",defines)
             # Reuse allocations between cases to expose stale type counters.
             outputs=2*sites; old_outputs=outputs*types
             buffers=[gl.buffer((base+8+sites+n+16)*4) for n in (old_outputs,outputs)]
             count_buffers=[gl.buffer((count_base+types+4)*4) for _ in range(2)]
-            side=16 if sites>=256 else 8 if sites>=64 else 1
+            side=128 if sites>=16384 else 16 if sites>=256 else 8 if sites>=64 else 1
             for pattern in ("full","sparse","one-type","invalid","empty","full-again"):
                 hits=[]
                 for site in range(sites):
@@ -82,8 +82,8 @@ def main():
                 received=[]; counts_received=[]
                 for index,(program,n) in enumerate(((reference,old_outputs),(current,outputs))):
                     payload=array("I",[sentinel]*(base+8+sites+n+16))
-                    payload[0]=types;payload[2]=8;payload[3]=side;payload[7]=sites
-                    payload[base:base+8]=array("I",[(-128)&0xffffffff,0,(-256)&0xffffffff,1337,0xffffffff,0xffffffff,0,0])
+                    payload[0]=types;payload[2]=8;payload[3]=side;payload[7]=sites;payload[15]=8
+                    payload[base:base+8]=array("I",[(-128)&0xffffffff,0,(-256)&0xffffffff,1337,0,0,side,sites])
                     payload[base+8:base+8+sites]=array("I",hits)
                     counters=array("I",[sentinel]*(count_base+types+4))
                     if index==0: counters[count_base:count_base+types]=array("I",[0]*types)

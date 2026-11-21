@@ -435,6 +435,9 @@ Json generation(const Json& options)
     report["jobs"]=config.maxInFlight; report["objects_enabled"]=objects;
     report["same_sampling_as_scene"]=config.cells==64;
     GpuMesher mesher; std::string error; const auto init=Clock::now(); check(mesher.initialize(config,error),error); glFinish(); report["initialize_ms"]=ms(init);
+    // Match ProceduralGeneration: publish only the retained camera radius,
+    // while keeping placement cached with resident terrain for a later revisit.
+    if(objects) mesher.trimObjectSectors(settings.camera);
     std::size_t sent=0,received=0; unsigned ready=0,empty=0,peakPending=0,polls=0,frames=0;
     std::vector<MeshHandle> meshes; std::vector<LodChunk> published; std::vector<double> cpuSubmits,cpuPolls,cpuDispatches;
     Target target(options.value("resolution",320u));

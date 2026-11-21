@@ -1,11 +1,11 @@
 {
   "format": "ENDURANCE.ObjectPlacement",
   "version": 1,
-  "maximumLod": 2,
-  "maximumSectors": 512,
+  "maximumLod": 6,
+  "maximumSectors": 2048,
   "candidateSpacing": 32.0,
   "minimumDistance": 20.0,
-  "retentionDistance": 2048.0,
+  "retentionDistance": 10240.0,
   "prototypes": [
     {
       "id": 0,
@@ -964,7 +964,7 @@
           "weight": 20
         }
       ],
-      "density": 0.04,
+      "density": 0.008,
       "minimumNormalY": 0.82,
       "forestPeriod": 1300.0,
       "forestThreshold": 0.58,
@@ -988,7 +988,7 @@
           "weight": 10
         }
       ],
-      "density": 0.82,
+      "density": 0.164,
       "minimumNormalY": 0.82,
       "forestPeriod": 1500.0,
       "forestThreshold": 0.5,
@@ -1012,7 +1012,7 @@
           "weight": 20
         }
       ],
-      "density": 0.63,
+      "density": 0.126,
       "minimumNormalY": 0.82,
       "forestPeriod": 1700.0,
       "forestThreshold": 0.5,
@@ -1028,7 +1028,7 @@
           "weight": 100
         }
       ],
-      "density": 0.015,
+      "density": 0.003,
       "minimumNormalY": 0.82,
       "forestPeriod": 900.0,
       "forestThreshold": 0.58,
@@ -1048,7 +1048,7 @@
           "weight": 30
         }
       ],
-      "density": 0.045,
+      "density": 0.009,
       "minimumNormalY": 0.82,
       "forestPeriod": 1100.0,
       "forestThreshold": 0.58,
@@ -1076,7 +1076,7 @@
           "weight": 1
         }
       ],
-      "density": 0.88,
+      "density": 0.176,
       "minimumNormalY": 0.82,
       "forestPeriod": 1300.0,
       "forestThreshold": 0.5,
@@ -1104,7 +1104,7 @@
           "weight": 5
         }
       ],
-      "density": 0.72,
+      "density": 0.144,
       "minimumNormalY": 0.82,
       "forestPeriod": 1500.0,
       "forestThreshold": 0.5,
@@ -1128,7 +1128,7 @@
           "weight": 10
         }
       ],
-      "density": 0.64,
+      "density": 0.128,
       "minimumNormalY": 0.82,
       "forestPeriod": 1700.0,
       "forestThreshold": 0.5,
@@ -1152,7 +1152,7 @@
           "weight": 10
         }
       ],
-      "density": 0.055,
+      "density": 0.011,
       "minimumNormalY": 0.82,
       "forestPeriod": 900.0,
       "forestThreshold": 0.58,
@@ -1176,7 +1176,7 @@
           "weight": 20
         }
       ],
-      "density": 0.14,
+      "density": 0.028,
       "minimumNormalY": 0.82,
       "forestPeriod": 1100.0,
       "forestThreshold": 0.58,
@@ -1204,7 +1204,7 @@
           "weight": 1
         }
       ],
-      "density": 0.82,
+      "density": 0.164,
       "minimumNormalY": 0.82,
       "forestPeriod": 1300.0,
       "forestThreshold": 0.5,
@@ -1232,7 +1232,7 @@
           "weight": 1
         }
       ],
-      "density": 0.94,
+      "density": 0.188,
       "minimumNormalY": 0.82,
       "forestPeriod": 1500.0,
       "forestThreshold": 0.5,
@@ -1256,7 +1256,7 @@
           "weight": 15
         }
       ],
-      "density": 0.67,
+      "density": 0.134,
       "minimumNormalY": 0.82,
       "forestPeriod": 1700.0,
       "forestThreshold": 0.5,
@@ -1291,7 +1291,7 @@
           "weight": 10
         }
       ],
-      "density": 0.12,
+      "density": 0.024,
       "minimumNormalY": 0.82,
       "forestPeriod": 1100.0,
       "forestThreshold": 0.58,
@@ -1319,7 +1319,7 @@
           "weight": 1
         }
       ],
-      "density": 0.22,
+      "density": 0.044,
       "minimumNormalY": 0.82,
       "forestPeriod": 1300.0,
       "forestThreshold": 0.58,
@@ -1347,7 +1347,7 @@
           "weight": 5
         }
       ],
-      "density": 0.58,
+      "density": 0.116,
       "minimumNormalY": 0.82,
       "forestPeriod": 1500.0,
       "forestThreshold": 0.5,
@@ -1375,7 +1375,7 @@
           "weight": 1
         }
       ],
-      "density": 0.96,
+      "density": 0.192,
       "minimumNormalY": 0.82,
       "forestPeriod": 1700.0,
       "forestThreshold": 0.5,
@@ -1417,7 +1417,7 @@
           "weight": 30
         }
       ],
-      "density": 0.025,
+      "density": 0.005,
       "minimumNormalY": 0.82,
       "forestPeriod": 1300.0,
       "forestThreshold": 0.58,
@@ -1445,7 +1445,7 @@
           "weight": 20
         }
       ],
-      "density": 0.48,
+      "density": 0.096,
       "minimumNormalY": 0.82,
       "forestPeriod": 1500.0,
       "forestThreshold": 0.5,
@@ -1469,7 +1469,7 @@
           "weight": 15
         }
       ],
-      "density": 0.83,
+      "density": 0.166,
       "minimumNormalY": 0.82,
       "forestPeriod": 1700.0,
       "forestThreshold": 0.5,

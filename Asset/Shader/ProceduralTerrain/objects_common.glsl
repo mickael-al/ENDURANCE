@@ -10,6 +10,15 @@ uint objectHash(uint x)
 uint objectSiteHash(ivec2 site,uint seed)
 { return objectHash(uint(site.x)^objectHash(uint(site.y)^seed)); }
 float objectRandom(uint x) { return float(objectHash(x)>>8u)*(1.0/16777216.0); }
+// Interleave up to six bits per coordinate, matching CPU octree intervals.
+uint objectSpreadBits(uint x)
+{
+    x=(x|(x<<8u))&0x0000f00fu;
+    x=(x|(x<<4u))&0x000c30c3u;
+    return (x|(x<<2u))&0x00249249u;
+}
+uint objectCoverageBit(uvec3 p)
+{ return objectSpreadBits(p.x)|(objectSpreadBits(p.y)<<1u)|(objectSpreadBits(p.z)<<2u); }
 vec2 objectJitter(uint h)
 { return vec2(0.05)+0.90*vec2(objectRandom(h^0x35a97fabu),objectRandom(h^0x98e02371u)); }
 int objectFloorDiv(int v,int s) { int q=v/s; return q-((v<0 && v%s!=0)?1:0); }

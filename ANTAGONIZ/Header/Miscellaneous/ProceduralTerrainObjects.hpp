@@ -39,12 +39,11 @@ namespace ProceduralTerrain
     struct ObjectPlacementConfig
     {
         bool enabled = false;
-        // Work only on existing nearby terrain. No extra terrain job is issued.
-        // Sectors have cells * 2^maximumLod lattice units and retain up to 64
-        // finest-chunk coverage bits independently of subsequent terrain LODs.
+        // Reuse existing terrain emission, up to LOD6. No extra terrain job.
+        // Coverage uses compact octree intervals, independent of display LOD.
         std::uint32_t maximumLod = 2, maximumSectors = 512;
         float candidateSpacing = 16.0f, minimumDistance = 8.0f;
-        float retentionDistance = 2048.0f;
+        float retentionDistance = 2048.0f; // Publication radius; resident terrain keeps its cached sites.
         std::vector<ObjectPrototype> prototypes;
         std::vector<ObjectGroup> groups;
         std::array<ObjectBiomeProfile, BiomeCount> biomes{};
@@ -96,22 +95,6 @@ namespace ProceduralTerrain
     {
         const std::int64_t v = value, s = span;
         return static_cast<std::int32_t>((v >= 0 ? v / s : -((-v + s - 1) / s)) * s);
-    }
-    inline std::uint64_t objectCoverageMask(const std::array<std::int32_t, 3>& origin,
-        unsigned lod, const std::array<std::int32_t, 3>& sector, unsigned sectorLod,
-        std::uint32_t cells) noexcept
-    {
-        const unsigned side = 1u << sectorLod, width = 1u << lod;
-        std::uint64_t result = 0;
-        for (unsigned z = 0; z < width; ++z) for (unsigned y = 0; y < width; ++y)
-        for (unsigned x = 0; x < width; ++x)
-        {
-            const auto ix = (origin[0] - sector[0]) / static_cast<std::int32_t>(cells) + x;
-            const auto iy = (origin[1] - sector[1]) / static_cast<std::int32_t>(cells) + y;
-            const auto iz = (origin[2] - sector[2]) / static_cast<std::int32_t>(cells) + z;
-            result |= std::uint64_t{1} << (ix + side * (iy + side * iz));
-        }
-        return result;
     }
     inline void selectObjectBlocks(const std::vector<ObjectBlock>& blocks, const Frustum& frustum,
         std::vector<ObjectBlock>& visible)

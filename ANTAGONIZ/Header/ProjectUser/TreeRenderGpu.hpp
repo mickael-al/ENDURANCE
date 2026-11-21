@@ -11,7 +11,7 @@ namespace EnduranceTrees
 struct RenderSettings
 {
     float lod0Coverage=0.25f, impostorCoverage=0.06f;
-    float transitionFraction=0.15f, maximumDistance=2048.0f;
+    float transitionFraction=0.15f, maximumDistance=10240.0f;
     float foliageNormalBlend=0.8f;
     bool windEnabled=true;
     float windStrength=0.015f, windScale=64.0f, windDistance=256.0f;

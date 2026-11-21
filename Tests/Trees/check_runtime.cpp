@@ -501,6 +501,21 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         gpu.prepare(pool,blocks,1,view); const auto farWindToken=gpu.shadowContentRevision(21,light);
         view.timeSeconds+=3; gpu.prepare(pool,blocks,1,view);
         require(gpu.shadowContentRevision(21,light)==farWindToken,"Distant static trees still invalidate shadows for wind");
+        // A tiny capture can use a large stable sector for packed positions.
+        // Its actual bounds must drive CPU visibility and shadow invalidation.
+        auto tightBlock=block; tightBlock.origin={{-2048,-2048,-2048}}; tightBlock.extent=4096;
+        tightBlock.sectorLattice={{-2048,-2048,-2048}};
+        tightBlock.boundsOrigin={{-32-prototype.boundingRadius,-32-prototype.boundingRadius,-32-prototype.boundingRadius}};
+        tightBlock.boundsExtent=64+2*prototype.boundingRadius;
+        blocks={tightBlock}; view=viewAt(centre,radius*4); gpu.prepare(pool,blocks,2,view);
+        draw(gpu,target,0,view.clip); require(target.depthPixels()>0,"Tight capture bounds culled its tree");
+        std::vector<Ge::ShadowCasterBounds> tightBounds; gpu.appendBounds(tightBounds);
+        require(tightBounds.size()==1 && tightBounds[0].maximum.x-tightBounds[0].minimum.x<1024,
+            "Capture bounds were replaced with the entire packing sector");
+        const auto irrelevantLight=glm::translate(light,glm::vec3(1500,0,0));
+        const auto tightToken=gpu.shadowContentRevision(25,irrelevantLight);
+        view.timeSeconds+=2; gpu.prepare(pool,blocks,2,view);
+        require(gpu.shadowContentRevision(25,irrelevantLight)==tightToken,"Oversized sector bounds invalidated an unrelated wind shadow");
         gpu.shutdown(); settings.windEnabled=false; settings.foliageNormalBlend=0;
         // Production deformation function: anchored roots, quadratic height,
         // scale-aware bounded displacement and inverse-transpose normals.

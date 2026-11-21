@@ -35,7 +35,7 @@ namespace Endurance
                 if(!finiteFieldValue(value)) throw std::runtime_error("Non-finite object catalogue number");
                 return value;
             };
-            result.maximumLod=integer(root.at("maximumLod"),2);
+            result.maximumLod=integer(root.at("maximumLod"),6);
             result.maximumSectors=integer(root.at("maximumSectors"),65536);
             result.candidateSpacing=real(root.at("candidateSpacing"));
             result.minimumDistance=real(root.at("minimumDistance"));

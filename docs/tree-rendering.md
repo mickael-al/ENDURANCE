@@ -15,7 +15,7 @@ distances, seuils, budgets, normales et vent nécessitent **Régénérer avec ce
 | Paramètre | Défaut | Rôle |
 |---|---:|---|
 | `treeRenderingEnabled` | `true` | Active immédiatement le rendu et la préparation des arbres ; indépendant de la collecte des positions |
-| `treeRenderDistance` | 2 048 m | Portée maximale depuis la caméra principale ; extinction progressive sur les derniers 10 % |
+| `treeRenderDistance` | 10 240 m | Portée maximale depuis la caméra principale ; extinction progressive sur les derniers 10 % |
 | `treeLod0Coverage` | 0,25 | Au-dessus : maillage détaillé LOD0 |
 | `treeImpostorCoverage` | 0,06 | Au-dessous : imposteur LOD3 à 17 vues ; entre les deux : maillage LOD1 |
 | `treeLodTransition` | 0,15 | Demi-largeur relative du fondu autour de chaque seuil |
@@ -36,8 +36,9 @@ invalide est signalée. Le renderer ne crée pas de LOD2 absent des exports.
 
 La distance d'affichage ne génère aucun secteur supplémentaire. Les limites
 du [placement](object-placement.md), notamment `maximumLod`, le nombre de
-secteurs et la rétention, restent applicables. Une région lointaine jamais
-collectée peut donc être vide. Les arbres n'ont pas encore de collision.
+secteurs et la rétention, restent applicables. Avec le catalogue livré, les LOD
+de terrain 0 à 6 collectent des arbres. Les zones sans sol admissible ou exclues
+par le profil du biome restent vides. Les arbres n'ont pas encore de collision.
 
 Masquer les arbres suspend leurs préparations, leurs draws et leurs ombres,
 mais conserve les modèles déjà chargés. Le changement invalide les caches

@@ -359,12 +359,23 @@ struct Pass
         scratchBlocks.clear(); scratchGroups.clear(); content.clear(); pendingContent.clear(); selected=valid=false; }
 };
 struct Candidate { unsigned index; std::array<float,3> origin; float extent; };
-double distance2(const ProceduralTerrain::ObjectBlock& b,float radius,const glm::vec3& point)
+struct BlockBounds { std::array<float,3> origin; float extent; };
+BlockBounds blockBounds(const ProceduralTerrain::ObjectBlock& b,float radius,float declaredRadius)
+{
+    // Positions decode relative to a stable sector. Their actual capture can
+    // be a much smaller chunk: retain its bounds for CPU culling/shadow caching.
+    const bool bounded=finiteFieldValue(b.boundsExtent) && b.boundsExtent>0;
+    const float extra=bounded?(std::max)(0.0f,radius-declaredRadius):radius;
+    auto origin=bounded?b.boundsOrigin:b.origin;
+    for(auto& coordinate:origin) coordinate-=extra;
+    return {origin,(bounded?b.boundsExtent:b.extent)+2*extra};
+}
+double distance2(const BlockBounds& b,const glm::vec3& point)
 {
     double result=0;
     for(unsigned a=0;a<3;++a)
     {
-        const double lo=double(b.origin[a])-radius,hi=double(b.origin[a])+b.extent+radius;
+        const double lo=double(b.origin[a]),hi=lo+b.extent;
         const double d=std::max(0.0,std::max(lo-point[a],point[a]-hi)); result+=d*d;
     }
     return result;
@@ -416,7 +427,11 @@ struct TreeRenderGpu::Impl
         if(!force && haveDemand && glm::dot(delta,delta)<32.0f*32.0f) return;
         demandCamera=camera.camera; haveDemand=true;
         std::vector<double> nearest(models.size(),std::numeric_limits<double>::infinity());
-        for(const auto& b:sources) nearest[b.prototype]=std::min(nearest[b.prototype],distance2(b,prototypes[b.prototype].boundingRadius,camera.camera));
+        for(const auto& b:sources)
+        {
+            const float radius=prototypes[b.prototype].boundingRadius;
+            nearest[b.prototype]=std::min(nearest[b.prototype],distance2(blockBounds(b,radius,radius),camera.camera));
+        }
         std::vector<unsigned> order;
         for(unsigned i=0;i<models.size();++i) if(nearest[i]<double(settings.maximumDistance)*settings.maximumDistance) order.push_back(i);
         std::sort(order.begin(),order.end(),[&](unsigned a,unsigned b){return nearest[a]<nearest[b] || (nearest[a]==nearest[b] && a<b);});
@@ -562,8 +577,10 @@ struct TreeRenderGpu::Impl
         for(unsigned i:sourceOrder)
         {
             const auto& b=sources[i]; const auto& model=models[b.prototype];
-            if(!model.ready || distance2(b,model.radius,camera.camera)>double(settings.maximumDistance)*settings.maximumDistance) continue;
-            candidates.push_back({i,{{b.origin[0]-model.radius,b.origin[1]-model.radius,b.origin[2]-model.radius}},b.extent+2*model.radius});
+            if(!model.ready) continue;
+            const auto bounds=blockBounds(b,model.radius,prototypes[b.prototype].boundingRadius);
+            if(distance2(bounds,camera.camera)>double(settings.maximumDistance)*settings.maximumDistance) continue;
+            candidates.push_back({i,bounds.origin,bounds.extent});
         }
         candidateRevision=statistics.revision; candidateCamera=camera.camera;
         ++statistics.distanceSelections;
@@ -611,7 +628,7 @@ struct TreeRenderGpu::Impl
         {
             const auto& b=sources[index];
             const auto& model=data[b.prototype];
-            const double nearest=std::sqrt(distance2(b,models[b.prototype].radius,camera.camera));
+            const double nearest=std::sqrt(distance2(blockBounds(b,models[b.prototype].radius,prototypes[b.prototype].boundingRadius),camera.camera));
             const double projected=model.centreRadius.w*double(model.scales.y)*camera.projectionScale/
                 (camera.orthographic?1.0:std::max(nearest,0.01));
             if(nearest<settings.windDistance && (model.scales.w<0.5f || projected>settings.impostorCoverage*(1+settings.transitionFraction)))
@@ -875,9 +892,9 @@ void TreeRenderGpu::appendBounds(std::vector<Ge::ShadowCasterBounds>& output) co
 {
     for(const auto& b:m->sources) if(m->models[b.prototype].ready)
     {
-        const double r=m->models[b.prototype].radius;
-        const glm::dvec3 lo(b.origin[0]-r,b.origin[1]-r,b.origin[2]-r);
-        output.push_back({lo,lo+glm::dvec3(b.extent+2*r)});
+        const auto bounds=blockBounds(b,m->models[b.prototype].radius,m->prototypes[b.prototype].boundingRadius);
+        const glm::dvec3 lo(bounds.origin[0],bounds.origin[1],bounds.origin[2]);
+        output.push_back({lo,lo+glm::dvec3(bounds.extent)});
     }
 }
 std::uint64_t TreeRenderGpu::shadowContentRevision(std::uint32_t passID,const glm::mat4& clip) const

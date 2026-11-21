@@ -125,7 +125,7 @@ def main():
                 assert 20<=biome["emptyAreaPercent"]<=80,"Forest should include substantial true clearings"
                 assert biome["empty256mPatchesPercent"]>=10,"Only tiny scattered holes, no regional clearings"
                 assert biome["fullGroveAreaPercent"]>=10,"Forest mask lost its dense groves"
-                assert 50<=biome["sitesPerKm2"]<=700,"Default forest density drifted outside its intended budget"
+                assert 10<=biome["sitesPerKm2"]<=140,"Default forest density drifted outside its intended budget"
         report={"seed":args.seed,"regionKm":[16.384,16.384],"renderer":gl.renderer,
             "sourceSha256":{
                 "catalogue":hashlib.sha256(args.catalogue.read_bytes()).hexdigest(),

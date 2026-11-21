@@ -22,18 +22,19 @@ vec3 objectClimateAt(vec2 point)
         mix(objectColumnClimate(columns[a.x+b.y*side]),objectColumnClimate(columns[b.x+b.y*side]),f.x),f.y);
 }
 
-// One jittered world-space site per placement cell. The cell is at least as
-// large as a voxel at the maximum collecting LOD, so a voxel tests <=1 site.
-bool objectCandidate(ivec3 cell,out vec2 point,out uint record,out uint profile,out uint model)
+// The global lattice stays identical at every LOD. A coarse voxel may contain
+// several sites; each is tested against that voxel's existing triangles.
+bool objectCandidate(ivec3 cell,ivec2 siteOffset,out vec2 point,out uint record,out uint profile,out uint model)
 {
     if(uObjectJobBase==0u) return false;
     int voxelStep=int(1u<<uLod), siteStep=int(objectWords[2]);
     ivec3 lattice=uOrigin+cell*voxelStep;
     ivec3 sector=ivec3(objectWords[uObjectJobBase],objectWords[uObjectJobBase+1u],objectWords[uObjectJobBase+2u]);
     uvec3 small=uvec3((lattice-sector)/int(objectWords[5]));
-    uint bit=small.x+objectWords[6]*(small.y+objectWords[6]*small.z);
-    if((objectWords[uObjectJobBase+4u+bit/32u]&(1u<<(bit%32u)))==0u) return false;
-    ivec2 site=ivec2(objectFloorDiv(lattice.x,siteStep),objectFloorDiv(lattice.z,siteStep));
+    uint bit=objectCoverageBit(small);
+    uint maskWord=bit/32u-(objectWords[uObjectJobBase+5u]>>16u);
+    if((objectWords[uObjectJobBase+8u+maskWord]&(1u<<(bit%32u)))==0u) return false;
+    ivec2 site=ivec2(objectFloorDiv(lattice.x,siteStep),objectFloorDiv(lattice.z,siteStep))+siteOffset;
     uint seed=objectWords[uObjectJobBase+3u], h=objectSiteHash(site,seed);
     vec2 jitter=objectJitter(h);
     vec2 inVoxel=vec2(site*siteStep-lattice.xz)+jitter*float(siteStep);
@@ -86,8 +87,11 @@ bool objectCandidate(ivec3 cell,out vec2 point,out uint record,out uint profile,
     uint variants=objectWords[groupBase+1u];
     if(variants==0u) return false;
     model=objectWords[groupBase]+objectHash(h^0x914e6d31u)%variants;
-    ivec2 local=site-sector.xz/siteStep;
-    record=uint(local.x)+objectWords[3]*uint(local.y)+objectWords[3]*objectWords[3]*small.y;
+    uint tileOrigin=objectWords[uObjectJobBase+4u],tileSide=objectWords[uObjectJobBase+6u];
+    ivec2 local=site-sector.xz/siteStep-ivec2(tileOrigin&65535u,tileOrigin>>16u);
+    uint bandSpan=objectWords[4]/min(objectWords[6],4u);
+    uint band=uint(lattice.y-sector.y)/bandSpan-(objectWords[uObjectJobBase+5u]&65535u);
+    record=uint(local.x)+tileSide*uint(local.y)+tileSide*tileSide*band;
     return true;
 }
 
@@ -98,13 +102,10 @@ vec3 objectTriangleVertex(uint caseIndex,uint vertex,ivec3 cell,float values[8])
     return interpolateEdge(vec3(cell+corner(a)),vec3(cell+corner(b)),edgeFraction(values[a],values[b]));
 }
 
-void collectCellObjects(ivec3 cell,uint caseIndex,uint count,float values[8])
+void collectCellObjectSite(ivec3 cell,ivec2 siteOffset,uint caseIndex,uint count,float values[8])
 {
-    // Positive density is solid: negative dDensity/dY identifies floor cells.
-    float dy=values[2]+values[3]+values[6]+values[7]-values[0]-values[1]-values[4]-values[5];
-    if(dy>=0.0) return;
     vec2 point; uint record,profile,model;
-    if(!objectCandidate(cell,point,record,profile,model)) return;
+    if(!objectCandidate(cell,siteOffset,point,record,profile,model)) return;
     float normalY=uintBitsToFloat(objectWords[profile+3u]);
     for(uint i=0u;i<count;i+=3u)
     {
@@ -129,6 +130,17 @@ void collectCellObjects(ivec3 cell,uint caseIndex,uint count,float values[8])
         float sectorY=float(uOrigin.y-int(objectWords[uObjectJobBase+1u]))+y*float(1u<<uLod);
         uint quantized=uint(clamp(floor(sectorY/float(objectWords[4])*65535.0+0.5),0.0,65535.0));
         uint hit=((quantized+1u)<<8u)|model;
-        atomicMax(objectWords[uObjectJobBase+8u+record],hit);
+        atomicMax(objectWords[uObjectJobBase+objectWords[15]+record],hit);
     }
+}
+
+void collectCellObjects(ivec3 cell,uint caseIndex,uint count,float values[8])
+{
+    if(uObjectJobBase==0u) return;
+    // Positive density is solid: negative dDensity/dY identifies floor cells.
+    float dy=values[2]+values[3]+values[6]+values[7]-values[0]-values[1]-values[4]-values[5];
+    if(dy>=0.0) return;
+    int sitesPerAxis=max(1,int((1u<<uLod)/objectWords[2]));
+    for(int z=0;z<sitesPerAxis;++z) for(int x=0;x<sitesPerAxis;++x)
+        collectCellObjectSite(cell,ivec2(x,z),caseIndex,count,values);
 }

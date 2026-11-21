@@ -11,14 +11,71 @@ namespace ProceduralTerrain
             bool operator<(const SectorKey& b) const noexcept
             { return origin<b.origin || (origin==b.origin && seed<b.seed); }
         };
-        struct OwnedBlock { ObjectBlock block; std::uint64_t mask=0; };
+        // An aligned octree chunk is one contiguous Morton interval. Keeping
+        // disjoint intervals avoids a 32-KiB CPU bitmap per coverage/claim at LOD6.
+        using Range=std::pair<std::uint32_t,std::uint32_t>; // [first,last)
+        using Mask=std::vector<Range>;
+        using SharedMask=std::shared_ptr<const Mask>;
+        static void normalizeMask(Mask& mask)
+        {
+            std::sort(mask.begin(),mask.end()); std::size_t count=0;
+            for(const auto range:mask)
+                if(count && range.first<=mask[count-1].second) mask[count-1].second=(std::max)(mask[count-1].second,range.second);
+                else mask[count++]=range;
+            mask.resize(count);
+        }
+        static void addMask(Mask& target,const Mask& added)
+        { target.insert(target.end(),added.begin(),added.end()); normalizeMask(target); }
+        static Mask subtractMask(const Mask& input,const Mask& removed)
+        {
+            Mask result; std::size_t cursor=0;
+            for(const auto range:input)
+            {
+                auto first=range.first;
+                while(cursor<removed.size() && removed[cursor].second<=first) ++cursor;
+                for(auto i=cursor;i<removed.size() && removed[i].first<range.second;++i)
+                {
+                    if(removed[i].first>first) result.emplace_back(first,removed[i].first);
+                    first=(std::max)(first,removed[i].second);
+                    if(first>=range.second) break;
+                }
+                if(first<range.second) result.emplace_back(first,range.second);
+            }
+            return result;
+        }
+        static bool containsMask(const Mask& available,const Mask& wanted)
+        {
+            std::size_t cursor=0;
+            for(const auto range:wanted)
+            {
+                while(cursor<available.size() && available[cursor].second<=range.first) ++cursor;
+                if(cursor==available.size() || available[cursor].first>range.first || available[cursor].second<range.second) return false;
+            }
+            return true;
+        }
+        Range coverageRange(const std::array<std::int32_t,3>& origin,unsigned lod,const SectorKey& sector) const
+        {
+            std::uint32_t first=0;
+            for(unsigned axis=0;axis<3;++axis)
+            {
+                const auto q=static_cast<unsigned>((origin[axis]-sector.origin[axis])/static_cast<std::int32_t>(cells));
+                for(unsigned bit=0;bit<config.maximumLod;++bit) first|=((q>>bit)&1u)<<(3*bit+axis);
+            }
+            return {first,first+(1u<<(3*lod))};
+        }
+        struct OwnedBlock { ObjectBlock block; SharedMask mask; };
         struct Sector
         {
-            std::uint64_t captured=0, reserved=0, covered=0, nextCovered=0;
-            bool everPublished=false, discardWhenIdle=false;
+            Mask captured,reserved,covered,nextCovered;
+            bool everPublished=false, discardWhenIdle=false, inRange=true;
             std::vector<OwnedBlock> blocks;
         };
-        struct Claim { SectorKey key; std::uint64_t mask=0; };
+        struct Claim
+        {
+            SectorKey key; SharedMask mask; std::uint32_t sites=0;
+            std::array<std::int32_t,3> origin{};
+            std::uint32_t extent=0;
+        };
         struct Retired { GLsync fence=nullptr; std::vector<OwnedBlock> blocks; };
         ObjectPlacementConfig config;
         ObjectPlacementStats statistics;
@@ -34,8 +91,9 @@ namespace ProceduralTerrain
         GLuint work=0, counts=0, instances=0, compact=0;
         const volatile std::uint32_t* mapped=nullptr;
         GLint compactJob=-1, compactCount=-1;
-        std::uint32_t cells=0, span=0, step=0, side=0, sites=0, jobStart=0, jobStride=0;
+        std::uint32_t cells=0, span=0, step=0, side=0, sites=0, hitOffset=0, jobStart=0, jobStride=0;
         float spacing=1.0f;
+        float largestRadius=0;
         glm::vec3 lastTrim{};
         bool hasTrim=false;
         bool flushPending=false;
@@ -43,6 +101,18 @@ namespace ProceduralTerrain
 
         std::uint32_t jobBase(unsigned job) const { return jobStart+job*jobStride; }
         static std::uint32_t bits(float v) { std::uint32_t b; std::memcpy(&b,&v,4); return b; }
+        bool inRange(const SectorKey& key) const
+        {
+            if(!hasTrim) return true;
+            double distance2=0;
+            for(unsigned a=0;a<3;++a)
+            {
+                const double lo=double(key.origin[a])*spacing,hi=lo+span*spacing;
+                const double d=(std::max)(0.0,(std::max)(lo-lastTrim[a],lastTrim[a]-hi)); distance2+=d*d;
+            }
+            const double limit=double(config.retentionDistance)+cells*spacing+largestRadius;
+            return distance2<=limit*limit;
+        }
         void returnPages(const std::vector<OwnedBlock>& blocks)
         {
             for(const auto& b:blocks) freePages[b.block.prototype].push_back(b.block.firstInstance);
@@ -53,8 +123,8 @@ namespace ProceduralTerrain
             if(!publicationDirty) return;
             publicationDirty=false; ++statistics.publicationRebuilds;
             publicationScratch.clear(); statistics.instances=0;
-            for(const auto& item:sectors) for(const auto& owned:item.second.blocks)
-                if((owned.mask&item.second.covered)==owned.mask)
+            for(const auto& item:sectors) if(item.second.inRange) for(const auto& owned:item.second.blocks)
+                if(containsMask(item.second.covered,*owned.mask))
                 { publicationScratch.push_back(owned.block); statistics.instances+=owned.block.instanceCount; }
             std::sort(publicationScratch.begin(),publicationScratch.end(),[](const ObjectBlock& a,const ObjectBlock& b)
                 { return a.prototype<b.prototype || (a.prototype==b.prototype && a.firstInstance<b.firstInstance); });
@@ -73,20 +143,23 @@ namespace ProceduralTerrain
             shutdown(); config=gpu.objects; cells=gpu.cells; spacing=gpu.baseSpacing;
             if(!config.enabled) return true;
             const auto reject=[&](const char* message){ error=failure=message; return false; };
-            if(config.maximumLod>2 || config.maximumSectors==0 || config.maximumSectors>65536 ||
+            if(config.maximumLod>6 || config.maximumSectors==0 || config.maximumSectors>65536 ||
                 config.prototypes.empty() || config.prototypes.size()>255 || config.groups.size()>255 ||
                 !finiteFieldValue(config.candidateSpacing) || config.candidateSpacing<=0 ||
                 !finiteFieldValue(config.minimumDistance) || config.minimumDistance<0 ||
                 !finiteFieldValue(config.retentionDistance) || config.retentionDistance<=0)
                 return reject("Invalid object placement settings");
             span=cells<<config.maximumLod;
-            // Powers of two guarantee that every terrain voxel belongs to one
-            // candidate cell, even for negative coordinates and different LODs.
-            step=1u<<config.maximumLod;
-            while(step<span && (step*spacing<config.candidateSpacing || span/step>16u)) step*=2;
+            // Power-of-two grids nest exactly, including negative coordinates.
+            // A coarse voxel can contain several fixed world candidate cells.
+            step=1u<<(std::min)(config.maximumLod,2u);
+            const unsigned maximumSide=1u<<(std::min)(config.maximumLod+2u,7u);
+            while(step<span && (step*spacing<config.candidateSpacing || span/step>maximumSide)) step*=2;
             if(config.minimumDistance>step*spacing)
                 return reject("Object minimum distance must not exceed the effective candidate spacing");
-            side=span/step; sites=side*side*(1u<<config.maximumLod);
+            side=span/step; sites=side*side*(1u<<(std::min)(config.maximumLod,2u));
+            const unsigned maskWords=((1u<<(3*config.maximumLod))+31u)/32u;
+            hitOffset=(8u+maskWords+7u)/8u*8u;
             std::uint64_t totalCapacity=0;
             for(const auto& p:config.prototypes)
             {
@@ -96,6 +169,7 @@ namespace ProceduralTerrain
                     p.minimumScale<=0 || p.maximumScale<p.minimumScale)
                     return reject("Invalid object prototype capacity, bounds or scale");
                 totalCapacity+=p.capacity;
+                largestRadius=(std::max)(largestRadius,p.boundingRadius);
             }
             for(const auto& g:config.groups)
                 if(g.count==0 || g.first>=config.prototypes.size() || g.count>config.prototypes.size()-g.first)
@@ -132,20 +206,20 @@ namespace ProceduralTerrain
             for(const auto& g:config.groups) table.insert(table.end(),{g.first,g.count});
             table[14]=static_cast<std::uint32_t>(table.size());
             table.insert(table.end(),BiomeMatrix2D.begin(),BiomeMatrix2D.end());
+            table[15]=hitOffset;
             jobStart=static_cast<std::uint32_t>((table.size()+7)/8*8);
             // At most one winning hit exists per site, across ALL prototypes.
             // Compaction groups these hits with a shared histogram; reserving
             // sites positions per prototype multiplies scratch without adding
             // capacity. Keep a single packed site-sized output per job.
-            jobStride=8+sites+2*sites;
+            jobStride=hitOffset+sites+2*sites;
             table[10]=jobStride; table[11]=jobStart;
             const auto workBytes=(std::uint64_t{jobStart}+std::uint64_t{jobStride}*gpu.maxInFlight)*4;
             const auto countBytes=config.prototypes.size()*gpu.maxInFlight*4;
             GLint64 maximum=0; glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&maximum);
             if(totalCapacity>UINT32_MAX || totalCapacity*8>static_cast<std::uint64_t>(maximum) ||
                 workBytes>static_cast<std::uint64_t>(maximum)) return reject("Object pools exceed the GPU storage block limit");
-            const std::string compactDefines="#define TERRAIN_OBJECT_SITE_COUNT "+std::to_string(sites)+
-                "\n#define TERRAIN_OBJECT_TYPE_COUNT "+std::to_string(config.prototypes.size())+"\n";
+            const std::string compactDefines="#define TERRAIN_OBJECT_TYPE_COUNT "+std::to_string(config.prototypes.size())+"\n";
             compact=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,gpu.shaderDirectory+"/objects_compact.C.glsl",compactDefines}},
                 error,"Terrain object position compaction",Ge::ShaderCacheOptions{true,{}});
             if(!compact) return false;
@@ -181,6 +255,7 @@ namespace ProceduralTerrain
             sectors.clear(); retired.clear(); claims.clear(); freePages.clear(); published.clear(); publicationScratch.clear();
             coarseCoverage.clear(); publicationDirty=true;
             statistics={}; flushPending=false; hasTrim=false; failure.clear();
+            largestRadius=0;
         }
         // Called only after a non-empty mesh count and before regular emission.
         // Overlapping speculative jobs reserve disjoint finest-chunk masks.
@@ -194,18 +269,37 @@ namespace ProceduralTerrain
             {
                 if(sectors.size()>=config.maximumSectors) { ++statistics.sectorFailures; return 0; }
                 found=sectors.emplace(key,Sector{}).first;
+                found->second.inRange=inRange(key);
             }
             auto& sector=found->second;
             if(sector.discardWhenIdle) return 0;
-            const auto mask=objectCoverageMask(request.origin,request.lod,key.origin,config.maximumLod,cells)&~(sector.captured|sector.reserved);
-            if(!mask) { ++statistics.cachedJobs; return 0; }
-            claims[job]={key,mask}; sector.reserved|=mask;
-            const std::uint32_t header[]={static_cast<std::uint32_t>(key.origin[0]),static_cast<std::uint32_t>(key.origin[1]),
-                static_cast<std::uint32_t>(key.origin[2]),request.seed,static_cast<std::uint32_t>(mask),static_cast<std::uint32_t>(mask>>32),0,0};
+            const auto range=coverageRange(request.origin,request.lod,key);
+            auto remaining=subtractMask(subtractMask(Mask{range},sector.captured),sector.reserved);
+            if(remaining.empty()) { ++statistics.cachedJobs; return 0; }
+            const auto mask=std::make_shared<const Mask>(std::move(remaining));
+            const unsigned requestSpan=cells<<request.lod,bandSpan=span/(1u<<(std::min)(config.maximumLod,2u));
+            const unsigned jobSide=(std::max)(1u,requestSpan/step);
+            const unsigned jobSites=jobSide*jobSide*(std::max)(1u,requestSpan/bandSpan);
+            claims[job]={key,mask,jobSites,request.origin,requestSpan}; addMask(sector.reserved,*mask);
+            // Upload only the word window touched by this chunk. A fine chunk
+            // keeps a tiny header/working set even inside a 4-km sector.
+            const unsigned firstWord=range.first/32u,lastWord=(range.second+31u)/32u;
+            std::vector<std::uint32_t> header(8u+lastWord-firstWord,0);
+            for(unsigned a=0;a<3;++a) header[a]=static_cast<std::uint32_t>(key.origin[a]);
+            header[3]=request.seed;
+            header[4]=static_cast<unsigned>((request.origin[0]-key.origin[0])/static_cast<int>(step)) |
+                (static_cast<unsigned>((request.origin[2]-key.origin[2])/static_cast<int>(step))<<16u);
+            header[5]=static_cast<unsigned>((request.origin[1]-key.origin[1])/static_cast<int>(bandSpan))|(firstWord<<16u);
+            header[6]=jobSide; header[7]=jobSites;
+            for(const auto part:*mask) for(unsigned first=part.first;first<part.second;)
+            {
+                const unsigned word=first/32u,count=(std::min)(part.second-first,32u-first%32u);
+                header[8u+word-firstWord]|=(count==32u?UINT32_MAX:((1u<<count)-1u)<<(first%32u)); first+=count;
+            }
             const auto base=jobBase(job); const std::uint32_t zero=0;
             glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
-            glNamedBufferSubData(work,static_cast<GLintptr>(base)*4,sizeof(header),header);
-            glClearNamedBufferSubData(work,GL_R32UI,static_cast<GLintptr>(base+8)*4,sites*4,GL_RED_INTEGER,GL_UNSIGNED_INT,&zero);
+            glNamedBufferSubData(work,static_cast<GLintptr>(base)*4,header.size()*4,header.data());
+            glClearNamedBufferSubData(work,GL_R32UI,static_cast<GLintptr>(base+hitOffset)*4,jobSites*4,GL_RED_INTEGER,GL_UNSIGNED_INT,&zero);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,work);
             ++statistics.captureJobs;
             return base;
@@ -220,7 +314,8 @@ namespace ProceduralTerrain
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,counts);
             glUseProgram(compact); glUniform1ui(compactJob,jobBase(job));
             glUniform1ui(compactCount,static_cast<GLuint>(job*config.prototypes.size()));
-            // A single group handles <=1024 sites. Shared histogram/prefix
+            // A single group scans only this chunk's active site rectangle.
+            // Fine chunks do not scan the entire distant sector. Shared histogram/prefix
             // offsets produce a packed per-type list and overwrite every count,
             // including zero types, without global atomics or a clear pass.
             glDispatchCompute(1,1,1);
@@ -234,10 +329,10 @@ namespace ProceduralTerrain
             const auto claim=claims[job]; claims[job]={};
             auto found=sectors.find(claim.key);
             if(found==sectors.end()) return;
-            auto& sector=found->second; sector.reserved&=~claim.mask;
+            auto& sector=found->second; sector.reserved=subtractMask(sector.reserved,*claim.mask);
             if(!accept || sector.discardWhenIdle)
             {
-                if(!sector.reserved && !sector.everPublished && (sector.discardWhenIdle || sector.blocks.empty()))
+                if(sector.reserved.empty() && !sector.everPublished && (sector.discardWhenIdle || sector.blocks.empty()))
                 {
                     Retired batch; batch.blocks=std::move(sector.blocks);
                     sectors.erase(found); publicationDirty=true; retire(std::move(batch)); rebuildPublished();
@@ -248,7 +343,7 @@ namespace ProceduralTerrain
             for(std::size_t type=0;type<config.prototypes.size();++type)
             {
                 const auto count=mapped[job*config.prototypes.size()+type];
-                if(count>sites || total>sites-count || (count+ObjectPageSize-1)/ObjectPageSize>freePages[type].size())
+                if(count>claim.sites || total>claim.sites-count || (count+ObjectPageSize-1)/ObjectPageSize>freePages[type].size())
                 { ++statistics.capacityFailures; return; }
                 total+=count;
             }
@@ -269,10 +364,10 @@ namespace ProceduralTerrain
                     for(unsigned a=0;a<3;++a)
                     {
                         block.origin[a]=static_cast<float>(claim.key.origin[a])*spacing;
-                        block.boundsOrigin[a]=block.origin[a]-radius;
+                        block.boundsOrigin[a]=static_cast<float>(claim.origin[a])*spacing-radius;
                     }
-                    block.boundsExtent=block.extent+2*radius;
-                    const auto source=std::uint64_t{jobBase(job)+8+sites}+2*(std::uint64_t{typeOffset}+first);
+                    block.boundsExtent=claim.extent*spacing+2*radius;
+                    const auto source=std::uint64_t{jobBase(job)+hitOffset+claim.sites}+2*(std::uint64_t{typeOffset}+first);
                     glCopyNamedBufferSubData(work,instances,static_cast<GLintptr>(source*4),
                         static_cast<GLintptr>(block.firstInstance)*8,block.instanceCount*8);
                     sector.blocks.push_back({block,claim.mask});
@@ -280,7 +375,7 @@ namespace ProceduralTerrain
                 typeOffset+=count;
             }
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
-            sector.captured|=claim.mask; statistics.generatedInstances+=total;
+            addMask(sector.captured,*claim.mask); statistics.generatedInstances+=total;
             if(total) publicationDirty=true;
         }
         // Called with atomically published terrain leaves, never staged meshes.
@@ -290,7 +385,7 @@ namespace ProceduralTerrain
             if(!enabled()) return;
             ++statistics.publicationChecks;
             if(sectors.empty()) return;
-            for(auto& s:sectors) s.second.nextCovered=0;
+            for(auto& s:sectors) s.second.nextCovered.clear();
             coarseCoverage.clear(); coarseCoverage.reserve(chunks.size());
             std::uint32_t coarseLods=0;
             for(const auto& chunk:chunks)
@@ -303,7 +398,7 @@ namespace ProceduralTerrain
                 SectorKey key; key.seed=seed;
                 for(unsigned a=0;a<3;++a) key.origin[a]=objectFloorMultiple(chunk.origin[a],span);
                 auto found=sectors.find(key);
-                if(found!=sectors.end()) found->second.nextCovered|=objectCoverageMask(chunk.origin,chunk.lod,key.origin,config.maximumLod,cells);
+                if(found!=sectors.end()) found->second.nextCovered.push_back(coverageRange(chunk.origin,chunk.lod,key));
             }
             std::sort(coarseCoverage.begin(),coarseCoverage.end());
             Retired batch;
@@ -318,17 +413,17 @@ namespace ProceduralTerrain
                     ++statistics.coarseCoverageLookups;
                     if(std::binary_search(coarseCoverage.begin(),coarseCoverage.end(),CoverageKey{lod,origin}))
                     {
-                        const unsigned bitsCount=1u<<(3*config.maximumLod);
-                        sector.nextCovered=bitsCount==64?UINT64_MAX:((std::uint64_t{1}<<bitsCount)-1);
+                        sector.nextCovered={{0,1u<<(3*config.maximumLod)}};
                         break;
                     }
                 }
+                normalizeMask(sector.nextCovered);
                 if(sector.covered!=sector.nextCovered) publicationDirty=true;
-                sector.covered=sector.nextCovered;
-                if(sector.covered) sector.everPublished=true;
+                sector.covered.swap(sector.nextCovered);
+                if(!sector.covered.empty()) sector.everPublished=true;
                 // Unpublished captures may still belong to the current pending
                 // transaction. They are explicitly discarded on abandonment.
-                if(!sector.covered && !sector.reserved && sector.everPublished)
+                if(sector.covered.empty() && sector.reserved.empty() && sector.everPublished)
                 {
                     batch.blocks.insert(batch.blocks.end(),sector.blocks.begin(),sector.blocks.end());
                     it=sectors.erase(it); publicationDirty=true;
@@ -346,7 +441,7 @@ namespace ProceduralTerrain
                 if(!it->second.everPublished)
                 {
                     it->second.discardWhenIdle=true;
-                    if(!it->second.reserved)
+                    if(it->second.reserved.empty())
                     { batch.blocks.insert(batch.blocks.end(),it->second.blocks.begin(),it->second.blocks.end()); it=sectors.erase(it); publicationDirty=true; continue; }
                 }
                 ++it;
@@ -367,22 +462,19 @@ namespace ProceduralTerrain
             const double moveStep=cells*spacing;
             if(hasTrim && glm::dot(delta,delta)<moveStep*moveStep) return;
             lastTrim=camera; hasTrim=true;
-            Retired batch; bool changed=false;
-            for(auto it=sectors.begin();it!=sectors.end();)
+            bool changed=false;
+            for(auto& item:sectors)
             {
-                double distance2=0;
-                for(unsigned a=0;a<3;++a)
-                {
-                    const double lo=static_cast<double>(it->first.origin[a])*spacing,hi=lo+span*spacing;
-                    const double d=(std::max)(0.0,(std::max)(lo-camera[a],camera[a]-hi)); distance2+=d*d;
-                }
-                const double limit=config.retentionDistance+moveStep;
-                if(!it->second.reserved && distance2>limit*limit)
-                { batch.blocks.insert(batch.blocks.end(),it->second.blocks.begin(),it->second.blocks.end()); it=sectors.erase(it); changed=true; publicationDirty=true; }
-                else ++it;
+                const bool visible=inRange(item.first);
+                if(item.second.inRange!=visible) { item.second.inRange=visible; changed=true; publicationDirty=true; }
             }
-            retire(std::move(batch)); if(changed) rebuildPublished();
+            // Keep positions while their terrain is resident, even outside the
+            // draw radius. Returning to an unchanged coarse mesh must reveal its
+            // trees without re-running terrain generation. Publication/discard
+            // releases unloaded or abandoned sectors; the pool remains bounded.
+            if(changed) rebuildPublished();
         }
+
         void poll()
         {
             if(flushPending) { glFlush(); flushPending=false; }

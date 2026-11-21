@@ -25,18 +25,19 @@ ouvertes ont une densité réduite. Ce sont des réglages artistiques modifiable
 
 | Paramètre | Valeur du catalogue livré | Effet |
 |---|---:|---|
-| `maximumLod` | 2 | Collecte sur les LOD 0, 1, 2 déjà demandés par le terrain ; plage autorisée 0–2 |
-| `maximumSectors` | 512 | Budget de secteurs résidents, indépendants des chunks affichés |
+| `maximumLod` | 6 | Collecte sur les LOD 0 à 6 déjà demandés par le terrain ; plage autorisée 0–6 |
+| `maximumSectors` | 2 048 | Budget de secteurs résidents, indépendants des chunks affichés |
 | `candidateSpacing` | 32 m | Pas souhaité des cellules de candidats, arrondi à la puissance de deux compatible avec les voxels |
 | `minimumDistance` | 20 m | Exclusion horizontale entre sites voisins, avant quantification |
-| `retentionDistance` | 2 048 m | Évacuation des secteurs trop éloignés, avec une marge d'un chunk fin |
+| `retentionDistance` | 10 240 m | Publication autour de la caméra, avec marge conservative ; les positions restent en cache tant que leur terrain est résident |
 | `capacity` par modèle | 65 536 | Réserve de positions ; multiple de 64, modifiable individuellement |
 | `minimumScale` / `maximumScale` | Selon le groupe, voir ci-dessous | Plage utilisée par le renderer ; les limites de culling incluent l'échelle maximale |
 
-La collecte garde au maximum 16 × 16 sites horizontaux par secteur. Avec
-64 cellules, `maximumLod = 2` et `cellSize = 1`, un secteur fait 256 m ;
-le pas de 32 m donne maintenant **8 × 8 candidats horizontaux**.
-Un voxel plus large ou un autre réglage peut augmenter ce pas effectif.
+La collecte garde au maximum 128 × 128 sites horizontaux par secteur. Avec
+64 cellules, `maximumLod = 6` et `cellSize = 1`, un secteur fait 4 096 m ;
+le pas de 32 m donne **128 × 128 candidats horizontaux**, répartis sur quatre
+bandes verticales de 1 024 m. Un voxel LOD6 peut contenir quatre candidats XZ,
+testés sur ses triangles existants. Un autre réglage peut augmenter le pas effectif.
 Les valeurs de cette section viennent du catalogue du jeu ; les valeurs par
 défaut des structures génériques du moteur ne remplacent pas ce catalogue.
 
@@ -82,10 +83,10 @@ seconde, seule la probabilité `density` et les autres tests limitent le peuplem
 | Ouverts, dont toundras, steppes, prairies et savanes | 0,58 | 0,08 | Bruit ≤ 0,50 | Bruit ≥ 0,66 |
 
 Les profils vides conservent une densité nulle. Les périodes régionales restent
-propres aux biomes, entre 900 et 1 700 m ; `density` garde ses valeurs précédentes.
-Le changement resserre les lisières et conserve des bosquets denses avec de
-vraies clairières. Il ne remplace pas le masque par une suppression aléatoire
-uniforme. Cette classification décrit les paramètres du fichier ; elle
+propres aux biomes, entre 900 et 1 700 m. Les probabilités `density` sont
+divisées par cinq par rapport à `d165f928` ; les masques, familles, échelles et
+distances minimales sont conservés. La réduction agit à l’intérieur des zones
+plantables et garde les mêmes grandes clairières. Cette classification décrit les paramètres du fichier ; elle
 n'impose pas une règle automatique lors du chargement d'un profil personnalisé.
 Les choix de groupes sont des poids relatifs, pas des pourcentages obligatoires.
 La mangrove autorise une petite immersion ; les autres profils évitent la mer.
@@ -115,18 +116,18 @@ n'alloue pas de pool et n'exécute pas de collecte.
    partir des valeurs et tables déjà disponibles. Pente et altitude sont
    vérifiées ; les surplombs orientés vers le bas sont rejetés.
 5. Un `atomicMax` garde le plus haut sol admissible par site et par bande
-   verticale de la hauteur d'un chunk LOD0. Les faces de transition ne collectent
+   verticale (quatre bandes au maximum par secteur). Les faces de transition ne collectent
    rien. Les doublons sur une arête de triangle partagent le même enregistrement.
-6. Un petit compute compacte ces résultats par modèle. Il parcourt au maximum
-   256 enregistrements avec 64 cellules, `cellSize = 1` et les réglages du
-   catalogue, contre 1 024 auparavant, **pas le maillage**. La limite du système
-   reste 1 024 avec une grille horizontale de 16 × 16 et quatre bandes verticales.
+6. Un compute compacte ces résultats par modèle. Il parcourt seulement le
+   rectangle de sites du chunk courant, **pas le maillage ni tout le secteur** :
+   quatre enregistrements pour un chunk LOD0 de 64 m, jusqu’à 65 536 pour
+   un chunk LOD6 de 4 096 m avec les réglages livrés.
    Un seul groupe de 64 threads construit un histogramme en mémoire partagée,
    calcule les offsets des modèles et écrit les positions dans une réserve
    commune de taille `sites`. Il remplace tous les compteurs, y compris les
    types vides, sans remise à zéro GPU séparée ni atomiques globaux de compactage.
-   Le nombre de sites et de modèles sont des constantes de compilation pour
-   ce catalogue ; aucune variante n'est compilée pendant la génération.
+   Le nombre de modèles est une constante de compilation ; le nombre de sites
+   actifs vient du travail courant. Aucune variante ne compile pendant la génération.
    La fence de fin d'émission du terrain couvre aussi ce travail.
 
 Le réglage des clairières réutilise exactement les deux échantillons de bruit
@@ -135,9 +136,11 @@ ni lecture des positions côté CPU, ni recherche dans le maillage. Le plus gran
 pas réduit le nombre de candidats et la zone temporaire de collecte ; il ne
 supprime pas le coût des tests, des atomiques et des copies GPU.
 
-Un secteur réserve jusqu'à 64 bits de couverture correspondant à ses chunks
-LOD0. Les captures terminées sont conservées ; les captures concurrentes
-réservent des bits distincts. Une subdivision, un raccord ou un regroupement
+La couverture CPU utilise des intervalles Morton triés et disjoints : un chunk
+aligné de l’octree correspond à un seul intervalle, sans bitmap de 32 Kio par
+capture LOD6. Le GPU reçoit uniquement la fenêtre de bits du chunk courant
+(36 octets avec l’en-tête pour un chunk fin). Les captures terminées sont
+conservées ; les captures concurrentes réservent des intervalles distincts. Une subdivision, un raccord ou un regroupement
 LOD ne régénère pas les positions déjà capturées. Les blocs ne sont publiés
 qu'avec la couverture de terrain correspondante, après validation de l'émission.
 L'abandon d'une transaction libère aussi les captures non publiées, après la
@@ -146,11 +149,16 @@ fin des travaux encore en vol.
 Le système privilégie le coût : aucune tâche de terrain supplémentaire n'est
 lancée pour les objets. Une zone vue uniquement au-delà de `maximumLod` reste
 sans objets jusqu'à son premier passage à un LOD de collecte. Les positions
-déjà obtenues restent disponibles lors de l'éloignement, dans le budget de
-rétention. La hauteur capturée peut devenir approximative quand la géométrie
+déjà obtenues restent en cache tant que le terrain reste résident ; elles
+sont retirées de la liste publiée hors portée puis réapparaissent au retour
+sans nouvelle génération. Le déchargement du terrain libère les pages.
+La hauteur capturée peut devenir approximative quand la géométrie
 change de LOD. Après une évacuation complète, une première capture à un autre
 LOD peut changer la hauteur ou l'admissibilité du site. Ce n'est pas une garantie
-de placement identique à toute distance et dans tout ordre de visite.
+de placement identique à toute distance et dans tout ordre de visite. En
+particulier, la première capture sur un LOD6 utilise des voxels de 64 m : le
+pied de certains arbres peut flotter ou s’enfoncer lorsque le terrain s’affine.
+Aucune nouvelle projection coûteuse sur le terrain fin n’est ajoutée.
 
 Le test de sol est local : plusieurs étages suffisamment séparés peuvent
 produire plusieurs objets au même XZ. Il ne vérifie pas la visibilité du ciel,
@@ -166,7 +174,8 @@ Les positions permanentes occupent **8 octets** en `std430 uvec2` :
 | 1 | Z local UNORM16 | ID du site dans le secteur |
 
 Décodage : `world = block.origin + localUNORM16 * block.extent / 65535`.
-Pour 256 m, le pas de quantification vaut environ 3,9 mm. Le type, la seed et
+Pour 4 096 m, le pas de quantification vaut environ 6,25 cm (erreur maximale
+d’environ 3,13 cm par axe). Le type, la seed et
 l'origine du secteur sont communs au bloc ; aucune matrice n'est stockée par
 instance. Le renderer dérive rotation et échelle du hash du site et de la seed,
 sans se servir de l'index d'allocation. Les palettes restent celles des exports.
@@ -175,9 +184,11 @@ Chaque modèle possède sa plage dans un buffer unique. Des pages de 64 places
 sont attribuées aux secteurs. Avec les 102 variantes à 65 536 places chacune,
 la réserve vaut **51 Mio**, hors maillages et textures. Avec 64 cellules,
 `cellSize = 1` et le catalogue actuel, la zone temporaire totale vaut
-**29 248 octets pour huit travaux en vol**, contre 1 684 032 avant le compactage
-partagé. Un site ne peut produire qu'une position gagnante ; réserver une plage
-de `sites` positions pour chacun des 102 modèles gaspillait donc de l'espace.
+**6 558 272 octets pour huit travaux en vol**, soit environ 6,25 Mio. Cette
+réserve couvre les gros chunks distants ; les clears, uploads et compactages
+restent limités aux sites du chunk actif. La configuration précédente, limitée
+au LOD2, réservait 29 248 octets. Un site ne peut produire qu’une position
+gagnante ; il n’y a toujours qu’une réserve partagée entre les 102 modèles.
 Les positions temporaires dépendent désormais du nombre de sites et de travaux,
 seuls les compteurs dépendent aussi du nombre de variantes.
 Les compteurs lus côté CPU
@@ -220,7 +231,8 @@ API de `ProceduralGeneration` :
 - `getObjectPlacementError()` : diagnostic du placement.
 
 `ProceduralTerrain::selectObjectBlocks(blocks, frustum, visible)` utilise le
-frustum existant. Les limites incluent le volume du secteur, les modèles à
+frustum existant. Les limites incluent le chunk qui a capturé les positions,
+et non systématiquement tout le secteur de 4 km, les modèles à
 l'échelle maximale et une marge pour le vent. La sélection de caméra et celle
 de chaque passe d'ombre restent distinctes. Le renderer ajoute un second test
 GPU par instance et choisit les LOD sans lire les positions côté CPU.
@@ -247,7 +259,7 @@ recyclée reçoit une nouvelle identité d'allocation. Le catalogue maximal de
 
 `python Tests/Trees/check_compaction.py --output /tmp/tree-compaction.json`
 compare directement l'ancien noyau de compactage et le noyau actuel sur le GPU.
-Les 24 cas couvrent 1 à 1 024 sites, 1 à 255 types, les sorties vides, pleines
+Les 30 cas couvrent 1 à 65 536 sites, 1 à 255 types, les sorties vides, pleines
 et réutilisées ainsi que des identifiants invalides. Les comptes et les
 positions compactées sont identiques par type, indépendamment de leur ordre
 d'écriture ; les sentinelles contrôlent les limites de chaque plage.
@@ -263,7 +275,7 @@ le pas effectif ; ce test utilise le pas demandé dans le catalogue.
 Exemple de comparaison reproductible avec le catalogue antérieur à cette passe :
 
 ```bash
-git show b4ca0a1:ENDURANCE/Ressources/Trees/object_placement.json > /tmp/placement-before.json
+git show d165f928:ENDURANCE/Ressources/Trees/object_placement.json > /tmp/placement-before.json
 python Tests/Trees/check_distribution.py \
   --baseline /tmp/placement-before.json \
   --output /tmp/tree-distribution.json \
@@ -274,27 +286,28 @@ Les captures optionnelles demandent Pillow ; les mesures demandent NumPy et
 OpenGL/EGL. Le JSON enregistre la seed, le renderer, l'étendue et les SHA-256
 des catalogues, du helper GLSL et du script de mesure.
 
-Résultats de référence sur 268,435456 km², avec le pas demandé et les réglages
-ci-dessus :
+Résultats sur 268,435456 km², comparés à `d165f928` :
 
-| Biome | Sites/km² avant | Sites/km² après | Surface où le masque est nul | Surface où le masque vaut 1 |
-|---|---:|---:|---:|---:|
-| Taïga | 1 459,86 | 246,99 | 47,01 % | 27,42 % |
-| Forêt boréale | 1 636,27 | 285,80 | 44,47 % | 30,41 % |
-| Forêt tempérée | 1 524,91 | 266,55 | 44,47 % | 30,41 % |
-| Forêt pluviale tempérée | 1 672,00 | 283,47 | 47,01 % | 27,42 % |
-| Jungle tropicale | 1 546,41 | 249,95 | 52,44 % | 22,47 % |
+| Biome | Sites/km² avant | Sites/km² après | Ratio |
+|---|---:|---:|---:|
+| Taïga | 246,99 | 49,72 | 0,2013 |
+| Forêt boréale | 285,80 | 57,26 | 0,2003 |
+| Forêt tempérée | 266,55 | 53,39 | 0,2003 |
+| Forêt pluviale tempérée | 283,47 | 57,02 | 0,2012 |
+| Jungle tropicale | 249,95 | 50,08 | 0,2004 |
 
-Ces forêts ont environ **six fois moins de sites en moyenne sur le paysage**.
-Les clairières occupaient seulement environ 10 à 13 % de la surface auparavant.
-Avec le réglage actuel, 32,57 à 42,53 % des patches échantillonnés de 256 m sont
-entièrement vides dans ces profils : les trous ne se limitent pas aux espaces
-entre quelques arbres. Les bosquets denses restent présents. Dans les zones où
-le masque vaut 1, la somme estimée des ellipses de couronnes représente environ
-0,73 fois la surface au sol pour la forêt tempérée et 0,98 à 0,99 pour les deux
-profils de jungle/forêt pluviale ci-dessus, avec les nouvelles échelles. Cette
-somme inclut les chevauchements et les boîtes englobantes des modèles ; elle
-ne mesure pas la couverture réelle des feuilles.
+La réduction attendue de 80 % est vérifiée statistiquement ; le nombre exact
+varie avec la seed et la surface. Les grandes zones vides du masque restent
+identiques. La distance de rendu par défaut passe de 2 048 à 10 240 m. Une
+portée multipliée par cinq couvre jusqu’à 25 fois plus de surface horizontale :
+la baisse de densité locale ne garantit donc pas moins d’arbres visibles au total.
+
+Les tests de placement couvrent également une première capture LOD6, sa
+subdivision, une capture fine avant la capture grossière, leur exécution
+concurrente, les offsets de couverture élevés et un aller-retour hors portée.
+Ils contrôlent les positions et identités, les doublons et les libérations.
+Le test du renderer vérifie que le grand secteur de stockage ne provoque pas
+l’invalidation des ombres animées de pages fines éloignées.
 
 Les tests existants du backend, de l'ordonnanceur et du streaming de la mer
 couvrent les points d'intégration. Ces vérifications sur Mesa logiciel ne

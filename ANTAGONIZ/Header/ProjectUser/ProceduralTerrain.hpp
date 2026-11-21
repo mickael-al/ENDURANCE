@@ -59,7 +59,7 @@ public:
     bool objectPlacementEnabled = true;
     std::string objectPlacementFile = "../ENDURANCE/Ressources/Trees/object_placement.json";
     bool treeRenderingEnabled = true;
-    float treeRenderDistance = 2048.0f;
+    float treeRenderDistance = 10240.0f;
     float treeLod0Coverage = 0.25f;
     float treeImpostorCoverage = 0.06f;
     float treeLodTransition = 0.15f;
