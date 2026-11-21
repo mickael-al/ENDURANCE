@@ -26,6 +26,7 @@ def main():
                    '-fPIC', '-shared', '-DGLEW_NO_GLU',
                    '-I', str(ROOT / 'ANTAGONIZ/Header/Struct'),
                    '-I', str(ROOT / 'ANTAGONIZ/Header/Rendering/Shader'),
+                   '-I', str(ROOT / 'ANTAGONIZ/Header/Interface'),
                    '-I', str(ROOT / 'ThirdParty'),
                    str(ROOT / 'Tests/ShaderCompilation/check_shader_compilation.cpp')]
         command.extend(str(ROOT / 'ANTAGONIZ/Source/Rendering/Shader' / name) for name in sources)

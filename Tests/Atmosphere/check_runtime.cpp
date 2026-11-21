@@ -127,6 +127,66 @@ namespace
         s.measureGpu=false;
         return s;
     }
+    struct ParameterUploadProbe
+    {
+        static inline PFNGLNAMEDBUFFERDATAPROC data=nullptr;
+        static inline PFNGLNAMEDBUFFERSUBDATAPROC subData=nullptr;
+        static inline unsigned streamWrites=0,inPlaceWrites=0;
+        static void GLAPIENTRY recordData(GLuint buffer,GLsizeiptr size,const void* value,GLenum usage)
+        {
+            if(size==672 && usage==GL_STREAM_DRAW) ++streamWrites;
+            data(buffer,size,value,usage);
+        }
+        static void GLAPIENTRY recordSubData(GLuint buffer,GLintptr offset,GLsizeiptr size,const void* value)
+        {
+            if(size==672) ++inPlaceWrites;
+            subData(buffer,offset,size,value);
+        }
+        ParameterUploadProbe()
+        {
+            data=__glewNamedBufferData; subData=__glewNamedBufferSubData;
+            streamWrites=inPlaceWrites=0;
+            __glewNamedBufferData=recordData; __glewNamedBufferSubData=recordSubData;
+        }
+        ~ParameterUploadProbe() { __glewNamedBufferData=data; __glewNamedBufferSubData=subData; }
+    };
+    void checkParameterStreaming()
+    {
+        ParameterUploadProbe calls;
+        Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        atmosphere.settings()=smallSettings();
+        std::string error;
+        const auto probe=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_parameter_probe.C.glsl",{}}},error);
+        require(probe!=0,error);
+        GLuint output=0; glCreateBuffers(1,&output); glNamedBufferData(output,2*sizeof(glm::vec4),nullptr,GL_STREAM_READ);
+        const GLint index=glGetUniformLocation(probe,"resultIndex");
+        const auto capture=[&](unsigned destination)
+        {
+            glUseProgram(probe); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,output);
+            glUniform1ui(index,destination); glDispatchCompute(1,1,1);
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+        };
+        atmosphere.prepare(&camera,0);
+        require(atmosphere.active(),atmosphere.error());
+        require(calls.streamWrites==1 && calls.inPlaceWrites==0,
+                "Atmosphere duplicated live uniform writes or overwrote queued uniforms");
+        capture(0); // Intentionally do not wait/read before changing the UBO.
+        camera.position={23,456,-7};
+        atmosphere.prepare(&camera,.25);
+        require(calls.streamWrites==2 && calls.inPlaceWrites==0,
+                "Unchanged live palette triggered an unnecessary uniform upload");
+        capture(1);
+        std::array<glm::vec4,2> values{};
+        glGetNamedBufferSubData(output,0,sizeof(values),values.data());
+        require(glm::length(values[0]-glm::vec4(0,100,0,0))<.0001f &&
+                glm::length(values[1]-glm::vec4(23,456,-7,.25f))<.0001f,
+                "Streaming live uniforms changed an earlier queued dispatch or failed to rebind slot6");
+        atmosphere.release(); glDeleteBuffers(1,&output); glDeleteProgram(probe);
+        checkGL("streamed atmosphere parameters");
+        std::cout<<"PASS atmosphere parameter streaming: one live upload per unchanged-palette frame, no in-place writes, queued GPU readers retain their own camera/clock\n"<<std::flush;
+    }
     void checkInitialPalette(bool physical,float duration)
     {
         Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
@@ -459,6 +519,7 @@ namespace
     {
         std::filesystem::current_path(root/"ENDURANCE");
         checkSettings();
+        checkParameterStreaming();
         checkInitialPalette(true,.3f);
         checkInitialPalette(false,.3f);
         checkInitialPalette(true,0);

@@ -87,13 +87,15 @@ void LightManager::prepareShadowCasterBounds(const std::vector<CustomRenderer*>&
 	if (m_shadowCasterBounds.update(renderers)) updateShadowCascadeMatrix();
 }
 
-void LightManager::prepareShadowMaps(const std::vector<CustomRenderer*>& renderers, bool untrackedCasters)
+void LightManager::prepareShadowMaps(const std::vector<CustomRenderer*>& renderers, bool untrackedCasters,
+    std::uint64_t immutableModelRevision)
 {
     m_shadowMapMatrices.clear();
     getShadowMatrix(&m_shadowMapMatrices);
     m_shadowMapSources.clear();
     for (const auto* renderer : renderers)
         if (renderer) m_shadowMapSources.push_back({renderer, renderer->shadowContentRevision()});
+    if (immutableModelRevision) m_shadowMapSources.push_back({this, immutableModelRevision});
     m_shadowMaps.prepare(m_shadowMapMatrices, m_shadowMapSources, untrackedCasters);
 }
 

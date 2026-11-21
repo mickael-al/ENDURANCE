@@ -28,6 +28,11 @@ shared float tile[225];
 #endif
 shared uint scan[128];
 shared uint outputBase;
+#if TERRAIN_FIELD_STATE && !EMIT_PASS
+// Standalone extraction callers with only a sign header retain the full scan.
+// The production backend always supplies the complete prepared tile table.
+uniform bool uUseGroupBounds;
+#endif
 
 ivec3 corner(uint i)
 {
@@ -63,6 +68,28 @@ void main()
         hasMarineSurface=meshFieldStates[uFieldStateIndex].w;
 #endif
     if(skipMeshGroup(group,true)) return;
+#if TERRAIN_FIELD_STATE && !EMIT_PASS
+    if(uUseGroupBounds)
+    {
+        // XZ preparation covers samples in 8x8 tiles. This group's corner range
+        // starts at (8*x+1,4*z+1), and can overlap the next tile in either axis.
+        // Union every touched tile before excluding a Y interval; this also keeps
+        // narrow ridges and caves crossing tile boundaries conservative.
+        uint tilesX=(uCells+10u)/8u;
+        uint firstX=gl_WorkGroupID.x;
+        uint lastX=min(gl_WorkGroupID.x*8u+9u,uCells+1u)/8u;
+        uint firstZ=(gl_WorkGroupID.z*4u+1u)/8u;
+        uint lastZ=min(gl_WorkGroupID.z*4u+5u,uCells+1u)/8u;
+        uint possible=0u;
+        for(uint z=firstZ;z<=lastZ;++z) for(uint x=firstX;x<=lastX;++x)
+            possible|=meshFieldStates[uFieldStateIndex+1u+x+z*tilesX].w;
+        if((possible&(1u<<gl_WorkGroupID.y))==0u)
+        {
+            if(lane==0u) recordMeshGroup(group,0u);
+            return;
+        }
+    }
+#endif
     ivec3 groupOrigin=ivec3(gl_WorkGroupID)*ivec3(8,4,4);
     for(uint i=lane;i<TILE_SAMPLES;i+=128u)
     {

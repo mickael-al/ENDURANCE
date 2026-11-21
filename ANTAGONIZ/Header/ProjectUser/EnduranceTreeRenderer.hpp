@@ -14,6 +14,8 @@ public:
     ~TreeRenderer() override;
     bool initialize(const ptrClass& engine,ProceduralGeneration& terrain,
                     const EnduranceTrees::RenderSettings& settings);
+    void setEnabled(bool enabled);
+    bool enabled() const noexcept { return m_enabled; }
     void prepareRenderer() override;
     void drawRenderer() override;
     void drawShadowRenderer(unsigned shadowIndex) override;
@@ -29,7 +31,7 @@ private:
     EnduranceTrees::TreeRenderGpu m_gpu;
     EnduranceTrees::RenderView m_view;
     std::uint64_t m_revision=0,m_boundsToken=0,m_contentToken=0;
-    bool m_registered=false,m_hasView=false;
+    bool m_registered=false,m_hasView=false,m_enabled=true;
 };
 }
 #endif

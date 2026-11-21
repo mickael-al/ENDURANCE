@@ -589,22 +589,12 @@ namespace Ge
 		glClearDepth(1.0);
 		currentDepthTest = true;
 		glDisable(GL_BLEND);		
-        // Standard model/texture buffers and legacy callbacks are mutable
-        // without content revisions. Redraw conservatively whenever they emit
-        // casters; only explicit versioned custom renderers can currently reuse.
-        bool untrackedCasters = !callbacks.empty();
-        for (auto* material : matlist)
-        {
-            if (untrackedCasters) break;
-            if (!material || !material->getDraw() || !material->getCastShadow() ||
-                material->getColor().a == 0.0f || !material->getDepthTest()) continue;
-            const auto found = instanced_models.find(material);
-            if (found == instanced_models.end()) continue;
-            for (const auto& buffer : found->second)
-                if (!buffer.second.empty() && hasDrawableModel(buffer.second))
-                { untrackedCasters = true; break; }
-        }
-        m_lightManager->prepareShadowMaps(customRenderers, untrackedCasters);
+        // Explicitly immutable standard casters can reuse the same maps as
+        // versioned terrain. Unknown/animated/GPU-driven geometry or callbacks
+        // still force a redraw; exact CPU snapshots track transform/material edits.
+        const auto modelShadowRevision = m_immutableShadows.update(matlist, instanced_models,
+            m_graphicsDataMisc->str_default_pipeline_shadow, !callbacks.empty());
+        m_lightManager->prepareShadowMaps(customRenderers, modelShadowRevision == 0, modelShadowRevision);
 		const std::vector<unsigned int>& frameBufferDepthShadow = m_lightManager->getFrameShadowBuffer();
 		for (int i = 0; i < frameBufferDepthShadow.size(); i++)
 		{

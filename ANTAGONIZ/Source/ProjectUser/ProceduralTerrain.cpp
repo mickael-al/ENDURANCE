@@ -137,7 +137,7 @@ void ProceduralTerrainComponent::start()
             m_sea.reset();
         }
     }
-    if(m_generator && m_generator->getConfig().objects.enabled && treeRenderingEnabled)
+    if(m_generator && m_generator->getConfig().objects.enabled)
     {
         try
         {
@@ -148,6 +148,7 @@ void ProceduralTerrainComponent::start()
             m_trees=std::make_unique<Endurance::TreeRenderer>();
             if(!m_trees->initialize(*m_pc,*m_generator,settings))
             { m_treeError=m_trees->error(); m_trees.reset(); }
+            else m_trees->setEnabled(treeRenderingEnabled);
         }
         catch(const std::exception& error) { m_treeError=error.what(); m_trees.reset(); }
     }
@@ -229,14 +230,18 @@ void ProceduralTerrainComponent::onGUI()
     }
     if(ImGui::CollapsingHeader("Affichage des arbres / LOD"))
     {
-        ImGui::Checkbox("Afficher les arbres (apres regeneration)",&treeRenderingEnabled);
+        if(ImGui::Checkbox("Afficher les arbres",&treeRenderingEnabled) && m_trees)
+            m_trees->setEnabled(treeRenderingEnabled);
+        if(ImGui::IsItemHovered())
+            ImGui::SetTooltip("Effet immediat, sans regenerer le terrain. Suspend le rendu et la preparation des arbres.\n"
+                "Les modeles deja charges restent en cache pour comparer les performances sans rechargement.");
         ImGui::DragFloat("Distance maximale (m)",&treeRenderDistance,16.0f,64.0f,16384.0f,"%.0f");
         ImGui::SliderFloat("LOD0 : taille projetee",&treeLod0Coverage,0.15f,0.8f,"%.3f");
         ImGui::SliderFloat("LOD3 : taille projetee",&treeImpostorCoverage,0.005f,0.09f,"%.3f");
         ImGui::SliderFloat("Largeur des transitions",&treeLodTransition,0.0f,0.2f,"%.2f");
         int budget=static_cast<int>(treeModelBudgetMiB);
         if(ImGui::SliderInt("Cache modeles (Mio)",&budget,64,2048)) treeModelBudgetMiB=static_cast<std::uint32_t>(budget);
-        ImGui::TextWrapped("Appliquer avec Regenerer. LOD0 detaille, LOD1 simplifie, LOD3 imposteur 17 vues. "
+        ImGui::TextWrapped("Regenerer pour appliquer les distances, seuils et budgets. LOD0 detaille, LOD1 simplifie, LOD3 imposteur 17 vues. "
             "Les seuils sont des fractions de la hauteur de l'ecran, adaptees a la taille de chaque arbre. "
             "La distance ne cree pas de nouveaux points au-dela des secteurs deja generes.");
         if(!m_treeError.empty()) ImGui::TextWrapped("%s",m_treeError.c_str());
@@ -247,6 +252,13 @@ void ProceduralTerrainComponent::onGUI()
             ImGui::Text("Limite memoire : %u modeles reportes",s.budgetSkippedModels);
             ImGui::Text("GPU : modeles %.2f Mio / instances et culling %.2f Mio",s.modelBytes/1048576.0,s.workingBytes/1048576.0);
             ImGui::Text("%u instances / %u blocs camera / %u blocs ombres",s.instances,s.cameraBlocks,s.shadowBlocks);
+            ImGui::Text("Cache transformations : %llu pages nouvelles / %llu reutilisees",
+                static_cast<unsigned long long>(s.transformPagesBuilt),static_cast<unsigned long long>(s.transformPagesReused));
+            ImGui::Text("Chargement CPU cumule %.1f ms / appels d'upload GL %.1f ms",
+                s.assetLoadMilliseconds,s.assetUploadMilliseconds);
+            if(ImGui::IsItemHovered())
+                ImGui::SetTooltip("Le chargement travaille en arriere-plan. Ces temps CPU cumules\n"
+                    "ne sont ni une duree totale de generation, ni des temps GPU de rendu.");
             if(!m_trees->error().empty()) ImGui::TextWrapped("%s",m_trees->error().c_str());
         }
     }
@@ -332,8 +344,13 @@ void ProceduralTerrainComponent::onGUI()
     const auto& generation = stats.generation;
     if (!m_generator->getConfig().measureGenerationTimings)
         ImGui::TextUnformatted("GPU timing disabled; coverage and cache counters remain available.");
-    ImGui::Text("Coverage generation: %.1f ms%s", stats.coverageMilliseconds,
-        stats.rebuilding ? " (running)" : "");
+    const char* coverageStatus=stats.coverageComplete?"complete":stats.generationBlocked?"blocked / incomplete":
+        stats.rebuilding?"running":"waiting / incomplete";
+    ImGui::Text("Coverage generation: %.3f s (%s)",stats.coverageMilliseconds/1000.0,coverageStatus);
+    if(ImGui::IsItemHovered())
+        ImGui::SetTooltip("Elapsed terrain streaming time, including frame scheduling and CPU waits.\n"
+            "Initial shader compilation and tree asset loading are separate.\n"
+            "Only 'complete' means the requested terrain coverage has converged.");
     ImGui::Text("GPU last batch: 2D %.3f / preparation %.3f / 3D %.3f / count %.3f ms",
         generation.lastField2DMilliseconds, generation.lastFieldPreparationMilliseconds,
         generation.lastVolumeMilliseconds, generation.lastCountMilliseconds);
@@ -364,7 +381,11 @@ void ProceduralTerrainComponent::onGUI()
             static_cast<unsigned long long>(generation.droppedTimingSamples));
     if (stats.rebuilding && stats.visibleChunks == 0)
         ImGui::TextWrapped("Preparing nearby terrain. Ready local coverage appears progressively.");
-    if (stats.rebuilding || stats.pendingJobs)
+    if(stats.coverageComplete)
+        ImGui::TextUnformatted("Requested terrain coverage is complete.");
+    else if(stats.generationBlocked)
+        ImGui::TextUnformatted("Terrain generation stopped before completion; check budgets and errors.");
+    else if (stats.rebuilding || stats.pendingJobs)
         ImGui::TextUnformatted("Background terrain work is still active.");
     else
         ImGui::TextUnformatted("Terrain generation is idle.");

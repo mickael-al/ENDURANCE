@@ -26,7 +26,7 @@ bool TreeRenderer::initialize(const ptrClass& engine,ProceduralGeneration& terra
 }
 void TreeRenderer::prepareRenderer()
 {
-    if(!m_engine || !m_terrain) return;
+    if(!m_enabled || !m_engine || !m_terrain) return;
     auto* camera=m_engine->cameraManager->getCurrentCamera();
     if(!camera) { m_hasView=false; return; }
     const auto* uniforms=camera->getUniformCamera();
@@ -49,17 +49,23 @@ void TreeRenderer::prepareRenderer()
     else if(lodChanged) m_contentToken=Ge::nextShadowCasterBoundsRevision();
 }
 void TreeRenderer::drawRenderer()
-{ if(m_hasView) m_gpu.draw(0,m_view.clip); }
+{ if(m_enabled && m_hasView) m_gpu.draw(0,m_view.clip); }
 void TreeRenderer::drawShadowRenderer(unsigned shadowIndex)
 {
     glm::mat4 clip;
-    if(m_hasView && m_engine->lightManager && m_engine->lightManager->getShadowMatrix(shadowIndex,clip))
+    if(m_enabled && m_hasView && m_engine->lightManager && m_engine->lightManager->getShadowMatrix(shadowIndex,clip))
         m_gpu.draw(shadowIndex+1u,clip);
 }
 std::uint64_t TreeRenderer::shadowCasterBoundsRevision() const { return m_boundsToken; }
 std::uint64_t TreeRenderer::shadowContentRevision() const { return m_contentToken; }
 void TreeRenderer::appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const
-{ m_gpu.appendBounds(output); }
+{ if(m_enabled) m_gpu.appendBounds(output); }
+void TreeRenderer::setEnabled(bool enabled)
+{
+    if(m_enabled==enabled) return;
+    m_enabled=enabled; m_hasView=false;
+    m_boundsToken=m_contentToken=Ge::nextShadowCasterBoundsRevision();
+}
 void TreeRenderer::shutdown() noexcept
 {
     if(m_registered && m_engine && m_engine->graphiquePipelineManager)

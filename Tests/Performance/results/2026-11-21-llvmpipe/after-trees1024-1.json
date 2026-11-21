@@ -1,0 +1,277 @@
+{
+  "opengl": "4.6 (Core Profile) Mesa 25.0.7-2+deb13u1",
+  "options": {
+    "camera": [
+      79.98415,
+      178.57777,
+      120.09266
+    ],
+    "cells": 64,
+    "disable_caches": false,
+    "frames": 5,
+    "harness": "/workspace/scratch/264cfadbd7c0/ENDURANCE-trees/Tests/Performance",
+    "instances": 1024,
+    "max_requests": 32,
+    "models": 1,
+    "objects": false,
+    "plane": false,
+    "render_during_generation": false,
+    "resolution": 320,
+    "root": "/workspace/scratch/264cfadbd7c0/ENDURANCE-trees",
+    "scenario": "trees",
+    "shadows": false,
+    "terrain": {
+      "bandOffset": 0.0,
+      "bandOffsetVariation": 0.0,
+      "baseHeight": 0.0,
+      "biomeOverride": -1,
+      "cellSize": 1.0,
+      "climateFrequency": 1e-07,
+      "collisionEnabled": false,
+      "collisionRadius": 128.0,
+      "debugLod": false,
+      "detailScale": 0.35,
+      "heightAmplitude": 1000.0,
+      "heightFrequency": 1.5e-05,
+      "lodDistanceFactor": 1.25,
+      "maxChunksPerFrame": 16,
+      "maxInFlight": 3,
+      "maxLod": 6,
+      "maxResidentChunks": 4096,
+      "maxSelectedChunks": 3072,
+      "microDetailScale": 2.0,
+      "microDetailStrength": 0.15,
+      "seaBlendWidth": 64.0,
+      "seaLevel": -100.0,
+      "seed": 1337,
+      "vertexBudgetMiB": 1024,
+      "viewDistance": 40096.0
+    },
+    "timeout_seconds": 180
+  },
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "result": {
+    "asset_load_upload_wall_ms": 78.878349,
+    "fixture": "fixed baked models, scale1, hashed positions, actual G-buffer pass",
+    "initialize_ms": 16.021079999999998,
+    "instances": 1024,
+    "models": 1,
+    "phases": [
+      {
+        "cpu_submit_ms": [
+          252.71220399999999,
+          286.604675,
+          182.04894299999998,
+          178.977882,
+          182.12373499999998
+        ],
+        "cull_dispatches": 0,
+        "draw_calls": 25,
+        "frames": 5,
+        "gpu_elapsed_ms": [
+          251.305557,
+          290.674061,
+          188.030449,
+          185.975395,
+          179.79909899999998
+        ],
+        "name": "static",
+        "stats_after": {
+          "cull_dispatches": 1,
+          "draw_calls": 35,
+          "failed_models": 0,
+          "indirect_commands": 35,
+          "instances": 1024,
+          "loaded_models": 1,
+          "model_bytes": 14943544,
+          "pending_models": 0,
+          "transform_builds": 1,
+          "transform_pages_built": 16,
+          "transform_pages_reused": 0,
+          "transformed_instances": 1024,
+          "uploads": 1,
+          "working_bytes": 81984
+        },
+        "stats_before": {
+          "cull_dispatches": 1,
+          "draw_calls": 10,
+          "failed_models": 0,
+          "indirect_commands": 10,
+          "instances": 1024,
+          "loaded_models": 1,
+          "model_bytes": 14943544,
+          "pending_models": 0,
+          "transform_builds": 1,
+          "transform_pages_built": 16,
+          "transform_pages_reused": 0,
+          "transformed_instances": 1024,
+          "uploads": 1,
+          "working_bytes": 81984
+        },
+        "transform_builds": 0,
+        "triangles": [
+          2149344,
+          2149344,
+          2149344,
+          2149344,
+          2149344
+        ],
+        "wall_ms": 1089.818124
+      },
+      {
+        "cpu_submit_ms": [
+          220.433293,
+          192.307337,
+          193.76441799999998,
+          237.335503,
+          375.324362
+        ],
+        "cull_dispatches": 4,
+        "draw_calls": 25,
+        "frames": 5,
+        "gpu_elapsed_ms": [
+          208.545905,
+          197.022878,
+          198.622254,
+          245.088746,
+          377.37323699999996
+        ],
+        "name": "camera_motion",
+        "stats_after": {
+          "cull_dispatches": 5,
+          "draw_calls": 70,
+          "failed_models": 0,
+          "indirect_commands": 70,
+          "instances": 1024,
+          "loaded_models": 1,
+          "model_bytes": 14943544,
+          "pending_models": 0,
+          "transform_builds": 1,
+          "transform_pages_built": 16,
+          "transform_pages_reused": 0,
+          "transformed_instances": 1024,
+          "uploads": 1,
+          "working_bytes": 81984
+        },
+        "stats_before": {
+          "cull_dispatches": 1,
+          "draw_calls": 45,
+          "failed_models": 0,
+          "indirect_commands": 45,
+          "instances": 1024,
+          "loaded_models": 1,
+          "model_bytes": 14943544,
+          "pending_models": 0,
+          "transform_builds": 1,
+          "transform_pages_built": 16,
+          "transform_pages_reused": 0,
+          "transformed_instances": 1024,
+          "uploads": 1,
+          "working_bytes": 81984
+        },
+        "transform_builds": 0,
+        "triangles": [
+          2149344,
+          2149346,
+          2149348,
+          2149348,
+          2149348
+        ],
+        "wall_ms": 1226.0441449999998
+      },
+      {
+        "cpu_submit_ms": [
+          199.11586499999999,
+          219.21122,
+          201.150803,
+          202.379,
+          194.509052
+        ],
+        "cull_dispatches": 5,
+        "draw_calls": 25,
+        "frames": 5,
+        "gpu_elapsed_ms": [
+          204.122705,
+          225.26788399999998,
+          206.490781,
+          206.902999,
+          200.092433
+        ],
+        "name": "publication_churn",
+        "stats_after": {
+          "cull_dispatches": 11,
+          "draw_calls": 105,
+          "failed_models": 0,
+          "indirect_commands": 105,
+          "instances": 1024,
+          "loaded_models": 1,
+          "model_bytes": 14943544,
+          "pending_models": 0,
+          "transform_builds": 1,
+          "transform_pages_built": 16,
+          "transform_pages_reused": 80,
+          "transformed_instances": 1024,
+          "uploads": 1,
+          "working_bytes": 81984
+        },
+        "stats_before": {
+          "cull_dispatches": 6,
+          "draw_calls": 80,
+          "failed_models": 0,
+          "indirect_commands": 80,
+          "instances": 1024,
+          "loaded_models": 1,
+          "model_bytes": 14943544,
+          "pending_models": 0,
+          "transform_builds": 1,
+          "transform_pages_built": 16,
+          "transform_pages_reused": 0,
+          "transformed_instances": 1024,
+          "uploads": 1,
+          "working_bytes": 81984
+        },
+        "transform_builds": 0,
+        "triangles": [
+          2149344,
+          2149344,
+          2149344,
+          2149344,
+          2149344
+        ],
+        "wall_ms": 1023.324475
+      }
+    ],
+    "resolution": 320
+  },
+  "scenario": "trees",
+  "scope": "isolated production subsystems; not full game FPS or full scene streaming scheduler",
+  "software_renderer": true,
+  "vendor": "Mesa",
+  "host": {
+    "platform": "Linux-6.18.57-x86_64-with-glibc2.41",
+    "cpu": "",
+    "logical_cpus": 9
+  },
+  "provenance": {
+    "engine_root": "/workspace/scratch/264cfadbd7c0/ENDURANCE-trees",
+    "harness_sha256": "d0dadae11d331a648eb376f0f4c51085ac235278651153045f91723dfa42abfc",
+    "source_sha256": {
+      "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp": "c46a80a5626b05f924251c01c929058e1c050986c39a38001f9350b106566e58",
+      "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainLod.cpp": "22f6cc8e20ba4027ce3bdffcb20c9016cb583b8603a2e3ea2f41c474a9bd9fe3",
+      "ANTAGONIZ/Source/ProjectUser/EnduranceObjectPlacement.cpp": "f555678330b29835e0f4f3c99d8b7f63415d1d6048bf80fd8a5f04f2e918d793",
+      "ANTAGONIZ/Source/ProjectUser/TreeRenderGpu.cpp": "514f1599de570373680f33de84933a05d1680174f361e2b5bad840e23b0f6c6f",
+      "ANTAGONIZ/Source/ProjectUser/ProceduralTree.cpp": "9f0b0c2191b9957b677eed3450d8aa78ebd0e7c4017c34b71e1c250594b86056",
+      "ANTAGONIZ/Source/ProjectUser/ProceduralTreeBake.cpp": "298a5527db5eca31be1cadee3f6e9c77ce70d44662928724dde2cdc4ef065129",
+      "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp": "cf96a6ec64c52f80e5b651dfb85a985808829aea0bebb7c1e38a37291743d99f",
+      "ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp": "1aaf78a591687c6075e888f218ea40feda32f36961fc4bcc9a3bcbaa16de4e4e",
+      "ANTAGONIZ/Source/Rendering/Shader/ShaderProgramBatch.cpp": "d46aa58e9a29ab968a65e43ce788fc15d8b46e45a374ad0fb115f55211fcaf2a",
+      "ANTAGONIZ/Source/Rendering/Shader/ParallelShaderCompiler.cpp": "a6c7826ae82f88cba8037a43e957523248bbab314f28671f00056d52e4499de0",
+      "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp": "3e25afb9386b8f9159e0a8ef7659f3b2e30366359e7797eba609b1748bda7987"
+    },
+    "library_sha256": "ed8a17ed4d0b6c45fc7dc9350fe8feba672a8b5171169f8eae71a5ade836a9a6",
+    "runtime_shader_sha256": "bab36d09d71d06a90da2b84ccab95da52e3acbfee34a796827ceeb416dd648d9",
+    "placement_catalogue_sha256": "13a27b66a0b806d8410d2052cb57d1f069d0bf2bb77c3dc524885006194bf31a",
+    "commit": "b4ca0a1c055f1cb95d9f307cb8a8304364068192",
+    "dirty": true
+  }
+}

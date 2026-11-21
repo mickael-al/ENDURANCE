@@ -105,6 +105,9 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         require(gpu.objectBlocks().empty(),"Speculative objects became visible before terrain publication");
         gpu.publishObjectCoverage({{root.origin,root.lod,root.transitionMask}},root.seed);
         const auto original=read(gpu);
+        const auto originalRevision=gpu.objectStats().revision;
+        const auto originalBlocks=gpu.objectBlocks();
+        for(const auto& b:originalBlocks) require(b.allocationRevision!=0,"Published page lacks a content identity");
         require(original.size()>25,"Expected planted objects on flat eligible ground");
         checkPlane(original,c.field.baseHeight,c.objects.minimumDistance);
         for(unsigned type=0;type<3;++type)
@@ -115,6 +118,7 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         const auto seam=generate(gpu,stitched,2);
         gpu.publishObjectCoverage({{stitched.origin,stitched.lod,stitched.transitionMask}},root.seed);
         require(read(gpu)==original && gpu.objectStats().captureJobs==captures,"Transition remeshing regenerated object sites");
+        require(gpu.objectStats().revision==originalRevision,"Transition-only terrain invalidated identical tree pages");
 
         std::vector<LodChunk> fine;
         std::vector<MeshHandle> children;
@@ -126,10 +130,14 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         }
         gpu.publishObjectCoverage(fine,root.seed);
         require(read(gpu)==original && gpu.objectStats().captureJobs==captures,"Refinement changed cached object placement");
+        require(gpu.objectStats().revision==originalRevision,"Terrain refinement invalidated unchanged tree buffers");
         gpu.publishObjectCoverage({{{0,0,0},3,0}},root.seed);
         require(read(gpu)==original,"Coarsening removed existing object sites");
         const auto coarse=generate(gpu,{{0,0,0},3,0,root.seed},30);
         require(gpu.objectStats().captureJobs==captures,"Distant LOD performed object placement work");
+        gpu.publishObjectCoverage({{{0,0,0},3,0},{{1024,0,0},4,0}},root.seed);
+        gpu.discardUnpublishedObjects();
+        require(gpu.objectStats().revision==originalRevision,"Unrelated distant terrain publication rebuilt the tree render/shadow caches");
 
         ChunkRequest left{{-64,0,0},2,0,root.seed};
         const auto leftMesh=generate(gpu,left,31);
@@ -152,6 +160,9 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         const auto reloaded=generate(gpu,root,40);
         gpu.publishObjectCoverage({{root.origin,2,0}},root.seed);
         require(read(gpu)==original,"Reloading the same LOD/seed changed deterministic sites");
+        const auto reloadedBlocks=gpu.objectBlocks();
+        for(const auto& b:reloadedBlocks) for(const auto& old:originalBlocks)
+            require(b.allocationRevision!=old.allocationRevision,"Recycled position pages reused stale transform identities");
         const auto beforeCancel=gpu.objectStats().captureJobs;
         require(gpu.submit({{64,0,0},2,0,root.seed},41),"Cancellation submit failed"); gpu.cancel(41);
         require(finish(gpu,1).front().status==CompletionStatus::Cancelled,"Queued cancellation failed");

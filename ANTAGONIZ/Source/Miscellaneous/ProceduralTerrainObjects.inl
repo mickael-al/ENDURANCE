@@ -26,7 +26,8 @@ namespace ProceduralTerrain
         std::vector<Claim> claims;
         std::vector<Retired> retired;
         std::vector<std::vector<std::uint32_t>> freePages;
-        std::vector<ObjectBlock> published;
+        std::vector<ObjectBlock> published, publicationScratch;
+        std::uint64_t nextAllocationRevision=1;
         GLuint work=0, counts=0, instances=0, compact=0;
         const volatile std::uint32_t* mapped=nullptr;
         GLint compactJob=-1, compactCount=-1;
@@ -45,15 +46,19 @@ namespace ProceduralTerrain
         }
         void rebuildPublished()
         {
-            published.clear(); statistics.instances=0;
+            publicationScratch.clear(); statistics.instances=0;
             for(const auto& item:sectors) for(const auto& owned:item.second.blocks)
                 if((owned.mask&item.second.covered)==owned.mask)
-                { published.push_back(owned.block); statistics.instances+=owned.block.instanceCount; }
-            std::sort(published.begin(),published.end(),[](const ObjectBlock& a,const ObjectBlock& b)
+                { publicationScratch.push_back(owned.block); statistics.instances+=owned.block.instanceCount; }
+            std::sort(publicationScratch.begin(),publicationScratch.end(),[](const ObjectBlock& a,const ObjectBlock& b)
                 { return a.prototype<b.prototype || (a.prototype==b.prototype && a.firstInstance<b.firstInstance); });
+            if(publicationScratch!=published)
+            {
+                published.swap(publicationScratch);
+                ++statistics.revision;
+            }
             statistics.sectors=static_cast<std::uint32_t>(sectors.size());
             statistics.blocks=static_cast<std::uint32_t>(published.size());
-            ++statistics.revision;
         }
     public:
         ~ObjectPlacementGpu() { shutdown(); }
@@ -162,7 +167,7 @@ namespace ProceduralTerrain
             if(work || counts || instances) glDeleteBuffers(3,buffers);
             if(compact) glDeleteProgram(compact);
             work=counts=instances=compact=0; mapped=nullptr;
-            sectors.clear(); retired.clear(); claims.clear(); freePages.clear(); published.clear();
+            sectors.clear(); retired.clear(); claims.clear(); freePages.clear(); published.clear(); publicationScratch.clear();
             statistics={}; flushPending=false; hasTrim=false; failure.clear();
         }
         // Called only after a non-empty mesh count and before regular emission.
@@ -243,6 +248,7 @@ namespace ProceduralTerrain
                     ObjectBlock block;
                     block.prototype=static_cast<std::uint32_t>(type);
                     block.firstInstance=freePages[type].back(); freePages[type].pop_back();
+                    block.allocationRevision=nextAllocationRevision++;
                     block.instanceCount=(std::min)(ObjectPageSize,count-first);
                     block.sectorLattice=claim.key.origin; block.seed=claim.key.seed; block.extent=span*spacing;
                     const float radius=config.prototypes[type].boundingRadius;

@@ -16,7 +16,8 @@ def main():
     headers = ROOT / "ANTAGONIZ/Header"
     includes = [headers] + sorted(path for path in headers.rglob("*") if path.is_dir())
     includes += [ROOT / "ThirdParty" / path for path in
-                 ("", "glm", "glew/include", "glfw/include", "Bullet3/src", "openal-soft/include")]
+                 ("", "glm", "glew/include", "glfw/include", "Bullet3/src", "openal-soft/include",
+                  "stb-cmake", "OpenFBX/src")]
     command = [os.environ.get("CXX", "c++"), "-std=c++17", "-fsyntax-only",
                "-DGLEW_NO_GLU", "-DGLFW_INCLUDE_NONE", "-DANTAGONIZ_UNIX", "-DENDURANCE_ENABLE_NETWORK=0"]
     for include in includes:
@@ -24,8 +25,11 @@ def main():
     sources = ("Rendering/RenderingEngine.cpp", "Rendering/Light/Lights.cpp",
                "Rendering/Light/LightManager.cpp", "Rendering/Light/SpotLight.cpp",
                "Rendering/Shader/Atmosphere.cpp", "Rendering/Window/FrameBuffer.cpp", "Rendering/Window/SSAOBuffer.cpp",
+               "Rendering/Shape/Model.cpp", "Rendering/Shape/ShapeBufferBase.cpp",
+               "Rendering/Materials/Textures.cpp", "Miscellaneous/Editor.cpp",
                "Miscellaneous/ProceduralGeneration.cpp",
                "ProjectUser/ProceduralTerrain.cpp",
+               "ProjectUser/TreeRenderGpu.cpp", "ProjectUser/EnduranceTreeRenderer.cpp",
                "ProjectUser/EnduranceTerrainMaterials.cpp",
                "ProjectUser/EnduranceTerrainMaterialPanel.cpp")
     subprocess.run(command + [str(ROOT / "ANTAGONIZ/Source" / path) for path in sources], check=True)

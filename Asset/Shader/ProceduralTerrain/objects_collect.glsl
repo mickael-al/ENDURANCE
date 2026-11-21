@@ -55,11 +55,9 @@ bool objectCandidate(ivec3 cell,out vec2 point,out uint record,out uint profile,
     if(density<=0.0 || objectRandom(h^0x315ef032u)>=density) return false;
     vec2 world=(vec2(site)+jitter)*float(siteStep)*uBaseSpacing;
     float period=uintBitsToFloat(objectWords[profile+4u]);
-    float forest=0.72*objectValueNoise(world/period,seed^0x791d91u)
-        +0.28*objectValueNoise(world*(3.1/period),seed^0x76c53fu);
     float threshold=uintBitsToFloat(objectWords[profile+5u]);
     float softness=uintBitsToFloat(objectWords[profile+6u]);
-    if(objectRandom(h^0x35ad3191u)>=smoothstep(threshold-softness,threshold+softness,forest)) return false;
+    if(objectRandom(h^0x35ad3191u)>=objectForestMask(world,period,threshold,softness,seed)) return false;
     // Fixed priority exclusion, including across unloaded neighbouring sectors.
     // Rejecting against unplantable neighbours is conservative but avoids any
     // neighbour terrain/climate query. No iterative Poisson solver is needed.

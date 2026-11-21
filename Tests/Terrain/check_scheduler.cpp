@@ -16,8 +16,12 @@ namespace Test {
 using namespace ProceduralTerrain;
 void require(bool value,const std::string& message){if(!value)throw std::runtime_error(message);}
 unsigned frame=0,submittedThisFrame=0,delay=6;
-std::uint64_t submissions=0;bool failNext=false,invalidRelease=false,holdCompletions=false;
-struct Pending {ChunkRequest request;std::uint64_t token;unsigned readyFrame;bool dispatched=false,cancelled=false;};
+unsigned pollsThisFrame=0,dispatchesThisFrame=0,peakPolls=0,peakDispatches=0;
+bool instantGpu=false;
+std::uint64_t submissions=0;bool failNext=false,failAfterDispatch=false,invalidRelease=false,holdCompletions=false;
+const ProceduralGeneration* failingGenerator=nullptr;
+std::vector<LodChunk> coverageAtFailedDispatch;
+struct Pending {ChunkRequest request;std::uint64_t token;unsigned readyFrame;bool dispatched=false,cancelled=false,countFinished=false;};
 }
 namespace ProceduralTerrain {
 struct GpuMesher::Impl {
@@ -33,17 +37,32 @@ bool GpuMesher::submit(const ChunkRequest& request,std::uint64_t token){
  s.jobs.push_back({request,token,Test::frame+Test::delay});
  ++s.stats.pendingJobs;++Test::submittedThisFrame;++Test::submissions;return true;
 }
-void GpuMesher::dispatchQueued(){for(auto& j:m_impl->jobs)j.dispatched=true;}
+void GpuMesher::dispatchQueued(){
+ ++Test::dispatchesThisFrame;for(auto& j:m_impl->jobs)j.dispatched=true;
+ if(Test::failAfterDispatch){
+  Test::require(Test::failingGenerator!=nullptr,"missing failure fixture owner");
+  Test::failingGenerator->getVisibleLodChunks(Test::coverageAtFailedDispatch);
+  Test::failAfterDispatch=false;Test::failNext=true;
+ }
+}
 void GpuMesher::poll(std::vector<Completion>& out){
- auto& s=*m_impl;
+ auto& s=*m_impl;++Test::pollsThisFrame;
 #ifdef TERRAIN_SEA_STREAMING
  Test::injectSeaCompletion(out);
 #endif
  for(auto it=s.jobs.begin();it!=s.jobs.end();){
   if(Test::holdCompletions || !it->dispatched || it->readyFrame>Test::frame){++it;continue;}
+  const bool empty=Test::instantGpu && ((unsigned(it->request.origin[0]/64)
+   +unsigned(it->request.origin[1]/64)+unsigned(it->request.origin[2]/64))&3u)==0;
+  // Instant GPU still has separate count and emit fences. One poll may start
+  // emission, never finish that newly emitted job; empty counts finish early.
+  if(Test::instantGpu && !empty && !it->countFinished && !it->cancelled && !Test::failNext){
+   it->countFinished=true;++it;continue;
+  }
   Completion c;c.token=it->token;
   if(it->cancelled)c.status=CompletionStatus::Cancelled;
   else if(Test::failNext){Test::failNext=false;c.status=CompletionStatus::Failed;c.error="injected GPU failure";++s.stats.failedJobs;}
+  else if(empty){c.status=CompletionStatus::Empty;++s.stats.emptyJobs;}
   else {
 #ifdef TERRAIN_SEA_STREAMING
    c.hasMarineSurface=(Test::seaMask(it->request,s.config)&(1u<<MarineBiome))!=0;
@@ -113,20 +132,28 @@ std::set<Id> expected(const glm::vec3& camera,const ProceduralGeneration::Config
  std::vector<LodChunk> chunks;std::string error;require(selectLodChunks(camera,l,chunks,error),error);return identities(chunks);
 }
 void step(ProceduralGeneration& g,Ge::Camera& camera,bool allowFailure=false){
+ const auto previousPublications=g.getStats().publishedLodGroups;
 #ifdef TERRAIN_SEA_STREAMING
  const auto previousWater=g.getSeaTiles();const auto previousRevision=g.getCoverageRevision();
  const auto* previousWaterData=g.getSeaTiles().data();
 #endif
- ++frame;submittedThisFrame=0;g.prepareRenderer();const auto& s=g.getStats();const auto& c=g.getConfig();
+ ++frame;submittedThisFrame=pollsThisFrame=dispatchesThisFrame=0;g.prepareRenderer();const auto& s=g.getStats();const auto& c=g.getConfig();
 #ifdef TERRAIN_SEA_STREAMING
  checkSea(g,previousWater,previousRevision,previousWaterData);
 #endif
  require(submittedThisFrame<=c.maxChunksPerFrame,"per-frame submission budget exceeded");
+ require(pollsThisFrame<=2 && dispatchesThisFrame<=2,"unbounded completion polling or batch dispatch");
+ require(s.publishedLodGroups-previousPublications<=4,"per-frame publication budget exceeded");
+ peakPolls=(std::max)(peakPolls,pollsThisFrame);peakDispatches=(std::max)(peakDispatches,dispatchesThisFrame);
  require(s.pendingJobs<=c.maxInFlight,"in-flight budget exceeded");
  require(s.pendingLodGroups<=1,"more than one frozen GPU transaction");
  require(s.largestLodTransaction<=32,"unbounded transaction");
  require(s.residentChunks<=c.maxResidentChunks && s.allocatedBytes<=s.budgetBytes,"residency budget exceeded");
  require(allowFailure || !s.resourceLimited,"unexpected resource failure: "+g.getLastError());
+#ifdef TERRAIN_SCHEDULER_COMPLETION
+ require(!s.coverageComplete || (!s.rebuilding && !s.pendingJobs && !s.cpuPlanning
+  && !s.generationBlocked && !s.queuedChunks),"incomplete work reported complete");
+#endif
  require(!invalidRelease,"mesh released twice");
  checkCoverage(published(g));g.drawRenderer();g.drawShadowRenderer(0);
  // Give the real worker a representative opportunity to prepare its successor.
@@ -145,7 +172,11 @@ Metrics settle(ProceduralGeneration& g,Ge::Camera& camera,bool recovering=false)
    if(s.rebuilding && !s.pendingJobs)++r.publicationEmpty;
    if(s.pendingJobs && submittedThisFrame)++r.publicationRefilled;
   }
-  if(!s.rebuilding&&!s.pendingJobs){require(identities(published(g))==expected(camera.getPosition(),g.getConfig()),"wrong final camera coverage");r.submitted=submissions-startSubmissions;return r;}
+  if(!s.rebuilding&&!s.pendingJobs){
+#ifdef TERRAIN_SCHEDULER_COMPLETION
+   require(s.coverageComplete&&!s.generationBlocked,"converged coverage not reported complete");
+#endif
+   require(identities(published(g))==expected(camera.getPosition(),g.getConfig()),"wrong final camera coverage");r.submitted=submissions-startSubmissions;return r;}
  }
  throw std::runtime_error("scheduler did not converge");
 }
@@ -154,11 +185,17 @@ void json(const Metrics& m){std::cout<<"{\"frames\":"<<m.frames<<",\"unfinished_
 
 int main(int argc,char** argv){
  try {
-  using namespace Test;const bool baseline=argc>1&&std::string(argv[1])=="--baseline";
+  using namespace Test;bool baseline=false;
+  for(int i=1;i<argc;++i){const std::string arg=argv[i];
+   if(arg=="--baseline")baseline=true;
+   else if(arg=="--instant-gpu"){instantGpu=true;delay=0;}
+   else throw std::runtime_error("Unknown fixture option: "+arg);
+  }
   Ge::GraphiquePipelineManager pipelines;Ge::CameraManager cameras;Ge::LightManager lights;
   auto* engine=Ge::Engine::getPtrClassAddr();engine->graphiquePipelineManager=&pipelines;engine->cameraManager=&cameras;engine->lightManager=&lights;
   auto& camera=cameras.camera;camera.setPosition({1,18,3});SceneData scene;
   ProceduralGeneration::Config config;config.field.mode=FieldMode::Plane;config.field.baseHeight=0;config.maxLod=3;config.viewDistance=512;config.maxChunksPerFrame=2;config.maxInFlight=4;config.maxSelectedChunks=1024;config.maxResidentChunks=2048;config.collisionEnabled=false;
+  if(instantGpu){config.maxChunksPerFrame=16;config.maxInFlight=3;}
 #ifdef TERRAIN_SEA_STREAMING
   config.field.mode=FieldMode::Terrain;config.field.heightAmplitude=0;config.field.detailScale=0;
 #endif
@@ -171,6 +208,20 @@ int main(int argc,char** argv){
   const auto idleSubmissions=submissions,idleGroups=g.getStats().publishedLodGroups,idleSelections=g.getStats().lodSelections;
   for(unsigned i=0;i<25;++i)step(g,camera);
   require(submissions==idleSubmissions&&g.getStats().publishedLodGroups==idleGroups&&g.getStats().lodSelections==idleSelections,"idle scheduling restarted work");
+
+  if(instantGpu){
+   // Fail work dispatched in this update. The extra poll must invalidate its
+   // target before a subsequent publication/refill can consume that result.
+   failAfterDispatch=true;failingGenerator=&g;
+   camera.setPosition({609,18,-527});
+   for(unsigned i=0;i<1000&&!g.getStats().resourceLimited;++i)step(g,camera,true);
+   require(g.getStats().resourceLimited&&!failAfterDispatch,"post-dispatch failure not reported");
+   for(unsigned i=0;i<25;++i)step(g,camera,true);
+   require(identities(published(g))==identities(coverageAtFailedDispatch),
+           "post-dispatch failure changed published coverage");
+   failingGenerator=nullptr;
+   camera.setPosition({1,18,3});settle(g,camera,true);
+  }
 
   // Camera changes during active work must not publish mismatched speculative coverage.
   for(unsigned i=0;i<48;++i){if(i%8==0)camera.setPosition({float(160*(int(i/8)%3-1)),18,float(100*(int(i/8)%2))});step(g,camera);}
@@ -197,6 +248,10 @@ int main(int argc,char** argv){
   for(unsigned i=0;i<25;++i)step(g,camera,true);
   require(identities(published(g))==beforeFailure,"failed transaction published speculative successor");
   require(g.getStats().pendingJobs==0,"cancelled jobs did not drain");
+#ifdef TERRAIN_SCHEDULER_COMPLETION
+  require(g.getStats().generationBlocked&&!g.getStats().coverageComplete,
+          "failed drained generation was mistaken for completed coverage");
+#endif
 #ifdef TERRAIN_SCHEDULER_LOOKAHEAD
   require(g.getStats().stalePlansDiscarded>beforeFailureDiscard&&!g.getStats().lookaheadReady,
           "failure did not invalidate the prepared successor");
@@ -214,7 +269,8 @@ int main(int argc,char** argv){
   std::cout<<",\"lookahead_plans_used\":"<<s.lookaheadPlansUsed<<",\"same_frame_handoffs\":"<<s.sameFrameHandoffs
            <<",\"stale_plans_discarded\":"<<s.stalePlansDiscarded<<",\"planning_wait_frames\":"<<s.planningWaitFrames;
 #endif
-  std::cout<<",\"checks\":[\"actual update/worker\",\"submission budgets\",\"published seams\",\"moving camera\",\"failure invalidation\",\"idle stability\"]}"<<'\n';
+  std::cout<<",\"peak_polls_per_update\":"<<peakPolls<<",\"peak_dispatches_per_update\":"<<peakDispatches;
+  std::cout<<",\"checks\":[\"actual update/worker\",\"submission budgets\",\"bounded polls/dispatches\",\"published seams\",\"moving camera\",\"failure invalidation\",\"idle stability\"]}"<<'\n';
   g.shutdown();
 #ifdef TERRAIN_SEA_STREAMING
   checkStoppedSea(g);

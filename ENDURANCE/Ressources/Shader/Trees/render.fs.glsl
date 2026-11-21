@@ -13,14 +13,18 @@ layout(binding=1) uniform sampler2DArray uAlbedo;
 layout(binding=2) uniform sampler2DArray uNormal;
 uniform int uKind;
 uniform float uGamma;
-in vec3 viewPosition,worldNormal;
 in vec2 uv;
+#if !TREE_SHADOW
+in vec3 viewPosition,worldNormal;
 in vec3 color;
+#endif
 flat in uint fadeMask,siteHash;
+#if TREE_IMPOSTOR
 flat in vec2 rotation;
 flat in ivec3 captureIDs;
 flat in vec3 captureWeights;
 in vec3 captureUV0,captureUV1,captureUV2;
+#endif
 void main()
 {
 #if !TREE_SHADOW
@@ -34,9 +38,10 @@ void main()
         if((fadeMask&256u)!=0u ? r<float(lodFade)/255.0 : r>=float(lodFade)/255.0) discard;
         if(farFade<127u && treeRandom(h^0x91bc3271u)>=float(farFade)/127.0) discard;
     }
+#if !TREE_SHADOW
     vec3 albedo,N=worldNormal;
-    if(uKind==3)
-    {
+#endif
+#if TREE_IMPOSTOR
         vec4 material=vec4(0),normal=vec4(0);
         vec3 coords[3]=vec3[3](captureUV0,captureUV1,captureUV2);
         for(int i=0;i<3;++i)
@@ -51,15 +56,19 @@ void main()
 #endif
         }
         if(material.a<0.5) discard;
+#if !TREE_SHADOW
         albedo=material.rgb/material.a;
         N=treeRotate(normal.rgb/max(normal.a,0.00001)*2.0-1.0,rotation);
-    }
-    else
-    {
+#endif
+#else
+#if TREE_SHADOW
+        if(uKind==1 && texture(uSurface,uv).a<0.5) discard;
+#else
         vec4 surface=texture(uSurface,uv);
         if(uKind==1 && surface.a<0.5) discard;
         albedo=color*surface.rgb;
-    }
+#endif
+#endif
 #if !TREE_SHADOW
     gPosition=geGBufferPackPosition(viewPosition,tag);
     gNormal=dot(N,N)>0.00001?normalize(N):vec3(0,1,0);

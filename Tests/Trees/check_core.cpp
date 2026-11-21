@@ -84,6 +84,56 @@ float coverage(const Image& image) {
     for(std::size_t i=3;i<image.rgba.size();i+=4) passed+=image.rgba[i]>=128;
     return static_cast<float>(passed)/(image.width*image.height);
 }
+// Frozen slow reference: rescans all alpha pixels on every binary-search step.
+// Used to ensure the histogram optimization preserves exported masks bytewise.
+std::vector<Image> referenceMips(const Image& image,float cutoff) {
+    const int threshold=int(std::ceil(cutoff*255));
+    std::size_t covered=0;
+    for(std::size_t i=3;i<image.rgba.size();i+=4) if(image.rgba[i]>=threshold) ++covered;
+    const double coverage=double(covered)/double(image.width*image.height);
+    std::vector<Image> result{image};
+    while(result.back().width>1 || result.back().height>1) {
+        const Image& src=result.back(); Image dst;
+        dst.width=std::max(1,src.width/2); dst.height=std::max(1,src.height/2);
+        dst.rgba.resize(std::size_t(dst.width)*dst.height*4);
+        for(int y=0;y<dst.height;++y) for(int x=0;x<dst.width;++x) {
+            const int x0=x*src.width/dst.width,x1=(x+1)*src.width/dst.width;
+            const int y0=y*src.height/dst.height,y1=(y+1)*src.height/dst.height;
+            float a=0; glm::vec3 premul(0); int count=0;
+            for(int sy=y0;sy<y1;++sy) for(int sx=x0;sx<x1;++sx) {
+                const std::size_t i=(std::size_t(sy)*src.width+sx)*4;
+                const float alpha=float(src.rgba[i+3]); a+=alpha;
+                premul+=glm::vec3(src.rgba[i],src.rgba[i+1],src.rgba[i+2])*alpha; ++count;
+            }
+            const std::size_t i=(std::size_t(y)*dst.width+x)*4;
+            for(int k=0;k<3;++k) dst.rgba[i+k]=std::uint8_t(a>0?premul[k]/a+0.5f:255);
+            dst.rgba[i+3]=std::uint8_t(a/count+0.5f);
+        }
+        const int desired=int(std::round(coverage*dst.width*dst.height));
+        auto passing=[&](float scale) { int n=0; for(std::size_t i=3;i<dst.rgba.size();i+=4)
+            if(float(dst.rgba[i])*scale>=threshold) ++n; return n; };
+        float lo=0,hi=256;
+        for(int i=0;i<24;++i) { const float mid=(lo+hi)*.5f; if(passing(mid)<desired) lo=mid; else hi=mid; }
+        const float scale=std::abs(passing(lo)-desired)<std::abs(passing(hi)-desired)?lo:hi;
+        for(std::size_t i=3;i<dst.rgba.size();i+=4)
+            dst.rgba[i]=std::uint8_t(std::clamp(std::floor(float(dst.rgba[i])*scale+.0001f),0.f,255.f));
+        result.push_back(std::move(dst));
+    }
+    return result;
+}
+void checkExactMips() {
+    std::uint32_t random=1337;
+    for(const auto extent:{std::pair<int,int>{1,79},{97,1},{2,2},{31,63},{128,128},{257,129}})
+        for(float cutoff:{.01f,.27f,.5f,.73f,.99f}) {
+            Image source; source.width=extent.first; source.height=extent.second;
+            source.rgba.resize(std::size_t(source.width)*source.height*4);
+            for(auto& value:source.rgba) { random=random*1664525u+1013904223u; value=std::uint8_t(random>>24); }
+            const auto expected=referenceMips(source,cutoff),actual=coverageMipmaps(source,cutoff);
+            require(actual.size()==expected.size(),"Optimized mip chain length differs");
+            for(std::size_t i=0;i<actual.size();++i)
+                require(actual[i].rgba==expected[i].rgba,"Histogram alpha correction changed image bytes");
+        }
+}
 void checkMips(const Image& source) {
     auto mips=coverageMipmaps(source);
     require(!mips.empty() && mips.front().rgba==source.rgba,"Mipmap generation changed the source");
@@ -104,6 +154,7 @@ void checkMips(const Image& source) {
 
 int main() {
  try {
+    checkExactMips();
     require(!validImage({}),"Empty image accepted");
     Image invalid; invalid.width=-1; invalid.height=10; invalid.rgba.resize(40);
     require(!validImage(invalid),"Negative image extent accepted");

@@ -19,4 +19,13 @@ float objectValueNoise(vec2 p,uint seed)
     return mix(mix(objectRandom(objectSiteHash(i,seed)),objectRandom(objectSiteHash(i+ivec2(1,0),seed)),f.x),
         mix(objectRandom(objectSiteHash(i+ivec2(0,1),seed)),objectRandom(objectSiteHash(i+ivec2(1),seed)),f.x),f.y);
 }
+// Regional occupancy, independent of the candidate lattice and terrain LOD.
+// Values below threshold-softness form genuinely empty clearings; the middle
+// band gradually thins the forest edge rather than carpeting the whole region.
+float objectForestMask(vec2 world,float period,float threshold,float softness,uint seed)
+{
+    float forest=0.72*objectValueNoise(world/period,seed^0x791d91u)
+        +0.28*objectValueNoise(world*(3.1/period),seed^0x76c53fu);
+    return smoothstep(threshold-softness,threshold+softness,forest);
+}
 #endif

@@ -83,6 +83,12 @@ public:
         ProceduralTerrain::GpuStats generation;
         double coverageMilliseconds = 0.0;
         bool rebuilding = false;
+        // Render coverage has reached the current camera selection and all
+        // terrain planning/submissions have drained. Empty chunks count too.
+        bool coverageComplete = false;
+        // A stopped failed/capacity-limited transaction is incomplete, not idle
+        // success. Collision capacity is reported separately by resourceLimited.
+        bool generationBlocked = false;
         bool resourceLimited = false;
         // Outstanding CPU request/result, retained successor, and lack of an
         // active GPU transaction specifically because CPU planning is pending.

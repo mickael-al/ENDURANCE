@@ -1,6 +1,8 @@
 #version 460 core
 #include "common.glsl"
+#if TREE_IMPOSTOR
 #include "impostor.glsl"
+#endif
 layout(location=0) in vec3 inPosition;
 layout(location=1) in vec3 inNormal;
 layout(location=2) in vec2 inUV;
@@ -11,25 +13,27 @@ uniform mat4 uClip, uView;
 uniform vec3 uEye; // Viewpoint, or a constant direction for orthographic passes.
 uniform bool uParallel;
 uniform int uKind;
+#if !TREE_SHADOW
 out vec3 viewPosition;
 out vec3 worldNormal;
-out vec2 uv;
 out vec3 color;
+#endif
+out vec2 uv;
 flat out uint fadeMask,siteHash;
+#if TREE_IMPOSTOR
 flat out vec2 rotation;
 flat out ivec3 captureIDs;
 flat out vec3 captureWeights;
 out vec3 captureUV0, captureUV1, captureUV2;
+#endif
 void main()
 {
     uvec2 reference=visible[gl_BaseInstance+gl_InstanceID];
-    TreeInstance instance=instances[reference.x]; TreeModel model=models[instance.model];
-    rotation=instance.rotation; fadeMask=reference.y; siteHash=instance.hash;
+    TreeInstance instance=instances[reference.x];
+    vec2 rotationValue=instance.rotation; fadeMask=reference.y; siteHash=instance.hash;
     vec3 local=inPosition;
-    captureIDs=ivec3(0); captureWeights=vec3(1,0,0);
-    captureUV0=captureUV1=captureUV2=vec3(0,0,1);
-    if(uKind==3)
-    {
+#if TREE_IMPOSTOR
+    TreeModel model=models[instance.model]; rotation=rotationValue;
         vec3 centre=instance.positionScale.xyz+treeRotate(model.impostorCentre.xyz*instance.positionScale.w,rotation);
         vec3 delta=uParallel?uEye:uEye-centre;
         vec3 facing=length(delta)>0.00001?normalize(treeUnrotate(delta,rotation)):vec3(0,0,1);
@@ -51,9 +55,12 @@ void main()
             coords[i]=vec3(vec2(dot(q,basis[0]),dot(q,basis[1]))/(2.0*model.scalesImpostor.z)+0.5*denominator,denominator);
         }
         captureUV0=coords[0]; captureUV1=coords[1]; captureUV2=coords[2];
-    }
-    vec3 world=instance.positionScale.xyz+treeRotate(local*instance.positionScale.w,rotation);
-    worldNormal=treeRotate(inNormal,rotation); uv=inUV; color=inColor.rgb;
+#endif
+    vec3 world=instance.positionScale.xyz+treeRotate(local*instance.positionScale.w,rotationValue);
+    uv=inUV;
+#if !TREE_SHADOW
+    worldNormal=treeRotate(inNormal,rotationValue); color=inColor.rgb;
     viewPosition=(uView*vec4(world,1)).xyz;
+#endif
     gl_Position=uClip*vec4(world,1);
 }

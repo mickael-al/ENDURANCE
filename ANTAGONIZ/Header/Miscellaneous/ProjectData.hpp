@@ -123,12 +123,13 @@ struct ModelData : public GObjectData
 {
 	int idMaterial;
 	int idBuffer;
+    bool immutableShadowContent = false;
 	ModelData()
 	{
 		idMaterial = -1;
 		idBuffer = -1;
 	}
-	JS_OBJ(name,position, rotation, scale,idMaterial, idBuffer, idParent, scripts, collisions, tags);
+	JS_OBJ(name,position, rotation, scale,idMaterial, idBuffer, idParent, scripts, collisions, tags, immutableShadowContent);
 };
 
 enum BufferSource

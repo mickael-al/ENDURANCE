@@ -15,6 +15,7 @@ namespace Ge
 		glGenTextures(1, &m_textureID);
 		glBindTexture(GL_TEXTURE_2D, m_textureID);
 		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, Width, Height, 0, GL_RGBA, GL_UNSIGNED_BYTE, pc);
+        m_ownedPixelData = pc != nullptr;
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, filter ? GL_LINEAR : GL_NEAREST);
 		if (mipmaps)
 		{

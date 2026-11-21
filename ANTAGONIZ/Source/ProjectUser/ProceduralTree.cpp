@@ -801,7 +801,15 @@ std::vector<Image> coverageMipmaps(const Image& image,float cutoff)
         }
         const int pixels=dst.width*dst.height;
         const int desired=int(std::round(coverage*pixels));
-        auto passing=[&](float scale) { int n=0; for(std::size_t i=3;i<dst.rgba.size();i+=4) if(float(dst.rgba[i])*scale>=threshold) ++n; return n; };
+        // The predicate depends only on the 8-bit alpha value. Counting its
+        // occupied bins once avoids rescanning every pixel for each of the
+        // 24 binary-search iterations, with exactly the same float predicate.
+        std::array<int,256> histogram{};
+        for(std::size_t i=3;i<dst.rgba.size();i+=4) ++histogram[dst.rgba[i]];
+        std::array<std::pair<float,int>,256> occupied{}; unsigned bins=0;
+        for(unsigned a=0;a<256;++a) if(histogram[a]) occupied[bins++]={float(a),histogram[a]};
+        auto passing=[&](float scale) { int n=0; for(unsigned i=0;i<bins;++i)
+            if(occupied[i].first*scale>=threshold) n+=occupied[i].second; return n; };
         float lo=0,hi=256;
         for(int i=0;i<24;++i) { const float mid=(lo+hi)*0.5f; if(passing(mid)<desired) lo=mid; else hi=mid; }
         const float scale=std::abs(passing(lo)-desired)<std::abs(passing(hi)-desired) ? lo : hi;

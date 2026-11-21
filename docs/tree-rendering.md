@@ -9,11 +9,12 @@ moteur fournit les passes G-buffer, les matrices des lumières et le cache d'omb
 ## Réglages
 
 Le panneau **Affichage des arbres / LOD** expose ces paramètres sérialisés.
-Appliquer les modifications avec **Régénérer avec ces réglages**.
+**Afficher les arbres** agit immédiatement, sans régénérer le terrain. Les
+distances, seuils et budgets nécessitent **Régénérer avec ces réglages**.
 
 | Paramètre | Défaut | Rôle |
 |---|---:|---|
-| `treeRenderingEnabled` | `true` | Active les arbres ; indépendant de la collecte des positions |
+| `treeRenderingEnabled` | `true` | Active immédiatement le rendu et la préparation des arbres ; indépendant de la collecte des positions |
 | `treeRenderDistance` | 2 048 m | Portée maximale depuis la caméra principale ; extinction progressive sur les derniers 10 % |
 | `treeLod0Coverage` | 0,25 | Au-dessus : maillage détaillé LOD0 |
 | `treeImpostorCoverage` | 0,06 | Au-dessous : imposteur LOD3 à 17 vues ; entre les deux : maillage LOD1 |
@@ -32,28 +33,56 @@ du [placement](object-placement.md), notamment `maximumLod`, le nombre de
 secteurs et la rétention, restent applicables. Une région lointaine jamais
 collectée peut donc être vide. Les arbres n'ont pas encore de collision.
 
+Masquer les arbres suspend leurs préparations, leurs draws et leurs ombres,
+mais conserve les modèles déjà chargés. Le changement invalide les caches
+d'ombres. Ce bouton permet de comparer une même scène avec et sans arbres,
+sans confondre leur coût avec celui d'une régénération ou d'un rechargement.
+
 ## Pipeline et mémoire
 
-1. Sur une nouvelle publication des positions, un compute décode les coordonnées
-   compactes, calcule l'échelle et la rotation autour de Y à partir du site entier
-   et de la seed. Un déplacement dans le pool ne change pas cette transformation.
-   Ce cache coûte **32 octets par instance publiée**, en plus des 8 octets de
-   position déjà présents ; aucune matrice 4 × 4 n'est stockée.
+1. Chaque page de placement reçoit un `allocationRevision` monotone. Ses
+   positions restent immuables jusqu'à sa libération. Une publication sans
+   changement des blocs d'arbres ne change pas leur révision. Le renderer
+   conserve les transformations des pages inchangées ; un compute ne décode
+   que les pages nouvelles ou réallouées. Il calcule l'échelle et la rotation
+   autour de Y à partir du site entier et de la seed. Déplacer une position dans
+   le pool ne change donc pas son apparence. Une publication manuelle avec
+   `allocationRevision = 0` reste compatible, mais ses pages sont recalculées
+   à chaque nouvelle révision de publication.
 2. Le CPU rejette les blocs éloignés ou hors frustum à partir de leurs limites
-   conservatrices. Il groupe les blocs restants par modèle. Les limites chargées
+   conservatrices. Leur ordre par modèle est préparé une seule fois à chaque
+   publication, puis filtré sans nouveau tri à chaque passe. Les limites chargées
    incluent les dimensions réelles des bakes et l'échelle maximale autorisée.
 3. Un compute par passe traite les pages de 64 positions. Il rejette les sphères
    hors champ, choisit les LOD et compacte les références avec des atomiques en
-   mémoire partagée. Il produit directement les commandes indirectes. Aucun
-   compteur de visibilité ni aucune position ne revient sur le CPU.
+   mémoire partagée. Des réservations atomiques regroupent ensuite les pages
+   dans une liste par modèle et LOD. Il produit directement **cinq commandes
+   indirectes par modèle**, quelle que soit la quantité de pages sélectionnées.
+   Aucun compteur de visibilité ni aucune position ne revient sur le CPU.
 4. Les groupes sont rendus avec `glMultiDrawElementsIndirect`. Un groupe possède
    au plus cinq appels : bois/feuillage de chaque maillage et imposteurs. Les
    commandes des niveaux inutilisés ont zéro instance. Il n'y a ni entité de
    scène ni appel de rendu par arbre.
 
-Pour chaque bloc sélectionné et chaque passe conservée, les buffers occupent
-1 536 octets de références, 100 octets de commandes et 4 octets de sélection.
-Ce dimensionnement couvre aussi les transitions qui rendent deux LOD à la fois.
+Les transformations occupent **32 octets par emplacement**, sans matrice 4 × 4.
+Le cache réserve une page de 64 emplacements, soit **2 048 octets par page**,
+même si elle n'est pas pleine. Les emplacements des pages libérées sont réutilisés.
+Les positions compactes de 8 octets restent dans le pool du placement.
+
+| Buffer du renderer | Taille utile avant arrondi de capacité |
+|---|---:|
+| Métadonnées des blocs publiés | 48 octets par page |
+| Métadonnées des transformations à recalculer | 48 octets par page modifiée |
+| Transformations | 2 048 octets par emplacement de page réservé |
+| Sélection, par passe | 16 octets par page sélectionnée |
+| Références visibles, par passe | 1 536 octets par page sélectionnée |
+| Commandes indirectes, par passe | 100 octets par modèle sélectionné |
+
+Les buffers de travail grandissent par puissances de deux à partir de 4 Kio et
+conservent leur capacité pour les publications suivantes. L'agrandissement des
+transformations copie les anciennes données de GPU à GPU. La limite de 65 535
+pages borne leur buffer à 128 Mio ; les autres buffers s'ajoutent à ce total.
+Le dimensionnement des références couvre les transitions rendant deux LOD à la fois.
 Les listes et les calculs sont réutilisés tant que la publication, les modèles,
 la matrice de passe et les paramètres de caméra pertinents restent identiques.
 La caméra et chaque couche d'ombre disposent de listes distinctes.
@@ -67,6 +96,15 @@ boucle de rechargement à chaque image. Il n'y a pas de capture d'imposteur en j
 Le chargement initial est progressif ; un upload GL peut néanmoins avoir un coût
 ponctuel. Les budgets n'incluent pas les allocations internes du pilote.
 
+Le worker compacte les sommets de 64 à **48 octets** en retirant le seul attribut
+de vent inutilisé ; positions, normales, UV et couleurs conservent leur précision.
+La recherche de couverture des mipmaps alpha utilise un histogramme de 256
+valeurs, au lieu de parcourir tous les pixels à chaque étape de recherche. Le
+résultat reste identique octet par octet. Une table précalculée remplace les
+conversions sRGB répétées. Les 17 couches d'imposteurs sont regroupées par mip
+avant l'upload : deux tableaux de 256 px nécessitent **18 uploads**, contre
+306 uploads couche par couche. Ces nombres excluent les textures bois/feuilles.
+
 ## Matériaux, imposteurs et ombres
 
 Le bois et les feuilles utilisent les couleurs et masques exportés. Le feuillage
@@ -76,6 +114,12 @@ monde et les couleurs sont encodées suivant le gamma du G-buffer existant.
 Métal = 0, AO matériau = 1 ; roughness 0,90 pour le bois, 0,82 pour les feuilles
 et 0,86 pour l'imposteur. L'éclairage différé, l'IBL, le SSAO et l'atmosphère
 restent responsables de l'éclairage et de l'intégration dans le paysage.
+
+Le renderer utilise deux programmes compute et **quatre programmes graphiques
+fixes** : maillage ou imposteur, chacun en G-buffer et en ombres. Il ne compile
+aucune variante par biome. Le shader maillage n'embarque pas les projections et
+les interpolants des 17 vues ; le bois en passe d'ombre ne lit aucune texture.
+Les draws sont ordonnés pour utiliser au plus deux programmes graphiques par passe.
 
 Le LOD3 utilise les 17 captures exportées : 8 azimuts à 15°, 8 à 60° et le zénith.
 Le vertex shader choisit au plus trois vues selon la direction et la rotation
@@ -99,6 +143,22 @@ leurs cartes ne projettent pas de rectangles opaques. Les révisions de contenu
 invalident le cache d'ombres quand le placement, les modèles ou les LOD changent.
 Chaque passe restaure les états GL qu'elle modifie ; SSBO 0 appartient au moteur.
 
+## Mesures exposées
+
+Le panneau affiche les modèles chargés/en attente, les mémoires GPU estimées,
+les blocs sélectionnés, les pages de transformations construites/réutilisées et
+les temps cumulés de chargement CPU et d'appels d'upload GL. `RenderStats` expose
+aussi `transformedInstances`, `transformBuilds`, `cullDispatches`, `drawCalls` et
+`indirectCommands`. Ces compteurs sont cumulatifs : prendre leur différence entre
+deux instants pour mesurer le travail d'une période. `instances`, `cameraBlocks`
+et `shadowBlocks` décrivent le dernier état préparé/rendu, pas un total cumulé.
+
+`workingBytes` additionne les capacités réellement réservées des buffers du
+renderer ; `modelBytes` couvre les maillages et textures chargés. Les temps
+`assetLoadMilliseconds` et `assetUploadMilliseconds` sont des durées CPU, pas
+des temps GPU ni une durée totale de génération. Aucune lecture de compteur GPU
+n'est ajoutée au chemin de rendu pour alimenter ces statistiques.
+
 ## Code et validation
 
 - `ANTAGONIZ/Source/ProjectUser/EnduranceTreeRenderer.cpp` : connexion au moteur.
@@ -113,5 +173,9 @@ contexte OpenGL/EGL, avec un export réel du dépôt. `--fast-math` vérifie ég
 les options agressives de compilation ; `--captures dossier` sauvegarde les
 vues de contrôle. Ces tests inspectent les commandes GPU, les trois LOD, leurs
 transitions, la stabilité des transformations, le G-buffer, les ombres hors
-champ, l'état OpenGL, les caches et le repli sans imposteur.
+champ, l'état OpenGL, les caches et le repli sans imposteur. Ils vérifient aussi
+la conservation des transformations lors de la croissance d'un buffer, le
+recyclage des pages et le regroupement de plusieurs pages/modèles en commandes.
+`python Tests/Trees/check_core.py` compare les mipmaps optimisées à l'ancienne
+méthode sur plusieurs dimensions et seuils alpha, avec et sans fast-math.
 Mesa logiciel valide le fonctionnement, pas les performances sur le GPU cible.

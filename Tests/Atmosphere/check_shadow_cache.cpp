@@ -26,10 +26,10 @@ namespace Ge
         static void initialize(LightManager& lights, GraphicsDataMisc& graphics) { lights.initialize(&graphics); }
         static void release(LightManager& lights) { lights.release(); }
         static unsigned frame(LightManager& lights, const std::vector<CustomRenderer*>& providers,
-            bool untrackedCasters = false)
+            bool untrackedCasters = false, std::uint64_t immutableModels = 0)
         {
             lights.prepareShadowCasterBounds(providers);
-            lights.prepareShadowMaps(providers, untrackedCasters);
+            lights.prepareShadowMaps(providers, untrackedCasters, immutableModels);
             require(lights.getShadowContentRevision() == 0, "Pending shadow pass exposed a completed content revision");
             unsigned draws = 0;
             for (unsigned layer = 0; layer < lights.getFrameShadowBuffer().size(); ++layer)
@@ -202,8 +202,46 @@ static void individualLayers()
     std::cout << "PASS per-layer cache: selective refresh, atomic completed revision, restart tokens, no incomplete/NaN reuse\n";
 }
 
+static void immutableModelIntegration()
+{
+    LightManager lights;
+    Camera camera;
+    GraphicsDataMisc graphics;
+    graphics.current_camera = &camera;
+    Engine::getPtrClassAddr()->lightManager = &lights;
+    RenderingEngine::initialize(lights, graphics);
+    lights.createDirectionalLight({-45,20,0},{1,1,1})->setshadow(true);
+    Terrain terrain;
+    const std::vector<CustomRenderer*> providers{&terrain};
+    std::uint64_t models = 17;
+    require(RenderingEngine::frame(lights, providers, false, models) == 4,
+        "Immutable reference model did not cast its initial shadow");
+    const auto first = lights.getShadowContentRevision();
+    for (unsigned i=0;i<64;++i)
+        require(RenderingEngine::frame(lights, providers, false, models) == 0 &&
+            lights.getShadowContentRevision() == first,
+            "Stationary immutable model invalidated terrain/tree/volume shadows");
+    ++models;
+    require(RenderingEngine::frame(lights, providers, false, models) == 4 &&
+        RenderingEngine::frame(lights, providers, false, models) == 0,
+        "Immutable model movement or alpha edit failed to update and recache maps");
+    terrain.publish();
+    require(RenderingEngine::frame(lights, providers, false, models) == 4,
+        "Immutable model token hid a new terrain publication");
+    require(RenderingEngine::frame(lights, providers, true, 0) == 4 &&
+        RenderingEngine::frame(lights, providers, true, 0) == 4,
+        "Untracked models/callbacks inherited immutable model reuse");
+    require(RenderingEngine::frame(lights, providers, false, models) == 4 &&
+        RenderingEngine::frame(lights, providers, false, models) == 0,
+        "Returning to known immutable inputs reused unknown previous content");
+    require(RenderingEngine::frame(lights, providers, false, 0) == 4,
+        "Removing immutable model source left its old shadow behind");
+    RenderingEngine::release(lights);
+    std::cout << "PASS production LightManager immutable-model token: stationary reuse, mutations/publication, unknown fallback, source removal\n";
+}
+
 int main()
 {
-    try { managerLifecycle(); localProjectionInvalidation(); individualLayers(); }
+    try { managerLifecycle(); localProjectionInvalidation(); individualLayers(); immutableModelIntegration(); }
     catch (const std::exception& e) { std::cerr << "FAIL shadow cache: " << e.what() << '\n'; return 1; }
 }

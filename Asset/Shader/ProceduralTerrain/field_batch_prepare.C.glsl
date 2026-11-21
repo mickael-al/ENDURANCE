@@ -5,6 +5,7 @@ layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
 layout(std430,binding=1) readonly buffer FieldColumns { PackedFieldColumn columns[]; };
 shared uvec2 localMasks[64];
 shared vec2 localEnvelopes[64];
+shared vec2 localSurfaces[64];
 
 bool fieldHasMarineSurface(FieldColumn column)
 {
@@ -30,9 +31,11 @@ void main()
     // existing reduction. No third shared channel or full surface mask.
     uvec2 masks=uvec2(0u);
     vec2 envelopeRange=vec2(3.402823e38,-3.402823e38);
+    vec2 surfaceRange=envelopeRange;
     if(all(lessThan(p,uvec2(side))))
     {
         FieldColumn column=fieldUnpackColumn(columns[fieldJobs[job].storage.x*uColumnStride+p.x+p.y*side]);
+        surfaceRange=vec2(column.terrain.x);
         // Reuse the classified/cached columns, including when relief is off.
         // The surface footprint is [0,N] in lattice space; its one-voxel halo
         // must not mark a land chunk marine solely because of a nearby sample.
@@ -53,12 +56,14 @@ void main()
                 masks.y=biomes;
                 masks.x|=3u; // a free 3D recipe can change either sign in its envelope
                 envelopeRange=envelope;
+                surfaceRange=vec2(min(surfaceRange.x,envelope.x),max(surfaceRange.y,envelope.y));
             }
         }
     }
     uint lane=gl_LocalInvocationIndex;
     localMasks[lane]=masks;
     localEnvelopes[lane]=envelopeRange;
+    localSurfaces[lane]=surfaceRange;
     barrier();
     for(uint step=32u;step>0u;step>>=1u)
     {
@@ -67,6 +72,8 @@ void main()
             localMasks[lane]|=localMasks[lane+step];
             localEnvelopes[lane]=vec2(min(localEnvelopes[lane].x,localEnvelopes[lane+step].x),
                                       max(localEnvelopes[lane].y,localEnvelopes[lane+step].y));
+            localSurfaces[lane]=vec2(min(localSurfaces[lane].x,localSurfaces[lane+step].x),
+                                     max(localSurfaces[lane].y,localSurfaces[lane+step].y));
         }
         barrier();
     }
@@ -93,7 +100,17 @@ void main()
             }
         }
         uint tile=gl_WorkGroupID.x+gl_WorkGroupID.y*((side+7u)/8u);
-        fieldStates[header+1u+tile]=uvec4(localMasks[0].y,first,last,0u);
+        // Count groups use cell corners, so their sample interval is
+        // [4*g+1, 4*g+5] in the one-voxel-halo density lattice. Keep equality
+        // and the complete 3D envelope. Spheres cannot use a height-only bound.
+        uint possibleGroups=uFieldMode==2u?~0u:0u;
+        if(uFieldMode!=2u) for(uint group=0u;group<(uCells+3u)/4u;++group)
+        {
+            float lo=fieldWorldPosition(ivec3(1,int(group*4u+1u),1)).y;
+            float hi=fieldWorldPosition(ivec3(1,int(min(group*4u+5u,side-1u)),1)).y;
+            if(hi>=localSurfaces[0].x && lo<=localSurfaces[0].y) possibleGroups|=1u<<group;
+        }
+        fieldStates[header+1u+tile]=uvec4(localMasks[0].y,first,last,possibleGroups);
         uint signs=localMasks[0].x&3u;
         if(signs!=0u) atomicOr(fieldStates[header].x,signs);
         // Reserved header word persists with the density-cache entry. Empty

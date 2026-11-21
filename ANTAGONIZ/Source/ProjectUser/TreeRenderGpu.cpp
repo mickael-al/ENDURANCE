@@ -15,6 +15,7 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <unordered_map>
 
 namespace EnduranceTrees
 {
@@ -27,6 +28,17 @@ struct BlockGpu { glm::vec4 origin; glm::uvec4 info; glm::ivec4 anchor; };
 struct ModelData { glm::vec4 centreRadius,scales,impostorCentre; glm::uvec4 counts; };
 static_assert(sizeof(BlockGpu)==48 && sizeof(ModelData)==64,"std430 tree layout");
 constexpr unsigned InstanceBytes=32,CommandBytes=20,VisibleBytes=8;
+// Wind is disabled at runtime; keep the authored position/normal/color exactly
+// while omitting the unused vec4 from vertex fetches and VRAM.
+struct DrawVertex { glm::vec3 position,normal; glm::vec2 uv; glm::vec4 color; };
+struct DrawMesh { std::vector<DrawVertex> vertices; std::vector<std::uint32_t> indices; };
+static_assert(sizeof(DrawVertex)==48,"Runtime tree vertex layout");
+DrawMesh packMesh(const Mesh& mesh)
+{
+    DrawMesh result; result.vertices.reserve(mesh.vertices.size()); result.indices=mesh.indices;
+    for(const auto& v:mesh.vertices) result.vertices.push_back({v.position,v.normal,v.uv,v.color});
+    return result;
+}
 
 struct State
 {
@@ -86,16 +98,27 @@ struct UnpackState
 struct Buffer
 {
     GLuint id=0; std::size_t capacity=0;
-    bool allocate(std::size_t bytes,const void* data=nullptr)
+    bool allocate(std::size_t bytes,const void* data=nullptr,bool preserve=false,bool grow=false)
     {
         if(!bytes) return true;
         if(!id) glCreateBuffers(1,&id);
         if(bytes>capacity)
         {
-            glNamedBufferData(id,static_cast<GLsizeiptr>(bytes),data,GL_DYNAMIC_DRAW);
-            GLint64 actual=0; glGetNamedBufferParameteri64v(id,GL_BUFFER_SIZE,&actual);
-            if(actual!=static_cast<GLint64>(bytes)) return false;
-            capacity=bytes;
+            std::size_t next=bytes;
+            if(grow) { next=4096; while(next<bytes) next*=2; }
+            GLuint replacement=id;
+            if(preserve && capacity) glCreateBuffers(1,&replacement);
+            glNamedBufferData(replacement,static_cast<GLsizeiptr>(next),nullptr,GL_DYNAMIC_DRAW);
+            GLint64 actual=0; glGetNamedBufferParameteri64v(replacement,GL_BUFFER_SIZE,&actual);
+            if(actual!=static_cast<GLint64>(next)) { if(replacement!=id) glDeleteBuffers(1,&replacement); return false; }
+            if(replacement!=id)
+            {
+                glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+                glCopyNamedBufferSubData(id,replacement,0,0,static_cast<GLsizeiptr>(capacity));
+                glDeleteBuffers(1,&id); id=replacement;
+            }
+            capacity=next;
+            if(data) glNamedBufferSubData(id,0,static_cast<GLsizeiptr>(bytes),data);
         }
         else if(data) glNamedBufferSubData(id,0,static_cast<GLsizeiptr>(bytes),data);
         return id!=0;
@@ -105,15 +128,15 @@ struct Buffer
 struct MeshGpu
 {
     GLuint vao=0; Buffer vertices,indices; std::uint32_t count=0;
-    bool upload(const Mesh& mesh)
+    bool upload(const DrawMesh& mesh)
     {
         if(mesh.indices.empty()) return true;
         if(mesh.indices.size()>static_cast<std::size_t>((std::numeric_limits<GLsizei>::max)())) return false;
         glCreateVertexArrays(1,&vao);
-        if(!vao || !vertices.allocate(mesh.vertices.size()*sizeof(Vertex),mesh.vertices.data()) ||
+        if(!vao || !vertices.allocate(mesh.vertices.size()*sizeof(DrawVertex),mesh.vertices.data()) ||
             !indices.allocate(mesh.indices.size()*4,mesh.indices.data())) return false;
-        glVertexArrayVertexBuffer(vao,0,vertices.id,0,sizeof(Vertex)); glVertexArrayElementBuffer(vao,indices.id);
-        const GLuint offsets[]={offsetof(Vertex,position),offsetof(Vertex,normal),offsetof(Vertex,uv),offsetof(Vertex,color)};
+        glVertexArrayVertexBuffer(vao,0,vertices.id,0,sizeof(DrawVertex)); glVertexArrayElementBuffer(vao,indices.id);
+        const GLuint offsets[]={offsetof(DrawVertex,position),offsetof(DrawVertex,normal),offsetof(DrawVertex,uv),offsetof(DrawVertex,color)};
         const GLint sizes[]={3,3,2,4};
         for(GLuint i=0;i<4;++i)
         { glEnableVertexArrayAttrib(vao,i); glVertexArrayAttribFormat(vao,i,sizes[i],GL_FLOAT,GL_FALSE,offsets[i]); glVertexArrayAttribBinding(vao,i,0); }
@@ -125,14 +148,19 @@ using Mips=std::vector<Image>;
 struct Asset
 {
     Tree tree; std::vector<ImpostorView> views;
-    Mips bark,leaf; std::array<std::vector<Mips>,2> impostors;
+    Mips bark,leaf; std::array<Mips,2> impostors;
+    std::array<DrawMesh,4> meshes;
     std::uint64_t bytes=0; std::string error;
+    double loadMilliseconds=0;
 };
 std::uint8_t byte(float value) { return static_cast<std::uint8_t>(std::clamp(value,0.0f,1.0f)*255.0f+0.5f); }
 float linear(float v) { return v<=0.04045f?v/12.92f:std::pow((v+0.055f)/1.055f,2.4f); }
 Asset loadAsset(const std::string& path)
 {
     Asset asset;
+    const auto start=std::chrono::steady_clock::now();
+    static const auto decode=[] { std::array<std::uint8_t,256> values{};
+        for(unsigned i=0;i<256;++i) values[i]=byte(linear(i/255.0f)); return values; }();
     try
     {
         if(!loadBakedTree(path,asset.tree,asset.error,&asset.views)) return asset;
@@ -140,26 +168,42 @@ Asset loadAsset(const std::string& path)
         asset.bark=coverageMipmaps(asset.tree.barkTexture); asset.leaf=coverageMipmaps(asset.tree.leafMask);
         const auto addBytes=[&](const Mips& mips){ for(const auto& mip:mips) asset.bytes+=mip.rgba.size(); };
         addBytes(asset.bark); addBytes(asset.leaf);
-        for(const auto& lod:asset.tree.lods) for(const auto* mesh:{&lod.wood,&lod.foliage})
-            asset.bytes+=mesh->vertices.size()*sizeof(Vertex)+mesh->indices.size()*4;
-        for(unsigned channel=0;channel<2;++channel) for(const auto& view:asset.views)
+        for(unsigned lod=0;lod<2;++lod)
         {
+            asset.meshes[lod*2]=packMesh(asset.tree.lods[lod].wood);
+            asset.meshes[lod*2+1]=packMesh(asset.tree.lods[lod].foliage);
+            asset.tree.lods[lod]={};
+        }
+        for(const auto& mesh:asset.meshes) asset.bytes+=mesh.vertices.size()*sizeof(DrawVertex)+mesh.indices.size()*4;
+        for(unsigned channel=0;channel<2;++channel) for(unsigned layer=0;layer<asset.views.size();++layer)
+        {
+            const auto& view=asset.views[layer];
             Image source=channel==0?view.albedo:view.normal;
             if(channel==0) for(std::size_t i=0;i<source.rgba.size();i+=4) for(unsigned c=0;c<3;++c)
-                source.rgba[i+c]=byte(linear(source.rgba[i+c]/255.0f));
+                source.rgba[i+c]=decode[source.rgba[i+c]];
             auto mips=coverageMipmaps(source);
             for(auto& mip:mips)
             {
                 for(std::size_t i=0;i<mip.rgba.size();i+=4) for(unsigned c=0;c<3;++c)
-                    mip.rgba[i+c]=byte(mip.rgba[i+c]/255.0f*mip.rgba[i+3]/255.0f);
+                    mip.rgba[i+c]=static_cast<std::uint8_t>((unsigned(mip.rgba[i+c])*mip.rgba[i+3]+127u)/255u);
                 const auto row=static_cast<std::size_t>(mip.width)*4;
                 for(int y=0;y<mip.height/2;++y) std::swap_ranges(mip.rgba.begin()+y*row,mip.rgba.begin()+(y+1)*row,
                     mip.rgba.begin()+(mip.height-1-y)*row);
             }
-            addBytes(mips); asset.impostors[channel].push_back(std::move(mips));
+            addBytes(mips);
+            auto& volume=asset.impostors[channel];
+            if(volume.empty())
+            {
+                volume.resize(mips.size());
+                for(unsigned level=0;level<mips.size();++level)
+                { volume[level].width=mips[level].width; volume[level].height=mips[level].height; volume[level].rgba.resize(mips[level].rgba.size()*asset.views.size()); }
+            }
+            for(unsigned level=0;level<mips.size();++level)
+                std::copy(mips[level].rgba.begin(),mips[level].rgba.end(),volume[level].rgba.begin()+layer*mips[level].rgba.size());
         }
     }
     catch(const std::exception& e) { asset.error=e.what(); }
+    asset.loadMilliseconds=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count();
     return asset;
 }
 GLuint texture(const Mips& mips,bool repeat)
@@ -171,15 +215,17 @@ GLuint texture(const Mips& mips,bool repeat)
     glTextureParameteri(id,GL_TEXTURE_WRAP_S,repeat?GL_REPEAT:GL_CLAMP_TO_EDGE); glTextureParameteri(id,GL_TEXTURE_WRAP_T,repeat?GL_REPEAT:GL_CLAMP_TO_EDGE);
     return id;
 }
-GLuint textureArray(const std::vector<Mips>& layers)
+GLuint textureArray(const Mips& levels)
 {
-    if(layers.empty()) return 0;
+    if(levels.empty()) return 0;
     GLuint id=0; glCreateTextures(GL_TEXTURE_2D_ARRAY,1,&id);
-    glTextureStorage3D(id,static_cast<GLsizei>(layers[0].size()),GL_RGBA8,layers[0][0].width,layers[0][0].height,17);
-    for(unsigned layer=0;layer<17;++layer) for(std::size_t level=0;level<layers[layer].size();++level)
+    glTextureStorage3D(id,static_cast<GLsizei>(levels.size()),GL_RGBA8,levels[0].width,levels[0].height,17);
+    // All capture layers of one mip are contiguous in the worker's payload:
+    // 18 uploads for both 256px arrays instead of 306 small driver calls.
+    for(std::size_t level=0;level<levels.size();++level)
     {
-        const auto& mip=layers[layer][level];
-        glTextureSubImage3D(id,static_cast<GLint>(level),0,0,layer,mip.width,mip.height,1,GL_RGBA,GL_UNSIGNED_BYTE,mip.rgba.data());
+        const auto& mip=levels[level];
+        glTextureSubImage3D(id,static_cast<GLint>(level),0,0,0,mip.width,mip.height,17,GL_RGBA,GL_UNSIGNED_BYTE,mip.rgba.data());
     }
     glTextureParameteri(id,GL_TEXTURE_MIN_FILTER,GL_LINEAR_MIPMAP_LINEAR); glTextureParameteri(id,GL_TEXTURE_MAG_FILTER,GL_LINEAR);
     glTextureParameteri(id,GL_TEXTURE_WRAP_S,GL_CLAMP_TO_EDGE); glTextureParameteri(id,GL_TEXTURE_WRAP_T,GL_CLAMP_TO_EDGE);
@@ -201,8 +247,8 @@ struct ModelGpu
     {
         UnpackState state;
         while(glGetError()!=GL_NO_ERROR) {}
-        for(unsigned lod=0;lod<2;++lod)
-            if(!meshes[lod*2].upload(asset.tree.lods[lod].wood) || !meshes[lod*2+1].upload(asset.tree.lods[lod].foliage)) { clear(); return false; }
+        for(unsigned part=0;part<4;++part)
+            if(!meshes[part].upload(asset.meshes[part])) { clear(); return false; }
         bark=texture(asset.bark,true); leaf=texture(asset.leaf,false);
         albedo=textureArray(asset.impostors[0]); normal=textureArray(asset.impostors[1]);
         if(glGetError()!=GL_NO_ERROR || !bark || !leaf) { clear(); return false; }
@@ -220,6 +266,20 @@ struct Program
     }
 };
 struct Group { unsigned model=0,first=0,count=0; };
+struct TransformPage
+{
+    ProceduralTerrain::ObjectBlock block;
+    unsigned slot=0;
+    bool live=false;
+};
+bool samePage(const ProceduralTerrain::ObjectBlock& a,const ProceduralTerrain::ObjectBlock& b)
+{
+    // Manual/legacy publishers with no allocation serial cannot promise that
+    // the bytes of a recycled pool page remained immutable.
+    return a.allocationRevision!=0 && a.allocationRevision==b.allocationRevision &&
+        a.prototype==b.prototype && a.firstInstance==b.firstInstance && a.instanceCount==b.instanceCount &&
+        a.sectorLattice==b.sectorLattice && a.origin==b.origin && a.extent==b.extent && a.seed==b.seed;
+}
 struct Pass
 {
     Buffer selection,commands,visible;
@@ -245,11 +305,15 @@ struct TreeRenderGpu::Impl
     RenderSettings settings; RenderStats statistics; RenderView camera;
     std::vector<ProceduralTerrain::ObjectPrototype> prototypes;
     std::vector<ProceduralTerrain::ObjectBlock> sources;
+    std::vector<unsigned> sourceOrder;
     std::vector<ModelGpu> models; std::vector<ModelData> data;
-    Buffer blocks,instances,modelBuffer;
+    Buffer blocks,updates,instances,modelBuffer;
+    std::unordered_map<unsigned,TransformPage> transformPages;
+    std::vector<unsigned> freeTransformPages;
+    unsigned transformPageEnd=0;
     MeshGpu quad;
     GLuint build=0,cull=0,sourceBuffer=0;
-    Program opaque,shadow;
+    std::array<Program,2> opaque,shadow; // mesh / impostor; no per-biome variants
     GLint planes=-1,cam=-1,lod=-1,projection=-1,orthographic=-1;
     std::map<unsigned,Pass> passes;
     std::future<Asset> loading; unsigned loadingID=0;
@@ -306,11 +370,14 @@ struct TreeRenderGpu::Impl
             try { asset=loading.get(); }
             catch(const std::exception& e) { asset.error=e.what(); }
             auto& model=models[loadingID];
+            statistics.assetLoadMilliseconds+=asset.loadMilliseconds;
             if(!asset.error.empty()) { model.failed=true; ++statistics.failedModels; failure=prototypes[loadingID].asset+": "+asset.error; }
             else if(std::find(wanted.begin(),wanted.end(),loadingID)!=wanted.end())
             {
                 if(!makeRoom(asset.bytes,loadingID)) model.denied=true;
-                else if(!model.upload(asset)) { model.failed=true; ++statistics.failedModels; failure="Cannot upload baked tree "+prototypes[loadingID].asset; }
+                else if([&] { const auto start=std::chrono::steady_clock::now(); const bool ok=model.upload(asset);
+                    statistics.assetUploadMilliseconds+=std::chrono::duration<double,std::milli>(std::chrono::steady_clock::now()-start).count(); return !ok; }())
+                { model.failed=true; ++statistics.failedModels; failure="Cannot upload baked tree "+prototypes[loadingID].asset; }
                 else
                 {
                     auto& d=data[loadingID];
@@ -341,32 +408,70 @@ struct TreeRenderGpu::Impl
     bool setSources(unsigned buffer,const std::vector<ProceduralTerrain::ObjectBlock>& input,std::uint64_t revision)
     {
         if(haveSource && sourceBuffer==buffer && sourceRevision==revision) return false;
+        if(sourceBuffer!=buffer)
+        { transformPages.clear(); freeTransformPages.clear(); transformPageEnd=0; }
         sourceBuffer=buffer; sourceRevision=revision; haveSource=true; sources.clear(); statistics.instances=0;
         changed();
-        if(input.empty() || !buffer) return true;
+        if(input.empty() || !buffer)
+        { transformPages.clear(); freeTransformPages.clear(); transformPageEnd=0; return true; }
         if(input.size()>65535) { failure="Tree block budget exceeded"; return true; }
         GLint64 sourceBytes=0;
         glGetNamedBufferParameteri64v(buffer,GL_BUFFER_SIZE,&sourceBytes);
-        std::vector<BlockGpu> metadata; metadata.reserve(input.size());
+        for(auto& entry:transformPages) entry.second.live=false;
         for(const auto& b:input)
         {
             if(b.prototype>=models.size() || !b.instanceCount || b.instanceCount>Page || !finiteFieldValue(b.extent) || b.extent<=0 ||
                 !finiteFieldValue(b.origin[0]) || !finiteFieldValue(b.origin[1]) || !finiteFieldValue(b.origin[2]) ||
                 (std::uint64_t{b.firstInstance}+b.instanceCount)*8>static_cast<std::uint64_t>(std::max<GLint64>(0,sourceBytes)))
             { failure="Invalid published tree block"; sources.clear(); statistics.instances=0; return true; }
-            metadata.push_back({glm::vec4(b.origin[0],b.origin[1],b.origin[2],b.extent),
-                glm::uvec4(b.firstInstance,b.instanceCount,b.prototype,statistics.instances),
-                glm::ivec4(b.sectorLattice[0],b.sectorLattice[1],b.sectorLattice[2],static_cast<std::int32_t>(b.seed))});
+            const auto found=transformPages.find(b.firstInstance);
+            if(found!=transformPages.end()) found->second.live=true;
             statistics.instances+=b.instanceCount;
         }
-        if(std::uint64_t{statistics.instances}*InstanceBytes>storageLimit ||
-            !blocks.allocate(metadata.size()*sizeof(BlockGpu),metadata.data()) || !instances.allocate(std::size_t{statistics.instances}*InstanceBytes))
-        { failure="Cannot allocate tree transforms"; statistics.instances=0; return true; }
+        for(auto it=transformPages.begin();it!=transformPages.end();)
+            if(!it->second.live) { freeTransformPages.push_back(it->second.slot); it=transformPages.erase(it); }
+            else ++it;
+        std::vector<BlockGpu> metadata,dirty;
+        metadata.reserve(input.size()); dirty.reserve(input.size());
+        for(const auto& b:input)
+        {
+            auto found=transformPages.find(b.firstInstance);
+            const bool reused=found!=transformPages.end() && samePage(found->second.block,b);
+            if(found==transformPages.end())
+            {
+                unsigned slot=transformPageEnd;
+                if(freeTransformPages.empty()) ++transformPageEnd;
+                else { slot=freeTransformPages.back(); freeTransformPages.pop_back(); }
+                found=transformPages.emplace(b.firstInstance,TransformPage{b,slot,true}).first;
+            }
+            auto& cached=found->second;
+            cached.block=b;
+            const BlockGpu entry{glm::vec4(b.origin[0],b.origin[1],b.origin[2],b.extent),
+                glm::uvec4(b.firstInstance,b.instanceCount,b.prototype,cached.slot*Page),
+                glm::ivec4(b.sectorLattice[0],b.sectorLattice[1],b.sectorLattice[2],static_cast<std::int32_t>(b.seed))};
+            metadata.push_back(entry);
+            if(reused) ++statistics.transformPagesReused;
+            else { dirty.push_back(entry); statistics.transformedInstances+=b.instanceCount; }
+        }
+        const std::size_t bytes=std::size_t{transformPageEnd}*Page*InstanceBytes;
+        if(bytes>storageLimit || !blocks.allocate(metadata.size()*sizeof(BlockGpu),metadata.data(),false,true) ||
+            !instances.allocate(bytes,nullptr,true,true) ||
+            !updates.allocate(dirty.size()*sizeof(BlockGpu),dirty.data(),false,true))
+        { failure="Cannot allocate tree transforms"; statistics.instances=0; transformPages.clear(); freeTransformPages.clear(); transformPageEnd=0; return true; }
         sources=input;
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,buffer); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,instances.id);
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,blocks.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,modelBuffer.id);
-        glUseProgram(build); glDispatchCompute(static_cast<GLuint>(sources.size()),1,1);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); ++statistics.transformBuilds;
+        sourceOrder.resize(sources.size()); std::iota(sourceOrder.begin(),sourceOrder.end(),0u);
+        std::stable_sort(sourceOrder.begin(),sourceOrder.end(),[&](unsigned a,unsigned b){return sources[a].prototype<sources[b].prototype;});
+        if(!dirty.empty())
+        {
+            // Recycled slots may still be read by an earlier draw. Order the
+            // next SSBO writes after those reads, not only before the next draw.
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,buffer); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,instances.id);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,updates.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,modelBuffer.id);
+            glUseProgram(build); glDispatchCompute(static_cast<GLuint>(dirty.size()),1,1);
+            glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT); ++statistics.transformBuilds;
+            statistics.transformPagesBuilt+=dirty.size();
+        }
         return true;
     }
     void cache(Pass& pass,const glm::mat4& clip)
@@ -375,7 +480,7 @@ struct TreeRenderGpu::Impl
             pass.view.projectionScale==camera.projectionScale && pass.view.orthographic==camera.orthographic) return;
         pass.valid=false; pass.blocks.clear(); pass.groups.clear();
         auto frustum=ProceduralTerrain::makeFrustum(clip);
-        for(unsigned i=0;i<sources.size();++i)
+        for(unsigned i:sourceOrder)
         {
             const auto& b=sources[i]; const auto& model=models[b.prototype];
             if(!model.ready || distance2(b,model.radius,camera.camera)>double(settings.maximumDistance)*settings.maximumDistance) continue;
@@ -383,7 +488,6 @@ struct TreeRenderGpu::Impl
             if(!ProceduralTerrain::intersectsFrustum(frustum,origin,b.extent+2*model.radius)) continue;
             pass.blocks.push_back(i);
         }
-        std::stable_sort(pass.blocks.begin(),pass.blocks.end(),[&](unsigned a,unsigned b){return sources[a].prototype<sources[b].prototype;});
         for(unsigned i=0;i<pass.blocks.size();++i)
         {
             unsigned type=sources[pass.blocks[i]].prototype;
@@ -393,8 +497,19 @@ struct TreeRenderGpu::Impl
         const auto n=pass.blocks.size();
         if(n)
         {
-            if(!pass.selection.allocate(n*4,pass.blocks.data()) || !pass.commands.allocate(n*5*CommandBytes) || !pass.visible.allocate(n*3*Page*VisibleBytes))
+            std::vector<glm::uvec4> selection; selection.reserve(n);
+            for(unsigned i=0;i<pass.groups.size();++i)
+                for(unsigned j=0;j<pass.groups[i].count;++j)
+                    selection.emplace_back(pass.blocks[pass.groups[i].first+j],i,pass.groups[i].first,pass.groups[i].count);
+            if(!pass.selection.allocate(n*sizeof(glm::uvec4),selection.data(),false,true) ||
+                !pass.commands.allocate(pass.groups.size()*5*CommandBytes,nullptr,false,true) ||
+                !pass.visible.allocate(n*3*Page*VisibleBytes,nullptr,false,true))
             { failure="Cannot allocate tree visibility buffers"; pass.blocks.clear(); pass.groups.clear(); return; }
+            const GLuint zero=0;
+            // Clear follows earlier shader writes to commands; culling also
+            // reuses visible references that previous draws may still read.
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT|GL_SHADER_STORAGE_BARRIER_BIT);
+            glClearNamedBufferData(pass.commands.id,GL_R32UI,GL_RED_INTEGER,GL_UNSIGNED_INT,&zero);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,pass.selection.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,pass.commands.id);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,instances.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,blocks.id);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,modelBuffer.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,pass.visible.id);
@@ -414,7 +529,7 @@ struct TreeRenderGpu::Impl
     }
     void memory()
     {
-        statistics.workingBytes=blocks.capacity+instances.capacity+modelBuffer.capacity;
+        statistics.workingBytes=blocks.capacity+updates.capacity+instances.capacity+modelBuffer.capacity;
         for(const auto& entry:passes) statistics.workingBytes+=entry.second.selection.capacity+entry.second.commands.capacity+entry.second.visible.capacity;
     }
 };
@@ -444,9 +559,11 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
     if(!s.build) { shutdown(); return false; }
     s.cull=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,path("cull.C.glsl"),{}}},s.failure,"Tree LOD and visibility",{true,{}});
     if(!s.cull) { shutdown(); return false; }
-    for(unsigned i=0;i<2;++i)
+    for(unsigned i=0;i<2;++i) for(unsigned impostor=0;impostor<2;++impostor)
     {
-        auto& p=i?s.shadow:s.opaque; const std::string define=i?"#define TREE_SHADOW 1\n":"#define TREE_SHADOW 0\n";
+        auto& p=i?s.shadow[impostor]:s.opaque[impostor];
+        const std::string define=std::string(i?"#define TREE_SHADOW 1\n":"#define TREE_SHADOW 0\n")+
+            (impostor?"#define TREE_IMPOSTOR 1\n":"#define TREE_IMPOSTOR 0\n");
         p.id=Ge::buildShaderProgram({{GL_VERTEX_SHADER,path("render.vs.glsl"),define},{GL_FRAGMENT_SHADER,path("render.fs.glsl"),define}},s.failure,i?"Tree shadows":"Tree G-buffer",{true,{}});
         if(!p.id) { shutdown(); return false; }
         p.discover();
@@ -459,7 +576,7 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
     Mesh quad; quad.vertices.resize(4);
     quad.vertices[0].position={-1,-1,0}; quad.vertices[1].position={1,-1,0}; quad.vertices[2].position={1,1,0}; quad.vertices[3].position={-1,1,0};
     quad.indices={0,1,2,0,2,3};
-    if(!s.quad.upload(quad) || s.modelBuffer.capacity!=s.data.size()*sizeof(ModelData)) { s.failure="Cannot initialize tree renderer buffers"; shutdown(); return false; }
+    if(!s.quad.upload(packMesh(quad)) || s.modelBuffer.capacity!=s.data.size()*sizeof(ModelData)) { s.failure="Cannot initialize tree renderer buffers"; shutdown(); return false; }
     s.initialized=true; return true;
 }
 void TreeRenderGpu::prepare(unsigned buffer,const std::vector<ProceduralTerrain::ObjectBlock>& blocks,std::uint64_t revision,const RenderView& view)
@@ -484,9 +601,6 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
     if(passID==0) s.statistics.cameraBlocks=static_cast<unsigned>(pass.blocks.size());
     else s.statistics.shadowBlocks+=static_cast<unsigned>(pass.blocks.size());
     if(!pass.valid || pass.blocks.empty()) return;
-    auto& p=passID?s.shadow:s.opaque; glUseProgram(p.id);
-    glUniformMatrix4fv(p.clip,1,GL_FALSE,glm::value_ptr(clip)); glUniformMatrix4fv(p.view,1,GL_FALSE,glm::value_ptr(s.camera.view));
-    glUniform1f(p.gamma,s.camera.albedoGamma);
     bool parallel=false; glm::vec3 eye=s.camera.camera;
     if(passID || s.camera.orthographic)
     {
@@ -500,20 +614,27 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
         }
         else eye=glm::vec3(point)/point.w;
     }
-    glUniform3fv(p.eye,1,glm::value_ptr(eye)); glUniform1i(p.parallel,parallel);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,s.instances.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,s.modelBuffer.id);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,pass.visible.id); glBindBuffer(GL_DRAW_INDIRECT_BUFFER,pass.commands.id);
     for(unsigned i=0;i<3;++i) glBindSampler(i,0);
-    for(const auto& group:pass.groups)
+    GLuint program=0;
+    for(unsigned part=0;part<5;++part)
     {
-        const auto& model=s.models[group.model];
-        for(unsigned part=0;part<5;++part)
+        const bool billboard=part==4,foliage=(part&1u)!=0;
+        auto& p=(passID?s.shadow:s.opaque)[billboard?1:0];
+        if(program!=p.id)
         {
-            const bool billboard=part==4,foliage=(part&1u)!=0;
+            glUseProgram(p.id); program=p.id;
+            glUniformMatrix4fv(p.clip,1,GL_FALSE,glm::value_ptr(clip)); glUniformMatrix4fv(p.view,1,GL_FALSE,glm::value_ptr(s.camera.view));
+            glUniform1f(p.gamma,s.camera.albedoGamma); glUniform3fv(p.eye,1,glm::value_ptr(eye)); glUniform1i(p.parallel,parallel);
+        }
+        glUniform1i(p.kind,billboard?3:(foliage?1:0));
+        if(billboard || foliage) glDisable(GL_CULL_FACE);
+        else { glEnable(GL_CULL_FACE); glCullFace(passID?GL_FRONT:GL_BACK); }
+        for(unsigned groupID=0;groupID<pass.groups.size();++groupID)
+        {
+            const auto& model=s.models[pass.groups[groupID].model];
             if(billboard?!model.albedo:!model.meshes[part].count) continue;
-            glUniform1i(p.kind,billboard?3:(foliage?1:0));
-            if(billboard || foliage) glDisable(GL_CULL_FACE);
-            else { glEnable(GL_CULL_FACE); glCullFace(passID?GL_FRONT:GL_BACK); }
             if(billboard)
             {
                 glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D_ARRAY,model.albedo);
@@ -521,9 +642,9 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
                 glBindVertexArray(s.quad.vao);
             }
             else { glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,foliage?model.leaf:model.bark); glBindVertexArray(model.meshes[part].vao); }
-            const auto offset=static_cast<std::uintptr_t>((std::size_t{group.first}*5+part)*CommandBytes);
-            glMultiDrawElementsIndirect(GL_TRIANGLES,GL_UNSIGNED_INT,reinterpret_cast<const void*>(offset),group.count,5*CommandBytes);
-            ++s.statistics.drawCalls;
+            const auto offset=static_cast<std::uintptr_t>((std::size_t{groupID}*5+part)*CommandBytes);
+            glMultiDrawElementsIndirect(GL_TRIANGLES,GL_UNSIGNED_INT,reinterpret_cast<const void*>(offset),1,0);
+            ++s.statistics.drawCalls; ++s.statistics.indirectCommands;
         }
     }
     s.memory();
@@ -543,9 +664,11 @@ void TreeRenderGpu::shutdown() noexcept
     if(s.loading.valid()) { try { s.loading.wait(); s.loading.get(); } catch(...) {} }
     for(auto& item:s.passes) item.second.clear(); s.passes.clear();
     for(auto& model:s.models) model.clear(); s.models.clear(); s.data.clear();
-    s.blocks.clear(); s.instances.clear(); s.modelBuffer.clear(); s.quad.clear();
-    for(GLuint p:{s.build,s.cull,s.opaque.id,s.shadow.id}) if(p) glDeleteProgram(p);
-    s.build=s.cull=s.opaque.id=s.shadow.id=0; s.sources.clear(); s.wanted.clear();
+    s.blocks.clear(); s.updates.clear(); s.instances.clear(); s.modelBuffer.clear(); s.quad.clear();
+    for(auto* programs:{&s.opaque,&s.shadow}) for(auto& p:*programs) { if(p.id) glDeleteProgram(p.id); p.id=0; }
+    for(GLuint p:{s.build,s.cull}) if(p) glDeleteProgram(p);
+    s.build=s.cull=0; s.sources.clear(); s.sourceOrder.clear(); s.wanted.clear();
+    s.transformPages.clear(); s.freeTransformPages.clear(); s.transformPageEnd=0;
     s.statistics={}; s.initialized=s.haveSource=s.haveDemand=false; s.sourceBuffer=0;
 }
 const RenderStats& TreeRenderGpu::stats() const noexcept { return m->statistics; }

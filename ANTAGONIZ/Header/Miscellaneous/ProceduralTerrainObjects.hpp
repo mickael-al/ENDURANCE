@@ -66,6 +66,16 @@ namespace ProceduralTerrain
         // Conservative cube includes model bounds, maximum scale and wind.
         std::array<float, 3> boundsOrigin{};
         float boundsExtent = 0.0f;
+        // CPU identity of immutable page contents. Reusing a retired pool
+        // range must invalidate consumers even when its bounds/count match.
+        // Zero is reserved for callers without allocation tracking.
+        std::uint64_t allocationRevision = 0;
+        bool operator==(const ObjectBlock& b) const noexcept
+        {
+            return prototype==b.prototype && firstInstance==b.firstInstance && instanceCount==b.instanceCount &&
+                sectorLattice==b.sectorLattice && origin==b.origin && extent==b.extent && seed==b.seed &&
+                boundsOrigin==b.boundsOrigin && boundsExtent==b.boundsExtent && allocationRevision==b.allocationRevision;
+        }
     };
     struct ObjectPlacementStats
     {

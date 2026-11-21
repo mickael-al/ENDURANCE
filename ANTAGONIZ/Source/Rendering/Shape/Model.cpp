@@ -65,7 +65,12 @@ namespace Ge
 
 	void Model::onGUI()
 	{
-		GObject::onGUI();		
+		GObject::onGUI();
+        bool immutable = m_immutableShadowContent;
+        if (ImGui::Checkbox("Immutable shadow content", &immutable)) setImmutableShadowContent(immutable);
+        if (ImGui::IsItemHovered()) ImGui::SetTooltip(
+            "Cache shadows for static mesh and alpha data. Transforms and material settings remain tracked.\n"
+            "Disable for animation or externally changing GPU data; otherwise invalidateShadowContent() after edits.");
 	}
 
 	void Model::setMaterial(Materials * m)

@@ -21,6 +21,7 @@ void clean(const char* where) { auto e=glGetError(); require(e==GL_NO_ERROR,std:
 struct Command { GLuint count,instances,first; GLint baseVertex; GLuint baseInstance; };
 struct Instance { glm::vec4 positionScale; glm::vec2 rotation; GLuint hash,model; };
 std::vector<Command> submitted;
+std::vector<unsigned> submittedLods;
 std::vector<glm::uvec2> references;
 std::vector<Instance> transforms;
 PFNGLMULTIDRAWELEMENTSINDIRECTPROC realDraw=nullptr;
@@ -37,6 +38,7 @@ void GLAPIENTRY inspectDraw(GLenum mode,GLenum type,const void* offset,GLsizei d
         Command command{};
         glGetNamedBufferSubData(commands,reinterpret_cast<std::uintptr_t>(offset)+i*stride,sizeof(command),&command);
         submitted.push_back(command);
+        submittedLods.push_back(static_cast<unsigned>((reinterpret_cast<std::uintptr_t>(offset)+i*(stride?stride:sizeof(Command)))/sizeof(Command)%5)/2);
         for(unsigned j=0;j<command.instances;++j)
         {
             glm::uvec2 ref; Instance instance;
@@ -147,7 +149,7 @@ RenderView viewAt(glm::vec3 target,float distance,float pitch=0,float yaw=0)
 }
 void draw(TreeRenderGpu& gpu,Target& target,unsigned pass,const glm::mat4& clip)
 {
-    target.bind(); submitted.clear(); references.clear(); transforms.clear();
+    target.bind(); submitted.clear(); submittedLods.clear(); references.clear(); transforms.clear();
     const State before; gpu.draw(pass,clip); before.check("draw");
 }
 void waitAssets(TreeRenderGpu& gpu,GLuint pool,const std::vector<ObjectBlock>& blocks,std::uint64_t revision,const RenderView& view,unsigned models)
@@ -165,8 +167,8 @@ void waitAssets(TreeRenderGpu& gpu,GLuint pool,const std::vector<ObjectBlock>& b
 std::array<unsigned,3> lodCounts()
 {
     std::array<unsigned,3> result{};
-    for(const auto& command:submitted)
-        if(command.count) result[(command.baseInstance/64)%3]+=command.instances;
+    for(unsigned i=0;i<submitted.size();++i)
+        if(submitted[i].count) result[submittedLods[i]]+=submitted[i].instances;
     return result;
 }
 }
@@ -194,7 +196,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         glBindBuffer(GL_DRAW_INDIRECT_BUFFER,foreign); glActiveTexture(GL_TEXTURE3);
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER,foreign); glPixelStorei(GL_UNPACK_ROW_LENGTH,7); glPixelStorei(GL_UNPACK_SKIP_ROWS,2);
         PackedObjectPosition position{32768u|(32768u<<16u),32768u|(42u<<16u)};
-        std::vector<PackedObjectPosition> positions(128,position);
+        std::vector<PackedObjectPosition> positions(512,position);
         glNamedBufferData(pool,positions.size()*sizeof(position),positions.data(),GL_DYNAMIC_DRAW);
         ObjectBlock block; block.instanceCount=1; block.origin={{-64,-64,-64}}; block.extent=128; block.seed=1234;
         std::vector<ObjectBlock> blocks{block}; std::uint64_t revision=1;
@@ -229,6 +231,26 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         // A pool relocation must not reseed or move the same tree.
         blocks[0].firstInstance=64; ++revision; gpu.prepare(pool,blocks,revision,view); draw(gpu,target,0,view.clip);
         require(!transforms.empty() && std::memcmp(&original,&transforms[0],sizeof(Instance))==0,"Pool relocation changed tree transform");
+        // New publications rebuild only genuinely new/recycled immutable pages.
+        blocks[0].allocationRevision=1001; ++revision; gpu.prepare(pool,blocks,revision,view);
+        const auto cachedBefore=gpu.stats();
+        for(unsigned page=0;page<8;++page) if(page!=1)
+        { auto added=block; added.firstInstance=page*64; added.allocationRevision=1000+page; blocks.push_back(added); }
+        ++revision; gpu.prepare(pool,blocks,revision,view);
+        require(gpu.stats().transformedInstances-cachedBefore.transformedInstances==7 &&
+            gpu.stats().transformPagesReused>cachedBefore.transformPagesReused,"Existing pages were rebuilt during incremental publication");
+        executeDraw=false; draw(gpu,target,0,view.clip); executeDraw=true;
+        require(submitted.size()==5,"Commands were not merged across pages of one model");
+        for(const auto& instance:transforms) require(std::memcmp(&instance,&original,sizeof(Instance))==0,"Transform buffer growth lost a cached page");
+        blocks.resize(1); ++revision; auto builds=gpu.stats().transformBuilds; gpu.prepare(pool,blocks,revision,view);
+        require(gpu.stats().transformBuilds==builds,"Page removal rebuilt remaining transforms");
+        // A recycled allocation at the same address, with identical metadata,
+        // must refresh bytes; allocation identity is independent of pool index.
+        positions[64].xy+=1024u; glNamedBufferSubData(pool,64*sizeof(position),sizeof(position),&positions[64]);
+        ++blocks[0].allocationRevision; ++revision; gpu.prepare(pool,blocks,revision,view); draw(gpu,target,0,view.clip);
+        require(!transforms.empty() && transforms[0].positionScale.x>original.positionScale.x+1.0f,"Recycled allocation kept stale coordinates");
+        positions[64]=position; glNamedBufferSubData(pool,64*sizeof(position),sizeof(position),&positions[64]);
+        ++blocks[0].allocationRevision; ++revision; gpu.prepare(pool,blocks,revision,view);
         // Face away: camera rejects the tree, light still sees it.
         view=viewAt(centre,radius*6); view.view=glm::lookAt(view.camera,view.camera+(view.camera-centre),glm::vec3(0,1,0));
         view.clip=glm::perspective(glm::radians(60.f),1.f,.1f,8000.f)*view.view;
@@ -279,12 +301,17 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         for(const auto& command:submitted) require(command.instances<=64,"Visibility page overflow");
         for(const auto& instance:transforms)
             require(instance.model<2 && instance.positionScale.w==float(instance.model+1),"Indirect draw references the wrong model");
+        auto third=block; third.firstInstance=128; third.instanceCount=64; blocks.push_back(third);
+        gpu.prepare(pool,blocks,2,view); executeDraw=false; draw(gpu,target,0,view.clip); executeDraw=true;
+        require(submitted.size()==10 && lodCounts()==std::array<unsigned,3>{{128,256,0}},
+            "Per-model compaction did not merge multiple pages or overlapped its LOD ranges");
+        blocks.resize(2);
         // Actually raster several instances with distinct positions, not just the commands.
         blocks[0].instanceCount=blocks[1].instanceCount=3;
         for(unsigned i=0;i<3;++i) for(unsigned page=0;page<2;++page)
             positions[page*64+i].xy=(positions[page*64+i].xy&0xffff0000u)|(18000u+i*14000u);
         glNamedBufferSubData(pool,0,positions.size()*sizeof(position),positions.data());
-        gpu.prepare(pool,blocks,2,view); draw(gpu,target,0,view.clip); target.checkGBuffer("instances");
+        gpu.prepare(pool,blocks,3,view); draw(gpu,target,0,view.clip); target.checkGBuffer("instances");
         require(lodCounts()==std::array<unsigned,3>{{6,6,0}},"Multiple instanced draws failed");
         gpu.shutdown();
         // Cache eviction follows camera demand, without exceeding the model limit.

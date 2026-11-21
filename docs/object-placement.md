@@ -23,24 +23,70 @@ dans le biome correspondant. Glace polaire, toundra gelée, déserts rocheux,
 volcaniques et rouges, et fond marin sont initialement sans arbres. Les zones
 ouvertes ont une densité réduite. Ce sont des réglages artistiques modifiables.
 
-| Paramètre | Valeur initiale | Effet |
+| Paramètre | Valeur du catalogue livré | Effet |
 |---|---:|---|
 | `maximumLod` | 2 | Collecte sur les LOD 0, 1, 2 déjà demandés par le terrain ; plage autorisée 0–2 |
 | `maximumSectors` | 512 | Budget de secteurs résidents, indépendants des chunks affichés |
-| `candidateSpacing` | 16 m | Pas souhaité des cellules de candidats, arrondi à la puissance de deux compatible avec les voxels |
-| `minimumDistance` | 8 m | Exclusion horizontale entre sites voisins, avant quantification |
+| `candidateSpacing` | 32 m | Pas souhaité des cellules de candidats, arrondi à la puissance de deux compatible avec les voxels |
+| `minimumDistance` | 20 m | Exclusion horizontale entre sites voisins, avant quantification |
 | `retentionDistance` | 2 048 m | Évacuation des secteurs trop éloignés, avec une marge d'un chunk fin |
 | `capacity` par modèle | 65 536 | Réserve de positions ; multiple de 64, modifiable individuellement |
-| `minimumScale` / `maximumScale` | 0,8 / 5 | Plage utilisée par le renderer ; les limites de culling incluent l'échelle maximale |
+| `minimumScale` / `maximumScale` | Selon le groupe, voir ci-dessous | Plage utilisée par le renderer ; les limites de culling incluent l'échelle maximale |
 
 La collecte garde au maximum 16 × 16 sites horizontaux par secteur. Avec
-64 cellules et `cellSize = 1`, un secteur fait 256 m et le pas est bien 16 m.
+64 cellules, `maximumLod = 2` et `cellSize = 1`, un secteur fait 256 m ;
+le pas de 32 m donne maintenant **8 × 8 candidats horizontaux**.
 Un voxel plus large ou un autre réglage peut augmenter ce pas effectif.
+Les valeurs de cette section viennent du catalogue du jeu ; les valeurs par
+défaut des structures génériques du moteur ne remplacent pas ce catalogue.
+
+Les plages d'échelle sont adaptées aux dimensions déjà présentes dans les
+exports. L'ancien multiplicateur uniforme de 0,8 à 5 agrandissait aussi les
+arbres géants : une variante `BIG_02` d'environ 252 m de large pouvait dépasser
+1,2 km. Les variantes étroites gardent une plage plus large ; les géants restent
+proches de leur taille exportée. Aucun maillage exporté n'est modifié.
+
+| Groupe | Échelle minimale | Échelle maximale |
+|---|---:|---:|
+| `Acacia` | 0,8 | 1,6 |
+| `ArbreMort` | 0,8 | 1,8 |
+| `BIG_01`, `BIG_02`, `BIG_DEAD` | 0,85 | 1,15 |
+| `Banyan` | 0,75 | 1,4 |
+| `Baobab` | 0,8 | 1,7 |
+| `Bouleau`, `Tremble` | 1 | 3,2 |
+| `Chene` | 0,9 | 1,8 |
+| `Conifere` | 1,2 | 3,6 |
+| `Cypres` | 1 | 2,4 |
+| `FeuilluEtale` | 1 | 2,6 |
+| `Genevrier` | 0,65 | 1,4 |
+| `Mangrove` | 0,8 | 1,8 |
+| `Palmier` | 0,9 | 2,2 |
+| `Retombant` | 0,9 | 1,9 |
+
+Les trois groupes géants ont un poids relatif de 1 dans les profils qui les
+utilisent. Leurs occurrences restent exceptionnelles, sans les supprimer.
+Les `boundingRadius` du catalogue sont recalculés depuis les limites des
+exports, l'échelle maximale et une marge de 2 m.
 
 Chaque profil expose `density`, `minimumNormalY`, `forestPeriod`,
 `forestThreshold`, `forestSoftness`, `minimumAboveSea` et `choices`.
 `minimumNormalY = 0.82` autorise environ 35° de pente. Le masque de bosquets
 utilise deux fréquences de bruit de valeur, sans recalculer le climat.
+Le masque vaut `smoothstep(threshold - softness, threshold + softness, noise)`.
+Sous la première borne, aucun arbre ne passe le masque ; au-dessus de la
+seconde, seule la probabilité `density` et les autres tests limitent le peuplement.
+
+| Profils du catalogue | `forestThreshold` | `forestSoftness` | Zone sans arbre | Masque pleinement boisé |
+|---|---:|---:|---|---|
+| Boisés, dont forêts, jungles et marais | 0,50 | 0,06 | Bruit ≤ 0,44 | Bruit ≥ 0,56 |
+| Ouverts, dont toundras, steppes, prairies et savanes | 0,58 | 0,08 | Bruit ≤ 0,50 | Bruit ≥ 0,66 |
+
+Les profils vides conservent une densité nulle. Les périodes régionales restent
+propres aux biomes, entre 900 et 1 700 m ; `density` garde ses valeurs précédentes.
+Le changement resserre les lisières et conserve des bosquets denses avec de
+vraies clairières. Il ne remplace pas le masque par une suppression aléatoire
+uniforme. Cette classification décrit les paramètres du fichier ; elle
+n'impose pas une règle automatique lors du chargement d'un profil personnalisé.
 Les choix de groupes sont des poids relatifs, pas des pourcentages obligatoires.
 La mangrove autorise une petite immersion ; les autres profils évitent la mer.
 
@@ -72,8 +118,16 @@ n'alloue pas de pool et n'exécute pas de collecte.
    verticale de la hauteur d'un chunk LOD0. Les faces de transition ne collectent
    rien. Les doublons sur une arête de triangle partagent le même enregistrement.
 6. Un petit compute compacte ces résultats par modèle. Il parcourt au maximum
-   1 024 enregistrements pour les réglages initiaux, **pas le maillage**.
+   256 enregistrements avec 64 cellules, `cellSize = 1` et les réglages du
+   catalogue, contre 1 024 auparavant, **pas le maillage**. La limite du système
+   reste 1 024 avec une grille horizontale de 16 × 16 et quatre bandes verticales.
    La fence de fin d'émission du terrain couvre aussi ce travail.
+
+Le réglage des clairières réutilise exactement les deux échantillons de bruit
+existants, regroupés dans `objectForestMask`. Il n'ajoute ni passe de terrain,
+ni lecture des positions côté CPU, ni recherche dans le maillage. Le plus grand
+pas réduit le nombre de candidats et la zone temporaire de collecte ; il ne
+supprime pas le coût des tests, des atomiques et des copies GPU.
 
 Un secteur réserve jusqu'à 64 bits de couverture correspondant à ses chunks
 LOD0. Les captures terminées sont conservées ; les captures concurrentes
@@ -114,7 +168,10 @@ sans se servir de l'index d'allocation. Les palettes restent celles des exports.
 Chaque modèle possède sa plage dans un buffer unique. Des pages de 64 places
 sont attribuées aux secteurs. Avec les 102 variantes à 65 536 places chacune,
 la réserve vaut **51 Mio**, hors maillages et textures. La zone temporaire est
-d'environ 2,4 Mio pour trois travaux en vol, et les compteurs lus côté CPU
+d'environ **0,60 Mio pour trois travaux en vol** avec 64 cellules,
+`cellSize = 1` et le catalogue actuel, contre environ 2,4 Mio auparavant.
+Elle dépend du nombre de candidats, de variantes et de travaux en vol.
+Les compteurs lus côté CPU
 occupent 408 octets par travail. Réduire les capacités des variantes rares est
 possible ; les pages partiellement occupées consomment leur capacité entière.
 
@@ -125,6 +182,21 @@ incrémente un compteur et laisse le terrain fonctionner. Les pages retirées
 sont réutilisées après une fence interrogée sans attente bloquante. Les
 commandes de copie et la collecte ont un coût : ce chemin ne promet pas un
 surcoût nul de génération.
+
+La révision de publication change seulement lorsque la liste triée des blocs
+publiés change réellement. Une publication de terrain lointain sans nouveaux
+arbres, un raccord ou un changement de LOD conservant les mêmes pages ne
+réinitialise donc plus les caches du renderer et des ombres. Les statistiques
+de secteurs et d'instances continuent d'être actualisées indépendamment.
+
+Chaque nouvelle page reçoit un numéro d'allocation monotone
+`ObjectBlock::allocationRevision`, côté CPU uniquement. Son contenu GPU est
+immuable jusqu'au retrait de la page. Une plage recyclée reçoit un nouveau
+numéro, même si son origine, son nombre d'instances et son offset sont
+identiques : les transforms précédents ne doivent alors pas être réutilisés.
+La valeur 0 est réservée aux producteurs ne fournissant pas cette garantie.
+Ce champ fait partie de la comparaison de publication, sans agrandir les
+positions de 8 octets ni changer le format des shaders de collecte.
 
 API de `ProceduralGeneration` :
 
@@ -142,6 +214,7 @@ GPU par instance et choisit les LOD sans lire les positions côté CPU.
 ## Fichiers et validation
 
 - `Asset/Shader/ProceduralTerrain/objects_collect.glsl` : candidats, climat, pente et projection sur triangles.
+- `Asset/Shader/ProceduralTerrain/objects_common.glsl` : hash, bruit et masque régional partagés.
 - `Asset/Shader/ProceduralTerrain/objects_compact.C.glsl` : regroupement GPU par modèle.
 - `ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainObjects.inl` : secteurs, réservations, pages, publication et recyclage.
 - `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainObjects.hpp` : contrat de données et filtre frustum.
@@ -152,7 +225,54 @@ en OpenGL/EGL. `--fast-math` vérifie aussi la compilation C++ avec ce réglage.
 Les tests contrôlent le terrain inchangé, la distance minimale, les frontières
 positives/négatives/entières, les secteurs partiels, les changements de LOD,
 les annulations, le débordement des pools, le recyclage, les biomes exclus,
-la pente, la mer et le filtre frustum.
+la pente, la mer et le filtre frustum. Ils vérifient aussi que les publications
+de terrain sans changement d'arbres gardent leur révision et qu'une page
+recyclée reçoit une nouvelle identité d'allocation.
+
+`python Tests/Trees/check_distribution.py` mesure le masque avec les fonctions
+GLSL de production sur une région de **16,384 × 16,384 km**, seed 1337 par
+défaut. Le test contrôle les véritables zones vides, les bosquets pleinement
+boisés et le nombre de sites admissibles sur un sol plat entièrement plantable.
+La pente, la mer, les budgets et les limites de collecte peuvent ensuite réduire
+ces chiffres dans une vraie scène. Une autre taille de voxel peut aussi changer
+le pas effectif ; ce test utilise le pas demandé dans le catalogue.
+
+Exemple de comparaison reproductible avec le catalogue antérieur à cette passe :
+
+```bash
+git show b4ca0a1:ENDURANCE/Ressources/Trees/object_placement.json > /tmp/placement-before.json
+python Tests/Trees/check_distribution.py \
+  --baseline /tmp/placement-before.json \
+  --output /tmp/tree-distribution.json \
+  --captures /tmp/tree-distribution-captures
+```
+
+Les captures optionnelles demandent Pillow ; les mesures demandent NumPy et
+OpenGL/EGL. Le JSON enregistre la seed, le renderer, l'étendue et les SHA-256
+des catalogues, du helper GLSL et du script de mesure.
+
+Résultats de référence sur 268,435456 km², avec le pas demandé et les réglages
+ci-dessus :
+
+| Biome | Sites/km² avant | Sites/km² après | Surface où le masque est nul | Surface où le masque vaut 1 |
+|---|---:|---:|---:|---:|
+| Taïga | 1 459,86 | 246,99 | 47,01 % | 27,42 % |
+| Forêt boréale | 1 636,27 | 285,80 | 44,47 % | 30,41 % |
+| Forêt tempérée | 1 524,91 | 266,55 | 44,47 % | 30,41 % |
+| Forêt pluviale tempérée | 1 672,00 | 283,47 | 47,01 % | 27,42 % |
+| Jungle tropicale | 1 546,41 | 249,95 | 52,44 % | 22,47 % |
+
+Ces forêts ont environ **six fois moins de sites en moyenne sur le paysage**.
+Les clairières occupaient seulement environ 10 à 13 % de la surface auparavant.
+Avec le réglage actuel, 32,57 à 42,53 % des patches échantillonnés de 256 m sont
+entièrement vides dans ces profils : les trous ne se limitent pas aux espaces
+entre quelques arbres. Les bosquets denses restent présents. Dans les zones où
+le masque vaut 1, la somme estimée des ellipses de couronnes représente environ
+0,73 fois la surface au sol pour la forêt tempérée et 0,98 à 0,99 pour les deux
+profils de jungle/forêt pluviale ci-dessus, avec les nouvelles échelles. Cette
+somme inclut les chevauchements et les boîtes englobantes des modèles ; elle
+ne mesure pas la couverture réelle des feuilles.
+
 Les tests existants du backend, de l'ordonnanceur et du streaming de la mer
 couvrent les points d'intégration. Ces vérifications sur Mesa logiciel ne
 remplacent pas une mesure des temps GPU et un test visuel sur la machine cible.

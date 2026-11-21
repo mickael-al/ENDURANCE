@@ -29,6 +29,8 @@ struct RenderStats
     std::uint32_t instances=0, cameraBlocks=0, shadowBlocks=0;
     std::uint64_t modelBytes=0, workingBytes=0, assetUploads=0, transformBuilds=0;
     std::uint64_t cullDispatches=0, drawCalls=0, revision=0;
+    std::uint64_t transformedInstances=0, transformPagesBuilt=0, transformPagesReused=0, indirectCommands=0;
+    double assetLoadMilliseconds=0, assetUploadMilliseconds=0;
 };
 
 // Owning GL thread only, except the private bounded asset-loading worker.

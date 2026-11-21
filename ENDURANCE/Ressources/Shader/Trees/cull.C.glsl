@@ -1,9 +1,10 @@
 #version 460 core
 #include "common.glsl"
 layout(local_size_x=64) in;
-layout(std430,binding=1) readonly buffer SelectedBlocks { uint selectedBlocks[]; };
+// block ID, model group ID, first selected block of that group, group block count
+layout(std430,binding=1) readonly buffer SelectedBlocks { uvec4 selectedBlocks[]; };
 struct Command { uint count; uint instanceCount; uint firstIndex; int baseVertex; uint baseInstance; };
-layout(std430,binding=2) writeonly buffer DrawCommands { Command commands[]; };
+layout(std430,binding=2) buffer DrawCommands { Command commands[]; };
 layout(std430,binding=4) readonly buffer TreeInstances { TreeInstance instances[]; };
 layout(std430,binding=7) writeonly buffer VisibleInstances { uvec2 visible[]; };
 uniform vec4 uPlanes[6];
@@ -12,20 +13,23 @@ uniform vec4 uLod; // projected LOD0, projected impostor, transition, max distan
 uniform float uProjectionScale;
 uniform bool uOrthographic;
 shared uint counts[3];
+shared uint offsets[3];
+shared uvec2 pageReferences[192];
 
 void appendInstance(uint lod,uint instance,float fineWeight,bool coarse,float distanceWeight)
 {
     uint destination=atomicAdd(counts[lod],1u);
     uint fade=uint(round(clamp(fineWeight,0.0,1.0)*255.0)) | (coarse?256u:0u)
         | (uint(round(clamp(distanceWeight,0.0,1.0)*127.0))<<9u);
-    visible[(gl_WorkGroupID.x*3u+lod)*64u+destination]=uvec2(instance,fade);
+    pageReferences[lod*64u+destination]=uvec2(instance,fade);
 }
 void main()
 {
     uint lane=gl_LocalInvocationID.x;
     if(lane<3u) counts[lane]=0u;
     barrier();
-    TreeBlock block=blocks[selectedBlocks[gl_WorkGroupID.x]];
+    uvec4 selection=selectedBlocks[gl_WorkGroupID.x];
+    TreeBlock block=blocks[selection.x];
     TreeModel model=models[block.info.z];
     if(lane<block.info.y)
     {
@@ -58,10 +62,25 @@ void main()
         }
     }
     barrier();
-    if(lane<5u)
+    if(lane<3u)
+    {
+        uint command=selection.y*5u+(lane<2u?lane*2u:4u);
+        offsets[lane]=atomicAdd(commands[command].instanceCount,counts[lane]);
+        if(lane<2u) atomicAdd(commands[command+1u].instanceCount,counts[lane]);
+    }
+    barrier();
+    for(uint lod=0u;lod<3u;++lod) if(lane<counts[lod])
+        visible[selection.z*192u+lod*selection.w*64u+offsets[lod]+lane]=pageReferences[lod*64u+lane];
+    // Exactly one workgroup writes the non-atomic fields. instanceCount was
+    // cleared before this dispatch and is only modified through atomics.
+    if(gl_WorkGroupID.x==selection.z && lane<5u)
     {
         uint lod=lane<4u?lane/2u:2u;
         uint vertices=lane<4u?model.counts[lane]:(model.scalesImpostor.w>0.5?6u:0u);
-        commands[gl_WorkGroupID.x*5u+lane]=Command(vertices,counts[lod],0u,0,(gl_WorkGroupID.x*3u+lod)*64u);
+        uint index=selection.y*5u+lane;
+        commands[index].count=vertices;
+        commands[index].firstIndex=0u;
+        commands[index].baseVertex=0;
+        commands[index].baseInstance=selection.z*192u+lod*selection.w*64u;
     }
 }

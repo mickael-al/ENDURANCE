@@ -49,6 +49,7 @@ namespace ProceduralTerrain
             GLint vertexBase=-1, capacity=-1;
             GLint fieldStateIndex=-1;
             GLint objectJob=-1;
+            GLint resetDensityHeaders=-1;
             std::uint32_t cellCount=64;
             void discover()
             {
@@ -59,6 +60,7 @@ namespace ProceduralTerrain
                 vertexBase=glGetUniformLocation(id,"uVertexBase"); capacity=glGetUniformLocation(id,"uVertexCapacity");
                 fieldStateIndex=glGetUniformLocation(id,"uFieldStateIndex");
                 objectJob=glGetUniformLocation(id,"uObjectJobBase");
+                resetDensityHeaders=glGetUniformLocation(id,"uResetDensityHeaders");
             }
             void field(const GpuConfig& config,std::uint32_t columnStride,std::uint32_t densityStride,std::uint32_t stateStride)
             {
@@ -70,6 +72,7 @@ namespace ProceduralTerrain
                 glUniform1ui(glGetUniformLocation(id,"uColumnStride"),columnStride);
                 glUniform1ui(glGetUniformLocation(id,"uDensityStride"),densityStride);
                 glUniform1ui(glGetUniformLocation(id,"uStateStride"),stateStride);
+                glUniform1i(glGetUniformLocation(id,"uUseGroupBounds"),1);
                 const auto& f=config.field;
                 const auto set=[&](const char* name,float value){ glUniform1f(glGetUniformLocation(id,name),value); };
                 set("uBaseHeight",f.baseHeight); set("uHeightAmplitude",f.heightAmplitude);
@@ -363,16 +366,15 @@ namespace ProceduralTerrain
                 jobExtent=(std::max)(jobExtent,job.fieldSlot+1);
                 const Counters zero{};
                 glNamedBufferSubData(job.counter,0,sizeof(Counters),&zero);
-                if (density.build)
-                {
-                    const std::uint32_t header[4]={0,UINT32_MAX,0,0};
-                    glNamedBufferSubData(fieldStates,static_cast<GLintptr>(density.slot)*stateStride*16,16,header);
-                }
             }
             ++statistics.fieldBatches;
             statistics.lastFieldBatchJobs=active;
             auto* timing=beginTiming(true);
-            glNamedBufferSubData(fieldJobs,0,config.maxInFlight*sizeof(FieldJobDescriptor),descriptions.data());
+            // Previous batches can still read/write their descriptors. A fresh
+            // data store avoids making this CPU upload wait for all those GPU
+            // dispatches. Only this small transient table is orphaned; cached
+            // column/density arenas keep their persistent contents.
+            glNamedBufferData(fieldJobs,config.maxInFlight*sizeof(FieldJobDescriptor),descriptions.data(),GL_STREAM_DRAW);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,densityArena);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,scratchArena);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,2,columnArena);
@@ -388,9 +390,10 @@ namespace ProceduralTerrain
                 glDispatchCompute((side+7)/8,(side+7)/8,jobExtent);
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
             };
-            const auto buildLists=[&]()
+            const auto buildLists=[&](bool resetHeaders)
             {
                 glUseProgram(programs[BuildWorkLists].id);
+                glUniform1i(programs[BuildWorkLists].resetDensityHeaders,resetHeaders);
                 glDispatchCompute(1,1,1);
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_COMMAND_BARRIER_BIT);
             };
@@ -412,7 +415,7 @@ namespace ProceduralTerrain
             if (columnsNeeded)
             {
                 columnPass(ClassifyColumns);
-                buildLists();
+                buildLists(true);
                 accumulate(ReliefFirst,0);
                 columnPass(FinalizeColumns);
             }
@@ -420,10 +423,14 @@ namespace ProceduralTerrain
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,1,columnArena);
             if (densityNeeded)
             {
+                // Reset new density headers on the GPU, in command order.
+                // CPU SubData writes to this shared arena can serialize behind
+                // older jobs even when they touch a different cache slot.
+                if (!columnsNeeded) buildLists(true);
                 // A separate pass is required: aliases of a newly built XZ tile
                 // must only read it after all finalization workgroups complete.
                 columnPass(PrepareVolume);
-                buildLists();
+                buildLists(false);
                 glUseProgram(programs[InitializeDensity].id);
                 glDispatchCompute((side+7)/8,(side+3)/4,((side+3)/4)*jobExtent);
                 glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);

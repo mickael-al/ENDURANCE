@@ -185,6 +185,8 @@ struct Atmosphere::Impl
     Budget budget;
     AtmosphereGpuParameters gpu{},previous{},lastVolumeParameters{},lastAerialParameters{},lastCloudVolumeParameters{};
     AtmosphereGpuParameters lastCloudShadowParameters{},lastVisibleCloudParameters{};
+    AtmosphereGpuParameters uploadedParameters{};
+    bool parametersUploaded=false;
     std::uint64_t lastVolumeShadowRevision=0;
     bool cloudShadowValid=false;
     std::array<GLuint,ProgramCount> programs{};
@@ -464,6 +466,7 @@ struct Atmosphere::Impl
         updateEffectResources(true);
         if(!parameters) glCreateBuffers(1,&parameters);
         glNamedBufferData(parameters,sizeof(gpu),&gpu,GL_DYNAMIC_DRAW);
+        uploadedParameters=gpu; parametersUploaded=true;
         if(!vao) glCreateVertexArrays(1,&vao);
         if(!brdf)
         {
@@ -481,7 +484,16 @@ struct Atmosphere::Impl
 
     void upload()
     {
-        glNamedBufferSubData(parameters,0,sizeof(gpu),&gpu);
+        if(!parametersUploaded || std::memcmp(&gpu,&uploadedParameters,sizeof(gpu))!=0)
+        {
+            // Live parameters are consumed by several queued passes, including
+            // passes from the previous frame. Replace their small mutable store
+            // instead of overwriting it while those commands may still read it.
+            // Each IBL capture already owns a separate frozen uniform buffer.
+            glNamedBufferData(parameters,sizeof(gpu),&gpu,GL_STREAM_DRAW);
+            uploadedParameters=gpu; parametersUploaded=true;
+        }
+        // A capture may have rebound slot 6 even when our payload is unchanged.
         glBindBufferBase(GL_UNIFORM_BUFFER,6,parameters);
     }
     void commonTextures()
@@ -1193,6 +1205,7 @@ void Atmosphere::release()
     m->managedShadowMargins.clear();
     m->releaseTargets(); m->releasePrograms(); m->destroyTexture(m->brdf);
     if(m->parameters) glDeleteBuffers(1,&m->parameters);
+    m->parametersUploaded=false;
     if(m->vao) glDeleteVertexArrays(1,&m->vao);
     for(auto& entry:m->timers) if(entry.query) glDeleteQueries(1,&entry.query);
     m->parameters=m->vao=0; m->timers={}; m->ready=false;

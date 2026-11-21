@@ -6,6 +6,7 @@
 #include <functional>
 #include <vector>
 #include <cstdint>
+#include "ImmutableShadowCache.hpp"
 struct GraphicsDataMisc;
 struct ptrClass;
 
@@ -102,6 +103,7 @@ namespace Ge
 		Skybox* m_skybox;
 		Atmosphere* m_atmosphere;
 		SkinnedTransformManager* m_skinnedTransformManager;
+        ImmutableShadowCache m_immutableShadows;
     };
 }
 

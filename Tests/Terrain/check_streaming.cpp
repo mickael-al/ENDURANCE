@@ -389,6 +389,43 @@ void checkLocalPriorities()
     std::cout << "PASS local priorities, coarse-parent retirement, clipped boundaries and tight budgets\n";
 }
 
+void checkInitialTransitionReuse()
+{
+    // Fine-first fills must not generate every fine chunk again when the
+    // eventual coarse neighbour appears. Every intermediate publication still
+    // has to satisfy the real shared-face oracle, in all six orientations.
+    LodConfig config; config.cells = Cells; config.maxLod = 2; config.maxLeaves = 32;
+    for (unsigned axis = 0; axis < 3; ++axis)
+        for (int direction : {-1, 1})
+        {
+            std::vector<LodChunk> desired{{{{8,0,0}},0,0}, {{{8,8,0}},0,0},
+                {{{8,0,8}},0,0}, {{{8,8,8}},0,0}, {{{16,0,0}},1,0}};
+            for (auto& chunk : desired)
+            {
+                std::swap(chunk.origin[0],chunk.origin[axis]);
+                if (direction < 0)
+                    chunk.origin[axis] = -chunk.origin[axis]
+                        - static_cast<std::int32_t>(Cells << chunk.lod);
+            }
+            deriveMasks(desired);
+            std::vector<LodChunk> current;
+            LodTransaction transaction; std::string error;
+            require(planLodTransaction(current,desired,{0,0,0},config,transaction,error),error);
+            verifyTransaction(current,desired,transaction,config,true);
+            require(transaction.nextIndices.size()==4,"initial near coverage must remain promptly publishable");
+            for (const auto& chunk : transaction.next)
+                require(chunk.lod==0 && chunk.transitionMask==(1u << (axis*2+(direction>0))),
+                        "uncovered face did not anticipate its destination transition");
+            current=std::move(transaction.next);
+            require(planLodTransaction(current,desired,{0,0,0},config,transaction,error),error);
+            verifyTransaction(current,desired,transaction,config,true);
+            require(transaction.nextIndices.size()==1 && transaction.previousIndices.empty(),
+                    "coarse arrival regenerated already correct fine terrain");
+            require(spatialKeys(transaction.next)==spatialKeys(desired),"initial transition fixture did not converge");
+        }
+    std::cout<<"PASS initial transition reuse: six faces, four fine chunks emitted once before coarse arrival\n";
+}
+
 void checkLocalMovingSelection()
 {
     LodConfig config; config.cells = Cells; config.maxLod = 3; config.viewDistance = 48;
@@ -584,6 +621,7 @@ int main()
     }
     checkMovingSelection();
     checkLocalPriorities();
+    checkInitialTransitionReuse();
     checkLocalMovingSelection();
     checkDefaultTransactions();
     checkPlanningCache();

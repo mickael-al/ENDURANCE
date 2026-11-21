@@ -534,29 +534,33 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     // Idle terrain needs neither binding queries nor a full selection walk.
     std::optional<ComputeState> computeState;
     if (s.gpu.stats().pendingJobs) computeState.emplace();
-    s.completions.clear();
-    s.gpu.poll(s.completions);
-    s.gpu.trimObjectSectors(cameraPosition);
     bool failed = false;
-    for (const auto& result : s.completions)
+    const auto collectCompletions = [&]
     {
-        auto pending = s.pending.find(result.token);
-        if (pending == s.pending.end()) { s.gpu.release(result.mesh); continue; }
-        const ChunkKey key = pending->second;
-        s.pending.erase(pending);
-        s.submitted.erase(key);
-        if (!s.wanted.count(key)) { s.gpu.release(result.mesh); continue; }
-        if (result.status == CompletionStatus::Ready || result.status == CompletionStatus::Empty)
+        s.completions.clear();
+        s.gpu.poll(s.completions); // Zero-timeout fence checks, never wait for work.
+        for (const auto& result : s.completions)
         {
-            s.ready.emplace(key, Impl::ReadyChunk{result.mesh, result.hasMarineSurface});
-            s.collisionDirty = true;
+            auto pending = s.pending.find(result.token);
+            if (pending == s.pending.end()) { s.gpu.release(result.mesh); continue; }
+            const ChunkKey key = pending->second;
+            s.pending.erase(pending);
+            s.submitted.erase(key);
+            if (!s.wanted.count(key)) { s.gpu.release(result.mesh); continue; }
+            if (result.status == CompletionStatus::Ready || result.status == CompletionStatus::Empty)
+            {
+                s.ready.emplace(key, Impl::ReadyChunk{result.mesh, result.hasMarineSurface});
+                s.collisionDirty = true;
+            }
+            else if (result.status == CompletionStatus::Failed)
+            {
+                m_lastError = result.error.empty() ? "GPU terrain generation failed." : result.error;
+                failed = true;
+            }
         }
-        else if (result.status == CompletionStatus::Failed)
-        {
-            m_lastError = result.error.empty() ? "GPU terrain generation failed." : result.error;
-            failed = true;
-        }
-    }
+    };
+    collectCompletions();
+    s.gpu.trimObjectSectors(cameraPosition);
 
     const auto distanceSquared = [](const glm::vec3& a, const glm::vec3& b)
     {
@@ -708,53 +712,64 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
         }
     };
 
-    // Completion -> publication -> successor adoption -> submission all happen
-    // in this update. Bounded iteration also handles ready-only retirements,
-    // without spinning or blocking for the asynchronous planning worker.
-    for (unsigned step = 0; step < 4; ++step)
-    {
-        if (!failed) publishReady();
-        collectPlan();
-        discardStalePlan();
-        if (!failed && !s.blocked) activatePrepared();
-        requestPlan();
-        if (!s.active || !std::all_of(s.target.begin(), s.target.end(),
-            [&s](const ChunkKey& key) { return s.ready.count(key) != 0; })) break;
-    }
-
     std::uint32_t dispatched = 0;
-    if (!failed) for (const auto& key : s.target)
+    unsigned schedulingSteps = 0;
+    bool handoffRecorded = false;
+    // One extra nonblocking poll can advance a quick count to emission, or
+    // refill slots released by empty/cache jobs, without waiting a full frame.
+    // Both passes share the original submission and four-publication budgets;
+    // there are at most two polls/dispatches, never a fence-watching loop.
+    for (unsigned pass = 0; pass < 2; ++pass)
     {
-        if (s.ready.count(key) || s.submitted.count(key)) continue;
-        if (dispatched >= m_config.maxChunksPerFrame
-            || s.gpu.stats().pendingJobs >= m_config.maxInFlight) break;
-        if (!computeState) computeState.emplace();
-        ChunkRequest request;
-        request.origin = key.origin;
-        request.lod = key.lod;
-        request.transitionMask = key.mask;
-        request.seed = m_seed;
-        const auto token = s.nextToken++;
-        if (!s.gpu.submit(request, token))
+        for (; schedulingSteps < 4; )
         {
-            // A cancelled job can still occupy a fenced slot; retry when free.
-            if (!s.gpu.lastError().empty())
-            {
-                m_lastError = s.gpu.lastError();
-                failed = true;
-            }
-            break;
+            ++schedulingSteps;
+            if (!failed) publishReady();
+            collectPlan();
+            discardStalePlan();
+            if (!failed && !s.blocked) activatePrepared();
+            requestPlan();
+            if (!s.active || !std::all_of(s.target.begin(), s.target.end(),
+                [&s](const ChunkKey& key) { return s.ready.count(key) != 0; })) break;
         }
-        s.pending.emplace(token, key);
-        s.submitted.insert(key);
-        ++dispatched;
-    }
-    // One field batch for this update's chunks, including a prepared successor
-    // after publication, with the original per-frame and in-flight budgets.
-    if (dispatched && !failed)
-    {
-        s.gpu.dispatchQueued();
-        if (publishedThisUpdate) ++m_stats.sameFrameHandoffs;
+        const auto before = dispatched;
+        if (!failed) for (const auto& key : s.target)
+        {
+            if (s.ready.count(key) || s.submitted.count(key)) continue;
+            if (dispatched >= m_config.maxChunksPerFrame
+                || s.gpu.stats().pendingJobs >= m_config.maxInFlight) break;
+            if (!computeState) computeState.emplace();
+            ChunkRequest request;
+            request.origin = key.origin;
+            request.lod = key.lod;
+            request.transitionMask = key.mask;
+            request.seed = m_seed;
+            const auto token = s.nextToken++;
+            if (!s.gpu.submit(request, token))
+            {
+                // A cancelled job can still occupy a fenced slot; retry when free.
+                if (!s.gpu.lastError().empty())
+                {
+                    m_lastError = s.gpu.lastError();
+                    failed = true;
+                }
+                break;
+            }
+            s.pending.emplace(token, key);
+            s.submitted.insert(key);
+            ++dispatched;
+        }
+        if (dispatched != before && !failed)
+        {
+            s.gpu.dispatchQueued();
+            if (publishedThisUpdate && !handoffRecorded)
+            { ++m_stats.sameFrameHandoffs; handoffRecorded = true; }
+        }
+        if (pass || failed || !s.gpu.stats().pendingJobs) break;
+        collectCompletions();
+        // Advancing count -> emission needs no CPU publication work. Only
+        // actual completions can release slots or make a transaction ready.
+        if (failed || s.completions.empty()) break;
     }
     if (failed && s.active) failTarget();
     const auto queued = static_cast<std::uint32_t>(std::count_if(s.target.begin(), s.target.end(),
@@ -824,6 +839,10 @@ void ProceduralGeneration::update(const glm::vec3& cameraPosition)
     if (m_stats.plannerWaiting) ++m_stats.planningWaitFrames;
     m_stats.rebuilding = s.active || m_stats.cpuPlanning || s.preparedPlan
         || (!s.converged && !s.blocked);
+    m_stats.generationBlocked = s.blocked;
+    m_stats.coverageComplete = s.planned && s.converged && !s.blocked
+        && !m_stats.rebuilding && gpu.pendingJobs == 0 && queued == 0
+        && distanceSquared(cameraPosition, s.plannedPosition) < replanDistance * replanDistance;
     const auto now = std::chrono::steady_clock::now();
     if (m_stats.rebuilding && !s.timingCoverage)
     { s.coverageStart = now; s.timingCoverage = true; }
