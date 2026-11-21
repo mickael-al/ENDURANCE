@@ -43,6 +43,9 @@ inline std::map<unsigned,std::vector<unsigned char>> buffers;
 inline std::map<unsigned,Binding> uniformBindings;
 inline std::map<std::string,int> locations;
 inline std::map<int,float> floatUniforms;
+inline std::map<std::pair<unsigned,int>,float> programFloatUniforms;
+inline std::map<std::pair<unsigned,int>,unsigned> programUIntUniforms;
+inline std::map<std::pair<unsigned,int>,std::vector<unsigned>> programUIntArrays;
 }
 inline void glGetIntegerv(unsigned pname,GLint* x){
  *x=pname==GL_UNIFORM_BUFFER_BINDING?TerrainFixtureGL::uniform:
@@ -62,10 +65,13 @@ inline void glBindBufferBase(unsigned target,unsigned index,unsigned p){
 inline GLint glGetUniformLocation(unsigned,const char* name){
  auto& locations=TerrainFixtureGL::locations;auto it=locations.find(name);
  if(it!=locations.end())return it->second;int result=int(locations.size());locations[name]=result;return result;}
-inline void glProgramUniform1f(unsigned,int where,float value){
+inline void glProgramUniform1f(unsigned program,int where,float value){
+ TerrainFixtureGL::programFloatUniforms[{program,where}]=value;
  TerrainFixtureGL::floatUniforms[where]=value;++TerrainFixtureGL::uniformWrites;}
-inline void glProgramUniform1ui(unsigned,int,unsigned){}
-inline void glProgramUniform1uiv(unsigned,int,int,const unsigned*){}
+inline void glProgramUniform1ui(unsigned program,int where,unsigned value){
+ TerrainFixtureGL::programUIntUniforms[{program,where}]=value;}
+inline void glProgramUniform1uiv(unsigned program,int where,int count,const unsigned* values){
+ TerrainFixtureGL::programUIntArrays[{program,where}]={values,values+count};}
 inline void glProgramUniform1i(unsigned,int,int){} inline void glUniform1i(int,int){}
 inline GLuint glGetUniformBlockIndex(unsigned,const char*){return 0;}
 inline void glGetActiveUniformBlockiv(unsigned,unsigned,unsigned,GLint* value){*value=TerrainFixtureGL::blockBytes;}
@@ -107,14 +113,22 @@ class SettingManager {public:float gamma=2.2f;float getGamma()const{return gamma
 class ShaderPair {};
 struct ShaderCacheOptions {bool enabled=false;};
 class GraphiquePipeline {
- ShaderPair* pair=new ShaderPair;std::string error;
-public:bool isValid()const{return true;}const std::string& getLastError()const{return error;}
- unsigned getProgram()const{return 1;}ShaderPair* getShaderPair(){return pair;}
+ ShaderPair* pair=new ShaderPair;std::string error;unsigned program;bool valid;
+public:
+ GraphiquePipeline(unsigned id=1,bool success=true):program(id),valid(success){if(!valid)error="injected shader link failure";}
+ bool isValid()const{return valid;}const std::string& getLastError()const{return error;}
+ unsigned getProgram()const{return program;}ShaderPair* getShaderPair(){return pair;}
 };
 class GraphiquePipelineManager {
 public:
- unsigned activePipelines=0,registeredRenderers=0;
- template<class... T>GraphiquePipeline* createPipeline(T&&...){++activePipelines;return new GraphiquePipeline;}
+ unsigned activePipelines=0,registeredRenderers=0,createdPipelines=0;
+ bool failNextPipeline=false;
+ std::vector<std::string> createdDefines;
+ GraphiquePipeline* createPipeline(const std::string&,const std::string&,bool=false,bool=true,bool=false,
+  int=1,std::string define="",const ShaderCacheOptions& = ShaderCacheOptions{}) {
+  ++activePipelines;++createdPipelines;createdDefines.push_back(define);
+  const bool valid=!failNextPipeline;failNextPipeline=false;return new GraphiquePipeline(createdPipelines,valid);
+ }
  void destroyPipeline(GraphiquePipeline* p){--activePipelines;delete p;}
  void addCustomRenderer(CustomRenderer*){++registeredRenderers;}
  void removeCustomRenderer(CustomRenderer*){--registeredRenderers;}

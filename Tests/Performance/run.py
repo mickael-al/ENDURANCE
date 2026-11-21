@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -28,7 +29,8 @@ SOURCES=("ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp",
          "ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp",
          "ANTAGONIZ/Source/Rendering/Shader/ShaderProgramBatch.cpp",
          "ANTAGONIZ/Source/Rendering/Shader/ParallelShaderCompiler.cpp",
-         "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp")
+         "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp",
+         "ANTAGONIZ/Source/Rendering/Shader/Atmosphere.cpp")
 
 def scene(path):
     document=json.loads(path.read_text().replace("\0",""))
@@ -49,27 +51,49 @@ def scene(path):
 
 def build(root,library):
     library.parent.mkdir(parents=True,exist_ok=True)
+    def inputs():
+        support=sorted({path for base in (root/"ANTAGONIZ/Header",root/"ANTAGONIZ/Source",root/"Tests/Atmosphere/runtime_fixture")
+                        for suffix in ("*.hpp","*.h","*.inl") for path in base.rglob(suffix)})
+        return {"engine_root":str(root),"harness_sha256":hashlib.sha256((HERE/"benchmark.cpp").read_bytes()).hexdigest(),
+            "instrumentation_sha256":hashlib.sha256((HERE/"gl_call_probe.hpp").read_bytes()).hexdigest(),
+            "camera_fixture_sha256":hashlib.sha256((HERE/"runtime_fixture/Camera.hpp").read_bytes()).hexdigest(),
+            "source_sha256":{path:hashlib.sha256((root/path).read_bytes()).hexdigest() for path in SOURCES},
+            "support_sha256":{str(path.relative_to(root)):hashlib.sha256(path.read_bytes()).hexdigest() for path in support}}
+    provenance=inputs()
     with tempfile.TemporaryDirectory(prefix="endurance-perf-build-") as temporary:
         stb=Path(temporary)/"stb.o"
+        pending=Path(temporary)/"runner.so"
         subprocess.run([os.environ.get("CC","cc"),"-O2","-fPIC","-c",str(root/"ThirdParty/stb-cmake/stb_shared.c"),"-o",str(stb)],check=True)
         command=[os.environ.get("CXX","c++"),"-std=c++17","-O3","-ffast-math","-fPIC","-shared","-DGLEW_NO_GLU","-DENDURANCE_PERFORMANCE_SHARED","-pthread"]
+        command.extend(["-include",str(HERE/"gl_call_probe.hpp")])
+        command.extend(["-I",str(HERE/"runtime_fixture"),"-I",str(root/"Tests/Atmosphere/runtime_fixture")])
         if "allocationRevision" in (root/"ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainObjects.hpp").read_text():
             command.append("-DENDURANCE_PERF_ALLOCATION_REVISION")
         header=(root/"ANTAGONIZ/Header/ProjectUser/TreeRenderGpu.hpp").read_text()
         if all(name in header for name in ("transformedInstances","transformPagesBuilt","transformPagesReused","indirectCommands")):
             command.append("-DENDURANCE_PERF_INCREMENTAL_TREES")
+        if "shadowContentRevision(" in header:
+            command.append("-DENDURANCE_PERF_LAYER_TREE_REVISIONS")
         for path in ("ThirdParty","ThirdParty/glm","ANTAGONIZ/Header/Struct","ANTAGONIZ/Header/Miscellaneous",
                      "ANTAGONIZ/Header/Interface","ANTAGONIZ/Header/ProjectUser","ANTAGONIZ/Header/Rendering/Shader"):
             command.extend(["-I",str(root/path)])
         command.append(str(HERE/"benchmark.cpp")); command.extend(str(root/path) for path in SOURCES)
         glew=ctypes.util.find_library("GLEW")
         if not glew: raise RuntimeError("Install GLEW for the Linux runner or use the standalone CMake target")
-        command.extend([str(stb),"-l:"+glew,"-l:libGL.so.1","-l:libEGL.so.1","-o",str(library)])
+        command.extend([str(stb),"-l:"+glew,"-l:libGL.so.1","-l:libEGL.so.1","-o",str(pending)])
         subprocess.run(command,check=True)
-        provenance={"engine_root":str(root),"harness_sha256":hashlib.sha256((HERE/"benchmark.cpp").read_bytes()).hexdigest(),
-            "source_sha256":{path:hashlib.sha256((root/path).read_bytes()).hexdigest() for path in SOURCES},
-            "library_sha256":hashlib.sha256(library.read_bytes()).hexdigest()}
+        if provenance!=inputs():
+            raise RuntimeError("Sources changed during compilation; refusing to label a mixed build. Rebuild after edits finish.")
+        shutil.copy2(pending,library)
+        provenance["library_sha256"]=hashlib.sha256(library.read_bytes()).hexdigest()
         library.with_suffix(".manifest.json").write_text(json.dumps(provenance,indent=2)+"\n")
+
+def shader_digest(root):
+    paths=sorted((root/"Asset/Shader/ProceduralTerrain").rglob("*.glsl"))+sorted((root/"Asset/Shader/Noise").rglob("*.glsl"))+sorted((root/"ENDURANCE/Ressources/Shader/Trees").rglob("*.glsl"))+sorted((root/"Asset/Shader/Atmosphere").rglob("*.glsl"))
+    digest=hashlib.sha256()
+    for path in paths:
+        digest.update(str(path.relative_to(root)).encode()); digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)
@@ -91,6 +115,10 @@ def main():
     parser.add_argument("--frames",type=int,default=8)
     parser.add_argument("--resolution",type=int,default=320)
     parser.add_argument("--shadows",action="store_true")
+    parser.add_argument("--shadow-layers",type=int,default=0,choices=range(5),help="Actual tree depth passes, 0–4; --shadows remains an alias for one")
+    parser.add_argument("--shadow-resolution",type=int,default=128)
+    parser.add_argument("--cache-shadows",action="store_true",help="Use production ShadowMapCache with renderer content revisions")
+    parser.add_argument("--atmosphere",action="store_true",help="Add actual atmosphere/volumetric passes with explicitly reduced targets and Ultra sample counts")
     parser.add_argument("--library",type=Path,help="Reuse a runner compiled from the chosen engine root")
     parser.add_argument("--compile-only",action="store_true")
     parser.add_argument("--write-config",type=Path,help="Write standalone input JSON without compiling or running")
@@ -111,6 +139,8 @@ def main():
         manifest=library.with_suffix(".manifest.json")
         provenance=json.loads(manifest.read_text()) if manifest.exists() else {"warning":"Legacy runner without build manifest; rebuild for source provenance"}
         if provenance.get("engine_root",str(root))!=str(root):raise ValueError("Runner was compiled against a different engine root")
+        if provenance.get("library_sha256")!=hashlib.sha256(library.read_bytes()).hexdigest():raise ValueError("Runner binary does not match its manifest")
+        shaders_before=shader_digest(root)
         runner=ctypes.CDLL(str(library)); run=runner.endurance_performance
         run.argtypes=[ctypes.c_char_p]; run.restype=ctypes.c_char_p
         os.environ.setdefault("ENDURANCE_SHADER_CACHE_DIR",str(Path(tempfile.gettempdir())/"endurance-performance-shaders"))
@@ -121,13 +151,21 @@ def main():
             with GL():result=json.loads(run(json.dumps(options).encode()))
     result["host"]={"platform":platform.platform(),"cpu":platform.processor(),"logical_cpus":os.cpu_count()}
     result["provenance"]=provenance
-    shader_paths=sorted((root/"Asset/Shader/ProceduralTerrain").rglob("*.glsl"))+sorted((root/"Asset/Shader/Noise").rglob("*.glsl"))+sorted((root/"ENDURANCE/Ressources/Shader/Trees").rglob("*.glsl"))
-    digest=hashlib.sha256()
-    for path in shader_paths:
-        digest.update(str(path.relative_to(root)).encode()); digest.update(path.read_bytes())
-    result["provenance"]["runtime_shader_sha256"]=digest.hexdigest()
+    shaders_after=shader_digest(root)
+    result["provenance"]["runtime_shader_sha256"]=shaders_before
+    if shaders_before!=shaders_after: result["error"]="Runtime shader files changed during measurement; result is not a valid comparison"
     catalogue=root/"ENDURANCE/Ressources/Trees/object_placement.json"
     result["provenance"]["placement_catalogue_sha256"]=hashlib.sha256(catalogue.read_bytes()).hexdigest()
+    if args.scenario=="trees":
+        assets=[]
+        for prototype in json.loads(catalogue.read_text())["prototypes"][:args.models]:
+            folder=catalogue.parent/prototype["asset"]
+            digest=hashlib.sha256()
+            for path in sorted(folder.rglob("*")):
+                if path.is_file():
+                    digest.update(str(path.relative_to(folder)).encode()); digest.update(path.read_bytes())
+            assets.append({"asset":prototype["asset"],"sha256":digest.hexdigest()})
+        result["provenance"]["baked_assets"]=assets
     try:
         result["provenance"]["commit"]=subprocess.check_output(["git","rev-parse","HEAD"],cwd=root,text=True).strip()
         result["provenance"]["dirty"]=bool(subprocess.check_output(["git","status","--porcelain"],cwd=root,text=True))

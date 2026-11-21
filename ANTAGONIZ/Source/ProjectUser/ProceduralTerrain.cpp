@@ -188,6 +188,19 @@ void ProceduralTerrainComponent::onGUI()
     int selected = std::clamp<int>(biomeOverride, -1, 25) + 1;
     if (ImGui::Combo("Biome a tester", &selected, biomeNames, 27))
         biomeOverride = selected - 1;
+    ImGui::Checkbox("Afficher les LOD (shader debug)", &debugLod);
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Change de variante de shader sans regenerer le terrain.\n"
+            "La premiere activation peut compiler le programme ; le rendu normal ne contient pas ce debug.");
+    if (m_generator && debugLod != m_generator->getConfig().debugLod)
+    {
+        if (!m_generator->setTerrainDebugLod(debugLod))
+        {
+            debugLod = m_generator->getConfig().debugLod;
+            m_materialError = m_generator->getLastError();
+        }
+        else m_materialError.clear();
+    }
     if (Endurance::drawTerrainMaterialEditor(appearance, microDetailStrength, microDetailScale, m_materialBiome))
     {
         m_materialError.clear();
@@ -278,7 +291,7 @@ void ProceduralTerrainComponent::onGUI()
         if (ImGui::Checkbox("Mesurer les saccades", &timings))
             rendering.setFrameTimingsEnabled(timings);
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Mesure les appels CPU et leurs attentes pendant drawFrame, pas le temps GPU.\n"
+            ImGui::SetTooltip("Mesure le CPU et une chronologie GPU recueillie sans attente bloquante.\n"
                 "Les comportements executes avant drawFrame ne sont pas inclus.\n"
                 "Desactiver fige les mesures. Remettre a zero apres le chargement pour isoler un nouveau pic.\n"
                 "Ne pas interrompre le debogueur pendant la capture : la pause serait comptee dans le pic.");
@@ -302,6 +315,24 @@ void ProceduralTerrainComponent::onGUI()
                         "Swap peut inclure l'attente VSync : ce n'est pas une mesure isolee du GPU.");
             }
             else ImGui::TextUnformatted("Waiting for a complete measured frame...");
+            const auto& profiler = rendering.getGpuFrameProfiler();
+            const auto& gpu = profiler.last();
+            const auto& gpuPeak = profiler.peak();
+            if (gpu.sampleNumber)
+            {
+                ImGui::Text("Chronologie GPU : %.3f ms / pic %.3f ms", gpu.totalMilliseconds, gpuPeak.totalMilliseconds);
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Resultats differes, sans HUD ni presentation.\n"
+                        "Les intervalles peuvent inclure les pauses du GPU en attente de commandes CPU.\n"
+                        "Les valeurs suivantes appartiennent a la derniere image GPU mesuree.");
+                static const char* labels[] = {"Preparation", "Opaque", "Ombres", "Atmosphere", "Eclairage", "Transparence", "Post-traitement"};
+                for (unsigned i = 0; i < Ge::FrameGpuProfiler::StageCount; ++i)
+                    ImGui::Text("  %s : %.3f ms", labels[i], gpu.milliseconds[i]);
+            }
+            else if (timings) ImGui::TextUnformatted("Chronologie GPU en attente de resultats...");
+            if (profiler.droppedSamples())
+                ImGui::Text("Echantillons GPU ignores (file pleine) : %llu",
+                    static_cast<unsigned long long>(profiler.droppedSamples()));
         }
     }
     if (!m_generator) return;

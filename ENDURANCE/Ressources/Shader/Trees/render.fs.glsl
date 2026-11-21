@@ -11,7 +11,6 @@ layout(location=3) out vec3 gOther;
 layout(binding=0) uniform sampler2D uSurface;
 layout(binding=1) uniform sampler2DArray uAlbedo;
 layout(binding=2) uniform sampler2DArray uNormal;
-uniform int uKind;
 uniform float uGamma;
 in vec2 uv;
 #if !TREE_SHADOW
@@ -62,10 +61,14 @@ void main()
 #endif
 #else
 #if TREE_SHADOW
-        if(uKind==1 && texture(uSurface,uv).a<0.5) discard;
+#if TREE_FOLIAGE
+        if(texture(uSurface,uv).a<0.5) discard;
+#endif
 #else
         vec4 surface=texture(uSurface,uv);
-        if(uKind==1 && surface.a<0.5) discard;
+#if TREE_FOLIAGE
+        if(surface.a<0.5) discard;
+#endif
         albedo=color*surface.rgb;
 #endif
 #endif
@@ -73,6 +76,12 @@ void main()
     gPosition=geGBufferPackPosition(viewPosition,tag);
     gNormal=dot(N,N)>0.00001?normalize(N):vec3(0,1,0);
     gColor=vec4(pow(max(albedo,vec3(0)),vec3(1.0/max(uGamma,0.001))),1);
-    gOther=vec3(0,uKind==0?0.9:(uKind==1?0.82:0.86),1);
+#if TREE_IMPOSTOR
+    gOther=vec3(0,0.86,1);
+#elif TREE_FOLIAGE
+    gOther=vec3(0,0.82,1);
+#else
+    gOther=vec3(0,0.9,1);
+#endif
 #endif
 }

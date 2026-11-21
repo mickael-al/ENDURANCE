@@ -147,7 +147,7 @@ c++ -std=c++17 -O3 -ffast-math \
 /tmp/endurance-check-frustum
 
 c++ -std=c++17 -O3 -ffast-math \
-  -I ANTAGONIZ/Header/Miscellaneous -I ThirdParty/glm \
+  -I ANTAGONIZ/Header/Miscellaneous -I ANTAGONIZ/Header/Interface -I ThirdParty/glm \
   Tests/Terrain/check_visibility.cpp -o /tmp/endurance-check-visibility
 /tmp/endurance-check-visibility
 
@@ -945,3 +945,28 @@ to the reference. Pass `--previous-shaders` with the primitive-based cave versio
 in the local before/after figure. The network figure shows actual horizontal
 and vertical cuts through a measured chamber without vertical exaggeration.
 See [controls and implementation](../../docs/TUNDRA_CAVES.md).
+
+Shadow visibility now has a per-layer content token derived from the exact
+selected immutable mesh handles. A publication outside that layer or a different
+publication order does not invalidate its depth map. Slot reuse, changed vertex
+ranges, empty transitions and generator lifetimes do invalidate it. The query
+and draw share the same selection, so querying the token does not duplicate
+frustum work. `check_visibility.cpp` exercises these transitions.
+
+Terrain inspection views (`DEBUG_TERRAIN_LOD`, `DEBUG_TERRAIN_MATERIAL`) and
+microdetail disabled/enabled use lazy compiled variants. At most eight terrain
+render variants remain resident per generator; source defines also enter the
+existing disk binary-cache key. No terrain is regenerated when toggling a view,
+and compilation/ABI failure retains the prior displayed appearance. Numeric
+palette and noise sliders remain uniforms. A forced biome is specialized for
+the lifetime of the terrain generator, while normal climate/coastal blending
+remains per fragment. `Tests/TerrainMaterials/check_runtime.py` verifies bounded
+cache lifetime, failed-build rollback and complete uniform restoration when
+reactivating cached programs. The actual GLSL comparison command is
+`python Tests/TerrainMaterials/check_revision_equivalence.py --baseline-ref 16bb573 --bounds --normal-epsilon 0.0002`.
+On Mesa llvmpipe it checks 914 cases against the previous implementation: color
+and signed depth/tags are bit-identical, PBR error is at most 2.39e-7, and normal
+reassociation from specialization reaches 1.72e-4 per component / 0.01586 degrees
+at extreme valid material settings. Only the normal attachment uses the explicit
+2e-4 tolerance; other attachments retain the 2e-6 default. The independent
+material suite also checks normal length, continuity and authored PBR bounds.

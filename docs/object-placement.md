@@ -121,6 +121,12 @@ n'alloue pas de pool et n'exécute pas de collecte.
    256 enregistrements avec 64 cellules, `cellSize = 1` et les réglages du
    catalogue, contre 1 024 auparavant, **pas le maillage**. La limite du système
    reste 1 024 avec une grille horizontale de 16 × 16 et quatre bandes verticales.
+   Un seul groupe de 64 threads construit un histogramme en mémoire partagée,
+   calcule les offsets des modèles et écrit les positions dans une réserve
+   commune de taille `sites`. Il remplace tous les compteurs, y compris les
+   types vides, sans remise à zéro GPU séparée ni atomiques globaux de compactage.
+   Le nombre de sites et de modèles sont des constantes de compilation pour
+   ce catalogue ; aucune variante n'est compilée pendant la génération.
    La fence de fin d'émission du terrain couvre aussi ce travail.
 
 Le réglage des clairières réutilise exactement les deux échantillons de bruit
@@ -167,10 +173,13 @@ sans se servir de l'index d'allocation. Les palettes restent celles des exports.
 
 Chaque modèle possède sa plage dans un buffer unique. Des pages de 64 places
 sont attribuées aux secteurs. Avec les 102 variantes à 65 536 places chacune,
-la réserve vaut **51 Mio**, hors maillages et textures. La zone temporaire est
-d'environ **0,60 Mio pour trois travaux en vol** avec 64 cellules,
-`cellSize = 1` et le catalogue actuel, contre environ 2,4 Mio auparavant.
-Elle dépend du nombre de candidats, de variantes et de travaux en vol.
+la réserve vaut **51 Mio**, hors maillages et textures. Avec 64 cellules,
+`cellSize = 1` et le catalogue actuel, la zone temporaire totale vaut
+**29 248 octets pour huit travaux en vol**, contre 1 684 032 avant le compactage
+partagé. Un site ne peut produire qu'une position gagnante ; réserver une plage
+de `sites` positions pour chacun des 102 modèles gaspillait donc de l'espace.
+Les positions temporaires dépendent désormais du nombre de sites et de travaux,
+seuls les compteurs dépendent aussi du nombre de variantes.
 Les compteurs lus côté CPU
 occupent 408 octets par travail. Réduire les capacités des variantes rares est
 possible ; les pages partiellement occupées consomment leur capacité entière.
@@ -188,6 +197,11 @@ publiés change réellement. Une publication de terrain lointain sans nouveaux
 arbres, un raccord ou un changement de LOD conservant les mêmes pages ne
 réinitialise donc plus les caches du renderer et des ombres. Les statistiques
 de secteurs et d'instances continuent d'être actualisées indépendamment.
+Le recalcul et le tri de cette liste sont aussi évités lorsque ni les pages ni
+leur couverture n'ont changé. La recherche des ancêtres de terrain utilise un
+tableau contigu réutilisé et les seuls LOD effectivement présents, au lieu de
+recréer une table de nœuds à chaque transaction. `publicationChecks`,
+`publicationRebuilds` et `coarseCoverageLookups` exposent ces opérations.
 
 Chaque nouvelle page reçoit un numéro d'allocation monotone
 `ObjectBlock::allocationRevision`, côté CPU uniquement. Son contenu GPU est
@@ -227,7 +241,16 @@ positives/négatives/entières, les secteurs partiels, les changements de LOD,
 les annulations, le débordement des pools, le recyclage, les biomes exclus,
 la pente, la mer et le filtre frustum. Ils vérifient aussi que les publications
 de terrain sans changement d'arbres gardent leur révision et qu'une page
-recyclée reçoit une nouvelle identité d'allocation.
+recyclée reçoit une nouvelle identité d'allocation. Le catalogue maximal de
+255 types et le coût constant du stockage temporaire des positions sont
+également couverts.
+
+`python Tests/Trees/check_compaction.py --output /tmp/tree-compaction.json`
+compare directement l'ancien noyau de compactage et le noyau actuel sur le GPU.
+Les 24 cas couvrent 1 à 1 024 sites, 1 à 255 types, les sorties vides, pleines
+et réutilisées ainsi que des identifiants invalides. Les comptes et les
+positions compactées sont identiques par type, indépendamment de leur ordre
+d'écriture ; les sentinelles contrôlent les limites de chaque plage.
 
 `python Tests/Trees/check_distribution.py` mesure le masque avec les fonctions
 GLSL de production sur une région de **16,384 × 16,384 km**, seed 1337 par

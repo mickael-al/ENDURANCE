@@ -1,0 +1,100 @@
+[
+  {
+    "file": "fallback.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "instances.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "lod0.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "lod1.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "lod3.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "ortho.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "transition01.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "transition13.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "view0.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "view12.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "view16.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "view3.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "view7.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  },
+  {
+    "file": "view8.png",
+    "pixels": 102400,
+    "changed_pixels": 0,
+    "max_channel_delta": 0,
+    "mean_channel_delta": 0.0
+  }
+]

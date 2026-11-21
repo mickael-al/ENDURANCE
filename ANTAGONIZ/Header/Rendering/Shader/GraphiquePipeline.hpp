@@ -33,6 +33,9 @@ namespace Ge
 		bool isValid() const noexcept { return m_program != 0; }
 		const std::string& getLastError() const noexcept { return m_error; }
 		ShaderPair * getShaderPair() const;
+        // Linked-program locations, reused by all ordinary model passes.
+        int getObjectOffsetLocation() const;
+        int getShadowOffsetLocation() const;
         std::uint64_t shadowContentRevision() const noexcept { return m_shadowContent.value(); }
         void invalidateShadowContent() noexcept { m_shadowContent.invalidate(); }
 	private:
@@ -41,6 +44,9 @@ namespace Ge
 		unsigned int m_program = 0;
 		std::string m_error;
         ShadowContentToken m_shadowContent;
+        void updateDrawLocations() const;
+        mutable std::uint64_t m_drawLocationsRevision = 0;
+        mutable int m_objectOffsetLocation = -1, m_shadowOffsetLocation = -1;
 	};
 }
 

@@ -20,6 +20,7 @@
 #include "CustomRenderer.hpp"
 #include "FrameBuffer.hpp"
 #include "Textures.hpp"
+#include "TextureBindings.hpp"
 #include "Lights.hpp"
 #include "SSAOBuffer.hpp"
 #include "Camera.hpp"
@@ -333,6 +334,7 @@ namespace Ge
 	
     void RenderingEngine::release()
     {        	
+        m_gpuFrameProfiler.release();
 		RenderingEngine::m_skinnedTransformManager->release();
 		m_atmosphere->release();
 		RenderingEngine::m_skybox->release();
@@ -408,6 +410,7 @@ namespace Ge
     {
         m_lastFrameTimings = FrameTimings{};
         m_peakFrameTimings = FrameTimings{};
+        m_gpuFrameProfiler.reset();
         ++m_frameTimingEpoch;
     }
 
@@ -444,6 +447,7 @@ namespace Ge
 		m_cameraManager->updateFlyCam();
 		m_atmosphere->prepareShadows();
         endPhase(timings.cameraMilliseconds);
+        m_gpuFrameProfiler.begin(measureFrame, timingEpoch);
 		const auto& customRenderers = m_graphiquePipelineManager->getCustomRenderer();
 		for (CustomRenderer* renderer : customRenderers)
 		{
@@ -452,6 +456,7 @@ namespace Ge
 		m_lightManager->prepareShadowCasterBounds(customRenderers);
 		m_atmosphere->prepare(m_cameraManager->getCurrentCamera(),
 			m_ptrClass->time ? m_ptrClass->time->getDeltaTime() : 0.0);
+        m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::Preparation);
         endPhase(timings.prepareMilliseconds);
 		m_shaderDataMisc->update(m_cameraManager->getCurrentCamera());
 		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFrameBuffer());
@@ -507,24 +512,21 @@ namespace Ge
 			}
 			currentPipeline = material->getPipeline();
 			unsigned int program = currentPipeline->getProgram();
-			glUseProgram(program);
 			ShaderPair* sp = currentPipeline->getShaderPair();
 			if (sp->transparency)
 			{
 				transparency = true;
 				break;
 			}
-			auto& mku = instanced_models[material];
-			glActiveTexture(GL_TEXTURE0);
-			glBindTexture(GL_TEXTURE_2D, material->getAlbedoTexture()->getTextureID());
-			glActiveTexture(GL_TEXTURE1);
-			glBindTexture(GL_TEXTURE_2D, material->getNormalTexture()->getTextureID());
-			glActiveTexture(GL_TEXTURE2);
-			glBindTexture(GL_TEXTURE_2D, material->getMetallicTexture()->getTextureID());
-			glActiveTexture(GL_TEXTURE3);
-			glBindTexture(GL_TEXTURE_2D, material->getRoughnessTexture()->getTextureID());
-			glActiveTexture(GL_TEXTURE4);
-			glBindTexture(GL_TEXTURE_2D, material->getOclusionTexture()->getTextureID());
+            const auto groups = instanced_models.find(material);
+            if (groups == instanced_models.end() || groups->second.empty()) continue;
+            auto& mku = groups->second;
+            glUseProgram(program);
+			const unsigned textureSet[5] = {
+			    material->getAlbedoTexture()->getTextureID(), material->getNormalTexture()->getTextureID(),
+			    material->getMetallicTexture()->getTextureID(), material->getRoughnessTexture()->getTextureID(),
+			    material->getOclusionTexture()->getTextureID()};
+			bindTexture2DSet(0, 5, textureSet);
 			if (material->getDepthTest() != currentDepthTest)
 			{
 				currentDepthTest = material->getDepthTest();
@@ -561,7 +563,7 @@ namespace Ge
 					currentShape = buffer.first;
 					glBindVertexArray(currentShape->getVAO());
 					glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, currentShape->getIBO());
-					glUniform1i(glGetUniformLocation(program, "offsetUbo"), buffer.second[0]->getIndex());
+					glUniform1i(currentPipeline->getObjectOffsetLocation(), buffer.second[0]->getIndex());
 					glDrawElementsInstanced(GL_TRIANGLES, currentShape->getIndiceSize(), GL_UNSIGNED_INT, nullptr, buffer.second.size() + material->getAditionalInstanced());
 				}
 			}
@@ -580,6 +582,7 @@ namespace Ge
 			glMemoryBarrier(GL_FRAMEBUFFER_BARRIER_BIT);
 			glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, 0, 0);
 		}
+        m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::Opaque);
 		/*  Shadow  */
 		
 		glDisable(GL_CULL_FACE);
@@ -608,8 +611,8 @@ namespace Ge
 			currentPipeline = m_graphicsDataMisc->str_default_pipeline_shadow;
 			unsigned int program = currentPipeline->getProgram();
 			glUseProgram(program);
-			int uboU = glGetUniformLocation(program, "offsetUbo");
-			int shadowU = glGetUniformLocation(program, "offsetShadow");
+			int uboU = currentPipeline->getObjectOffsetLocation();
+			int shadowU = currentPipeline->getShadowOffsetLocation();
 
 			for (auto& material : matlist)
 			{
@@ -618,14 +621,17 @@ namespace Ge
 					continue;
 				}
 				if (!material->getDepthTest()) continue;
+                const auto groups = instanced_models.find(material);
+                if (groups == instanced_models.end() || groups->second.empty()) continue;
+                auto& mku = groups->second;
 				GraphiquePipeline* sp = material->getShadowPipeline();
 				if (sp != currentPipeline && sp != nullptr)
 				{
 					currentPipeline = sp;
 					program = currentPipeline->getProgram();
 					glUseProgram(program);
-					uboU = glGetUniformLocation(program, "offsetUbo");
-					shadowU = glGetUniformLocation(program, "offsetShadow");
+					uboU = currentPipeline->getObjectOffsetLocation();
+					shadowU = currentPipeline->getShadowOffsetLocation();
 					glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_shaderDataMisc->getSSBO());
 				}
 				// Buffers belong to the material/instance, not to the pipeline.
@@ -635,7 +641,6 @@ namespace Ge
 				{
 					glBindBufferBase(GL_SHADER_STORAGE_BUFFER, j + 4, assbo[j]);
 				}
-				auto& mku = instanced_models[material];
 				glActiveTexture(GL_TEXTURE0);
 				glBindTexture(GL_TEXTURE_2D, material->getAlbedoTexture()->getTextureID());
 				for (auto& buffer : mku)
@@ -666,10 +671,12 @@ namespace Ge
             m_lightManager->shadowMapRendered(static_cast<unsigned>(i));
 		}
         m_lightManager->finishShadowMaps();
+        m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::Shadows);
 		glCullFace(GL_BACK);
 		/*  Shadow  */
 		
 		m_atmosphere->computeVolumes(m_cameraManager->getCurrentCamera());
+        m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::Atmosphere);
 
 		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFowardFrameBuffer());		
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_cameraManager->getSSBO());
@@ -696,7 +703,8 @@ namespace Ge
 		glBindTexture(GL_TEXTURE_CUBE_MAP, m_skybox->getPrefilterMap());
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, m_skybox->getBrdfLUTTexture());
-		m_atmosphere->bindLighting(m_graphicsDataMisc->str_default_pipeline_forward->getProgram());
+		m_atmosphere->bindLighting(m_graphicsDataMisc->str_default_pipeline_forward->getProgram(), false,
+            m_graphicsDataMisc->str_default_pipeline_forward->shadowContentRevision());
 		glUseProgram(m_graphicsDataMisc->str_default_pipeline_forward->getProgram());
 		glViewport(0, 0, m_graphicsDataMisc->str_width, m_graphicsDataMisc->str_height);
 
@@ -704,6 +712,7 @@ namespace Ge
 		glBindVertexArray(sb->getVAO());
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, sb->getIBO());
 		glDrawElements(GL_TRIANGLES, sb->getIndiceSize(), GL_UNSIGNED_INT, 0);
+        m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::Lighting);
 		
 		if (transparency)
 		{			
@@ -737,29 +746,26 @@ namespace Ge
 				}
 				currentPipeline = mat->getPipeline();
 				unsigned int program = currentPipeline->getProgram();
-				m_atmosphere->bindLighting(program, true);
-				glUseProgram(program);
 				ShaderPair* sp = currentPipeline->getShaderPair();
 				if (!sp->transparency)
 				{
 					break;
 				}
+                const auto groups = instanced_models.find(mat);
+                if (groups == instanced_models.end() || groups->second.empty()) continue;
+                auto& mku = groups->second;
+                m_atmosphere->bindLighting(program, true, currentPipeline->shadowContentRevision());
+                glUseProgram(program);
 				if (mat->getDepthWrite() != currentDepthWrite)
 				{
 					currentDepthWrite = mat->getDepthWrite();
 					glDepthMask(currentDepthWrite ? GL_TRUE : GL_FALSE);
 				}
-				auto& mku = instanced_models[mat];
-				glActiveTexture(GL_TEXTURE0);
-				glBindTexture(GL_TEXTURE_2D, mat->getAlbedoTexture()->getTextureID());
-				glActiveTexture(GL_TEXTURE1);
-				glBindTexture(GL_TEXTURE_2D, mat->getNormalTexture()->getTextureID());
-				glActiveTexture(GL_TEXTURE2);
-				glBindTexture(GL_TEXTURE_2D, mat->getMetallicTexture()->getTextureID());
-				glActiveTexture(GL_TEXTURE3);
-				glBindTexture(GL_TEXTURE_2D, mat->getRoughnessTexture()->getTextureID());
-				glActiveTexture(GL_TEXTURE4);
-				glBindTexture(GL_TEXTURE_2D, mat->getOclusionTexture()->getTextureID());				
+				const unsigned textureSet[5] = {
+				    mat->getAlbedoTexture()->getTextureID(), mat->getNormalTexture()->getTextureID(),
+				    mat->getMetallicTexture()->getTextureID(), mat->getRoughnessTexture()->getTextureID(),
+				    mat->getOclusionTexture()->getTextureID()};
+				bindTexture2DSet(0, 5, textureSet);
 
 				if (sp->cullMode == 2)
 				{
@@ -778,7 +784,7 @@ namespace Ge
 						currentShape = buffer.first;
 						glBindVertexArray(currentShape->getVAO());
 						glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, currentShape->getIBO());
-						glUniform1i(glGetUniformLocation(program, "offsetUbo"), buffer.second[0]->getIndex());
+						glUniform1i(currentPipeline->getObjectOffsetLocation(), buffer.second[0]->getIndex());
 						glDrawElementsInstanced(GL_TRIANGLES, currentShape->getIndiceSize(), GL_UNSIGNED_INT, nullptr, buffer.second.size() + mat->getAditionalInstanced());
 						glTextureBarrier();
 					}
@@ -802,11 +808,14 @@ namespace Ge
 			glDisable(GL_BLEND);
 		}
 
+        m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::Transparency);
 		// Tone mapping/bloom, then optional depth of field and tint. HUD stays sharp.
 		m_postProcess->setAtmosphereActive(m_atmosphere->active());
 		m_postProcess->compute(m_frameBuffer->getFowardFrameBuffer(), m_frameBuffer->getColorFoward(), m_frameBuffer->getDepth(), m_modelManager->getDefferedQuad());
 		
-		m_hud->render();		
+        m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::PostProcess);
+		m_hud->render();
+        m_gpuFrameProfiler.end(m_frameTimingsEnabled, m_frameTimingEpoch);
 		if (transparency)
 		{
 			glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFrameBuffer());

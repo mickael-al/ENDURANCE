@@ -83,6 +83,7 @@ namespace ProceduralTerrain
         std::uint64_t poolBytes = 0, scratchBytes = 0, revision = 0;
         std::uint64_t captureJobs = 0, cachedJobs = 0, generatedInstances = 0;
         std::uint64_t capacityFailures = 0, sectorFailures = 0;
+        std::uint64_t publicationChecks = 0, publicationRebuilds = 0, coarseCoverageLookups = 0;
     };
 
     // Integer anchor, also used by the GLSL candidate generator. Independent

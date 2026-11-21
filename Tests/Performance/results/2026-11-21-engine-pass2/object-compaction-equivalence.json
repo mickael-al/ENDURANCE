@@ -1,0 +1,203 @@
+{
+  "scope": "GPU exact compaction equivalence, not target-hardware timing",
+  "source_sha256": {
+    "objects_common.glsl": "7caafd9397f4e7c8263ab93bcd4c44055966a94ade90595d4f15db5c589b54f8",
+    "objects_compact.C.glsl": "0f10d355b81ef98a057b71fce9494ac70dcd8c9348216450e8ce99df47baf47d"
+  },
+  "cases": [
+    {
+      "sites": 1,
+      "types": 1,
+      "pattern": "full",
+      "positions": 1,
+      "old_output_bytes": 8,
+      "new_output_bytes": 8
+    },
+    {
+      "sites": 1,
+      "types": 1,
+      "pattern": "sparse",
+      "positions": 1,
+      "old_output_bytes": 8,
+      "new_output_bytes": 8
+    },
+    {
+      "sites": 1,
+      "types": 1,
+      "pattern": "one-type",
+      "positions": 1,
+      "old_output_bytes": 8,
+      "new_output_bytes": 8
+    },
+    {
+      "sites": 1,
+      "types": 1,
+      "pattern": "invalid",
+      "positions": 0,
+      "old_output_bytes": 8,
+      "new_output_bytes": 8
+    },
+    {
+      "sites": 1,
+      "types": 1,
+      "pattern": "empty",
+      "positions": 0,
+      "old_output_bytes": 8,
+      "new_output_bytes": 8
+    },
+    {
+      "sites": 1,
+      "types": 1,
+      "pattern": "full-again",
+      "positions": 1,
+      "old_output_bytes": 8,
+      "new_output_bytes": 8
+    },
+    {
+      "sites": 64,
+      "types": 3,
+      "pattern": "full",
+      "positions": 64,
+      "old_output_bytes": 1536,
+      "new_output_bytes": 512
+    },
+    {
+      "sites": 64,
+      "types": 3,
+      "pattern": "sparse",
+      "positions": 10,
+      "old_output_bytes": 1536,
+      "new_output_bytes": 512
+    },
+    {
+      "sites": 64,
+      "types": 3,
+      "pattern": "one-type",
+      "positions": 64,
+      "old_output_bytes": 1536,
+      "new_output_bytes": 512
+    },
+    {
+      "sites": 64,
+      "types": 3,
+      "pattern": "invalid",
+      "positions": 42,
+      "old_output_bytes": 1536,
+      "new_output_bytes": 512
+    },
+    {
+      "sites": 64,
+      "types": 3,
+      "pattern": "empty",
+      "positions": 0,
+      "old_output_bytes": 1536,
+      "new_output_bytes": 512
+    },
+    {
+      "sites": 64,
+      "types": 3,
+      "pattern": "full-again",
+      "positions": 64,
+      "old_output_bytes": 1536,
+      "new_output_bytes": 512
+    },
+    {
+      "sites": 256,
+      "types": 102,
+      "pattern": "full",
+      "positions": 256,
+      "old_output_bytes": 208896,
+      "new_output_bytes": 2048
+    },
+    {
+      "sites": 256,
+      "types": 102,
+      "pattern": "sparse",
+      "positions": 37,
+      "old_output_bytes": 208896,
+      "new_output_bytes": 2048
+    },
+    {
+      "sites": 256,
+      "types": 102,
+      "pattern": "one-type",
+      "positions": 256,
+      "old_output_bytes": 208896,
+      "new_output_bytes": 2048
+    },
+    {
+      "sites": 256,
+      "types": 102,
+      "pattern": "invalid",
+      "positions": 170,
+      "old_output_bytes": 208896,
+      "new_output_bytes": 2048
+    },
+    {
+      "sites": 256,
+      "types": 102,
+      "pattern": "empty",
+      "positions": 0,
+      "old_output_bytes": 208896,
+      "new_output_bytes": 2048
+    },
+    {
+      "sites": 256,
+      "types": 102,
+      "pattern": "full-again",
+      "positions": 256,
+      "old_output_bytes": 208896,
+      "new_output_bytes": 2048
+    },
+    {
+      "sites": 1024,
+      "types": 255,
+      "pattern": "full",
+      "positions": 1024,
+      "old_output_bytes": 2088960,
+      "new_output_bytes": 8192
+    },
+    {
+      "sites": 1024,
+      "types": 255,
+      "pattern": "sparse",
+      "positions": 147,
+      "old_output_bytes": 2088960,
+      "new_output_bytes": 8192
+    },
+    {
+      "sites": 1024,
+      "types": 255,
+      "pattern": "one-type",
+      "positions": 1024,
+      "old_output_bytes": 2088960,
+      "new_output_bytes": 8192
+    },
+    {
+      "sites": 1024,
+      "types": 255,
+      "pattern": "invalid",
+      "positions": 682,
+      "old_output_bytes": 2088960,
+      "new_output_bytes": 8192
+    },
+    {
+      "sites": 1024,
+      "types": 255,
+      "pattern": "empty",
+      "positions": 0,
+      "old_output_bytes": 2088960,
+      "new_output_bytes": 8192
+    },
+    {
+      "sites": 1024,
+      "types": 255,
+      "pattern": "full-again",
+      "positions": 1024,
+      "old_output_bytes": 2088960,
+      "new_output_bytes": 8192
+    }
+  ],
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "identical_positions": 5124
+}

@@ -1,6 +1,6 @@
 # ENDURANCE performance fixtures
 
-This runner measures the **production terrain GPU backend and tree renderer**, not a replacement algorithm. It reads the actual `Terrain.scene` settings, seed and camera. The separate `selection` fixture measures the real LOD selector without creating an OpenGL context.
+This runner measures the **production terrain GPU backend, tree renderer, shadow cache and optional atmosphere passes**, not a replacement algorithm. It reads the actual `Terrain.scene` settings, seed and camera. The separate `selection` fixture measures the real LOD selector without creating an OpenGL context.
 
 It deliberately does **not** report whole-game FPS. Terrain scheduling, terrain materials, deferred lighting, SSAO, atmosphere, sea, physics and the editor are not all present in this harness. The generation fixture directly submits the selected final coverage; it does not include temporary parent meshes produced by progressive scene streaming. Use the in-game generation telemetry and a GPU profiler to confirm the final 10-second / 40-FPS goals on the target GTX 1660.
 
@@ -16,7 +16,7 @@ python Tests/Performance/run.py --library /tmp/endurance-perf.so --scenario gene
 python Tests/Performance/run.py --library /tmp/endurance-perf.so --scenario trees --instances 1024 --models 1 --frames 30 --output trees.json
 ```
 
-`--engine-root` builds against an isolated baseline checkout, including that checkout's shaders and baked assets. Use a different `--library` path for each revision. The runner writes a build manifest beside the library, with source and binary hashes. Runtime options and checkout identity are also included in each JSON report. Runtime-loaded shaders/assets can change independently of the compiled library: freeze the checkout while measuring.
+`--engine-root` builds against an isolated baseline checkout, including that checkout's shaders and baked assets. Use a different `--library` path for each revision. The runner writes a build manifest beside the library, with source/header, instrumentation and binary hashes, and rejects source changes during compilation. Runtime shader changes during a measurement also invalidate the report. Runtime options and checkout identity are also included in each JSON report. Runtime-loaded shaders/assets can change independently of the compiled library: freeze the checkout while measuring.
 
 ## Windows / target hardware
 
@@ -62,11 +62,21 @@ Do not run competing GPU tests at the same time. Keep resolution, power mode and
 
 ### Trees
 
-The fixture uses the actual baked models and production G-buffer shaders, fixed hashed positions and fixed scale 1. Camera, instance count, model count, resolution and optional single shadow pass are explicit. Instance pages have stable allocation identities when supported by the tested revision.
+The fixture uses the actual baked models and production G-buffer shaders, fixed hashed positions and fixed scale 1. Camera, instance count, model count, resolution and zero to four depth-only shadow passes are explicit. Instance pages have stable allocation identities when supported by the tested revision.
 
-Three phases separate steady rendering, moving-camera culling and repeated publication of unchanged instance pages. Each has two warm-up frames. CPU submission times and GPU elapsed queries are recorded per frame, as are generated primitive counts and transform/cull/draw counters. GPU elapsed queries may include GPU idle gaps caused by CPU submission; they are not shader-ALU timings. Asset load/upload wall time is separate. Models are selected from the beginning of the catalogue; increase `--models` only with enough instances to populate every model (at least one 64-instance page each).
+Four phases separate steady rendering, moving-camera culling, repeated publication of unchanged instance pages, and adding/removing a genuinely new page outside every light frustum. Each has two warm-up frames. CPU submission and GPU timestamp intervals separate preparation, shadow rendering, atmospheric volumes and geometry/sky. GPU timings can include CPU/driver submission gaps; they are not shader-ALU timings. Asset load/upload wall time and the number of loading polls are separate. Models come from the beginning of the catalogue; allow at least one 64-instance page per model.
 
-This fixture verifies equal submitted geometry through primitive counts; it does not replace the renderer's image-comparison correctness tests. Use `Tests/Trees/check_runtime.py` for those. `--shadows` adds one light pass, not all in-game cascades.
+```sh
+python Tests/Performance/run.py --library /tmp/endurance-perf.so --scenario trees --instances 512 --models 4 --frames 20 --resolution 320 --shadow-layers 4 --shadow-resolution 256 --output trees-forced.json
+python Tests/Performance/run.py --library /tmp/endurance-perf.so --scenario trees --instances 512 --models 4 --frames 20 --resolution 320 --shadow-layers 4 --shadow-resolution 256 --cache-shadows --output trees-cached.json
+python Tests/Performance/run.py --library /tmp/endurance-perf.so --scenario trees --instances 512 --models 4 --frames 20 --resolution 320 --shadow-layers 4 --shadow-resolution 256 --cache-shadows --atmosphere --output trees-atmosphere.json
+```
+
+Without `--cache-shadows`, every shadow layer renders each frame, providing comparable submitted geometry. With it, the fixture calls the production `ShadowMapCache`, uses global renderer/camera revision on older sources and exact per-layer tree revisions when available. A reduction in generated primitives then means reused shadow maps, not necessarily removed visible geometry. `--shadows` remains an alias for one layer.
+
+`gl_call_probe.hpp` instruments selected GL calls in the benchmark translation units only: state queries, uploads, binds, barriers, dispatches and indirect draws/commands. Both baseline and candidate use the same wrappers. Counters have some CPU cost, so prefer their operation counts over small differences in elapsed time. Color/depth hashes and covered pixels are read **after** timed work; use them alongside `Tests/Trees/check_runtime.py`, not as a substitute for its correctness tests.
+
+`--atmosphere` executes real production LUT, sky, aerial perspective, cloud and fog code. A small test camera/light-manager adapter provides actual view matrices, four real tree depth layers, the light-matrix SSBO and shadow content revision. Wind is zero to isolate invalidation. Ultra ray-step settings stay intact, but volumes are explicitly 32×18×24, visible clouds 64×36 and IBL targets 16/16/4 with 8 samples. Those deliberately reduced targets make software-GL comparisons practical; this is **not the scene's Ultra atmospheric workload**. Initial environment bake is warmed and reported separately. There is no terrain/deferred composite/SSAO/postprocessing in this bounded integration fixture.
 
 ### Selection
 

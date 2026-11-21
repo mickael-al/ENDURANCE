@@ -14,7 +14,7 @@ namespace ProceduralTerrain
         struct OwnedBlock { ObjectBlock block; std::uint64_t mask=0; };
         struct Sector
         {
-            std::uint64_t captured=0, reserved=0, covered=0;
+            std::uint64_t captured=0, reserved=0, covered=0, nextCovered=0;
             bool everPublished=false, discardWhenIdle=false;
             std::vector<OwnedBlock> blocks;
         };
@@ -27,6 +27,9 @@ namespace ProceduralTerrain
         std::vector<Retired> retired;
         std::vector<std::vector<std::uint32_t>> freePages;
         std::vector<ObjectBlock> published, publicationScratch;
+        using CoverageKey=std::pair<unsigned,std::array<std::int32_t,3>>;
+        std::vector<CoverageKey> coarseCoverage;
+        bool publicationDirty=true;
         std::uint64_t nextAllocationRevision=1;
         GLuint work=0, counts=0, instances=0, compact=0;
         const volatile std::uint32_t* mapped=nullptr;
@@ -46,6 +49,9 @@ namespace ProceduralTerrain
         }
         void rebuildPublished()
         {
+            statistics.sectors=static_cast<std::uint32_t>(sectors.size());
+            if(!publicationDirty) return;
+            publicationDirty=false; ++statistics.publicationRebuilds;
             publicationScratch.clear(); statistics.instances=0;
             for(const auto& item:sectors) for(const auto& owned:item.second.blocks)
                 if((owned.mask&item.second.covered)==owned.mask)
@@ -57,7 +63,6 @@ namespace ProceduralTerrain
                 published.swap(publicationScratch);
                 ++statistics.revision;
             }
-            statistics.sectors=static_cast<std::uint32_t>(sectors.size());
             statistics.blocks=static_cast<std::uint32_t>(published.size());
         }
     public:
@@ -128,14 +133,20 @@ namespace ProceduralTerrain
             table[14]=static_cast<std::uint32_t>(table.size());
             table.insert(table.end(),BiomeMatrix2D.begin(),BiomeMatrix2D.end());
             jobStart=static_cast<std::uint32_t>((table.size()+7)/8*8);
-            jobStride=8+sites+2*sites*table[0];
+            // At most one winning hit exists per site, across ALL prototypes.
+            // Compaction groups these hits with a shared histogram; reserving
+            // sites positions per prototype multiplies scratch without adding
+            // capacity. Keep a single packed site-sized output per job.
+            jobStride=8+sites+2*sites;
             table[10]=jobStride; table[11]=jobStart;
             const auto workBytes=(std::uint64_t{jobStart}+std::uint64_t{jobStride}*gpu.maxInFlight)*4;
             const auto countBytes=config.prototypes.size()*gpu.maxInFlight*4;
             GLint64 maximum=0; glGetInteger64v(GL_MAX_SHADER_STORAGE_BLOCK_SIZE,&maximum);
             if(totalCapacity>UINT32_MAX || totalCapacity*8>static_cast<std::uint64_t>(maximum) ||
                 workBytes>static_cast<std::uint64_t>(maximum)) return reject("Object pools exceed the GPU storage block limit");
-            compact=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,gpu.shaderDirectory+"/objects_compact.C.glsl",{}}},
+            const std::string compactDefines="#define TERRAIN_OBJECT_SITE_COUNT "+std::to_string(sites)+
+                "\n#define TERRAIN_OBJECT_TYPE_COUNT "+std::to_string(config.prototypes.size())+"\n";
+            compact=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,gpu.shaderDirectory+"/objects_compact.C.glsl",compactDefines}},
                 error,"Terrain object position compaction",Ge::ShaderCacheOptions{true,{}});
             if(!compact) return false;
             compactJob=glGetUniformLocation(compact,"uObjectJobBase"); compactCount=glGetUniformLocation(compact,"uObjectCountBase");
@@ -168,6 +179,7 @@ namespace ProceduralTerrain
             if(compact) glDeleteProgram(compact);
             work=counts=instances=compact=0; mapped=nullptr;
             sectors.clear(); retired.clear(); claims.clear(); freePages.clear(); published.clear(); publicationScratch.clear();
+            coarseCoverage.clear(); publicationDirty=true;
             statistics={}; flushPending=false; hasTrim=false; failure.clear();
         }
         // Called only after a non-empty mesh count and before regular emission.
@@ -194,8 +206,6 @@ namespace ProceduralTerrain
             glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
             glNamedBufferSubData(work,static_cast<GLintptr>(base)*4,sizeof(header),header);
             glClearNamedBufferSubData(work,GL_R32UI,static_cast<GLintptr>(base+8)*4,sites*4,GL_RED_INTEGER,GL_UNSIGNED_INT,&zero);
-            glClearNamedBufferSubData(counts,GL_R32UI,job*config.prototypes.size()*4,config.prototypes.size()*4,
-                GL_RED_INTEGER,GL_UNSIGNED_INT,&zero);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,work);
             ++statistics.captureJobs;
             return base;
@@ -210,7 +220,10 @@ namespace ProceduralTerrain
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,3,counts);
             glUseProgram(compact); glUniform1ui(compactJob,jobBase(job));
             glUniform1ui(compactCount,static_cast<GLuint>(job*config.prototypes.size()));
-            glDispatchCompute((sites+63)/64,1,1);
+            // A single group handles <=1024 sites. Shared histogram/prefix
+            // offsets produce a packed per-type list and overwrite every count,
+            // including zero types, without global atomics or a clear pass.
+            glDispatchCompute(1,1,1);
             glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT|GL_CLIENT_MAPPED_BUFFER_BARRIER_BIT);
         }
         // Existing terrain completion fence covers collection + compaction.
@@ -227,7 +240,7 @@ namespace ProceduralTerrain
                 if(!sector.reserved && !sector.everPublished && (sector.discardWhenIdle || sector.blocks.empty()))
                 {
                     Retired batch; batch.blocks=std::move(sector.blocks);
-                    sectors.erase(found); retire(std::move(batch)); rebuildPublished();
+                    sectors.erase(found); publicationDirty=true; retire(std::move(batch)); rebuildPublished();
                 }
                 return;
             }
@@ -240,6 +253,7 @@ namespace ProceduralTerrain
                 total+=count;
             }
             glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+            std::uint32_t typeOffset=0;
             for(std::size_t type=0;type<config.prototypes.size();++type)
             {
                 const auto count=mapped[job*config.prototypes.size()+type];
@@ -258,52 +272,66 @@ namespace ProceduralTerrain
                         block.boundsOrigin[a]=block.origin[a]-radius;
                     }
                     block.boundsExtent=block.extent+2*radius;
-                    const auto source=std::uint64_t{jobBase(job)+8+sites}+2*(std::uint64_t{type}*sites+first);
+                    const auto source=std::uint64_t{jobBase(job)+8+sites}+2*(std::uint64_t{typeOffset}+first);
                     glCopyNamedBufferSubData(work,instances,static_cast<GLintptr>(source*4),
                         static_cast<GLintptr>(block.firstInstance)*8,block.instanceCount*8);
                     sector.blocks.push_back({block,claim.mask});
                 }
+                typeOffset+=count;
             }
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_VERTEX_ATTRIB_ARRAY_BARRIER_BIT);
             sector.captured|=claim.mask; statistics.generatedInstances+=total;
+            if(total) publicationDirty=true;
         }
         // Called with atomically published terrain leaves, never staged meshes.
         // Fine leaves fill coverage bits; a coarse ancestor covers a whole sector.
         void publish(const std::vector<LodChunk>& chunks,std::uint32_t seed)
         {
             if(!enabled()) return;
-            for(auto& s:sectors) s.second.covered=0;
-            std::map<std::pair<unsigned,std::array<std::int32_t,3>>,bool> coarse;
+            ++statistics.publicationChecks;
+            if(sectors.empty()) return;
+            for(auto& s:sectors) s.second.nextCovered=0;
+            coarseCoverage.clear(); coarseCoverage.reserve(chunks.size());
+            std::uint32_t coarseLods=0;
             for(const auto& chunk:chunks)
             {
-                if(chunk.lod>config.maximumLod) { coarse.emplace(std::make_pair(chunk.lod,chunk.origin),true); continue; }
+                if(chunk.lod>config.maximumLod)
+                {
+                    if(chunk.lod<=20) { coarseCoverage.emplace_back(chunk.lod,chunk.origin); coarseLods|=1u<<chunk.lod; }
+                    continue;
+                }
                 SectorKey key; key.seed=seed;
                 for(unsigned a=0;a<3;++a) key.origin[a]=objectFloorMultiple(chunk.origin[a],span);
                 auto found=sectors.find(key);
-                if(found!=sectors.end()) found->second.covered|=objectCoverageMask(chunk.origin,chunk.lod,key.origin,config.maximumLod,cells);
+                if(found!=sectors.end()) found->second.nextCovered|=objectCoverageMask(chunk.origin,chunk.lod,key.origin,config.maximumLod,cells);
             }
+            std::sort(coarseCoverage.begin(),coarseCoverage.end());
             Retired batch;
             for(auto it=sectors.begin();it!=sectors.end();)
             {
                 auto& sector=it->second;
-                if(it->first.seed==seed) for(unsigned lod=config.maximumLod+1;lod<=20 && !coarse.empty();++lod)
+                if(it->first.seed==seed) for(unsigned lod=config.maximumLod+1;lod<=20 && coarseLods;++lod)
                 {
+                    if((coarseLods&(1u<<lod))==0) continue;
                     std::array<std::int32_t,3> origin;
                     for(unsigned a=0;a<3;++a) origin[a]=objectFloorMultiple(it->first.origin[a],cells<<lod);
-                    if(coarse.count({lod,origin}))
+                    ++statistics.coarseCoverageLookups;
+                    if(std::binary_search(coarseCoverage.begin(),coarseCoverage.end(),CoverageKey{lod,origin}))
                     {
                         const unsigned bitsCount=1u<<(3*config.maximumLod);
-                        sector.covered=bitsCount==64?UINT64_MAX:((std::uint64_t{1}<<bitsCount)-1);
+                        sector.nextCovered=bitsCount==64?UINT64_MAX:((std::uint64_t{1}<<bitsCount)-1);
                         break;
                     }
                 }
+                if(sector.covered!=sector.nextCovered) publicationDirty=true;
+                sector.covered=sector.nextCovered;
                 if(sector.covered) sector.everPublished=true;
                 // Unpublished captures may still belong to the current pending
                 // transaction. They are explicitly discarded on abandonment.
                 if(!sector.covered && !sector.reserved && sector.everPublished)
                 {
                     batch.blocks.insert(batch.blocks.end(),sector.blocks.begin(),sector.blocks.end());
-                    it=sectors.erase(it);
+                    it=sectors.erase(it); publicationDirty=true;
                 }
                 else ++it;
             }
@@ -319,7 +347,7 @@ namespace ProceduralTerrain
                 {
                     it->second.discardWhenIdle=true;
                     if(!it->second.reserved)
-                    { batch.blocks.insert(batch.blocks.end(),it->second.blocks.begin(),it->second.blocks.end()); it=sectors.erase(it); continue; }
+                    { batch.blocks.insert(batch.blocks.end(),it->second.blocks.begin(),it->second.blocks.end()); it=sectors.erase(it); publicationDirty=true; continue; }
                 }
                 ++it;
             }
@@ -350,7 +378,7 @@ namespace ProceduralTerrain
                 }
                 const double limit=config.retentionDistance+moveStep;
                 if(!it->second.reserved && distance2>limit*limit)
-                { batch.blocks.insert(batch.blocks.end(),it->second.blocks.begin(),it->second.blocks.end()); it=sectors.erase(it); changed=true; }
+                { batch.blocks.insert(batch.blocks.end(),it->second.blocks.begin(),it->second.blocks.end()); it=sectors.erase(it); changed=true; publicationDirty=true; }
                 else ++it;
             }
             retire(std::move(batch)); if(changed) rebuildPublished();

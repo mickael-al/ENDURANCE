@@ -75,7 +75,9 @@ namespace Ge
 			m_uniformBufferCamera.view = glm::inverse(m_uniformBufferCamera.invView);			
 			m_uniformBufferCamera.proj = getProjectionMatrix();
 			glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssbo);
-			glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(UniformBufferCamera), &m_uniformBufferCamera);
+            // The complete payload is replaced: queued draws keep their old
+            // storage instead of forcing this upload to wait for their reads.
+            glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(UniformBufferCamera), &m_uniformBufferCamera, GL_STREAM_DRAW);
 			m_lm->updateShadowCascadeMatrix();
 		}
 	}

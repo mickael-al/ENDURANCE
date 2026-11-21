@@ -7,6 +7,7 @@
 #include <vector>
 #include <cstdint>
 #include "ImmutableShadowCache.hpp"
+#include "FrameGpuProfiler.hpp"
 struct GraphicsDataMisc;
 struct ptrClass;
 
@@ -67,6 +68,7 @@ namespace Ge
         void resetFrameTimings() noexcept;
         const FrameTimings& getLastFrameTimings() const noexcept;
         const FrameTimings& getPeakFrameTimings() const noexcept;
+        const FrameGpuProfiler& getGpuFrameProfiler() const noexcept { return m_gpuFrameProfiler; }
 		FrameBuffer* getFrameBuffer() const;
 		Window* getWindow() const;
 		Atmosphere* getAtmosphere() const;
@@ -83,6 +85,7 @@ namespace Ge
         std::uint64_t m_frameTimingEpoch = 0;
         FrameTimings m_lastFrameTimings;
         FrameTimings m_peakFrameTimings;
+        FrameGpuProfiler m_gpuFrameProfiler;
 		ptrClass * m_ptrClass;
 		std::unordered_map<void*,std::function<void(int sid)>> callbacks;
 		std::unordered_map<void*,std::function<void(bool * currentDepthWrite)>> callbacksTransparency;

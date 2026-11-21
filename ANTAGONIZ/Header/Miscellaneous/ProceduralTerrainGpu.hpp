@@ -81,6 +81,11 @@ namespace ProceduralTerrain
         // CPU-to-GPU command uploads, not vertex/field transfers.
         std::uint64_t drawListUploads = 0;
         std::uint64_t drawListUploadBytes = 0;
+        // Newly owned descriptor slots only; coherent mapping avoids a GL
+        // upload call. The mutable-buffer fallback preserves the same contract.
+        std::uint64_t descriptorWrites = 0, descriptorWriteBytes = 0;
+        std::uint64_t descriptorUploadCalls = 0;
+        bool persistentDescriptors = false;
         double lastGenerationMilliseconds = 0.0;
         std::uint64_t transientFieldBytes = 0;
         std::uint64_t biomeMetadataBytes = 0;

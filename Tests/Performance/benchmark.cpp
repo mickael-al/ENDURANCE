@@ -8,6 +8,12 @@
 #include "TreeRenderGpu.hpp"
 #include "EnduranceObjectPlacement.hpp"
 #include "ShaderCompilation.hpp"
+#include "ShadowMapCache.hpp"
+#include "Atmosphere.hpp"
+#include "Camera.hpp"
+#include "LightManager.hpp"
+#include "PointeurClass.hpp"
+#include "GraphicsDataMisc.hpp"
 #include "hv/cpputil/json.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -55,6 +61,111 @@ struct Target
         glClearNamedFramebufferfv(fbo,GL_DEPTH,0,&one);
     }
 };
+struct ShadowTarget
+{
+    GLuint fbo=0,depth=0; unsigned size;
+    ShadowTarget(unsigned resolution,GLuint array,unsigned layer):depth(array),size(resolution)
+    {
+        glCreateFramebuffers(1,&fbo);
+        glNamedFramebufferTextureLayer(fbo,GL_DEPTH_ATTACHMENT,depth,0,layer);
+        glNamedFramebufferDrawBuffer(fbo,GL_NONE); glNamedFramebufferReadBuffer(fbo,GL_NONE);
+        check(glCheckNamedFramebufferStatus(fbo,GL_FRAMEBUFFER)==GL_FRAMEBUFFER_COMPLETE,"Incomplete benchmark shadow target");
+    }
+    ~ShadowTarget() { glDeleteFramebuffers(1,&fbo); }
+    void begin()
+    {
+        glBindFramebuffer(GL_FRAMEBUFFER,fbo); glViewport(0,0,size,size);
+        glEnable(GL_DEPTH_TEST); glDepthFunc(GL_LESS); glDepthMask(GL_TRUE);
+        glDisable(GL_BLEND); glEnable(GL_CULL_FACE); glCullFace(GL_BACK); glFrontFace(GL_CCW);
+        float one=1; glClearNamedFramebufferfv(fbo,GL_DEPTH,0,&one);
+    }
+};
+struct WorkingDirectory
+{
+    std::filesystem::path previous=std::filesystem::current_path();
+    explicit WorkingDirectory(const std::filesystem::path& path) { std::filesystem::current_path(path); }
+    ~WorkingDirectory() { std::filesystem::current_path(previous); }
+};
+struct AtmosphericPasses
+{
+    Ge::LightManager lights; Ge::Lights sun; ptrClass engine; GraphicsDataMisc graphics;
+    Ge::Camera camera; Ge::Atmosphere atmosphere;
+    AtmosphericPasses(GLuint depth,const std::vector<glm::mat4>& matrices,unsigned resolution)
+    {
+        sun.direction=glm::normalize(glm::vec3(-600,-1200,-600));
+        sun.shadow=matrices.empty()?-1:0; lights.lights={&sun}; lights.shadowTexture=depth;
+        lights.shadowFrames.resize(matrices.size()); engine.lightManager=&lights;
+        graphics.str_width=graphics.str_height=resolution;
+        struct ShadowMatrix { glm::mat4 matrix{1}; glm::vec3 position{}; float split=0; };
+        static_assert(sizeof(ShadowMatrix)==80,"Shadow matrix ABI");
+        std::vector<ShadowMatrix> data;
+        for(unsigned i=0;i<matrices.size();++i) data.push_back({matrices[i],{},-512.f*float(1u<<i)});
+        glCreateBuffers(1,&lights.shadowBuffer); glNamedBufferData(lights.shadowBuffer,data.size()*sizeof(ShadowMatrix),data.data(),GL_STATIC_DRAW);
+        atmosphere.initialize(&engine,&graphics);
+        auto& settings=atmosphere.settings(); settings.enabled=true; settings.quality=Ge::AtmosphereQuality::Ultra;
+        settings.physicalAtmosphere=settings.clouds=settings.localFog=settings.godRays=true;
+        settings.measureGpu=false; settings.wind={0,0}; settings.fogDensity=.00002f;
+        settings.aerialDistance=49152; settings.cubemapSize=settings.prefilterSize=16; settings.irradianceSize=4;
+        settings.iblSamples=8; settings.volumeWidth=32; settings.volumeHeight=18; settings.volumeDepth=24;
+        settings.cloudViewWidth=64; settings.cloudViewHeight=36;
+        settings.iblMaxWorkUnitsPerFrame=16; settings.targetGpuMilliseconds=1000;
+    }
+    ~AtmosphericPasses() { atmosphere.release(); glDeleteBuffers(1,&lights.shadowBuffer); }
+    void prepare(const RenderView& v)
+    {
+        camera.position=v.camera; camera.view=v.view; camera.projection=v.clip*glm::inverse(v.view);
+        atmosphere.prepare(&camera,1.0/60.0); check(atmosphere.active(),atmosphere.error());
+        atmosphere.prepareShadows();
+    }
+    void volumes(std::uint64_t revision)
+    { lights.shadowContentRevision=revision; atmosphere.computeVolumes(&camera); }
+    Json stats() const
+    {
+        const auto& s=atmosphere.stats();
+        return {{"dispatches",s.dispatches},{"volume_updates",s.volumeUpdates},{"aerial_dispatches",s.aerialDispatches},
+            {"cloud_volume_dispatches",s.cloudVolumeDispatches},{"fog_dispatches",s.fogDispatches},
+            {"visible_cloud_dispatches",s.visibleCloudDispatches},{"gpu_texture_bytes",s.gpuTextureBytes}};
+    }
+};
+Json driverCalls()
+{
+    const auto& c=EndurancePerf::calls;
+    return {{"state_queries",c.stateQueries},{"uniform_lookups",c.uniformLookups},{"buffer_queries",c.bufferQueries},
+        {"buffer_allocations",c.bufferAllocations},{"buffer_allocation_bytes",c.bufferAllocationBytes},
+        {"buffer_updates",c.bufferUpdates},{"buffer_update_bytes",c.bufferUpdateBytes},
+        {"buffer_copies",c.bufferCopies},{"buffer_copy_bytes",c.bufferCopyBytes},
+        {"texture_binds",c.textureBinds},{"buffer_binds",c.bufferBinds},{"program_binds",c.programBinds},
+        {"vao_binds",c.vertexArrayBinds},{"memory_barriers",c.barriers},{"compute_dispatches",c.dispatches},
+        {"indirect_draw_calls",c.indirectCalls},{"indirect_commands",c.indirectCommands}};
+}
+std::uint64_t byteHash(const void* data,std::size_t bytes)
+{
+    auto* p=static_cast<const unsigned char*>(data); std::uint64_t hash=1469598103934665603ull;
+    for(std::size_t i=0;i<bytes;++i) hash=(hash^p[i])*1099511628211ull;
+    return hash;
+}
+Json imageEvidence(const Target& target,GLuint shadowArray,unsigned shadowLayers,unsigned shadowSize)
+{
+    // Readbacks are deliberately after all timed work and outside GL counters.
+    std::vector<unsigned char> color(static_cast<std::size_t>(target.size)*target.size*4);
+    glGetTextureImage(target.color[2],0,GL_RGBA,GL_UNSIGNED_BYTE,static_cast<GLsizei>(color.size()),color.data());
+    std::array<std::uint64_t,4> sum{}; for(std::size_t i=0;i<color.size();++i)sum[i%4]+=color[i];
+    Json result={{"color_fnv1a64",byteHash(color.data(),color.size())},{"color_byte_sums",sum}};
+    if(shadowLayers)
+    {
+        std::vector<float> depths(static_cast<std::size_t>(shadowSize)*shadowSize*shadowLayers);
+        glGetTextureImage(shadowArray,0,GL_DEPTH_COMPONENT,GL_FLOAT,static_cast<GLsizei>(depths.size()*sizeof(float)),depths.data());
+        Json layers=Json::array(); const std::size_t pixels=static_cast<std::size_t>(shadowSize)*shadowSize;
+        for(unsigned layer=0;layer<shadowLayers;++layer)
+        {
+            const auto* begin=depths.data()+layer*pixels;
+            const auto covered=std::count_if(begin,begin+pixels,[](float d){return d<1;});
+            layers.push_back({{"fnv1a64",byteHash(begin,pixels*sizeof(float))},{"covered_pixels",covered}});
+        }
+        result["shadow_layers"]=layers;
+    }
+    return result;
+}
 struct Scene
 {
     GpuConfig gpu; LodConfig lod; glm::vec3 camera{}; unsigned seed=1337;
@@ -119,12 +230,14 @@ Json renderStats(const RenderStats& s)
     j["transformed_instances"]=s.transformedInstances;
     j["transform_pages_built"]=s.transformPagesBuilt; j["transform_pages_reused"]=s.transformPagesReused;
     j["indirect_commands"]=s.indirectCommands;
+    j["asset_load_cpu_ms"]=s.assetLoadMilliseconds; j["asset_upload_cpu_ms"]=s.assetUploadMilliseconds;
 #endif
     return j;
 }
 Json trees(const Json& options)
 {
     const auto root=std::filesystem::path(options.at("root").get<std::string>());
+    WorkingDirectory directory(root/"ENDURANCE");
     ObjectPlacementConfig catalogue; std::string error;
     check(Endurance::loadObjectPlacement((root/"ENDURANCE/Ressources/Trees/object_placement.json").string(),catalogue,error),error);
     const unsigned modelCount=options.value("models",1u),count=options.value("instances",64u),frames=options.value("frames",8u);
@@ -150,46 +263,158 @@ Json trees(const Json& options)
         }
         blocks.push_back(b);
     }
+    ObjectBlock farBlock=blocks.front(); farBlock.firstInstance=count; farBlock.instanceCount=ObjectPageSize;
+    farBlock.origin={{8000,-64,-512}};
+#ifdef ENDURANCE_PERF_ALLOCATION_REVISION
+    farBlock.allocationRevision=count+1u;
+#endif
+    for(unsigned i=0;i<ObjectPageSize;++i) points.push_back({32768u|(4096u<<16u),32768u|(i<<16u)});
+    auto withFarBlock=blocks; withFarBlock.push_back(farBlock);
     GLuint buffer=0; glCreateBuffers(1,&buffer); glNamedBufferData(buffer,points.size()*8,points.data(),GL_STATIC_DRAW);
     auto view=cameraView({0,160,900},{0,30,0}); Target target(options.value("resolution",320u));
-    const auto load=Clock::now(); auto until=load+std::chrono::seconds(120);
+    const unsigned shadowLayers=(std::max)(options.value("shadow_layers",0u),options.value("shadows",false)?1u:0u);
+    check(shadowLayers<=4,"At most four shadow layers");
+    GLuint shadowArray=0;
+    if(shadowLayers)
+    {
+        glCreateTextures(GL_TEXTURE_2D_ARRAY,1,&shadowArray);
+        const unsigned size=options.value("shadow_resolution",128u);
+        glTextureStorage3D(shadowArray,1,GL_DEPTH_COMPONENT32F,size,size,shadowLayers);
+        glTextureParameteri(shadowArray,GL_TEXTURE_MIN_FILTER,GL_NEAREST); glTextureParameteri(shadowArray,GL_TEXTURE_MAG_FILTER,GL_NEAREST);
+        float lit=1; glClearTexImage(shadowArray,0,GL_DEPTH_COMPONENT,GL_FLOAT,&lit);
+    }
+    std::vector<std::unique_ptr<ShadowTarget>> shadowTargets;
+    std::vector<glm::mat4> shadowClips;
+    for(unsigned layer=0;layer<shadowLayers;++layer)
+    {
+        shadowTargets.emplace_back(std::make_unique<ShadowTarget>(options.value("shadow_resolution",128u),shadowArray,layer));
+        const float extent=180.f+layer*160.f;
+        shadowClips.push_back(glm::ortho(-extent,extent,-extent,extent,.1f,3000.f)*
+            glm::lookAt(glm::vec3(600,1200,600),glm::vec3(0),glm::vec3(0,1,0)));
+    }
+    const auto load=Clock::now(); auto until=load+std::chrono::seconds(120); unsigned loadIterations=0;
+    EndurancePerf::reset(); EndurancePerf::enabled=true;
     while(renderer.stats().loadedModels<modelCount || renderer.stats().pendingModels)
     {
         renderer.prepare(buffer,blocks,1,view); check(renderer.error().empty(),renderer.error());
+        ++loadIterations;
         check(Clock::now()<until,"Tree loading timed out"); std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    glFinish(); report["asset_load_upload_wall_ms"]=ms(load);
-    report["phases"]=Json::array();
-    for(const std::string phase:{"static","camera_motion","publication_churn"})
+    glFinish(); EndurancePerf::enabled=false; report["asset_load_upload_wall_ms"]=ms(load);
+    report["asset_loading_prepare_calls"]=loadIterations; report["asset_loading_driver_calls"]=driverCalls();
+    report["asset_loading_stats"]=renderStats(renderer.stats());
+    std::unique_ptr<AtmosphericPasses> atmospheric;
+    if(options.value("atmosphere",false))
     {
-        for(unsigned warm=0;warm<2;++warm) { target.begin(); renderer.prepare(buffer,blocks,1,view); renderer.draw(0,view.clip); }
+        const auto start=Clock::now(); atmospheric=std::make_unique<AtmosphericPasses>(shadowArray,shadowClips,target.size);
+        for(unsigned warm=0;warm<128 && !atmospheric->atmosphere.stats().environmentReady;++warm)
+        { atmospheric->prepare(view); atmospheric->volumes(1); target.begin(); atmospheric->atmosphere.renderSky(0); }
+        check(atmospheric->atmosphere.stats().environmentReady,"Atmosphere did not finish initial environment capture");
+        glFinish(); report["atmosphere_initialize_warm_ms"]=ms(start);
+        report["atmosphere_targets"]={{"volume",{32,18,24}},{"visible_clouds",{64,36}},{"cubemap",16},{"prefilter",16},{"irradiance",4},{"ibl_samples",8},
+            {"sample_quality","Ultra unchanged ray steps"},{"wind_mps",{0,0}},{"fog_density",.00002f},{"aerial_distance_m",49152}};
+    }
+    const bool cacheShadows=options.value("cache_shadows",false);
+    Ge::ShadowMapCache shadowCache; std::uint64_t globalShadowToken=1,lastRendererRevision=0;
+    RenderView lastShadowView; bool hadShadowView=false;
+    auto prepareShadowCache=[&](const RenderView& current)
+    {
+        if(!cacheShadows) return;
+        if(!hadShadowView || lastRendererRevision!=renderer.stats().revision ||
+            current.camera!=lastShadowView.camera || current.projectionScale!=lastShadowView.projectionScale ||
+            current.orthographic!=lastShadowView.orthographic) ++globalShadowToken;
+        hadShadowView=true; lastShadowView=current; lastRendererRevision=renderer.stats().revision;
+#ifdef ENDURANCE_PERF_LAYER_TREE_REVISIONS
+        std::vector<std::vector<Ge::ShadowContentSource>> sources;
+        for(unsigned layer=0;layer<shadowLayers;++layer)
+            sources.push_back({{&renderer,renderer.shadowContentRevision(layer+1,shadowClips[layer])}});
+        shadowCache.prepareLayerSources(shadowClips,sources,false);
+#else
+        shadowCache.prepare(shadowClips,{{&renderer,globalShadowToken}},false);
+#endif
+    };
+    report["phases"]=Json::array();
+    for(const std::string phase:{"static","camera_motion","publication_churn","offscreen_page_churn"})
+    {
+        for(unsigned warm=0;warm<2;++warm)
+        {
+            if(atmospheric)atmospheric->prepare(view);
+            renderer.prepare(buffer,blocks,1,view);
+            prepareShadowCache(view);
+            for(unsigned layer=0;layer<shadowLayers;++layer) if(!cacheShadows || shadowCache.needsRender(layer))
+            { shadowTargets[layer]->begin(); renderer.draw(layer+1,shadowClips[layer]); if(cacheShadows) shadowCache.rendered(layer); }
+            if(cacheShadows)shadowCache.finish();
+            if(atmospheric)atmospheric->volumes(cacheShadows?shadowCache.contentRevision():++globalShadowToken);
+            target.begin(); if(atmospheric)atmospheric->atmosphere.renderSky(0); renderer.draw(0,view.clip);
+        }
         glFinish(); const auto before=renderer.stats(); std::vector<GLuint> queries(frames),primitiveQueries(frames);
+        const Json atmosphereBefore=atmospheric?atmospheric->stats():Json();
         glGenQueries(frames,queries.data()); glGenQueries(frames,primitiveQueries.data());
-        std::vector<double> cpu; const auto start=Clock::now();
+        std::vector<GLuint> stamps(frames*5); glGenQueries(static_cast<GLsizei>(stamps.size()),stamps.data());
+        std::vector<double> cpu,prepareCpu,shadowCpu,volumeCpu,geometryCpu; Json calls=Json::array(),redrawn=Json::array(); const auto start=Clock::now();
         for(unsigned frame=0;frame<frames;++frame)
         {
             auto v=view; if(phase=="camera_motion") v=cameraView({float(frame)*.5f,160,900},{0,30,0});
-            const auto time=Clock::now(); glBeginQuery(GL_TIME_ELAPSED,queries[frame]); glBeginQuery(GL_PRIMITIVES_GENERATED,primitiveQueries[frame]); target.begin();
-            renderer.prepare(buffer,blocks,phase=="publication_churn"?frame+2u:1u,v); renderer.draw(0,v.clip);
-            if(options.value("shadows",false))
+            EndurancePerf::reset(); EndurancePerf::enabled=true;
+            const auto time=Clock::now(); glBeginQuery(GL_TIME_ELAPSED,queries[frame]); glBeginQuery(GL_PRIMITIVES_GENERATED,primitiveQueries[frame]);
+            glQueryCounter(stamps[frame*5],GL_TIMESTAMP);
+            const bool publication=phase=="publication_churn" || phase=="offscreen_page_churn";
+            const auto& frameBlocks=phase=="offscreen_page_churn" && frame%2==0 ? withFarBlock : blocks;
+            const auto prepareStart=Clock::now(); if(atmospheric)atmospheric->prepare(v);
+            renderer.prepare(buffer,frameBlocks,publication?frame+2u:1u,v);
+            prepareShadowCache(v);
+            prepareCpu.push_back(ms(prepareStart)); glQueryCounter(stamps[frame*5+1],GL_TIMESTAMP);
+            const auto shadowStart=Clock::now();
+            unsigned rendered=0;
+            for(unsigned layer=0;layer<shadowLayers;++layer) if(!cacheShadows || shadowCache.needsRender(layer))
             {
-                const auto light=glm::ortho(-600.f,600.f,-600.f,600.f,.1f,3000.f)*glm::lookAt(glm::vec3(600,1200,600),glm::vec3(0),glm::vec3(0,1,0));
-                target.begin();
-                renderer.draw(1,light);
+                shadowTargets[layer]->begin(); renderer.draw(layer+1,shadowClips[layer]);
+                ++rendered; if(cacheShadows)shadowCache.rendered(layer);
             }
+            if(cacheShadows)shadowCache.finish(); redrawn.push_back(rendered);
+            shadowCpu.push_back(ms(shadowStart)); glQueryCounter(stamps[frame*5+2],GL_TIMESTAMP);
+            const auto volumeStart=Clock::now();
+            if(atmospheric)atmospheric->volumes(cacheShadows?shadowCache.contentRevision():++globalShadowToken);
+            volumeCpu.push_back(ms(volumeStart)); glQueryCounter(stamps[frame*5+3],GL_TIMESTAMP);
+            const auto geometryStart=Clock::now(); target.begin(); if(atmospheric)atmospheric->atmosphere.renderSky(0); renderer.draw(0,v.clip);
+            geometryCpu.push_back(ms(geometryStart)); glQueryCounter(stamps[frame*5+4],GL_TIMESTAMP);
             glEndQuery(GL_PRIMITIVES_GENERATED); glEndQuery(GL_TIME_ELAPSED); cpu.push_back(ms(time));
+            EndurancePerf::enabled=false; calls.push_back(driverCalls());
         }
         glFinish(); const double elapsed=ms(start); std::vector<double> gpu;
         for(GLuint q:queries) { GLuint64 n=0; glGetQueryObjectui64v(q,GL_QUERY_RESULT,&n); gpu.push_back(double(n)/1e6); }
         std::vector<std::uint64_t> primitives;
         for(GLuint q:primitiveQueries) { GLuint64 n=0; glGetQueryObjectui64v(q,GL_QUERY_RESULT,&n); primitives.push_back(n); }
+        Json stageGpu=Json::array();
+        for(unsigned frame=0;frame<frames;++frame)
+        {
+            std::array<GLuint64,5> times{};
+            for(unsigned stage=0;stage<5;++stage) glGetQueryObjectui64v(stamps[frame*5+stage],GL_QUERY_RESULT,&times[stage]);
+            stageGpu.push_back({{"prepare",double(times[1]-times[0])/1e6},{"shadows",double(times[2]-times[1])/1e6},
+                {"volumes",double(times[3]-times[2])/1e6},{"geometry_and_sky",double(times[4]-times[3])/1e6}});
+        }
+        glDeleteQueries(static_cast<GLsizei>(stamps.size()),stamps.data());
         glDeleteQueries(frames,queries.data()); glDeleteQueries(frames,primitiveQueries.data()); const auto after=renderer.stats();
         report["phases"].push_back({{"name",phase},{"frames",frames},{"wall_ms",elapsed},{"cpu_submit_ms",cpu},{"gpu_elapsed_ms",gpu},
+            {"cpu_prepare_ms",prepareCpu},{"cpu_shadow_ms",shadowCpu},{"cpu_volumes_ms",volumeCpu},{"cpu_geometry_and_sky_ms",geometryCpu},{"gpu_stages_ms",stageGpu},{"driver_calls",calls},
+            {"shadow_layers_redrawn",redrawn},
+            {"atmosphere_before",atmosphereBefore},{"atmosphere_after",atmospheric?atmospheric->stats():Json()},
+            {"image_evidence",imageEvidence(target,shadowArray,shadowLayers,options.value("shadow_resolution",128u))},
             {"transform_builds",after.transformBuilds-before.transformBuilds},{"cull_dispatches",after.cullDispatches-before.cullDispatches},
             {"draw_calls",after.drawCalls-before.drawCalls},{"triangles",primitives},{"stats_before",renderStats(before)},{"stats_after",renderStats(after)}});
     }
     report["instances"]=count; report["models"]=modelCount; report["resolution"]=target.size;
-    renderer.shutdown(); glDeleteBuffers(1,&buffer);
+    report["shadow_layers"]=shadowLayers; report["shadow_resolution"]=options.value("shadow_resolution",128u);
+    report["shadow_cache"]=cacheShadows;
+    report["atmosphere_enabled"]=bool(atmospheric);
+#ifdef ENDURANCE_PERF_LAYER_TREE_REVISIONS
+    report["shadow_cache_source_scope"]="per-layer production tree content revision";
+#else
+    report["shadow_cache_source_scope"]="global renderer revision + camera LOD inputs, matching engine wrapper";
+#endif
+    report["scope"]="Production tree preparation, up to four independent depth-only shadow passes, optional production atmosphere volumes/sky, and tree G-buffer. No terrain draw/deferred lighting/SSAO/postprocess/editor; not complete engine FPS";
+    report["instrumentation"]="Test-only inline counters on selected production OpenGL calls, identical in both builds; timer boundaries also include driver/CPU submission gaps";
+    atmospheric.reset(); renderer.shutdown(); shadowTargets.clear(); glDeleteTextures(1,&shadowArray); glDeleteBuffers(1,&buffer);
     return report;
 }
 Json generation(const Json& options)
@@ -225,6 +450,7 @@ Json generation(const Json& options)
         glCreateBuffers(1,&cameraBuffer); glNamedBufferData(cameraBuffer,sizeof(u),&u,GL_STATIC_DRAW);
     }
     glFinish();
+    EndurancePerf::reset(); EndurancePerf::enabled=true;
     const auto start=Clock::now(); const auto deadline=start+std::chrono::seconds(options.value("timeout_seconds",180u));
     std::vector<GLsync> renderFences; auto nextFrame=Clock::now(); std::string failure;
     while(received<requests.size())
@@ -262,7 +488,8 @@ Json generation(const Json& options)
         }
         std::this_thread::yield();
     }
-    glFinish(); const double elapsed=ms(start);
+    glFinish(); const double elapsed=ms(start); EndurancePerf::enabled=false;
+    report["driver_calls"]=driverCalls();
     // Timers are asynchronous; finish then poll once to include completed queries.
     std::vector<Completion> tail; mesher.poll(tail); const auto s=mesher.stats(); const auto o=mesher.objectStats();
     const bool completed=failure.empty() && received==requests.size();

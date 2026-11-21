@@ -33,28 +33,19 @@ namespace Ge
         void prepare(const std::vector<glm::mat4>& matrices,
             const std::vector<ShadowContentSource>& sources, bool untrackedCasters)
         {
-            if (sources != m_sources)
-            {
-                m_sources = sources;
-                ++m_sceneRevision;
-            }
-            m_trackable = !untrackedCasters;
-            for (const auto& source : sources) m_trackable &= source.revision != 0;
-            if (m_layers.size() != matrices.size()) invalidateStorage();
-            m_layers.resize(matrices.size());
-            m_redrawn = m_reused = 0;
-            m_ready = false;
-            m_wrote = false;
-            for (std::size_t i = 0; i < matrices.size(); ++i)
-            {
-                auto& layer = m_layers[i];
-                layer.pending = matrices[i];
-                layer.trackable = m_trackable && finiteMatrix(matrices[i]);
-                layer.dirty = !layer.trackable || !layer.valid ||
-                    layer.sceneRevision != m_sceneRevision ||
-                    std::memcmp(&layer.matrix, &matrices[i], sizeof(glm::mat4)) != 0;
-                if (!layer.dirty) ++m_reused;
-            }
+            prepareSources(matrices, [&](std::size_t) -> const auto& { return sources; }, untrackedCasters);
+        }
+
+        // Providers may track the exact content selected by each light frustum.
+        // A publication outside one layer no longer invalidates that layer. The
+        // legacy shared-source entry point retains conservative global behavior.
+        void prepareLayerSources(const std::vector<glm::mat4>& matrices,
+            const std::vector<std::vector<ShadowContentSource>>& sources, bool untrackedCasters)
+        {
+            const std::vector<ShadowContentSource> empty;
+            prepareSources(matrices, [&](std::size_t i) -> const auto&
+                { return i < sources.size() ? sources[i] : empty; },
+                untrackedCasters || sources.size() != matrices.size());
         }
 
         bool needsRender(std::size_t layer) const noexcept
@@ -66,7 +57,7 @@ namespace Ge
             if (index >= m_layers.size() || !m_layers[index].dirty) return;
             auto& layer = m_layers[index];
             layer.matrix = layer.pending;
-            layer.sceneRevision = m_sceneRevision;
+            layer.sources = layer.pendingSources;
             layer.valid = layer.trackable;
             layer.dirty = false;
             m_wrote = true;
@@ -89,6 +80,27 @@ namespace Ge
         unsigned reusedLayers() const noexcept { return m_reused; }
 
     private:
+        template<class SourceAt>
+        void prepareSources(const std::vector<glm::mat4>& matrices, SourceAt sourceAt, bool untrackedCasters)
+        {
+            if (m_layers.size() != matrices.size()) invalidateStorage();
+            m_layers.resize(matrices.size());
+            m_redrawn = m_reused = 0;
+            m_ready = false;
+            m_wrote = false;
+            for (std::size_t i = 0; i < matrices.size(); ++i)
+            {
+                auto& layer = m_layers[i];
+                const auto& sources = sourceAt(i);
+                layer.pending = matrices[i];
+                layer.pendingSources = sources;
+                layer.trackable = !untrackedCasters && finiteMatrix(matrices[i]);
+                for (const auto& source : sources) layer.trackable &= source.revision != 0;
+                layer.dirty = !layer.trackable || !layer.valid || layer.sources != sources ||
+                    std::memcmp(&layer.matrix, &matrices[i], sizeof(glm::mat4)) != 0;
+                if (!layer.dirty) ++m_reused;
+            }
+        }
         static bool finiteMatrix(const glm::mat4& matrix) noexcept
         {
             for (unsigned c = 0; c < 4; ++c) for (unsigned r = 0; r < 4; ++r)
@@ -102,14 +114,13 @@ namespace Ge
         struct Layer
         {
             glm::mat4 matrix{1.0f}, pending{1.0f};
-            std::uint64_t sceneRevision = 0;
+            std::vector<ShadowContentSource> sources, pendingSources;
             bool valid = false, dirty = true, trackable = false;
         };
         std::vector<Layer> m_layers;
-        std::vector<ShadowContentSource> m_sources;
-        std::uint64_t m_sceneRevision = 0, m_contentRevision = 0;
+        std::uint64_t m_contentRevision = 0;
         unsigned m_redrawn = 0, m_reused = 0;
-        bool m_trackable = false, m_ready = false, m_wrote = false, m_storageChanged = true;
+        bool m_ready = false, m_wrote = false, m_storageChanged = true;
     };
 }
 #endif

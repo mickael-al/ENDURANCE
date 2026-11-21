@@ -1,5 +1,9 @@
 #version 450
 
+#ifndef GE_BLOOM_ENABLED
+#define GE_BLOOM_ENABLED -1
+#endif
+
 layout(binding = 0) uniform sampler2D originalImage;
 layout(binding = 1) uniform sampler2D bloomImage;
 uniform float exposure;
@@ -18,6 +22,11 @@ void main()
 {
     vec3 original = texture(originalImage, texCoord).rgb;
     original = adjustSaturation(original,1.2);//TODO Remove and add pp 
+#if GE_BLOOM_ENABLED == 0
+    upsample = original;
+#elif GE_BLOOM_ENABLED == 1
+    upsample = original + texture(bloomImage,texCoord).rgb * (intensity / 10.0f);
+#else
     if (intensity == 0.0f)
     {
         upsample = original;
@@ -28,6 +37,7 @@ void main()
         upsample = original + bloom * (intensity / 10.0f);
     }
 
+#endif
     //Tome mapping + gamma fix
     // Saturation can make an individual channel negative. Keep pow defined.
     upsample = vec3(1.0) - exp(-max(upsample, vec3(0.0)) * max(exposure, 0.0));

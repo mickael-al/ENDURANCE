@@ -1,3 +1,4 @@
+#include "ProceduralTerrainShadowVisibility.hpp"
 #include "ProceduralTerrainVisibility.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <algorithm>
@@ -158,9 +159,42 @@ static void shadowInvalidation()
     std::cout << "PASS shadow cache: per-cascade reuse, exact matrix changes and geometry revision invalidation\n";
 }
 
+static void shadowContentSelection()
+{
+    ShadowMeshVisibilityCache cache;
+    MeshHandle near, far;
+    near.slot=7; near.generation=4; near.vertexCount=3; near.extent=.2f;
+    far=near; far.slot=11; far.origin={{1000.0f,0.0f,0.0f}};
+    std::vector<MeshHandle> visible{near,far};
+    const glm::mat4 clip(1.0f);
+    require(cache.update(clip,1,visible) && cache.meshes().size()==1,"Wrong initial shadow selection");
+    const auto first=cache.contentRevision();
+    require(!cache.update(clip,1,visible) && cache.contentRevision()==first,"Idle layer did not reuse selection");
+    far.slot=12; far.origin[0]=2000.0f; visible.push_back(far);
+    require(cache.update(clip,2,visible) && cache.contentRevision()==first,"Far publication invalidated an unchanged layer");
+    std::reverse(visible.begin(),visible.end());
+    require(cache.update(clip,3,visible) && cache.contentRevision()==first,"Publication order invalidated shadow contents");
+    visible.back().generation++;
+    require(cache.update(clip,4,visible) && cache.contentRevision()!=first,"Recycled same-slot mesh reused stale depth");
+    auto previous=cache.contentRevision();
+    visible.back().firstVertex=36;
+    require(cache.update(clip,5,visible) && cache.contentRevision()!=previous,"Changed allocation was not tracked");
+    previous=cache.contentRevision();
+    glm::mat4 shifted=clip; shifted[3][1]=.01f;
+    require(cache.update(shifted,5,visible) && cache.contentRevision()==previous,"Same caster set got a false content change");
+    shifted[3][1]=10000.0f;
+    require(cache.update(shifted,5,visible) && cache.meshes().empty() && cache.contentRevision()!=previous,"Empty transition retained old casters");
+    previous=cache.contentRevision();
+    require(cache.update(shifted,6,visible) && cache.contentRevision()==previous,"Empty far publication invalidated layer");
+    ShadowMeshVisibilityCache restarted;
+    restarted.update(shifted,6,visible);
+    require(restarted.contentRevision()!=previous,"New renderer lifetime aliased an old empty layer");
+    std::cout << "PASS per-layer shadow content: far publications/order ignored, exact slot generations, empty transitions and lifetimes tracked\n";
+}
+
 int main()
 {
-    try { invalidation(); explicitEnteringChunks(); movingClipOracle(); shadowInvalidation(); }
+    try { invalidation(); explicitEnteringChunks(); movingClipOracle(); shadowInvalidation(); shadowContentSelection(); }
     catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
     return 0;
 }

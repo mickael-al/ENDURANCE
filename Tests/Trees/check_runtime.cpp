@@ -54,6 +54,18 @@ struct Hook
     Hook() { realDraw=__glewMultiDrawElementsIndirect; __glewMultiDrawElementsIndirect=inspectDraw; }
     ~Hook() { __glewMultiDrawElementsIndirect=realDraw; }
 };
+PFNGLNAMEDBUFFERDATAPROC realBufferData=nullptr;
+bool rejectAllocation=false;
+void GLAPIENTRY failOneAllocation(GLuint buffer,GLsizeiptr size,const void* data,GLenum usage)
+{
+    if(rejectAllocation) { rejectAllocation=false; return; }
+    realBufferData(buffer,size,data,usage);
+}
+struct FailedAllocation
+{
+    FailedAllocation() { realBufferData=__glewNamedBufferData; rejectAllocation=true; __glewNamedBufferData=failOneAllocation; }
+    ~FailedAllocation() { __glewNamedBufferData=realBufferData; }
+};
 struct State
 {
     std::vector<GLint64> values;
@@ -203,7 +215,9 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         auto view=viewAt({0,7,0},radius*4);
         waitAssets(gpu,pool,blocks,revision,view,1);
         require(gpu.stats().assetUploads==1 && gpu.stats().transformBuilds==1,"Assets or transforms rebuilt while idle");
+        const auto drawCallsBefore=gpu.stats().drawCalls;
         draw(gpu,target,0,view.clip); require(!transforms.empty(),"No instanced draw");
+        require(gpu.stats().drawCalls-drawCallsBefore==3,"Geometric LODs were not grouped into three material draws");
         Instance original=transforms[0]; auto centre=(tree.boundsMin+tree.boundsMax)*.5f;
         auto r=original.rotation;
         centre=glm::vec3(original.positionScale)+glm::vec3(r.x*centre.x+r.y*centre.z,centre.y,-r.y*centre.x+r.x*centre.z);
@@ -228,11 +242,19 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         for(int i=0;i<3;++i) { gpu.prepare(pool,blocks,revision,view); draw(gpu,target,0,view.clip); }
         require(gpu.stats().cullDispatches==before.cullDispatches && gpu.stats().transformBuilds==before.transformBuilds &&
             gpu.stats().assetUploads==before.assetUploads,"Unchanged view repeats compute/upload work");
+        const auto selectedUploads=gpu.stats().selectionUploads;
+        view.camera.x+=.01f; gpu.prepare(pool,blocks,revision,view); draw(gpu,target,0,view.clip);
+        require(gpu.stats().selectionUploads==selectedUploads,"Camera LOD change uploaded identical selected-page metadata");
         // A pool relocation must not reseed or move the same tree.
         blocks[0].firstInstance=64; ++revision; gpu.prepare(pool,blocks,revision,view); draw(gpu,target,0,view.clip);
         require(!transforms.empty() && std::memcmp(&original,&transforms[0],sizeof(Instance))==0,"Pool relocation changed tree transform");
         // New publications rebuild only genuinely new/recycled immutable pages.
         blocks[0].allocationRevision=1001; ++revision; gpu.prepare(pool,blocks,revision,view);
+        draw(gpu,target,0,view.clip);
+        const auto identicalBefore=gpu.stats();
+        ++revision; gpu.prepare(pool,blocks,revision,view); draw(gpu,target,0,view.clip);
+        require(gpu.stats().revision==identicalBefore.revision && gpu.stats().cullDispatches==identicalBefore.cullDispatches &&
+            gpu.stats().selectionUploads==identicalBefore.selectionUploads,"Identical immutable publication rebuilt command caches");
         const auto cachedBefore=gpu.stats();
         for(unsigned page=0;page<8;++page) if(page!=1)
         { auto added=block; added.firstInstance=page*64; added.allocationRevision=1000+page; blocks.push_back(added); }
@@ -261,6 +283,37 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         draw(gpu,target,1,light); require(target.depthPixels()>0,"Off-camera shadow caster disappeared");
         const auto shadowBuilds=gpu.stats().cullDispatches; draw(gpu,target,1,light);
         require(gpu.stats().cullDispatches==shadowBuilds,"Static shadow culling not reused");
+        const auto distanceSelections=gpu.stats().distanceSelections;
+        const State beforeTokens;
+        const auto content=gpu.shadowContentRevision(1,light);
+        require(content!=0 && gpu.shadowContentRevision(1,light)==content,"Unchanged shadow content token is unstable");
+        beforeTokens.check("CPU-only shadow token");
+        require(gpu.stats().distanceSelections==distanceSelections,"Shadow token repeated the common camera-distance selection");
+        // A far publication shifts CPU page indices but must not invalidate a
+        // layer whose physical pages and loaded model are exactly unchanged.
+        auto farBlock=blocks[0]; farBlock.firstInstance=128; farBlock.origin[0]+=10000;
+        farBlock.allocationRevision=7000; blocks.insert(blocks.begin(),farBlock);
+        ++revision; gpu.prepare(pool,blocks,revision,view);
+        require(gpu.shadowContentRevision(1,light)==content,"Unrelated tree publication dirtied a shadow layer");
+        ++blocks[1].allocationRevision; ++revision; gpu.prepare(pool,blocks,revision,view);
+        const auto recycledContent=gpu.shadowContentRevision(1,light);
+        require(recycledContent!=content,"Recycled visible page did not dirty the shadow layer");
+        blocks.erase(blocks.begin()); ++revision; gpu.prepare(pool,blocks,revision,view);
+        require(gpu.shadowContentRevision(1,light)==recycledContent,"Removal of an unrelated page dirtied the layer");
+        const auto emptyClip=glm::translate(light,glm::vec3(10000,0,0));
+        const auto emptyToken=gpu.shadowContentRevision(10,emptyClip);
+        view.camera.x+=.1f; gpu.prepare(pool,blocks,revision,view);
+        require(gpu.shadowContentRevision(10,emptyClip)==emptyToken,"Camera LOD changes dirty an empty shadow layer");
+        require(gpu.shadowContentRevision(1,light)!=recycledContent,"Camera LOD changes failed to invalidate visible tree shadows");
+        // An allocation failure after the engine sampled a valid content token
+        // must not freeze a missing shadow. Retry with identical inputs.
+        require(gpu.shadowContentRevision(12,light)!=0,"Missing initial shadow token");
+        { FailedAllocation failure; draw(gpu,target,12,light); }
+        require(target.depthPixels()==0 && !gpu.error().empty() && gpu.shadowContentRevision(12,light)==0,
+            "Failed visibility allocation remained cacheable");
+        draw(gpu,target,12,light);
+        require(target.depthPixels()>0 && gpu.error().empty() && gpu.shadowContentRevision(12,light)!=0,
+            "Visibility allocation did not recover with unchanged inputs");
         // Exercise all azimuths and the zenith, with larger inspection captures.
         for(unsigned index:{0u,3u,7u,8u,12u,16u})
         {
@@ -331,6 +384,16 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         for(int i=0;i<10;++i) gpu.prepare(pool,blocks,1,view);
         require(!gpu.stats().pendingModels && !gpu.stats().assetUploads,"Oversize asset reloads every frame");
         gpu.shutdown(); settings.modelBudgetMiB=64;
+        // Transition-disabled settings compile a distinct cull mode, rather
+        // than a per-instance branch. Boundary trees select exactly one LOD.
+        settings.transitionFraction=0;
+        require(gpu.initialize({prototype},settings),gpu.error()); blocks={block};
+        view=viewAt(centre,radius*1.7320508f/settings.lod0Coverage);
+        waitAssets(gpu,pool,blocks,1,view,1); draw(gpu,target,0,view.clip);
+        const auto noFade=lodCounts();
+        require(noFade==std::array<unsigned,3>{{2,0,0}} || noFade==std::array<unsigned,3>{{0,2,0}},
+            "Transition-disabled shader emitted two LODs");
+        gpu.shutdown(); settings.transitionFraction=.15f;
         // Old bakes without LOD3 retain the simplified mesh; bad assets fail once.
         auto small=generate(preset(Family::Broadleaf)); const auto fallback=std::filesystem::path(temporary)/"no-impostor";
         require(bake(small,fallback,error),error); prototype.asset=fallback.string();

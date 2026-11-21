@@ -1,0 +1,1484 @@
+{
+  "software_renderer_only": true,
+  "baseline_commit": "16bb573deb0b5348d4f1f358cc474f6253050da2",
+  "trees": {
+    "forced": [
+      {
+        "phase": "static",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            341.250658,
+            358.5322816
+          ],
+          "mean_frame_ms": 349.8914698,
+          "gpu_mean_ms": 353.7541028,
+          "cpu_submit_mean_ms": 348.7791018,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 60,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 0,
+            "program_binds": 15,
+            "state_queries": 170,
+            "texture_binds": 150,
+            "uniform_lookups": 0,
+            "vao_binds": 105
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            332.5888308,
+            328.80441179999997
+          ],
+          "mean_frame_ms": 330.69662129999995,
+          "gpu_mean_ms": 334.7182924,
+          "cpu_submit_mean_ms": 329.6506867,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 45,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 60,
+            "memory_barriers": 0,
+            "program_binds": 20,
+            "state_queries": 102,
+            "texture_binds": 75,
+            "uniform_lookups": 0,
+            "vao_binds": 65
+          }
+        },
+        "time_ratio_after_before": 0.9451405645557123
+      },
+      {
+        "phase": "camera_motion",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            387.9333596,
+            362.78307099999995
+          ],
+          "mean_frame_ms": 375.3582153,
+          "gpu_mean_ms": 378.3972419,
+          "cpu_submit_mean_ms": 374.5038365,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 84,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 512,
+            "buffer_updates": 4,
+            "compute_dispatches": 4,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 8,
+            "program_binds": 19,
+            "state_queries": 170,
+            "texture_binds": 150,
+            "uniform_lookups": 0,
+            "vao_binds": 105
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            351.8281716,
+            388.5059856
+          ],
+          "mean_frame_ms": 370.16707859999997,
+          "gpu_mean_ms": 373.52669699999996,
+          "cpu_submit_mean_ms": 368.829972,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 81,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 4,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 60,
+            "memory_barriers": 8,
+            "program_binds": 24,
+            "state_queries": 138,
+            "texture_binds": 75,
+            "uniform_lookups": 0,
+            "vao_binds": 65
+          }
+        },
+        "time_ratio_after_before": 0.9861701796086944
+      },
+      {
+        "phase": "publication_churn",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            394.08450639999995,
+            403.19685979999997
+          ],
+          "mean_frame_ms": 398.64068309999993,
+          "gpu_mean_ms": 402.2186662,
+          "cpu_submit_mean_ms": 397.88176669999996,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 98,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 1,
+            "buffer_update_bytes": 1024,
+            "buffer_updates": 6,
+            "compute_dispatches": 5,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 10,
+            "program_binds": 21,
+            "state_queries": 204,
+            "texture_binds": 156,
+            "uniform_lookups": 0,
+            "vao_binds": 106
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            410.452718,
+            355.1629508
+          ],
+          "mean_frame_ms": 382.8078344,
+          "gpu_mean_ms": 386.43189029999996,
+          "cpu_submit_mean_ms": 381.5708618,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 45,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 60,
+            "memory_barriers": 0,
+            "program_binds": 20,
+            "state_queries": 102,
+            "texture_binds": 75,
+            "uniform_lookups": 0,
+            "vao_binds": 65
+          }
+        },
+        "time_ratio_after_before": 0.9602829079639414
+      },
+      {
+        "phase": "offscreen_page_churn",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            370.367303,
+            385.510943
+          ],
+          "mean_frame_ms": 377.939123,
+          "gpu_mean_ms": 381.12276369999995,
+          "cpu_submit_mean_ms": 377.1709143,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 6553.6,
+            "buffer_allocations": 0.2,
+            "buffer_binds": 100.4,
+            "buffer_copies": 0.2,
+            "buffer_copy_bytes": 3276.8,
+            "buffer_queries": 1.2,
+            "buffer_update_bytes": 1081.6,
+            "buffer_updates": 6.6,
+            "compute_dispatches": 5.6,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 11.4,
+            "program_binds": 21.6,
+            "state_queries": 204,
+            "texture_binds": 156,
+            "uniform_lookups": 0,
+            "vao_binds": 106
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            408.08991679999997,
+            394.5490698
+          ],
+          "mean_frame_ms": 401.3194933,
+          "gpu_mean_ms": 406.4111344,
+          "cpu_submit_mean_ms": 400.4021937,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 6553.6,
+            "buffer_allocations": 0.2,
+            "buffer_binds": 97.4,
+            "buffer_copies": 0.2,
+            "buffer_copy_bytes": 3276.8,
+            "buffer_queries": 1.2,
+            "buffer_update_bytes": 441.6,
+            "buffer_updates": 1.6,
+            "compute_dispatches": 5.6,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 60,
+            "memory_barriers": 11.4,
+            "program_binds": 26.6,
+            "state_queries": 161,
+            "texture_binds": 75,
+            "uniform_lookups": 0,
+            "vao_binds": 65
+          }
+        },
+        "time_ratio_after_before": 1.0618627945009016
+      }
+    ],
+    "cached": [
+      {
+        "phase": "static",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            90.238705,
+            119.30015919999998
+          ],
+          "mean_frame_ms": 104.76943209999999,
+          "gpu_mean_ms": 108.13859769999999,
+          "cpu_submit_mean_ms": 104.1327977,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 12,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 20,
+            "memory_barriers": 0,
+            "program_binds": 3,
+            "state_queries": 34,
+            "texture_binds": 30,
+            "uniform_lookups": 0,
+            "vao_binds": 21
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            91.61022879999999,
+            99.1255102
+          ],
+          "mean_frame_ms": 95.36786949999998,
+          "gpu_mean_ms": 97.155442,
+          "cpu_submit_mean_ms": 94.619298,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 9,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 12,
+            "memory_barriers": 0,
+            "program_binds": 4,
+            "state_queries": 22,
+            "texture_binds": 19,
+            "uniform_lookups": 0,
+            "vao_binds": 13
+          }
+        },
+        "time_ratio_after_before": 0.9102642592256639
+      },
+      {
+        "phase": "camera_motion",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            321.5647924,
+            351.5110088
+          ],
+          "mean_frame_ms": 336.5379006,
+          "gpu_mean_ms": 338.35024,
+          "cpu_submit_mean_ms": 335.5824616,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 74.4,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 512,
+            "buffer_updates": 4,
+            "compute_dispatches": 4,
+            "indirect_commands": 84,
+            "indirect_draw_calls": 84,
+            "memory_barriers": 8,
+            "program_binds": 16.6,
+            "state_queries": 142.8,
+            "texture_binds": 126,
+            "uniform_lookups": 0,
+            "vao_binds": 88.2
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            309.11003539999996,
+            351.4685424
+          ],
+          "mean_frame_ms": 330.2892889,
+          "gpu_mean_ms": 333.7787995,
+          "cpu_submit_mean_ms": 329.3459643,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 73.8,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 4,
+            "indirect_commands": 84,
+            "indirect_draw_calls": 50.4,
+            "memory_barriers": 8,
+            "program_binds": 20.8,
+            "state_queries": 122,
+            "texture_binds": 63.8,
+            "uniform_lookups": 0,
+            "vao_binds": 54.6
+          }
+        },
+        "time_ratio_after_before": 0.9814326657150365
+      },
+      {
+        "phase": "publication_churn",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            344.3914354,
+            356.37330039999995
+          ],
+          "mean_frame_ms": 350.38236789999996,
+          "gpu_mean_ms": 353.5613967,
+          "cpu_submit_mean_ms": 349.53112089999996,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 98,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 1,
+            "buffer_update_bytes": 1024,
+            "buffer_updates": 6,
+            "compute_dispatches": 5,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 10,
+            "program_binds": 21,
+            "state_queries": 204,
+            "texture_binds": 156,
+            "uniform_lookups": 0,
+            "vao_binds": 106
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            97.5316248,
+            97.02803
+          ],
+          "mean_frame_ms": 97.2798274,
+          "gpu_mean_ms": 98.64690279999999,
+          "cpu_submit_mean_ms": 96.6464702,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 0,
+            "buffer_allocations": 0,
+            "buffer_binds": 9,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 12,
+            "memory_barriers": 0,
+            "program_binds": 4,
+            "state_queries": 22,
+            "texture_binds": 19,
+            "uniform_lookups": 0,
+            "vao_binds": 13
+          }
+        },
+        "time_ratio_after_before": 0.27763904897110553
+      },
+      {
+        "phase": "offscreen_page_churn",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            347.0607266,
+            368.36468379999997
+          ],
+          "mean_frame_ms": 357.71270519999996,
+          "gpu_mean_ms": 361.0162486,
+          "cpu_submit_mean_ms": 356.8415214,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 6553.6,
+            "buffer_allocations": 0.2,
+            "buffer_binds": 100.4,
+            "buffer_copies": 0.2,
+            "buffer_copy_bytes": 3276.8,
+            "buffer_queries": 1.2,
+            "buffer_update_bytes": 1081.6,
+            "buffer_updates": 6.6,
+            "compute_dispatches": 5.6,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 11.4,
+            "program_binds": 21.6,
+            "state_queries": 204,
+            "texture_binds": 156,
+            "uniform_lookups": 0,
+            "vao_binds": 106
+          }
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            102.6553504,
+            93.3904024
+          ],
+          "mean_frame_ms": 98.0228764,
+          "gpu_mean_ms": 101.3815072,
+          "cpu_submit_mean_ms": 97.0203858,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 6553.6,
+            "buffer_allocations": 0.2,
+            "buffer_binds": 25.4,
+            "buffer_copies": 0.2,
+            "buffer_copy_bytes": 3276.8,
+            "buffer_queries": 1.2,
+            "buffer_update_bytes": 441.6,
+            "buffer_updates": 1.6,
+            "compute_dispatches": 1.6,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 12,
+            "memory_barriers": 3.4,
+            "program_binds": 6.6,
+            "state_queries": 45,
+            "texture_binds": 19,
+            "uniform_lookups": 0,
+            "vao_binds": 13
+          }
+        },
+        "time_ratio_after_before": 0.2740268236913605
+      }
+    ],
+    "atmosphere": [
+      {
+        "phase": "static",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            130.7610762,
+            111.005873
+          ],
+          "mean_frame_ms": 120.8834746,
+          "gpu_mean_ms": 124.36310259999999,
+          "cpu_submit_mean_ms": 120.0255466,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 1075.2,
+            "buffer_allocations": 1.6,
+            "buffer_binds": 15,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 20,
+            "memory_barriers": 0,
+            "program_binds": 4,
+            "state_queries": 34,
+            "texture_binds": 37,
+            "uniform_lookups": 2,
+            "vao_binds": 23
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 0,
+              "cloud_volume_dispatches": 0,
+              "dispatches": 0,
+              "fog_dispatches": 0,
+              "visible_cloud_dispatches": 0,
+              "volume_updates": 0
+            },
+            {
+              "aerial_dispatches": 0,
+              "cloud_volume_dispatches": 0,
+              "dispatches": 0,
+              "fog_dispatches": 0,
+              "visible_cloud_dispatches": 0,
+              "volume_updates": 0
+            }
+          ]
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            120.85701959999999,
+            91.5753216
+          ],
+          "mean_frame_ms": 106.2161706,
+          "gpu_mean_ms": 109.7346719,
+          "cpu_submit_mean_ms": 105.34931089999999,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 1075.2,
+            "buffer_allocations": 1.6,
+            "buffer_binds": 12,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 0,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 12,
+            "memory_barriers": 0,
+            "program_binds": 5,
+            "state_queries": 22,
+            "texture_binds": 26,
+            "uniform_lookups": 0,
+            "vao_binds": 15
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 0,
+              "cloud_volume_dispatches": 0,
+              "dispatches": 0,
+              "fog_dispatches": 0,
+              "visible_cloud_dispatches": 0,
+              "volume_updates": 0
+            },
+            {
+              "aerial_dispatches": 0,
+              "cloud_volume_dispatches": 0,
+              "dispatches": 0,
+              "fog_dispatches": 0,
+              "visible_cloud_dispatches": 0,
+              "volume_updates": 0
+            }
+          ]
+        },
+        "time_ratio_after_before": 0.8786657642946342
+      },
+      {
+        "phase": "camera_motion",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            315.3569568,
+            350.4336726
+          ],
+          "mean_frame_ms": 332.8953147,
+          "gpu_mean_ms": 336.3891375,
+          "cpu_submit_mean_ms": 331.9873061,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 1881.6,
+            "buffer_allocations": 2.8,
+            "buffer_binds": 87.8,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 512,
+            "buffer_updates": 4,
+            "compute_dispatches": 19,
+            "indirect_commands": 84,
+            "indirect_draw_calls": 84,
+            "memory_barriers": 23.4,
+            "program_binds": 29.8,
+            "state_queries": 142.8,
+            "texture_binds": 207.4,
+            "uniform_lookups": 36.8,
+            "vao_binds": 90.2
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 4,
+              "cloud_volume_dispatches": 4,
+              "dispatches": 75,
+              "fog_dispatches": 4,
+              "visible_cloud_dispatches": 4,
+              "volume_updates": 4
+            },
+            {
+              "aerial_dispatches": 4,
+              "cloud_volume_dispatches": 4,
+              "dispatches": 75,
+              "fog_dispatches": 4,
+              "visible_cloud_dispatches": 4,
+              "volume_updates": 4
+            }
+          ]
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            353.5172404,
+            323.05259379999995
+          ],
+          "mean_frame_ms": 338.2849171,
+          "gpu_mean_ms": 341.4561643,
+          "cpu_submit_mean_ms": 337.3491884,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              0,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 1881.6,
+            "buffer_allocations": 2.8,
+            "buffer_binds": 87.2,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 19,
+            "indirect_commands": 84,
+            "indirect_draw_calls": 50.4,
+            "memory_barriers": 23.4,
+            "program_binds": 34,
+            "state_queries": 122,
+            "texture_binds": 145.2,
+            "uniform_lookups": 0.4,
+            "vao_binds": 56.6
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 4,
+              "cloud_volume_dispatches": 4,
+              "dispatches": 75,
+              "fog_dispatches": 4,
+              "visible_cloud_dispatches": 4,
+              "volume_updates": 4
+            },
+            {
+              "aerial_dispatches": 4,
+              "cloud_volume_dispatches": 4,
+              "dispatches": 75,
+              "fog_dispatches": 4,
+              "visible_cloud_dispatches": 4,
+              "volume_updates": 4
+            }
+          ]
+        },
+        "time_ratio_after_before": 1.0161900818726062
+      },
+      {
+        "phase": "publication_churn",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            422.722024,
+            432.7995714
+          ],
+          "mean_frame_ms": 427.7607977,
+          "gpu_mean_ms": 431.49957739999996,
+          "cpu_submit_mean_ms": 426.90288339999995,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 2016,
+            "buffer_allocations": 3,
+            "buffer_binds": 103,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 1,
+            "buffer_update_bytes": 1024,
+            "buffer_updates": 6,
+            "compute_dispatches": 16.6,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 21.6,
+            "program_binds": 26.6,
+            "state_queries": 204,
+            "texture_binds": 183,
+            "uniform_lookups": 11,
+            "vao_binds": 108
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 5,
+              "cloud_volume_dispatches": 5,
+              "dispatches": 58,
+              "fog_dispatches": 5,
+              "visible_cloud_dispatches": 3,
+              "volume_updates": 5
+            },
+            {
+              "aerial_dispatches": 5,
+              "cloud_volume_dispatches": 5,
+              "dispatches": 58,
+              "fog_dispatches": 5,
+              "visible_cloud_dispatches": 3,
+              "volume_updates": 5
+            }
+          ]
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            120.73050879999998,
+            96.6852054
+          ],
+          "mean_frame_ms": 108.70785709999998,
+          "gpu_mean_ms": 111.8976995,
+          "cpu_submit_mean_ms": 107.7285292,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 1747.2,
+            "buffer_allocations": 2.6,
+            "buffer_binds": 13.2,
+            "buffer_copies": 0,
+            "buffer_copy_bytes": 0,
+            "buffer_queries": 0,
+            "buffer_update_bytes": 0,
+            "buffer_updates": 0,
+            "compute_dispatches": 10.4,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 12,
+            "memory_barriers": 10.4,
+            "program_binds": 8.4,
+            "state_queries": 22,
+            "texture_binds": 42.4,
+            "uniform_lookups": 0,
+            "vao_binds": 15
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 3,
+              "cloud_volume_dispatches": 3,
+              "dispatches": 52,
+              "fog_dispatches": 3,
+              "visible_cloud_dispatches": 3,
+              "volume_updates": 3
+            },
+            {
+              "aerial_dispatches": 3,
+              "cloud_volume_dispatches": 3,
+              "dispatches": 52,
+              "fog_dispatches": 3,
+              "visible_cloud_dispatches": 3,
+              "volume_updates": 3
+            }
+          ]
+        },
+        "time_ratio_after_before": 0.2541323508009719
+      },
+      {
+        "phase": "offscreen_page_churn",
+        "image_equal": true,
+        "before": {
+          "run_mean_frame_ms": [
+            399.640508,
+            409.6001752
+          ],
+          "mean_frame_ms": 404.6203416,
+          "gpu_mean_ms": 408.9103161,
+          "cpu_submit_mean_ms": 403.5038035,
+          "layers_redrawn_per_frame": [
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ],
+            [
+              4,
+              4,
+              4,
+              4,
+              4
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 8704,
+            "buffer_allocations": 3.4,
+            "buffer_binds": 114.2,
+            "buffer_copies": 0.2,
+            "buffer_copy_bytes": 3276.8,
+            "buffer_queries": 1.2,
+            "buffer_update_bytes": 1081.6,
+            "buffer_updates": 6.6,
+            "compute_dispatches": 25.6,
+            "indirect_commands": 100,
+            "indirect_draw_calls": 100,
+            "memory_barriers": 31.8,
+            "program_binds": 35.6,
+            "state_queries": 204,
+            "texture_binds": 242,
+            "uniform_lookups": 42.2,
+            "vao_binds": 108
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 5,
+              "cloud_volume_dispatches": 5,
+              "dispatches": 100,
+              "fog_dispatches": 5,
+              "visible_cloud_dispatches": 2,
+              "volume_updates": 5
+            },
+            {
+              "aerial_dispatches": 5,
+              "cloud_volume_dispatches": 5,
+              "dispatches": 100,
+              "fog_dispatches": 5,
+              "visible_cloud_dispatches": 2,
+              "volume_updates": 5
+            }
+          ]
+        },
+        "after": {
+          "run_mean_frame_ms": [
+            106.88379979999999,
+            108.3044066
+          ],
+          "mean_frame_ms": 107.59410319999999,
+          "gpu_mean_ms": 110.9581185,
+          "cpu_submit_mean_ms": 106.7914843,
+          "layers_redrawn_per_frame": [
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            [
+              0,
+              0,
+              0,
+              0,
+              0
+            ]
+          ],
+          "driver_calls_per_frame_mean": {
+            "buffer_allocation_bytes": 8300.8,
+            "buffer_allocations": 2.8,
+            "buffer_binds": 38,
+            "buffer_copies": 0.2,
+            "buffer_copy_bytes": 3276.8,
+            "buffer_queries": 1.2,
+            "buffer_update_bytes": 441.6,
+            "buffer_updates": 1.6,
+            "compute_dispatches": 19.8,
+            "indirect_commands": 20,
+            "indirect_draw_calls": 12,
+            "memory_barriers": 22,
+            "program_binds": 18.8,
+            "state_queries": 45,
+            "texture_binds": 99.6,
+            "uniform_lookups": 0,
+            "vao_binds": 15
+          },
+          "atmosphere_delta": [
+            {
+              "aerial_dispatches": 2,
+              "cloud_volume_dispatches": 2,
+              "dispatches": 91,
+              "fog_dispatches": 2,
+              "visible_cloud_dispatches": 2,
+              "volume_updates": 2
+            },
+            {
+              "aerial_dispatches": 2,
+              "cloud_volume_dispatches": 2,
+              "dispatches": 91,
+              "fog_dispatches": 2,
+              "visible_cloud_dispatches": 2,
+              "volume_updates": 2
+            }
+          ]
+        },
+        "time_ratio_after_before": 0.265913727358684
+      }
+    ]
+  },
+  "generation": {
+    "before": {
+      "wall_ms": [
+        9964.033211,
+        10667.384814
+      ],
+      "mean_ms": 10315.7090125,
+      "complete_scene_coverage": [
+        true,
+        true
+      ],
+      "submitted": [
+        2665,
+        2665
+      ],
+      "ready": [
+        769,
+        769
+      ],
+      "empty": [
+        1896,
+        1896
+      ],
+      "resident_vertices": [
+        27228894,
+        27228894
+      ],
+      "resident_mesh_bytes": [
+        326759088,
+        326759088
+      ],
+      "object_instances": [
+        312,
+        312
+      ],
+      "object_scratch_bytes": [
+        1684032,
+        1684032
+      ],
+      "object_pool_bytes": [
+        53477376,
+        53477376
+      ],
+      "driver_calls": [
+        {
+          "buffer_allocation_bytes": 165120,
+          "buffer_allocations": 430,
+          "buffer_binds": 29734,
+          "buffer_copies": 145,
+          "buffer_copy_bytes": 2496,
+          "buffer_queries": 0,
+          "buffer_update_bytes": 73936,
+          "buffer_updates": 3643,
+          "compute_dispatches": 7255,
+          "indirect_commands": 0,
+          "indirect_draw_calls": 0,
+          "memory_barriers": 28021,
+          "program_binds": 26755,
+          "state_queries": 0,
+          "texture_binds": 0,
+          "uniform_lookups": 0,
+          "vao_binds": 0
+        },
+        {
+          "buffer_allocation_bytes": 165120,
+          "buffer_allocations": 430,
+          "buffer_binds": 29734,
+          "buffer_copies": 145,
+          "buffer_copy_bytes": 2496,
+          "buffer_queries": 0,
+          "buffer_update_bytes": 73936,
+          "buffer_updates": 3643,
+          "compute_dispatches": 7255,
+          "indirect_commands": 0,
+          "indirect_draw_calls": 0,
+          "memory_barriers": 28021,
+          "program_binds": 26755,
+          "state_queries": 0,
+          "texture_binds": 0,
+          "uniform_lookups": 0,
+          "vao_binds": 0
+        }
+      ],
+      "gpu_stage_ms": [
+        {
+          "columns": 1567.3131570000012,
+          "count": 2031.3416869999994,
+          "emit": 1401.951999000001,
+          "preparation": 2787.526338999999,
+          "volume": 2001.8658279999997
+        },
+        {
+          "columns": 1668.8363800000004,
+          "count": 2218.5329940000015,
+          "emit": 1515.2013749999996,
+          "preparation": 2978.374280000001,
+          "volume": 2089.733626
+        }
+      ]
+    },
+    "after": {
+      "wall_ms": [
+        10731.064046,
+        10382.587018999999
+      ],
+      "mean_ms": 10556.8255325,
+      "complete_scene_coverage": [
+        true,
+        true
+      ],
+      "submitted": [
+        2665,
+        2665
+      ],
+      "ready": [
+        769,
+        769
+      ],
+      "empty": [
+        1896,
+        1896
+      ],
+      "resident_vertices": [
+        27228894,
+        27228894
+      ],
+      "resident_mesh_bytes": [
+        326759088,
+        326759088
+      ],
+      "object_instances": [
+        312,
+        312
+      ],
+      "object_scratch_bytes": [
+        29248,
+        29248
+      ],
+      "object_pool_bytes": [
+        53477376,
+        53477376
+      ],
+      "driver_calls": [
+        {
+          "buffer_allocation_bytes": 165120,
+          "buffer_allocations": 430,
+          "buffer_binds": 29734,
+          "buffer_copies": 145,
+          "buffer_copy_bytes": 2496,
+          "buffer_queries": 0,
+          "buffer_update_bytes": 49328,
+          "buffer_updates": 2874,
+          "compute_dispatches": 7255,
+          "indirect_commands": 0,
+          "indirect_draw_calls": 0,
+          "memory_barriers": 28021,
+          "program_binds": 26755,
+          "state_queries": 0,
+          "texture_binds": 0,
+          "uniform_lookups": 0,
+          "vao_binds": 0
+        },
+        {
+          "buffer_allocation_bytes": 165120,
+          "buffer_allocations": 430,
+          "buffer_binds": 29734,
+          "buffer_copies": 145,
+          "buffer_copy_bytes": 2496,
+          "buffer_queries": 0,
+          "buffer_update_bytes": 49328,
+          "buffer_updates": 2874,
+          "compute_dispatches": 7255,
+          "indirect_commands": 0,
+          "indirect_draw_calls": 0,
+          "memory_barriers": 28021,
+          "program_binds": 26755,
+          "state_queries": 0,
+          "texture_binds": 0,
+          "uniform_lookups": 0,
+          "vao_binds": 0
+        }
+      ],
+      "gpu_stage_ms": [
+        {
+          "columns": 1635.9507840000006,
+          "count": 2246.9112979999995,
+          "emit": 1488.0159579999986,
+          "preparation": 3043.8712900000005,
+          "volume": 2163.740637000001
+        },
+        {
+          "columns": 1625.7193509999988,
+          "count": 2172.067592000001,
+          "emit": 1461.4152939999994,
+          "preparation": 2880.7925140000016,
+          "volume": 2078.4532319999976
+        }
+      ]
+    }
+  },
+  "shader_cold": {
+    "before": {
+      "initialize_ms": 92.29256099999999,
+      "asset_load_upload_wall_ms": 704.290503,
+      "asset_loading_prepare_calls": 509
+    },
+    "after": {
+      "initialize_ms": 94.31187899999999,
+      "asset_load_upload_wall_ms": 369.231695,
+      "asset_loading_prepare_calls": 227
+    }
+  }
+}

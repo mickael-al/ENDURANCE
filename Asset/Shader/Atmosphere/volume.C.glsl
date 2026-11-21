@@ -24,7 +24,7 @@ void main()
         // Disabled media use tiny neutral allocations; never fetch them with
         // coordinates belonging to the full camera volume.
         vec3 source=vec3(0.0),extinction=vec3(0.0);
-        if(geAtmControl.x!=0)
+        if(GE_ATM_PHYSICAL_ON)
         {
             vec4 physical=texelFetch(geAtmPhysicalSourceVolume,ivec3(p,z),0);
             source=physical.rgb;
@@ -36,14 +36,14 @@ void main()
         vec3 unusedExtinction;
         vec3 baselineSource=geAtmPhysicalSource(geAtmOrigin()+direction*center,
             direction,vec2(1.0),unusedExtinction);
-        if(geAtmControl.z!=0)
+        if(geAtmHasClouds())
         {
             vec4 cloud=texelFetch(geAtmCloudSourceVolume,ivec3(p,z),0);
             vec3 cloudSource=cloud.rgb;
             float cloudExtinction=cloud.a;
             source+=cloudSource;
             vec3 unoccludedCloudSource=cloudSource;
-            if(cloudExtinction>0.0 && geAtmControl.w!=0)
+            if(cloudExtinction>0.0 && GE_ATM_TERRAIN_SHADOWS_ON)
             {
                 vec3 world=geAtmCamera.xyz+direction*center;
                 vec2 terrain=vec2(1.0);

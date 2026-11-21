@@ -2,6 +2,7 @@
 #define __CUSTOM_RENDERER__
 
 #include "ShadowCasterBounds.hpp"
+#include <glm/mat4x4.hpp>
 
 // Called inside the engine's opaque/depth passes. Implementations must restore
 // every OpenGL binding and render state they change; the framebuffer and viewport
@@ -21,6 +22,12 @@ public:
     // material, animation and geometry. Bounds alone are not such a guarantee.
     // Tokens must distinguish renderer restarts/address reuse. Zero disables reuse.
     virtual std::uint64_t shadowContentRevision() const { return 0; }
+    // Optional exact token for one light frustum. Must include geometry, alpha,
+    // LOD/fade and resource lifetime changes affecting this layer. No GL work
+    // may be issued here; CPU selection caches may be shared with the draw.
+    // The default preserves conservative invalidation for existing providers.
+    virtual std::uint64_t shadowLayerContentRevision(unsigned /*layer*/,
+        const glm::mat4& /*clip*/) const { return shadowContentRevision(); }
     virtual void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& /*output*/) const {}
 	// SSBO 0 contains UniformBufferCamera.
 	virtual void drawRenderer() = 0;

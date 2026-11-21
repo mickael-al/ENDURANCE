@@ -72,7 +72,7 @@ namespace Ge
         const Camera* m_shadowClipCamera = nullptr;
         float m_shadowClipNear = 0.0f, m_shadowClipFar = 0.0f;
         std::vector<glm::mat4> m_shadowMapMatrices;
-        std::vector<ShadowContentSource> m_shadowMapSources;
+        std::vector<std::vector<ShadowContentSource>> m_shadowMapLayerSources;
 		std::vector<unsigned int> m_frameBufferDepthShadow;
 		unsigned int m_ssboShadow;
 		unsigned int m_ssboPlaneHidden;

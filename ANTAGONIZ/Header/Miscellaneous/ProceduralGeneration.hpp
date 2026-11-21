@@ -111,6 +111,8 @@ public:
     bool setTerrainAppearance(const ProceduralTerrain::TerrainAppearance& appearance,
         float microDetailStrength, float microDetailScale);
     bool setTerrainDetail(float strength, float scale);
+    // Changes only the render variant; never rebuilds terrain or shadow meshes.
+    bool setTerrainDebugLod(bool enabled);
     void update(const glm::vec3& cameraWorldPosition);
     void shutdown() noexcept;
     void prepareRenderer() override;
@@ -118,6 +120,7 @@ public:
     void drawShadowRenderer(unsigned int shadowIndex) override;
     std::uint64_t shadowCasterBoundsRevision() const override;
     std::uint64_t shadowContentRevision() const override;
+    std::uint64_t shadowLayerContentRevision(unsigned layer, const glm::mat4& clip) const override;
     void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const override;
     bool isInitialized() const noexcept;
     const Stats& getStats() const noexcept;
@@ -139,12 +142,14 @@ public:
     std::uint32_t getSeed() const noexcept { return m_seed; }
 
 private:
+    bool applyTerrainAppearance(const ProceduralTerrain::TerrainAppearance& appearance,
+        float strength, float scale, bool debugLod);
     struct Impl;
     SceneData& m_scene;
     std::uint32_t m_seed;
     std::unique_ptr<Impl> m_impl;
     Config m_config;
-    Stats m_stats;
+    mutable Stats m_stats; // Per-layer visibility is a logical rendering cache.
     std::string m_lastError;
 };
 

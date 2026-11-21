@@ -106,6 +106,7 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         gpu.publishObjectCoverage({{root.origin,root.lod,root.transitionMask}},root.seed);
         const auto original=read(gpu);
         const auto originalRevision=gpu.objectStats().revision;
+        const auto originalRebuilds=gpu.objectStats().publicationRebuilds;
         const auto originalBlocks=gpu.objectBlocks();
         for(const auto& b:originalBlocks) require(b.allocationRevision!=0,"Published page lacks a content identity");
         require(original.size()>25,"Expected planted objects on flat eligible ground");
@@ -119,6 +120,8 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         gpu.publishObjectCoverage({{stitched.origin,stitched.lod,stitched.transitionMask}},root.seed);
         require(read(gpu)==original && gpu.objectStats().captureJobs==captures,"Transition remeshing regenerated object sites");
         require(gpu.objectStats().revision==originalRevision,"Transition-only terrain invalidated identical tree pages");
+        require(gpu.objectStats().publicationRebuilds==originalRebuilds,
+            "Transition-only publication rebuilt/sorted an unchanged object list");
 
         std::vector<LodChunk> fine;
         std::vector<MeshHandle> children;
@@ -131,6 +134,8 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         gpu.publishObjectCoverage(fine,root.seed);
         require(read(gpu)==original && gpu.objectStats().captureJobs==captures,"Refinement changed cached object placement");
         require(gpu.objectStats().revision==originalRevision,"Terrain refinement invalidated unchanged tree buffers");
+        require(gpu.objectStats().publicationRebuilds==originalRebuilds,
+            "Equivalent fine coverage rebuilt the object list");
         gpu.publishObjectCoverage({{{0,0,0},3,0}},root.seed);
         require(read(gpu)==original,"Coarsening removed existing object sites");
         const auto coarse=generate(gpu,{{0,0,0},3,0,root.seed},30);
@@ -138,6 +143,13 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         gpu.publishObjectCoverage({{{0,0,0},3,0},{{1024,0,0},4,0}},root.seed);
         gpu.discardUnpublishedObjects();
         require(gpu.objectStats().revision==originalRevision,"Unrelated distant terrain publication rebuilt the tree render/shadow caches");
+        const auto stationaryRebuilds=gpu.objectStats().publicationRebuilds;
+        const auto stationaryLookups=gpu.objectStats().coarseCoverageLookups;
+        for(unsigned i=0;i<64;++i)
+            gpu.publishObjectCoverage({{{0,0,0},3,0},{{1024,0,0},4,0}},root.seed);
+        require(gpu.objectStats().publicationRebuilds==stationaryRebuilds &&
+            gpu.objectStats().coarseCoverageLookups==stationaryLookups+64,
+            "Repeated coverage rebuilt positions or searched absent coarse LODs");
 
         ChunkRequest left{{-64,0,0},2,0,root.seed};
         const auto leftMesh=generate(gpu,left,31);
@@ -178,6 +190,25 @@ extern "C" int object_placement_tests(const char* shaderDirectory,const char* ca
         require(read(gpu)==snapshot && gpu.objectStats().captureJobs==idleCaptures,"Idle frames regenerated positions");
         gpu.trimObjectSectors(glm::vec3(10000,0,0));
         require(gpu.objectBlocks().empty() && gpu.objectStats().sectors==0,"Object retention radius failed");
+        gpu.shutdown();
+
+        // Staging capacity depends on total site count, not prototype count.
+        // Empty types must still receive a fresh zero counter on reused jobs.
+        auto manyTypes=c;
+        manyTypes.objects.prototypes.resize(255,c.objects.prototypes.front());
+        manyTypes.objects.groups={{0,255}};
+        require(gpu.initialize(manyTypes,error),error);
+        const auto manyTypeScratch=gpu.objectStats().scratchBytes;
+        generate(gpu,root,90); gpu.publishObjectCoverage({{root.origin,2,0}},root.seed);
+        const auto spread=read(gpu);
+        require(spread.size()==original.size(),"Prototype compaction changed candidate/site count");
+        checkPlane(spread,c.field.baseHeight,c.objects.minimumDistance);
+        require(std::any_of(spread.begin(),spread.end(),[](const auto& p){return p.type>200;}),
+            "Compaction lost high-numbered prototypes");
+        gpu.shutdown();
+        require(gpu.initialize(c,error),error);
+        require(manyTypeScratch-gpu.objectStats().scratchBytes==(255-c.objects.prototypes.size())*c.maxInFlight*4,
+            "Object staging still reserves positions per prototype instead of per site");
         gpu.shutdown();
 
         // A finer chunk can be the first visible source; filling the rest with

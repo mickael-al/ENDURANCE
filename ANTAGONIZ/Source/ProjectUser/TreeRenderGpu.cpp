@@ -15,6 +15,7 @@
 #include <limits>
 #include <map>
 #include <numeric>
+#include <stdexcept>
 #include <unordered_map>
 
 namespace EnduranceTrees
@@ -25,8 +26,13 @@ using ProceduralTerrain::finiteFieldValue;
 constexpr unsigned Page=ProceduralTerrain::ObjectPageSize;
 static_assert(Page==64,"Tree culling workgroups match object pages");
 struct BlockGpu { glm::vec4 origin; glm::uvec4 info; glm::ivec4 anchor; };
-struct ModelData { glm::vec4 centreRadius,scales,impostorCentre; glm::uvec4 counts; };
-static_assert(sizeof(BlockGpu)==48 && sizeof(ModelData)==64,"std430 tree layout");
+struct ModelData
+{
+    glm::vec4 centreRadius,scales,impostorCentre;
+    glm::uvec4 counts,firstIndices;
+    glm::ivec4 baseVertices;
+};
+static_assert(sizeof(BlockGpu)==48 && sizeof(ModelData)==96,"std430 tree layout");
 constexpr unsigned InstanceBytes=32,CommandBytes=20,VisibleBytes=8;
 // Wind is disabled at runtime; keep the authored position/normal/color exactly
 // while omitting the unused vec4 from vertex fetches and VRAM.
@@ -43,40 +49,53 @@ DrawMesh packMesh(const Mesh& mesh)
 struct State
 {
     GLint program=0,vao=0,storage=0,indirect=0,active=0,cullMode=0;
-    bool culling=false;
+    bool culling=false,graphics=false;
+    unsigned textureUnits=0;
     static constexpr std::array<GLuint,6> indices{{1,2,4,5,6,7}};
+    std::array<bool,6> used{};
     std::array<GLint,6> buffers{}; std::array<GLint64,6> starts{},sizes{};
-    std::array<GLint,3> textures{},arrays{},samplers{};
-    State()
+    std::array<GLint,3> textures{},samplers{};
+    // Build touches only compute bindings; cached draws only three SSBO slots.
+    // Culling and drawing together touch all six. Preserve every changed state
+    // without querying/restoring unrelated targets, including SSBO zero.
+    explicit State(bool draw=false,bool cull=false,bool normals=true):graphics(draw),textureUnits(normals?3:2)
     {
-        glGetIntegerv(GL_CURRENT_PROGRAM,&program); glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao);
-        glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING,&storage); glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING,&indirect);
-        glGetIntegerv(GL_ACTIVE_TEXTURE,&active); glGetIntegerv(GL_CULL_FACE_MODE,&cullMode);
-        culling=glIsEnabled(GL_CULL_FACE)==GL_TRUE;
+        glGetIntegerv(GL_CURRENT_PROGRAM,&program); glGetIntegerv(GL_SHADER_STORAGE_BUFFER_BINDING,&storage);
         for(unsigned i=0;i<indices.size();++i)
         {
+            used[i]=draw?(cull || indices[i]==4 || indices[i]==6 || indices[i]==7):
+                (indices[i]==2 || indices[i]==4 || indices[i]==5 || indices[i]==6);
+            if(!used[i]) continue;
             glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING,indices[i],&buffers[i]);
             glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_START,indices[i],&starts[i]);
             glGetInteger64i_v(GL_SHADER_STORAGE_BUFFER_SIZE,indices[i],&sizes[i]);
         }
-        for(unsigned i=0;i<3;++i)
+        if(!graphics) return;
+        glGetIntegerv(GL_VERTEX_ARRAY_BINDING,&vao); glGetIntegerv(GL_DRAW_INDIRECT_BUFFER_BINDING,&indirect);
+        glGetIntegerv(GL_ACTIVE_TEXTURE,&active); glGetIntegerv(GL_CULL_FACE_MODE,&cullMode);
+        culling=glIsEnabled(GL_CULL_FACE)==GL_TRUE;
+        for(unsigned i=0;i<textureUnits;++i)
         {
-            glActiveTexture(GL_TEXTURE0+i); glGetIntegerv(GL_TEXTURE_BINDING_2D,&textures[i]);
-            glGetIntegerv(GL_TEXTURE_BINDING_2D_ARRAY,&arrays[i]); glGetIntegeri_v(GL_SAMPLER_BINDING,i,&samplers[i]);
+            glActiveTexture(GL_TEXTURE0+i);
+            glGetIntegerv(i?GL_TEXTURE_BINDING_2D_ARRAY:GL_TEXTURE_BINDING_2D,&textures[i]);
+            glGetIntegeri_v(GL_SAMPLER_BINDING,i,&samplers[i]);
         }
     }
     ~State()
     {
         for(unsigned i=0;i<indices.size();++i)
-            if(buffers[i] && sizes[i]>0) glBindBufferRange(GL_SHADER_STORAGE_BUFFER,indices[i],buffers[i],starts[i],sizes[i]);
+            if(!used[i]) continue;
+            else if(buffers[i] && sizes[i]>0) glBindBufferRange(GL_SHADER_STORAGE_BUFFER,indices[i],buffers[i],starts[i],sizes[i]);
             else glBindBufferBase(GL_SHADER_STORAGE_BUFFER,indices[i],buffers[i]);
-        glBindBuffer(GL_SHADER_STORAGE_BUFFER,storage); glBindBuffer(GL_DRAW_INDIRECT_BUFFER,indirect);
-        for(unsigned i=0;i<3;++i)
+        glBindBuffer(GL_SHADER_STORAGE_BUFFER,storage); glUseProgram(program);
+        if(!graphics) return;
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER,indirect);
+        for(unsigned i=0;i<textureUnits;++i)
         {
-            glActiveTexture(GL_TEXTURE0+i); glBindTexture(GL_TEXTURE_2D,textures[i]);
-            glBindTexture(GL_TEXTURE_2D_ARRAY,arrays[i]); glBindSampler(i,samplers[i]);
+            glActiveTexture(GL_TEXTURE0+i); glBindTexture(i?GL_TEXTURE_2D_ARRAY:GL_TEXTURE_2D,textures[i]);
+            glBindSampler(i,samplers[i]);
         }
-        glActiveTexture(active); glUseProgram(program); glBindVertexArray(vao);
+        glActiveTexture(active); glBindVertexArray(vao);
         glCullFace(cullMode); if(culling) glEnable(GL_CULL_FACE); else glDisable(GL_CULL_FACE);
     }
 };
@@ -149,7 +168,11 @@ struct Asset
 {
     Tree tree; std::vector<ImpostorView> views;
     Mips bark,leaf; std::array<Mips,2> impostors;
-    std::array<DrawMesh,4> meshes;
+    // Both geometric LODs share one draw buffer per material. Commands retain
+    // their original index counts, with offsets instead of rebaked indices.
+    std::array<DrawMesh,2> meshes;
+    glm::uvec4 counts{0},firstIndices{0};
+    glm::ivec4 baseVertices{0};
     std::uint64_t bytes=0; std::string error;
     double loadMilliseconds=0;
 };
@@ -168,11 +191,27 @@ Asset loadAsset(const std::string& path)
         asset.bark=coverageMipmaps(asset.tree.barkTexture); asset.leaf=coverageMipmaps(asset.tree.leafMask);
         const auto addBytes=[&](const Mips& mips){ for(const auto& mip:mips) asset.bytes+=mip.rgba.size(); };
         addBytes(asset.bark); addBytes(asset.leaf);
-        for(unsigned lod=0;lod<2;++lod)
+        for(unsigned material=0;material<2;++material)
         {
-            asset.meshes[lod*2]=packMesh(asset.tree.lods[lod].wood);
-            asset.meshes[lod*2+1]=packMesh(asset.tree.lods[lod].foliage);
-            asset.tree.lods[lod]={};
+            const auto& fine=material?asset.tree.lods[0].foliage:asset.tree.lods[0].wood;
+            const auto& coarse=material?asset.tree.lods[1].foliage:asset.tree.lods[1].wood;
+            asset.meshes[material].vertices.reserve(fine.vertices.size()+coarse.vertices.size());
+            asset.meshes[material].indices.reserve(fine.indices.size()+coarse.indices.size());
+        }
+        for(unsigned part=0;part<4;++part)
+        {
+            auto& source=(part&1u)?asset.tree.lods[part/2].foliage:asset.tree.lods[part/2].wood;
+            auto& mesh=asset.meshes[part&1u];
+            if(mesh.vertices.size()+source.vertices.size()>static_cast<std::size_t>((std::numeric_limits<GLint>::max)()) ||
+                mesh.indices.size()+source.indices.size()>static_cast<std::size_t>((std::numeric_limits<GLsizei>::max)()))
+                throw std::runtime_error("Baked tree exceeds draw buffer limits");
+            asset.counts[part]=static_cast<unsigned>(source.indices.size());
+            asset.firstIndices[part]=static_cast<unsigned>(mesh.indices.size());
+            asset.baseVertices[part]=static_cast<int>(mesh.vertices.size());
+            mesh.vertices.reserve(mesh.vertices.size()+source.vertices.size());
+            for(const auto& v:source.vertices) mesh.vertices.push_back({v.position,v.normal,v.uv,v.color});
+            mesh.indices.insert(mesh.indices.end(),source.indices.begin(),source.indices.end());
+            source={};
         }
         for(const auto& mesh:asset.meshes) asset.bytes+=mesh.vertices.size()*sizeof(DrawVertex)+mesh.indices.size()*4;
         for(unsigned channel=0;channel<2;++channel) for(unsigned layer=0;layer<asset.views.size();++layer)
@@ -233,36 +272,37 @@ GLuint textureArray(const Mips& levels)
 }
 struct ModelGpu
 {
-    std::array<MeshGpu,4> meshes;
+    std::array<MeshGpu,2> meshes;
     GLuint bark=0,leaf=0,albedo=0,normal=0;
-    std::uint64_t bytes=0; float radius=0;
+    std::uint64_t bytes=0,revision=0; float radius=0;
     bool ready=false,failed=false,denied=false;
     void clear()
     {
         for(auto& mesh:meshes) mesh.clear();
         const GLuint textures[]={bark,leaf,albedo,normal}; glDeleteTextures(4,textures);
         bark=leaf=albedo=normal=0; bytes=0; ready=false;
+        revision=Ge::nextShadowCasterBoundsRevision();
     }
     bool upload(const Asset& asset)
     {
         UnpackState state;
         while(glGetError()!=GL_NO_ERROR) {}
-        for(unsigned part=0;part<4;++part)
+        for(unsigned part=0;part<2;++part)
             if(!meshes[part].upload(asset.meshes[part])) { clear(); return false; }
         bark=texture(asset.bark,true); leaf=texture(asset.leaf,false);
         albedo=textureArray(asset.impostors[0]); normal=textureArray(asset.impostors[1]);
         if(glGetError()!=GL_NO_ERROR || !bark || !leaf) { clear(); return false; }
-        bytes=asset.bytes; ready=true; return true;
+        bytes=asset.bytes; ready=true; revision=Ge::nextShadowCasterBoundsRevision(); return true;
     }
 };
 struct Program
 {
     GLuint id=0;
-    GLint clip=-1,view=-1,eye=-1,parallel=-1,kind=-1,gamma=-1;
+    GLint clip=-1,view=-1,eye=-1,gamma=-1;
     void discover()
     {
         clip=glGetUniformLocation(id,"uClip"); view=glGetUniformLocation(id,"uView"); eye=glGetUniformLocation(id,"uEye");
-        parallel=glGetUniformLocation(id,"uParallel"); kind=glGetUniformLocation(id,"uKind"); gamma=glGetUniformLocation(id,"uGamma");
+        gamma=glGetUniformLocation(id,"uGamma");
     }
 };
 struct Group { unsigned model=0,first=0,count=0; };
@@ -283,11 +323,24 @@ bool samePage(const ProceduralTerrain::ObjectBlock& a,const ProceduralTerrain::O
 struct Pass
 {
     Buffer selection,commands,visible;
-    std::vector<Group> groups; std::vector<std::uint32_t> blocks;
+    std::vector<Group> groups,scratchGroups; std::vector<std::uint32_t> blocks,scratchBlocks;
     glm::mat4 clip{0}; RenderView view;
-    std::uint64_t revision=0; bool valid=false;
-    void clear() { selection.clear(); commands.clear(); visible.clear(); groups.clear(); blocks.clear(); valid=false; }
+    std::uint64_t revision=0,selectionSerial=0;
+    bool selected=false,valid=false,uploadSelection=true,gpuFailed=false;
+    struct Content
+    {
+        ProceduralTerrain::ObjectBlock block;
+        std::uint64_t model=0,legacy=0;
+        bool operator==(const Content& b) const noexcept
+        { return block==b.block && model==b.model && legacy==b.legacy; }
+    };
+    std::vector<Content> content,pendingContent;
+    RenderView contentView;
+    std::uint64_t contentSerial=0,contentToken=0;
+    void clear() { selection.clear(); commands.clear(); visible.clear(); groups.clear(); blocks.clear();
+        scratchBlocks.clear(); scratchGroups.clear(); content.clear(); pendingContent.clear(); selected=valid=false; }
 };
+struct Candidate { unsigned index; std::array<float,3> origin; float extent; };
 double distance2(const ProceduralTerrain::ObjectBlock& b,float radius,const glm::vec3& point)
 {
     double result=0;
@@ -306,15 +359,20 @@ struct TreeRenderGpu::Impl
     std::vector<ProceduralTerrain::ObjectPrototype> prototypes;
     std::vector<ProceduralTerrain::ObjectBlock> sources;
     std::vector<unsigned> sourceOrder;
+    std::vector<Candidate> candidates;
+    glm::vec3 candidateCamera{0};
+    std::uint64_t candidateRevision=0;
     std::vector<ModelGpu> models; std::vector<ModelData> data;
     Buffer blocks,updates,instances,modelBuffer;
     std::unordered_map<unsigned,TransformPage> transformPages;
     std::vector<unsigned> freeTransformPages;
     unsigned transformPageEnd=0;
     MeshGpu quad;
-    GLuint build=0,cull=0,sourceBuffer=0;
-    std::array<Program,2> opaque,shadow; // mesh / impostor; no per-biome variants
-    GLint planes=-1,cam=-1,lod=-1,projection=-1,orthographic=-1;
+    GLuint build=0,sourceBuffer=0;
+    // Three material kinds; only impostors need a parallel-view variant.
+    std::array<Program,4> opaque,shadow; // wood / foliage / perspective impostor / parallel impostor
+    struct CullProgram { GLuint id=0; GLint planes=-1,cam=-1,lod=-1,projection=-1; };
+    std::array<CullProgram,2> cull; // perspective / orthographic
     std::map<unsigned,Pass> passes;
     std::future<Asset> loading; unsigned loadingID=0;
     std::vector<unsigned> wanted; glm::vec3 demandCamera{0};
@@ -387,7 +445,7 @@ struct TreeRenderGpu::Impl
                     model.radius=glm::length(glm::max(glm::abs(asset.tree.boundsMin),glm::abs(asset.tree.boundsMax)))*prototypes[loadingID].maximumScale+2.0f;
                     if(!asset.views.empty())
                     { d.scales.z=asset.views[0].halfExtent; d.scales.w=1; d.impostorCentre=glm::vec4(asset.views[0].centre,0); }
-                    for(unsigned i=0;i<4;++i) d.counts[i]=model.meshes[i].count;
+                    d.counts=asset.counts; d.firstIndices=asset.firstIndices; d.baseVertices=asset.baseVertices;
                     statistics.modelBytes+=model.bytes; ++statistics.loadedModels; ++statistics.assetUploads;
                 }
                 modelTable(); // Also invalidates passes after an eviction/failure.
@@ -410,7 +468,7 @@ struct TreeRenderGpu::Impl
         if(haveSource && sourceBuffer==buffer && sourceRevision==revision) return false;
         if(sourceBuffer!=buffer)
         { transformPages.clear(); freeTransformPages.clear(); transformPageEnd=0; }
-        sourceBuffer=buffer; sourceRevision=revision; haveSource=true; sources.clear(); statistics.instances=0;
+        sourceBuffer=buffer; sourceRevision=revision; haveSource=true; sources.clear(); sourceOrder.clear(); statistics.instances=0;
         changed();
         if(input.empty() || !buffer)
         { transformPages.clear(); freeTransformPages.clear(); transformPageEnd=0; return true; }
@@ -474,37 +532,107 @@ struct TreeRenderGpu::Impl
         }
         return true;
     }
-    void cache(Pass& pass,const glm::mat4& clip)
+    void updateCandidates()
     {
-        if(pass.valid && pass.revision==statistics.revision && pass.clip==clip && pass.view.camera==camera.camera &&
-            pass.view.projectionScale==camera.projectionScale && pass.view.orthographic==camera.orthographic) return;
-        pass.valid=false; pass.blocks.clear(); pass.groups.clear();
-        auto frustum=ProceduralTerrain::makeFrustum(clip);
+        if(candidateRevision==statistics.revision && candidateCamera==camera.camera) return;
+        candidates.clear(); candidates.reserve(sources.size());
         for(unsigned i:sourceOrder)
         {
             const auto& b=sources[i]; const auto& model=models[b.prototype];
             if(!model.ready || distance2(b,model.radius,camera.camera)>double(settings.maximumDistance)*settings.maximumDistance) continue;
-            std::array<float,3> origin{{b.origin[0]-model.radius,b.origin[1]-model.radius,b.origin[2]-model.radius}};
-            if(!ProceduralTerrain::intersectsFrustum(frustum,origin,b.extent+2*model.radius)) continue;
-            pass.blocks.push_back(i);
+            candidates.push_back({i,{{b.origin[0]-model.radius,b.origin[1]-model.radius,b.origin[2]-model.radius}},b.extent+2*model.radius});
         }
-        for(unsigned i=0;i<pass.blocks.size();++i)
+        candidateRevision=statistics.revision; candidateCamera=camera.camera;
+        ++statistics.distanceSelections;
+    }
+    // CPU-only: used both before shadow-cache decisions and before drawing.
+    // Empty/out-of-range passes do not capture GL state or touch the driver.
+    void select(Pass& pass,const glm::mat4& clip)
+    {
+        if(pass.selected && pass.revision==statistics.revision && pass.clip==clip && pass.view.camera==camera.camera &&
+            pass.view.projectionScale==camera.projectionScale && pass.view.orthographic==camera.orthographic) return;
+        updateCandidates();
+        pass.valid=false; pass.scratchBlocks.clear();
+        const auto frustum=ProceduralTerrain::makeFrustum(clip);
+        for(const auto& c:candidates)
+            if(ProceduralTerrain::intersectsFrustum(frustum,c.origin,c.extent)) pass.scratchBlocks.push_back(c.index);
+        if(pass.blocks!=pass.scratchBlocks)
         {
-            unsigned type=sources[pass.blocks[i]].prototype;
-            if(pass.groups.empty() || pass.groups.back().model!=type) pass.groups.push_back({type,i,0});
-            ++pass.groups.back().count;
+            pass.blocks.swap(pass.scratchBlocks); pass.groups.clear(); pass.uploadSelection=true;
+            for(unsigned i=0;i<pass.blocks.size();++i)
+            {
+                unsigned type=sources[pass.blocks[i]].prototype;
+                if(pass.groups.empty() || pass.groups.back().model!=type) pass.groups.push_back({type,i,0});
+                ++pass.groups.back().count;
+            }
         }
+        // Equal block indices can point at different models after a publication.
+        // Rebuild grouping in that case; comparisons keep the upload exact.
+        else if(pass.revision!=statistics.revision && !pass.blocks.empty())
+        {
+            auto& groups=pass.scratchGroups; groups.clear();
+            for(unsigned i=0;i<pass.blocks.size();++i)
+            {
+                unsigned type=sources[pass.blocks[i]].prototype;
+                if(groups.empty() || groups.back().model!=type) groups.push_back({type,i,0});
+                ++groups.back().count;
+            }
+            bool equal=groups.size()==pass.groups.size();
+            for(unsigned i=0;equal && i<groups.size();++i) equal=groups[i].model==pass.groups[i].model &&
+                groups[i].first==pass.groups[i].first && groups[i].count==pass.groups[i].count;
+            if(!equal) { pass.groups.swap(groups); pass.uploadSelection=true; }
+        }
+        pass.clip=clip; pass.view=camera; pass.revision=statistics.revision; pass.selected=true;
+        ++pass.selectionSerial;
+        if(pass.blocks.empty()) { pass.valid=true; pass.gpuFailed=false; }
+    }
+    std::uint64_t shadowContent(Pass& pass,const glm::mat4& clip)
+    {
+        select(pass,clip);
+        // A failed draw must not leave an empty shadow cached under a valid
+        // content token. Zero requests a conservative retry on the next frame.
+        if(pass.gpuFailed) return 0;
+        if(pass.contentToken && pass.contentSerial==pass.selectionSerial) return pass.contentToken;
+        pass.pendingContent.clear(); pass.pendingContent.reserve(pass.blocks.size());
+        for(unsigned i:pass.blocks)
+        {
+            const auto& b=sources[i];
+            pass.pendingContent.push_back({b,models[b.prototype].revision,b.allocationRevision?0:sourceRevision});
+        }
+        const bool lodChanged=!pass.blocks.empty() && (pass.contentView.camera!=camera.camera ||
+            pass.contentView.projectionScale!=camera.projectionScale || pass.contentView.orthographic!=camera.orthographic);
+        if(!pass.contentToken || lodChanged || pass.content!=pass.pendingContent)
+        {
+            pass.content.swap(pass.pendingContent);
+            pass.contentToken=Ge::nextShadowCasterBoundsRevision();
+        }
+        pass.contentView=camera; pass.contentSerial=pass.selectionSerial;
+        return pass.contentToken;
+    }
+    void cache(Pass& pass)
+    {
+        if(pass.valid) return;
         const auto n=pass.blocks.size();
         if(n)
         {
-            std::vector<glm::uvec4> selection; selection.reserve(n);
-            for(unsigned i=0;i<pass.groups.size();++i)
-                for(unsigned j=0;j<pass.groups[i].count;++j)
-                    selection.emplace_back(pass.blocks[pass.groups[i].first+j],i,pass.groups[i].first,pass.groups[i].count);
-            if(!pass.selection.allocate(n*sizeof(glm::uvec4),selection.data(),false,true) ||
+            std::vector<glm::uvec4> selection;
+            if(pass.uploadSelection)
+            {
+                selection.reserve(n);
+                for(unsigned i=0;i<pass.groups.size();++i)
+                    for(unsigned j=0;j<pass.groups[i].count;++j)
+                        selection.emplace_back(pass.blocks[pass.groups[i].first+j],i,pass.groups[i].first,pass.groups[i].count);
+            }
+            if(!pass.selection.allocate(n*sizeof(glm::uvec4),pass.uploadSelection?selection.data():nullptr,false,true) ||
                 !pass.commands.allocate(pass.groups.size()*5*CommandBytes,nullptr,false,true) ||
                 !pass.visible.allocate(n*3*Page*VisibleBytes,nullptr,false,true))
-            { failure="Cannot allocate tree visibility buffers"; pass.blocks.clear(); pass.groups.clear(); return; }
+            {
+                failure="Cannot allocate tree visibility buffers"; pass.gpuFailed=true;
+                // Retain the CPU selection: next frame retries once, without
+                // spinning and without waiting for an unrelated publication.
+                return;
+            }
+            if(pass.uploadSelection) { ++statistics.selectionUploads; pass.uploadSelection=false; }
             const GLuint zero=0;
             // Clear follows earlier shader writes to commands; culling also
             // reuses visible references that previous draws may still read.
@@ -514,18 +642,21 @@ struct TreeRenderGpu::Impl
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,instances.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,5,blocks.id);
             glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,modelBuffer.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,pass.visible.id);
             std::array<glm::vec4,6> planesData;
+            const auto frustum=ProceduralTerrain::makeFrustum(pass.clip);
             for(unsigned i=0;i<6;++i)
             {
                 const double length=glm::length(glm::dvec3(frustum.planes[i]));
                 planesData[i]=length>0?glm::vec4(frustum.planes[i]/length):glm::vec4(0,0,0,1);
             }
-            glUseProgram(cull); glUniform4fv(planes,6,glm::value_ptr(planesData[0])); glUniform3fv(cam,1,glm::value_ptr(camera.camera));
-            glUniform4f(lod,settings.lod0Coverage,settings.impostorCoverage,settings.transitionFraction,settings.maximumDistance);
-            glUniform1f(projection,camera.projectionScale); glUniform1i(orthographic,camera.orthographic);
+            const auto& program=cull[camera.orthographic?1:0];
+            glUseProgram(program.id); glUniform4fv(program.planes,6,glm::value_ptr(planesData[0])); glUniform3fv(program.cam,1,glm::value_ptr(camera.camera));
+            glUniform4f(program.lod,settings.lod0Coverage,settings.impostorCoverage,settings.transitionFraction,settings.maximumDistance);
+            glUniform1f(program.projection,camera.projectionScale);
             glDispatchCompute(static_cast<GLuint>(n),1,1);
             glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT|GL_COMMAND_BARRIER_BIT); ++statistics.cullDispatches;
         }
-        pass.clip=clip; pass.view=camera; pass.revision=statistics.revision; pass.valid=true;
+        pass.valid=true; pass.gpuFailed=false;
+        if(failure=="Cannot allocate tree visibility buffers") failure.clear();
     }
     void memory()
     {
@@ -557,19 +688,27 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
     const auto path=[&](const char* name){return settings.shaderDirectory+"/"+name;};
     s.build=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,path("instances.C.glsl"),{}}},s.failure,"Tree transforms",{true,{}});
     if(!s.build) { shutdown(); return false; }
-    s.cull=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,path("cull.C.glsl"),{}}},s.failure,"Tree LOD and visibility",{true,{}});
-    if(!s.cull) { shutdown(); return false; }
-    for(unsigned i=0;i<2;++i) for(unsigned impostor=0;impostor<2;++impostor)
+    for(unsigned orthographic=0;orthographic<2;++orthographic)
     {
-        auto& p=i?s.shadow[impostor]:s.opaque[impostor];
+        auto& program=s.cull[orthographic];
+        const std::string define=std::string(orthographic?"#define TREE_ORTHOGRAPHIC 1\n":"#define TREE_ORTHOGRAPHIC 0\n")+
+            (settings.transitionFraction>0?"#define TREE_LOD_TRANSITIONS 1\n":"#define TREE_LOD_TRANSITIONS 0\n");
+        program.id=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,path("cull.C.glsl"),define}},s.failure,"Tree LOD and visibility",{true,{}});
+        if(!program.id) { shutdown(); return false; }
+        program.planes=glGetUniformLocation(program.id,"uPlanes"); program.cam=glGetUniformLocation(program.id,"uCamera");
+        program.lod=glGetUniformLocation(program.id,"uLod"); program.projection=glGetUniformLocation(program.id,"uProjectionScale");
+    }
+    for(unsigned i=0;i<2;++i) for(unsigned kind=0;kind<4;++kind)
+    {
+        auto& p=i?s.shadow[kind]:s.opaque[kind];
         const std::string define=std::string(i?"#define TREE_SHADOW 1\n":"#define TREE_SHADOW 0\n")+
-            (impostor?"#define TREE_IMPOSTOR 1\n":"#define TREE_IMPOSTOR 0\n");
+            (kind>=2?"#define TREE_IMPOSTOR 1\n":"#define TREE_IMPOSTOR 0\n")+
+            (kind==1?"#define TREE_FOLIAGE 1\n":"#define TREE_FOLIAGE 0\n")+
+            (kind==3?"#define TREE_PARALLEL 1\n":"#define TREE_PARALLEL 0\n");
         p.id=Ge::buildShaderProgram({{GL_VERTEX_SHADER,path("render.vs.glsl"),define},{GL_FRAGMENT_SHADER,path("render.fs.glsl"),define}},s.failure,i?"Tree shadows":"Tree G-buffer",{true,{}});
         if(!p.id) { shutdown(); return false; }
         p.discover();
     }
-    s.planes=glGetUniformLocation(s.cull,"uPlanes"); s.cam=glGetUniformLocation(s.cull,"uCamera"); s.lod=glGetUniformLocation(s.cull,"uLod");
-    s.projection=glGetUniformLocation(s.cull,"uProjectionScale"); s.orthographic=glGetUniformLocation(s.cull,"uOrthographic");
     s.models.resize(prototypes.size()); s.data.resize(prototypes.size());
     for(unsigned i=0;i<prototypes.size();++i) s.data[i].scales=glm::vec4(prototypes[i].minimumScale,prototypes[i].maximumScale,1,0);
     s.modelTable();
@@ -583,7 +722,13 @@ void TreeRenderGpu::prepare(unsigned buffer,const std::vector<ProceduralTerrain:
 {
     auto& s=*m; if(!s.initialized) return;
     s.camera=view;
-    const bool changed=!s.haveSource || s.sourceBuffer!=buffer || s.sourceRevision!=revision;
+    bool changed=!s.haveSource || s.sourceBuffer!=buffer || s.sourceRevision!=revision;
+    // A publisher revision is a notification, not necessarily changed content.
+    // Exact immutable-page identity permits reusing the complete command cache.
+    // Legacy publishers without allocation identities remain conservative.
+    if(changed && s.haveSource && s.sourceBuffer==buffer && blocks==s.sources &&
+        std::all_of(blocks.begin(),blocks.end(),[](const auto& b){return b.allocationRevision!=0;}))
+    { s.sourceRevision=revision; changed=false; }
     if(changed)
     {
         State state;
@@ -597,10 +742,12 @@ void TreeRenderGpu::prepare(unsigned buffer,const std::vector<ProceduralTerrain:
 void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
 {
     auto& s=*m; if(!s.initialized || s.sources.empty()) return;
-    State state; auto& pass=s.passes[passID]; s.cache(pass,clip);
+    auto& pass=s.passes[passID]; s.select(pass,clip);
     if(passID==0) s.statistics.cameraBlocks=static_cast<unsigned>(pass.blocks.size());
     else s.statistics.shadowBlocks+=static_cast<unsigned>(pass.blocks.size());
-    if(!pass.valid || pass.blocks.empty()) return;
+    if(pass.blocks.empty()) return;
+    State state(true,!pass.valid,passID==0); s.cache(pass);
+    if(!pass.valid) return;
     bool parallel=false; glm::vec3 eye=s.camera.camera;
     if(passID || s.camera.orthographic)
     {
@@ -616,35 +763,37 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
     }
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,4,s.instances.id); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,6,s.modelBuffer.id);
     glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,pass.visible.id); glBindBuffer(GL_DRAW_INDIRECT_BUFFER,pass.commands.id);
-    for(unsigned i=0;i<3;++i) glBindSampler(i,0);
+    for(unsigned i=0;i<(passID?2u:3u);++i) glBindSampler(i,0);
     GLuint program=0;
-    for(unsigned part=0;part<5;++part)
+    for(unsigned kind=0;kind<3;++kind)
     {
-        const bool billboard=part==4,foliage=(part&1u)!=0;
-        auto& p=(passID?s.shadow:s.opaque)[billboard?1:0];
+        const bool billboard=kind==2,foliage=kind==1;
+        auto& p=(passID?s.shadow:s.opaque)[billboard && parallel?3:kind];
         if(program!=p.id)
         {
             glUseProgram(p.id); program=p.id;
-            glUniformMatrix4fv(p.clip,1,GL_FALSE,glm::value_ptr(clip)); glUniformMatrix4fv(p.view,1,GL_FALSE,glm::value_ptr(s.camera.view));
-            glUniform1f(p.gamma,s.camera.albedoGamma); glUniform3fv(p.eye,1,glm::value_ptr(eye)); glUniform1i(p.parallel,parallel);
+            glUniformMatrix4fv(p.clip,1,GL_FALSE,glm::value_ptr(clip));
+            if(p.view>=0) glUniformMatrix4fv(p.view,1,GL_FALSE,glm::value_ptr(s.camera.view));
+            if(p.gamma>=0) glUniform1f(p.gamma,s.camera.albedoGamma);
+            if(p.eye>=0) glUniform3fv(p.eye,1,glm::value_ptr(eye));
         }
-        glUniform1i(p.kind,billboard?3:(foliage?1:0));
         if(billboard || foliage) glDisable(GL_CULL_FACE);
         else { glEnable(GL_CULL_FACE); glCullFace(passID?GL_FRONT:GL_BACK); }
         for(unsigned groupID=0;groupID<pass.groups.size();++groupID)
         {
             const auto& model=s.models[pass.groups[groupID].model];
-            if(billboard?!model.albedo:!model.meshes[part].count) continue;
+            if(billboard?!model.albedo:!model.meshes[kind].count) continue;
             if(billboard)
             {
                 glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D_ARRAY,model.albedo);
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D_ARRAY,model.normal);
+                if(!passID) { glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D_ARRAY,model.normal); }
                 glBindVertexArray(s.quad.vao);
             }
-            else { glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,foliage?model.leaf:model.bark); glBindVertexArray(model.meshes[part].vao); }
-            const auto offset=static_cast<std::uintptr_t>((std::size_t{groupID}*5+part)*CommandBytes);
-            glMultiDrawElementsIndirect(GL_TRIANGLES,GL_UNSIGNED_INT,reinterpret_cast<const void*>(offset),1,0);
-            ++s.statistics.drawCalls; ++s.statistics.indirectCommands;
+            else { glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D,foliage?model.leaf:model.bark); glBindVertexArray(model.meshes[kind].vao); }
+            const auto offset=static_cast<std::uintptr_t>((std::size_t{groupID}*5+(billboard?4:kind))*CommandBytes);
+            const unsigned commands=billboard?1:2;
+            glMultiDrawElementsIndirect(GL_TRIANGLES,GL_UNSIGNED_INT,reinterpret_cast<const void*>(offset),commands,billboard?0:2*CommandBytes);
+            ++s.statistics.drawCalls; s.statistics.indirectCommands+=commands;
         }
     }
     s.memory();
@@ -658,6 +807,12 @@ void TreeRenderGpu::appendBounds(std::vector<Ge::ShadowCasterBounds>& output) co
         output.push_back({lo,lo+glm::dvec3(b.extent+2*r)});
     }
 }
+std::uint64_t TreeRenderGpu::shadowContentRevision(std::uint32_t passID,const glm::mat4& clip) const
+{
+    auto& s=*m;
+    if(!s.initialized) return 0;
+    return s.shadowContent(s.passes[passID],clip);
+}
 void TreeRenderGpu::shutdown() noexcept
 {
     if(!m) return; auto& s=*m;
@@ -666,8 +821,9 @@ void TreeRenderGpu::shutdown() noexcept
     for(auto& model:s.models) model.clear(); s.models.clear(); s.data.clear();
     s.blocks.clear(); s.updates.clear(); s.instances.clear(); s.modelBuffer.clear(); s.quad.clear();
     for(auto* programs:{&s.opaque,&s.shadow}) for(auto& p:*programs) { if(p.id) glDeleteProgram(p.id); p.id=0; }
-    for(GLuint p:{s.build,s.cull}) if(p) glDeleteProgram(p);
-    s.build=s.cull=0; s.sources.clear(); s.sourceOrder.clear(); s.wanted.clear();
+    if(s.build) glDeleteProgram(s.build);
+    for(auto& p:s.cull) { if(p.id) glDeleteProgram(p.id); p={}; }
+    s.build=0; s.sources.clear(); s.sourceOrder.clear(); s.candidates.clear(); s.candidateRevision=0; s.wanted.clear();
     s.transformPages.clear(); s.freeTransformPages.clear(); s.transformPageEnd=0;
     s.statistics={}; s.initialized=s.haveSource=s.haveDemand=false; s.sourceBuffer=0;
 }

@@ -9,6 +9,8 @@ struct TreeModel
     vec4 scalesImpostor; // min/max scale, half extent, has impostor
     vec4 impostorCentre;
     uvec4 counts; // LOD0 wood/leaf, LOD1 wood/leaf
+    uvec4 firstIndices;
+    ivec4 baseVertices;
 };
 struct TreeInstance { vec4 positionScale; vec2 rotation; uint hash; uint model; };
 layout(std430,binding=5) readonly buffer TreeBlocks { TreeBlock blocks[]; };

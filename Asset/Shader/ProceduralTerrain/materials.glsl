@@ -1,5 +1,6 @@
 #ifndef ENDURANCE_TERRAIN_MATERIALS_GLSL
 #define ENDURANCE_TERRAIN_MATERIALS_GLSL
+#include "render_options.glsl"
 
 // std140 ABI: Material96, Surface240, Biome512 bytes; table26 = 13,312 bytes.
 // The CPU rejects invalid appearance records before upload; material controls
@@ -173,8 +174,9 @@ TerrainAppearanceSample terrainEvaluateBiome(uint id, vec3 baseNormal,
 TerrainAppearanceSample terrainEvaluateAppearance(vec3 baseNormal,
     TerrainPatternContext c)
 {
-    if (terrainBiomeOverride >= 0 && terrainBiomeOverride < 26)
-        return terrainEvaluateBiome(uint(terrainBiomeOverride),baseNormal,c);
+#if TERRAIN_FIXED_BIOME >= 0
+    return terrainEvaluateBiome(uint(TERRAIN_FIXED_BIOME),baseNormal,c);
+#else
     float coast = clamp((worldPosition.y-terrainSeaLevel)
         / max(terrainSeaBlendWidth,0.001)+0.5,0.0,1.0);
     coast = coast*coast*coast*(coast*(coast*6.0-15.0)+10.0);
@@ -206,6 +208,7 @@ TerrainAppearanceSample terrainEvaluateAppearance(vec3 baseNormal,
     if (coast < 1.0)
         appearance = terrainMixAppearance(terrainEvaluateBiome(25u,baseNormal,c),appearance,coast);
     return appearance;
+#endif
 }
 
 #endif

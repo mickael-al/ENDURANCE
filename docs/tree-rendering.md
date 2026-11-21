@@ -48,10 +48,14 @@ sans confondre leur coût avec celui d'une régénération ou d'un rechargement.
    autour de Y à partir du site entier et de la seed. Déplacer une position dans
    le pool ne change donc pas son apparence. Une publication manuelle avec
    `allocationRevision = 0` reste compatible, mais ses pages sont recalculées
-   à chaque nouvelle révision de publication.
+   à chaque nouvelle révision de publication. Même si un autre éditeur de blocs
+   avance sa révision sans changer une liste de pages immuables, la comparaison
+   exacte conserve aussi les métadonnées et les commandes déjà préparées.
 2. Le CPU rejette les blocs éloignés ou hors frustum à partir de leurs limites
    conservatrices. Leur ordre par modèle est préparé une seule fois à chaque
-   publication, puis filtré sans nouveau tri à chaque passe. Les limites chargées
+   publication, puis filtré sans nouveau tri à chaque passe. La sélection par
+   distance et les limites des pages sont communes aux passes de caméra et
+   d'ombres ; seuls leurs frustums sont filtrés séparément. Les limites chargées
    incluent les dimensions réelles des bakes et l'échelle maximale autorisée.
 3. Un compute par passe traite les pages de 64 positions. Il rejette les sphères
    hors champ, choisit les LOD et compacte les références avec des atomiques en
@@ -59,8 +63,11 @@ sans confondre leur coût avec celui d'une régénération ou d'un rechargement.
    dans une liste par modèle et LOD. Il produit directement **cinq commandes
    indirectes par modèle**, quelle que soit la quantité de pages sélectionnées.
    Aucun compteur de visibilité ni aucune position ne revient sur le CPU.
-4. Les groupes sont rendus avec `glMultiDrawElementsIndirect`. Un groupe possède
-   au plus cinq appels : bois/feuillage de chaque maillage et imposteurs. Les
+4. Les deux LOD géométriques partagent un buffer de sommets et d'indices par
+   matériau, avec leurs propres `firstIndex` et `baseVertex`. Les sommets et
+   indices locaux restent identiques. Un groupe possède **trois appels**
+   `glMultiDrawElementsIndirect` : deux commandes pour le bois, deux pour les
+   feuilles, une pour l'imposteur, contre cinq appels précédemment. Les
    commandes des niveaux inutilisés ont zéro instance. Il n'y a ni entité de
    scène ni appel de rendu par arbre.
 
@@ -73,6 +80,7 @@ Les positions compactes de 8 octets restent dans le pool du placement.
 |---|---:|
 | Métadonnées des blocs publiés | 48 octets par page |
 | Métadonnées des transformations à recalculer | 48 octets par page modifiée |
+| Métadonnées des modèles | 96 octets par modèle, dont 32 octets d'offsets des LOD regroupés |
 | Transformations | 2 048 octets par emplacement de page réservé |
 | Sélection, par passe | 16 octets par page sélectionnée |
 | Références visibles, par passe | 1 536 octets par page sélectionnée |
@@ -86,6 +94,11 @@ Le dimensionnement des références couvre les transitions rendant deux LOD à l
 Les listes et les calculs sont réutilisés tant que la publication, les modèles,
 la matrice de passe et les paramètres de caméra pertinents restent identiques.
 La caméra et chaque couche d'ombre disposent de listes distinctes.
+Un déplacement de caméra qui conserve la même liste de pages ne renvoie pas
+leurs métadonnées. Une passe vide termine sa sélection côté CPU sans requête
+d'état OpenGL. Une passe réutilisée sauvegarde uniquement les trois bindings
+SSBO nécessaires au dessin ; les autres bindings ne sont touchés que pendant
+le compute. Les ombres ne lient pas la texture de normales inutilisée.
 
 Un seul travail CPU charge/décode un modèle et prépare ses mipmaps en arrière-plan.
 Le thread GL publie au plus un modèle terminé par préparation. Le cache privilégie
@@ -115,11 +128,17 @@ Métal = 0, AO matériau = 1 ; roughness 0,90 pour le bois, 0,82 pour les feuill
 et 0,86 pour l'imposteur. L'éclairage différé, l'IBL, le SSAO et l'atmosphère
 restent responsables de l'éclairage et de l'intégration dans le paysage.
 
-Le renderer utilise deux programmes compute et **quatre programmes graphiques
-fixes** : maillage ou imposteur, chacun en G-buffer et en ombres. Il ne compile
-aucune variante par biome. Le shader maillage n'embarque pas les projections et
-les interpolants des 17 vues ; le bois en passe d'ombre ne lit aucune texture.
-Les draws sont ordonnés pour utiliser au plus deux programmes graphiques par passe.
+Le renderer utilise un compute de transformation et deux variantes de culling
+(projection perspective/orthographique). Les **huit programmes graphiques fixes**
+couvrent bois, feuilles, imposteur perspective et imposteur parallèle, chacun
+en G-buffer et en ombres. Seuls trois sont utilisés dans une passe. Il ne compile
+aucune variante par biome. `TREE_FOLIAGE`, `TREE_IMPOSTOR`, `TREE_PARALLEL`,
+`TREE_SHADOW`, `TREE_ORTHOGRAPHIC` et `TREE_LOD_TRANSITIONS` retirent les choix
+stables à la compilation. Les programmes sont préparés à l'initialisation et
+réutilisent le cache de binaires ; aucun shader ne compile pendant un draw.
+Le shader maillage n'embarque pas les projections et interpolants des 17 vues ;
+le bois en passe d'ombre ne lit aucune texture. La visibilité, le LOD, le fondu
+et le rejet alpha restent des décisions dynamiques par instance ou pixel.
 
 Le LOD3 utilise les 17 captures exportées : 8 azimuts à 15°, 8 à 60° et le zénith.
 Le vertex shader choisit au plus trois vues selon la direction et la rotation
@@ -140,7 +159,14 @@ la caméra principale, mais leur propre frustum et leur propre orientation
 d'imposteur. Un arbre hors champ peut donc projeter une ombre visible. Les
 feuilles et imposteurs appliquent leur découpe alpha dans la passe d'ombre ;
 leurs cartes ne projettent pas de rectangles opaques. Les révisions de contenu
-invalident le cache d'ombres quand le placement, les modèles ou les LOD changent.
+propres à chaque couche comparent exactement les pages sélectionnées, leurs
+identités d'allocation, les versions des modèles chargés et la caméra contrôlant
+les LOD/fondus. Une publication extérieure à la couche ne l'invalide plus.
+Les couches sans arbres ignorent les mouvements de caméra sans effet sur leur
+contenu. Cette interrogation reste entièrement CPU, sans lecture GPU ni hash
+susceptible de collision. Si les buffers de visibilité échouent à s'allouer,
+la couche est signalée non réutilisable et le prochain draw réessaie une fois,
+même sans nouvelle publication : une ombre vide ne reste pas figée en cache.
 Chaque passe restaure les états GL qu'elle modifie ; SSBO 0 appartient au moteur.
 
 ## Mesures exposées
@@ -148,8 +174,10 @@ Chaque passe restaure les états GL qu'elle modifie ; SSBO 0 appartient au moteu
 Le panneau affiche les modèles chargés/en attente, les mémoires GPU estimées,
 les blocs sélectionnés, les pages de transformations construites/réutilisées et
 les temps cumulés de chargement CPU et d'appels d'upload GL. `RenderStats` expose
-aussi `transformedInstances`, `transformBuilds`, `cullDispatches`, `drawCalls` et
-`indirectCommands`. Ces compteurs sont cumulatifs : prendre leur différence entre
+aussi `transformedInstances`, `transformBuilds`, `cullDispatches`, `drawCalls`,
+`indirectCommands`, `selectionUploads` et `distanceSelections`. Les deux derniers
+comptent les uploads de listes et les sélections communes par distance.
+Ces compteurs sont cumulatifs : prendre leur différence entre
 deux instants pour mesurer le travail d'une période. `instances`, `cameraBlocks`
 et `shadowBlocks` décrivent le dernier état préparé/rendu, pas un total cumulé.
 
@@ -176,6 +204,9 @@ transitions, la stabilité des transformations, le G-buffer, les ombres hors
 champ, l'état OpenGL, les caches et le repli sans imposteur. Ils vérifient aussi
 la conservation des transformations lors de la croissance d'un buffer, le
 recyclage des pages et le regroupement de plusieurs pages/modèles en commandes.
+Les régressions couvrent aussi les trois appels regroupés, les variantes sans
+transition/orthographiques, les publications identiques, les invalidations par
+couche et une allocation de visibilité volontairement refusée puis rétablie.
 `python Tests/Trees/check_core.py` compare les mipmaps optimisées à l'ancienne
 méthode sur plusieurs dimensions et seuils alpha, avec et sans fast-math.
 Mesa logiciel valide le fonctionnement, pas les performances sur le GPU cible.

@@ -153,6 +153,7 @@ namespace ProceduralTerrain
         bool initialized=false, broken=false, flushPending=false;
         Program programs[ProgramCount];
         GLuint vertices=0, vao=0, tables=0, descriptors=0, biomeCells=0;
+        Descriptor* mappedDescriptors=nullptr;
         GLuint densityArena=0, columnArena=0, scratchArena=0, fieldStates=0, groupCounts=0;
         GLuint fieldJobs=0, fieldWorkQueue=0;
         std::uint32_t densityStride=0, columnStride=0, stateStride=0, groupStride=0;
@@ -275,7 +276,17 @@ namespace ProceduralTerrain
                 {request.lod,static_cast<std::uint32_t>(mesh.baseChunkCoordinate[0]),
                  static_cast<std::uint32_t>(mesh.baseChunkCoordinate[1]),
                  static_cast<std::uint32_t>(mesh.baseChunkCoordinate[2])}};
-            glNamedBufferSubData(descriptors,static_cast<GLintptr>(slotIndex)*sizeof(Descriptor),sizeof(Descriptor),&descriptor);
+            // A slot enters freeSlots only initially or after its retirement
+            // fence signals. No queued draw can still read this descriptor.
+            // Coherent host writes are visible to subsequent GL commands;
+            // unrelated live slots are never overwritten or orphaned.
+            if(mappedDescriptors) std::memcpy(mappedDescriptors+slotIndex,&descriptor,sizeof(Descriptor));
+            else
+            {
+                glNamedBufferSubData(descriptors,static_cast<GLintptr>(slotIndex)*sizeof(Descriptor),sizeof(Descriptor),&descriptor);
+                ++statistics.descriptorUploadCalls;
+            }
+            ++statistics.descriptorWrites; statistics.descriptorWriteBytes+=sizeof(Descriptor);
             return true;
         }
 
@@ -616,7 +627,30 @@ namespace ProceduralTerrain
         const auto table=Transvoxel::makePackedTables();
         glNamedBufferData(s.tables,sizeof(table),table.data(),GL_STATIC_DRAW);
         glCreateBuffers(1,&s.descriptors);
-        glNamedBufferData(s.descriptors,static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Descriptor),nullptr,GL_DYNAMIC_DRAW);
+        const auto descriptorBytes=static_cast<GLsizeiptr>(config.maxResidentChunks)*sizeof(Descriptor);
+        // Do not hide an earlier allocation failure while handling the optional
+        // mapping fallback. All existing buffers must already be valid.
+        const GLenum priorDescriptorError=glGetError();
+        if(priorDescriptorError!=GL_NO_ERROR)
+        { error="OpenGL terrain allocation failed (error "+std::to_string(priorDescriptorError)+")"; shutdown(); s.error=error; return false; }
+        constexpr GLbitfield descriptorFlags=GL_MAP_WRITE_BIT|GL_MAP_PERSISTENT_BIT|GL_MAP_COHERENT_BIT;
+        glNamedBufferStorage(s.descriptors,descriptorBytes,nullptr,descriptorFlags);
+        GLenum descriptorError=glGetError();
+        if(descriptorError==GL_NO_ERROR)
+        {
+            s.mappedDescriptors=static_cast<Descriptor*>(glMapNamedBufferRange(s.descriptors,0,descriptorBytes,descriptorFlags));
+            descriptorError=glGetError();
+        }
+        if(!s.mappedDescriptors)
+        {
+            if(descriptorError!=GL_NO_ERROR && descriptorError!=GL_OUT_OF_MEMORY)
+            { error="Cannot map terrain descriptors (error "+std::to_string(descriptorError)+")"; shutdown(); s.error=error; return false; }
+            // Mapping address space can be exhausted even when a small GPU
+            // buffer still fits. Retain the previous correct upload path.
+            glDeleteBuffers(1,&s.descriptors); glCreateBuffers(1,&s.descriptors);
+            glNamedBufferData(s.descriptors,descriptorBytes,nullptr,GL_DYNAMIC_DRAW);
+        }
+        s.statistics.persistentDescriptors=s.mappedDescriptors!=nullptr;
         glCreateVertexArrays(1,&s.vao);
         glVertexArrayVertexBuffer(s.vao,0,s.vertices,0,VertexBytes);
         for (unsigned i=0;i<3;++i)
@@ -679,6 +713,8 @@ namespace ProceduralTerrain
         for (auto& entry:s.drawLists)
             if (entry.second.buffer) glDeleteBuffers(1,&entry.second.buffer);
         s.drawLists.clear();
+        if(s.mappedDescriptors) glUnmapNamedBuffer(s.descriptors);
+        s.mappedDescriptors=nullptr;
         const GLuint buffers[]={s.vertices,s.tables,s.descriptors,s.biomeCells,
             s.columnArena,s.densityArena,s.fieldJobs,s.fieldWorkQueue,s.scratchArena,s.fieldStates,s.groupCounts};
         if (std::any_of(std::begin(buffers),std::end(buffers),[](GLuint id){return id!=0;}))

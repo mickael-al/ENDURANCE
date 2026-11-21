@@ -54,7 +54,7 @@ vec3 geSkyRadiance(vec3 direction,bool includeDisk,bool includeClouds)
 {
     direction=normalize(direction);
     vec3 sky=max(textureLod(geAtmSkyView,geAtmSkyUV(direction),0.0).rgb,vec3(0.0));
-    if(includeClouds && geAtmControl.z!=0 && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0)
+    if(includeClouds && GE_ATM_CLOUDS_ON && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0)
     {
         float maximum=geAtmCloudMaximumRayDistance();
         vec2 path=geAtmCloudLayerPath(geAtmCamera.xyz,direction,maximum);

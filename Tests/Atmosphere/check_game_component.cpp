@@ -111,6 +111,23 @@ namespace
         pipeline.addCustomRenderer(&terrain);
 
         EnduranceAtmosphereComponent component;
+        const auto emptyShadowToken=component.shadowContentRevision();
+        const auto validateEmptyCaster=[&]()
+        {
+            require(emptyShadowToken!=0 && component.shadowContentRevision()==emptyShadowToken &&
+                    component.shadowCasterBoundsRevision()==emptyShadowToken,
+                    "Atmosphere input-only renderer invalidated its empty shadow content");
+            for(unsigned layer=0;layer<4;++layer)
+            {
+                glm::mat4 clip(1); clip[3][0]=float(layer*1700);
+                require(component.shadowLayerContentRevision(layer,clip)==emptyShadowToken,
+                        "Atmosphere input-only renderer marked a cascade as unknown/changing");
+            }
+            std::vector<Ge::ShadowCasterBounds> casters;
+            component.appendShadowCasterBounds(casters);
+            require(casters.empty(),"Atmosphere inputs unexpectedly published shadow geometry");
+        };
+        validateEmptyCaster();
         component.fogWind={{20.0f,1.5f,-7.5f}};
         component.fogAtlasResolution=32;
         component.start();
@@ -124,11 +141,17 @@ namespace
         {
             EnduranceAtmosphereComponent restored;
             restored.load(saved);
+            require(restored.shadowContentRevision()!=0 && restored.shadowContentRevision()!=emptyShadowToken &&
+                    restored.shadowCasterBoundsRevision()==restored.shadowContentRevision(),
+                    "New atmosphere component reused another instance's shadow identity");
             require(restored.fogWind==component.fogWind,"Component wind JSON round trip failed");
             require(restored.palettes.size()==26 && restored.palettes[14].fogDensity==.001f,
                     "Component JSON round trip lost the actual fog profile");
             EnduranceAtmosphereComponent legacy;
             legacy.load("{\"fogAtlasResolution\":64}");
+            require(legacy.shadowContentRevision()!=0 && legacy.shadowContentRevision()!=emptyShadowToken &&
+                    legacy.shadowContentRevision()!=restored.shadowContentRevision(),
+                    "Legacy/new component shadow identities collided");
             require(legacy.fogWind==std::array<float,3>{{4,0,1}},"Older scenes lost default game fog wind");
         }
         std::cout<<"PASS game component JSON: real registration/serialize/load, wind XYZ and legacy defaults\n"<<std::flush;
@@ -137,6 +160,7 @@ namespace
         {
             clock.delta=dt;
             component.prepareRenderer();
+            validateEmptyCaster();
             atmosphere.prepare(&camera,dt);
             checkGL("game component + atmosphere preparation");
         };
@@ -189,6 +213,7 @@ namespace
         std::cout<<"PASS game fog render path: stationary camera changes real volume transmission; world atlas is unchanged\n"<<std::flush;
 
         component.stop(); component.start();
+        validateEmptyCaster();
         // A complete prior environment may survive a component restart. The
         // current game resources still prepare once before a frame is sampled.
         awaitEnvironment();
@@ -207,6 +232,7 @@ namespace
         const auto stopped=frame(120);
         expectOffset(stopped,advanced.offset,"zero wind freezes phase");
         require(stopped.transmission==advanced.transmission,"Zero wind altered local fog coefficients");
+        std::cout<<"PASS atmosphere empty shadow hook: nonzero stable bounds/content/cascade tokens through preparation, restart and weather edits; distinct instance identities\n"<<std::flush;
         std::cout<<"PASS game fog time integration: equal elapsed time, phase-continuous wind edits and zero-wind freeze\n"<<std::flush;
 
         component.fogWind={{1,2,3}};

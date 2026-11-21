@@ -20,9 +20,12 @@ add_executable(endurance_performance benchmark.cpp
     "${_project}/ProceduralTree.cpp" "${_project}/ProceduralTreeBake.cpp"
     "${_shader}/ShaderCompilation.cpp" "${_shader}/ShaderBinaryCache.cpp"
     "${_shader}/ShaderProgramBatch.cpp" "${_shader}/ParallelShaderCompiler.cpp" "${_shader}/ComputeShader.cpp"
+    "${_shader}/Atmosphere.cpp"
     "${ENDURANCE_SOURCE_ROOT}/ThirdParty/stb-cmake/stb_shared.c")
 target_compile_features(endurance_performance PRIVATE cxx_std_17)
 target_include_directories(endurance_performance PRIVATE
+    "${CMAKE_CURRENT_LIST_DIR}/runtime_fixture"
+    "${ENDURANCE_SOURCE_ROOT}/Tests/Atmosphere/runtime_fixture"
     "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/Struct"
     "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/Miscellaneous"
     "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/Interface"
@@ -32,9 +35,9 @@ target_include_directories(endurance_performance PRIVATE
 target_link_libraries(endurance_performance PRIVATE GLEW::GLEW glfw OpenGL::GL Threads::Threads)
 target_compile_definitions(endurance_performance PRIVATE GLFW_INCLUDE_NONE GLEW_NO_GLU NOMINMAX)
 if(MSVC)
-    target_compile_options(endurance_performance PRIVATE /O2 /fp:fast)
+    target_compile_options(endurance_performance PRIVATE /O2 /fp:fast "$<$<COMPILE_LANGUAGE:CXX>:/FI${CMAKE_CURRENT_LIST_DIR}/gl_call_probe.hpp>")
 else()
-    target_compile_options(endurance_performance PRIVATE -O3 -ffast-math)
+    target_compile_options(endurance_performance PRIVATE -O3 -ffast-math "$<$<COMPILE_LANGUAGE:CXX>:-include;${CMAKE_CURRENT_LIST_DIR}/gl_call_probe.hpp>")
 endif()
 file(READ "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainObjects.hpp" _object_header)
 if(_object_header MATCHES "allocationRevision")
@@ -43,4 +46,7 @@ endif()
 file(READ "${ENDURANCE_SOURCE_ROOT}/ANTAGONIZ/Header/ProjectUser/TreeRenderGpu.hpp" _tree_header)
 if(_tree_header MATCHES "transformedInstances" AND _tree_header MATCHES "transformPagesBuilt" AND _tree_header MATCHES "transformPagesReused" AND _tree_header MATCHES "indirectCommands")
     target_compile_definitions(endurance_performance PRIVATE ENDURANCE_PERF_INCREMENTAL_TREES)
+endif()
+if(_tree_header MATCHES "shadowContentRevision\\(")
+    target_compile_definitions(endurance_performance PRIVATE ENDURANCE_PERF_LAYER_TREE_REVISIONS)
 endif()

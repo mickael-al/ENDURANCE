@@ -187,6 +187,75 @@ namespace
         checkGL("streamed atmosphere parameters");
         std::cout<<"PASS atmosphere parameter streaming: one live upload per unchanged-palette frame, no in-place writes, queued GPU readers retain their own camera/clock\n"<<std::flush;
     }
+    void checkShaderVariants()
+    {
+        Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        auto& config=atmosphere.settings(); config=smallSettings(); config.wind={0,0};
+        const auto frame=[&]()
+        {
+            atmosphere.prepare(&camera,0);
+            require(atmosphere.active() && atmosphere.error().empty(),"Feature variant failed: "+atmosphere.error());
+            require(atmosphere.stats().residentProgramVariants<=40,"Atmosphere variant cache exceeded 40 programs");
+            checkGL("atmosphere feature variants");
+            return atmosphere.stats();
+        };
+        auto previous=frame();
+        require(previous.programVariantBuilds==15 && previous.residentProgramVariants==15,
+                "Startup compiled speculative atmosphere combinations instead of only active stages");
+        camera.position.x+=1; config.fogDensity*=2; sun.colors*=.9f;
+        auto palette=atmosphere.displayedPalette(); palette.horizon*=.9f;
+        atmosphere.setPaletteTarget(palette,true);
+        auto next=frame();
+        require(next.programVariantBuilds==previous.programVariantBuilds,
+                "Dynamic camera/palette/source/numeric values recompiled atmosphere shaders");
+        config.localFog=true; previous=next; next=frame();
+        require(next.programVariantBuilds==previous.programVariantBuilds+1 &&
+                next.transmittanceUpdates==previous.transmittanceUpdates &&
+                next.multiscatterUpdates==previous.multiscatterUpdates,
+                "Fog toggle rebuilt unrelated programs or optical LUTs");
+        config.localFog=false; previous=next; next=frame();
+        require(next.programVariantBuilds==previous.programVariantBuilds && next.programVariantHits>=previous.programVariantHits+15,
+                "Returning to an existing feature combination failed to reuse programs");
+        config.clouds=true; config.cloudCoverage=0; previous=next; next=frame();
+        const auto configuredCloudPrograms=next.programVariantBuilds;
+        config.cloudCoverage=.4f; config.cloudDensity=.001f; next=frame();
+        config.cloudCoverage=0; next=frame();
+        require(next.programVariantBuilds==configuredCloudPrograms,
+                "Cloud weather/empty coverage changed static feature specialization");
+
+        std::string error;
+        const auto material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
+        require(material!=0,error);
+        auto queries=atmosphere.stats().lightingLocationQueries;
+        atmosphere.bindLighting(material,false,101);
+        require(atmosphere.stats().lightingLocationQueries==queries+8,"Tracked material did not resolve eight locations once");
+        queries=atmosphere.stats().lightingLocationQueries;
+        atmosphere.bindLighting(material,false,101); atmosphere.bindLighting(material,true,101);
+        require(atmosphere.stats().lightingLocationQueries==queries,"Repeated material binds queried linked uniform locations");
+        atmosphere.bindLighting(material,false,102);
+        require(atmosphere.stats().lightingLocationQueries==queries+8,"Program revision failed to invalidate material locations");
+        queries=atmosphere.stats().lightingLocationQueries;
+        atmosphere.bindLighting(material); atmosphere.bindLighting(material);
+        require(atmosphere.stats().lightingLocationQueries==queries+16,"Untracked external programs unexpectedly cached potentially recycled GL IDs");
+        config.enabled=false; atmosphere.bindLighting(material,false,102);
+        require(uniform(material,"uAtmosphereActive")==0 && uniform(material,"uAtmosphereIblActive")==0,
+                "Tracked uniform cache retained active flags while disabled");
+        config.enabled=true;
+        for(unsigned flags=0;flags<16;++flags)
+        {
+            config.physicalAtmosphere=(flags&1)!=0; config.localFog=(flags&2)!=0;
+            config.clouds=(flags&4)!=0; config.godRays=(flags&8)!=0;
+            frame();
+        }
+        require(atmosphere.stats().programVariantBuilds>40 && atmosphere.stats().residentProgramVariants==40,
+                "Variant eviction fixture did not exercise the bounded cache");
+        atmosphere.computeVolumes(&camera); checkGL("final feature variant volumes");
+        glDeleteProgram(material); atmosphere.release();
+        require(atmosphere.stats().residentProgramVariants==0,"Release leaked tracked atmosphere programs");
+        std::cout<<"PASS shader variants: active-stage startup only, per-program feature keys, dynamic values stay uniforms, cache hits, 40-program eviction, revision-safe lighting locations\n"<<std::flush;
+    }
     void checkInitialPalette(bool physical,float duration)
     {
         Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
@@ -520,6 +589,7 @@ namespace
         std::filesystem::current_path(root/"ENDURANCE");
         checkSettings();
         checkParameterStreaming();
+        checkShaderVariants();
         checkInitialPalette(true,.3f);
         checkInitialPalette(false,.3f);
         checkInitialPalette(true,0);
@@ -649,6 +719,10 @@ namespace
         frame(.1);
         require(!atmosphere.error().empty() && textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP)==validIrradiance,
                 "Invalid hook discarded the previously complete environment");
+        const auto failedBuilds=atmosphere.stats().programVariantBuilds;
+        frame(.1); frame(.1);
+        require(atmosphere.stats().programVariantBuilds==failedBuilds,
+                "Invalid shader reload was recompiled every frame");
         atmosphere.setRadianceShader(""); settle();
         require(atmosphere.error().empty(),"Valid shader reload did not recover from an invalid hook");
         std::cout<<"PASS runtime radiance hook: same correction in IBL/aerial scattering, complete-state retention on failure and reload recovery\n"<<std::flush;

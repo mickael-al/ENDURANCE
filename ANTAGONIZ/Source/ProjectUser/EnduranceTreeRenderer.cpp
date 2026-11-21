@@ -58,6 +58,8 @@ void TreeRenderer::drawShadowRenderer(unsigned shadowIndex)
 }
 std::uint64_t TreeRenderer::shadowCasterBoundsRevision() const { return m_boundsToken; }
 std::uint64_t TreeRenderer::shadowContentRevision() const { return m_contentToken; }
+std::uint64_t TreeRenderer::shadowLayerContentRevision(unsigned layer,const glm::mat4& clip) const
+{ return m_enabled && m_hasView?m_gpu.shadowContentRevision(layer+1u,clip):m_contentToken; }
 void TreeRenderer::appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const
 { if(m_enabled) m_gpu.appendBounds(output); }
 void TreeRenderer::setEnabled(bool enabled)

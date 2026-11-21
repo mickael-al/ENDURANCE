@@ -21,6 +21,7 @@ public:
     void drawShadowRenderer(unsigned shadowIndex) override;
     std::uint64_t shadowCasterBoundsRevision() const override;
     std::uint64_t shadowContentRevision() const override;
+    std::uint64_t shadowLayerContentRevision(unsigned layer,const glm::mat4& clip) const override;
     void appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const override;
     void shutdown() noexcept;
     const EnduranceTrees::RenderStats& stats() const noexcept;

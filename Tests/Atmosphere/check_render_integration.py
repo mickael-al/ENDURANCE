@@ -22,13 +22,17 @@ def main():
                "-DGLEW_NO_GLU", "-DGLFW_INCLUDE_NONE", "-DANTAGONIZ_UNIX", "-DENDURANCE_ENABLE_NETWORK=0"]
     for include in includes:
         command += ["-I", str(include)]
-    sources = ("Rendering/RenderingEngine.cpp", "Rendering/Light/Lights.cpp",
+    sources = ("Rendering/RenderingEngine.cpp", "Rendering/FrameGpuProfiler.cpp",
+               "Rendering/Camera/Camera.cpp", "Rendering/Camera/CameraManager.cpp",
+               "Rendering/Shader/ShaderDataMisc.cpp", "Rendering/Shader/GraphiquePipeline.cpp",
+               "Rendering/Light/Lights.cpp",
                "Rendering/Light/LightManager.cpp", "Rendering/Light/SpotLight.cpp",
                "Rendering/Shader/Atmosphere.cpp", "Rendering/Window/FrameBuffer.cpp", "Rendering/Window/SSAOBuffer.cpp",
                "Rendering/Shape/Model.cpp", "Rendering/Shape/ShapeBufferBase.cpp",
                "Rendering/Materials/Textures.cpp", "Miscellaneous/Editor.cpp",
                "Miscellaneous/ProceduralGeneration.cpp",
                "ProjectUser/ProceduralTerrain.cpp",
+               "ProjectUser/EnduranceAtmosphere.cpp",
                "ProjectUser/TreeRenderGpu.cpp", "ProjectUser/EnduranceTreeRenderer.cpp",
                "ProjectUser/EnduranceTerrainMaterials.cpp",
                "ProjectUser/EnduranceTerrainMaterialPanel.cpp")

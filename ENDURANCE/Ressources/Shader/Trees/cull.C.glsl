@@ -11,7 +11,6 @@ uniform vec4 uPlanes[6];
 uniform vec3 uCamera;
 uniform vec4 uLod; // projected LOD0, projected impostor, transition, max distance
 uniform float uProjectionScale;
-uniform bool uOrthographic;
 shared uint counts[3];
 shared uint offsets[3];
 shared uvec2 pageReferences[192];
@@ -43,21 +42,29 @@ void main()
         accepted=accepted && distance<uLod.w;
         if(accepted)
         {
-            float projected=radius*uProjectionScale/(uOrthographic?1.0:max(distance,0.01));
+#if TREE_ORTHOGRAPHIC
+            float projected=radius*uProjectionScale;
+#else
+            float projected=radius*uProjectionScale/max(distance,0.01);
+#endif
             float farWeight=1.0-smoothstep(uLod.w*0.9,uLod.w,distance);
             float f=uLod.z;
             if(projected>uLod.x*(1.0+f)) appendInstance(0u,id,1.0,false,farWeight);
-            else if(f>0.0 && projected>uLod.x*(1.0-f))
+#if TREE_LOD_TRANSITIONS
+            else if(projected>uLod.x*(1.0-f))
             {
                 float weight=smoothstep(uLod.x*(1.0-f),uLod.x*(1.0+f),projected);
                 appendInstance(0u,id,weight,false,farWeight); appendInstance(1u,id,weight,true,farWeight);
             }
+#endif
             else if(model.scalesImpostor.w<0.5 || projected>uLod.y*(1.0+f)) appendInstance(1u,id,1.0,false,farWeight);
-            else if(f>0.0 && projected>uLod.y*(1.0-f))
+#if TREE_LOD_TRANSITIONS
+            else if(projected>uLod.y*(1.0-f))
             {
                 float weight=smoothstep(uLod.y*(1.0-f),uLod.y*(1.0+f),projected);
                 appendInstance(1u,id,weight,false,farWeight); appendInstance(2u,id,weight,true,farWeight);
             }
+#endif
             else appendInstance(2u,id,1.0,false,farWeight);
         }
     }
@@ -79,8 +86,8 @@ void main()
         uint vertices=lane<4u?model.counts[lane]:(model.scalesImpostor.w>0.5?6u:0u);
         uint index=selection.y*5u+lane;
         commands[index].count=vertices;
-        commands[index].firstIndex=0u;
-        commands[index].baseVertex=0;
+        commands[index].firstIndex=lane<4u?model.firstIndices[lane]:0u;
+        commands[index].baseVertex=lane<4u?model.baseVertices[lane]:0;
         commands[index].baseInstance=selection.z*192u+lod*selection.w*64u;
     }
 }

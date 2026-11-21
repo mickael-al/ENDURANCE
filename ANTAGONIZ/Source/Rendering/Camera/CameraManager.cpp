@@ -77,11 +77,12 @@ namespace Ge
 	void CameraManager::updateStorage()
 	{
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssbo);
-		glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(UniformBufferCamera), nullptr, GL_DYNAMIC_DRAW);
 		if (m_currentCamera != nullptr)
 		{
 			m_currentCamera->mapMemory();
 		}
+        else
+            glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(UniformBufferCamera), nullptr, GL_STREAM_DRAW);
 	}
 
     void CameraManager::release()

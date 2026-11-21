@@ -26,7 +26,7 @@ vec2 geAtmTransmittanceUV(float radius,float mu)
 
 vec3 geAtmSunTransmittance(vec3 planetPosition,vec3 sourceDirection)
 {
-    if(geAtmControl.x==0) return vec3(1.0);
+    if(!GE_ATM_PHYSICAL_ON) return vec3(1.0);
     float radius=length(planetPosition);
     if(radius>geAtmRadii.y)
     {
@@ -62,7 +62,7 @@ vec3 geAtmSourceForLight(vec3 position,vec3 direction,vec3 sourceDirection,
 
 vec3 geAtmPhysicalSource(vec3 position,vec3 direction,vec2 sourceVisibility,out vec3 extinction)
 {
-    if(geAtmControl.x==0) { extinction=vec3(0.0); return vec3(0.0); }
+    if(!GE_ATM_PHYSICAL_ON) { extinction=vec3(0.0); return vec3(0.0); }
     vec3 r,m;
     geAtmMediumAt(position,r,m,extinction);
     vec3 source=vec3(0.0);
@@ -77,7 +77,7 @@ vec3 geAtmPhysicalSource(vec3 position,vec3 direction,vec2 sourceVisibility,out 
 
 vec3 geAtmPhysicalSky(vec3 direction)
 {
-    if(geAtmControl.x==0)
+    if(!GE_ATM_PHYSICAL_ON)
     {
         vec3 fallback=max(geAtmPalette(direction)*geAtmArt.x,vec3(0.0));
 #ifdef GE_CUSTOM_RADIANCE

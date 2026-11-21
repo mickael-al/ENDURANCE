@@ -30,6 +30,7 @@ struct RenderStats
     std::uint64_t modelBytes=0, workingBytes=0, assetUploads=0, transformBuilds=0;
     std::uint64_t cullDispatches=0, drawCalls=0, revision=0;
     std::uint64_t transformedInstances=0, transformPagesBuilt=0, transformPagesReused=0, indirectCommands=0;
+    std::uint64_t selectionUploads=0, distanceSelections=0;
     double assetLoadMilliseconds=0, assetUploadMilliseconds=0;
 };
 
@@ -49,6 +50,9 @@ public:
     // pass 0 = G-buffer; other IDs = independent shadow layers. The framebuffer,
     // viewport, depth comparison and polygon offset are owned by the caller.
     void draw(std::uint32_t pass,const glm::mat4& clip);
+    // CPU-only exact selected-content token; no GL state queries or readbacks.
+    // Uses the same page selection as draw, including main-camera LOD/fade state.
+    std::uint64_t shadowContentRevision(std::uint32_t pass,const glm::mat4& clip) const;
     void appendBounds(std::vector<Ge::ShadowCasterBounds>& output) const;
     void shutdown() noexcept;
     const RenderStats& stats() const noexcept;

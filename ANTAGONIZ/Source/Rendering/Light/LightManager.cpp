@@ -92,11 +92,17 @@ void LightManager::prepareShadowMaps(const std::vector<CustomRenderer*>& rendere
 {
     m_shadowMapMatrices.clear();
     getShadowMatrix(&m_shadowMapMatrices);
-    m_shadowMapSources.clear();
-    for (const auto* renderer : renderers)
-        if (renderer) m_shadowMapSources.push_back({renderer, renderer->shadowContentRevision()});
-    if (immutableModelRevision) m_shadowMapSources.push_back({this, immutableModelRevision});
-    m_shadowMaps.prepare(m_shadowMapMatrices, m_shadowMapSources, untrackedCasters);
+    m_shadowMapLayerSources.resize(m_shadowMapMatrices.size());
+    for (std::size_t layer = 0; layer < m_shadowMapMatrices.size(); ++layer)
+    {
+        auto& sources = m_shadowMapLayerSources[layer];
+        sources.clear();
+        for (const auto* renderer : renderers)
+            if (renderer) sources.push_back({renderer,
+                renderer->shadowLayerContentRevision(static_cast<unsigned>(layer), m_shadowMapMatrices[layer])});
+        if (immutableModelRevision) sources.push_back({this, immutableModelRevision});
+    }
+    m_shadowMaps.prepareLayerSources(m_shadowMapMatrices, m_shadowMapLayerSources, untrackedCasters);
 }
 
 void LightManager::updateShadowCascadeMatrix()

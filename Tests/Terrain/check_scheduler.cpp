@@ -1,6 +1,7 @@
 // Runs the production ProceduralGeneration.cpp update loop and real planning
 // worker. Rendering services and GPU completion times are test-only doubles.
 #include "scheduler_engine.hpp"
+#include "glcore.hpp"
 #include "ProceduralGeneration.hpp"
 #include "ProceduralTerrainCollision.hpp"
 #include <algorithm>
@@ -18,6 +19,7 @@ void require(bool value,const std::string& message){if(!value)throw std::runtime
 unsigned frame=0,submittedThisFrame=0,delay=6;
 unsigned pollsThisFrame=0,dispatchesThisFrame=0,peakPolls=0,peakDispatches=0;
 bool instantGpu=false;
+unsigned lastDrawProgram=0;
 std::uint64_t submissions=0;bool failNext=false,failAfterDispatch=false,invalidRelease=false,holdCompletions=false;
 const ProceduralGeneration* failingGenerator=nullptr;
 std::vector<LodChunk> coverageAtFailedDispatch;
@@ -88,7 +90,7 @@ void GpuMesher::release(const MeshHandle& m)noexcept{
  --s.stats.residentChunks;s.stats.residentVertices-=3;s.stats.allocatedBytes-=96;
 }
 bool GpuMesher::valid(const MeshHandle& m)const noexcept{return m_impl->live.count(m.slot)!=0;}
-void GpuMesher::drawMany(const std::vector<MeshHandle>& meshes,std::uint32_t){for(const auto& m:meshes)Test::require(valid(m),"drawing retired mesh");}
+void GpuMesher::drawMany(const std::vector<MeshHandle>& meshes,std::uint32_t){Test::lastDrawProgram=TerrainFixtureGL::program;for(const auto& m:meshes)Test::require(valid(m),"drawing retired mesh");}
 const GpuConfig& GpuMesher::config()const noexcept{return m_impl->config;}
 GpuStats GpuMesher::stats()const noexcept{return m_impl->stats;}
 const std::string& GpuMesher::lastError()const noexcept{return m_impl->error;}

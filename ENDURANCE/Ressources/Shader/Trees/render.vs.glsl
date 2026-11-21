@@ -11,8 +11,6 @@ layout(std430,binding=4) readonly buffer TreeInstances { TreeInstance instances[
 layout(std430,binding=7) readonly buffer VisibleInstances { uvec2 visible[]; };
 uniform mat4 uClip, uView;
 uniform vec3 uEye; // Viewpoint, or a constant direction for orthographic passes.
-uniform bool uParallel;
-uniform int uKind;
 #if !TREE_SHADOW
 out vec3 viewPosition;
 out vec3 worldNormal;
@@ -35,7 +33,11 @@ void main()
 #if TREE_IMPOSTOR
     TreeModel model=models[instance.model]; rotation=rotationValue;
         vec3 centre=instance.positionScale.xyz+treeRotate(model.impostorCentre.xyz*instance.positionScale.w,rotation);
-        vec3 delta=uParallel?uEye:uEye-centre;
+#if TREE_PARALLEL
+        vec3 delta=uEye;
+#else
+        vec3 delta=uEye-centre;
+#endif
         vec3 facing=length(delta)>0.00001?normalize(treeUnrotate(delta,rotation)):vec3(0,0,1);
         vec3 right=vec3(facing.z,0,-facing.x);
         right=dot(right,right)>0.00001?normalize(right):vec3(1,0,0);
@@ -43,7 +45,11 @@ void main()
         vec3 relative=(right*inPosition.x+up*inPosition.y)*model.scalesImpostor.z;
         local=model.impostorCentre.xyz+relative;
         treeViews(facing,captureIDs,captureWeights);
-        vec3 ray=uParallel?-facing:relative-treeUnrotate(uEye-centre,rotation)/instance.positionScale.w;
+#if TREE_PARALLEL
+        vec3 ray=-facing;
+#else
+        vec3 ray=relative-treeUnrotate(uEye-centre,rotation)/instance.positionScale.w;
+#endif
         // Homogeneous UVs retain the perspective ray/plane intersection after
         // raster interpolation; no trigonometry or basis construction per pixel.
         vec3 coords[3];

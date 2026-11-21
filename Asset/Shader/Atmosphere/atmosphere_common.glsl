@@ -4,6 +4,42 @@
 #ifndef GE_ATMOSPHERE_COMMON_GLSL
 #define GE_ATMOSPHERE_COMMON_GLSL
 
+// Atmosphere-owned programs specialize only the scene feature switches.
+// Shared material includes retain the uniform fallback (-1): their atmosphere
+// may become ready or disappear independently of the material's lifetime.
+#ifndef GE_ATM_PHYSICAL
+#define GE_ATM_PHYSICAL -1
+#endif
+#ifndef GE_ATM_LOCAL_FOG
+#define GE_ATM_LOCAL_FOG -1
+#endif
+#ifndef GE_ATM_CLOUDS
+#define GE_ATM_CLOUDS -1
+#endif
+#ifndef GE_ATM_TERRAIN_SHADOWS
+#define GE_ATM_TERRAIN_SHADOWS -1
+#endif
+#if GE_ATM_PHYSICAL >= 0
+#define GE_ATM_PHYSICAL_ON (GE_ATM_PHYSICAL != 0)
+#else
+#define GE_ATM_PHYSICAL_ON (geAtmControl.x != 0)
+#endif
+#if GE_ATM_LOCAL_FOG >= 0
+#define GE_ATM_LOCAL_FOG_ON (GE_ATM_LOCAL_FOG != 0)
+#else
+#define GE_ATM_LOCAL_FOG_ON (geAtmControl.y != 0)
+#endif
+#if GE_ATM_CLOUDS >= 0
+#define GE_ATM_CLOUDS_ON (GE_ATM_CLOUDS != 0)
+#else
+#define GE_ATM_CLOUDS_ON (geAtmControl.z != 0)
+#endif
+#if GE_ATM_TERRAIN_SHADOWS >= 0
+#define GE_ATM_TERRAIN_SHADOWS_ON (GE_ATM_TERRAIN_SHADOWS != 0)
+#else
+#define GE_ATM_TERRAIN_SHADOWS_ON (geAtmControl.w != 0)
+#endif
+
 const float GE_ATM_PI = 3.14159265358979323846;
 layout(std140, binding=6) uniform GeAtmosphereParameters
 {
@@ -139,7 +175,7 @@ vec2 geAtmPath(vec3 origin,vec3 direction)
 void geAtmMediumAt(vec3 planetPosition,out vec3 rayleigh,out vec3 mie,out vec3 extinction)
 {
     float h=max(length(planetPosition)-geAtmRadii.x,0.0);
-    if(geAtmControl.x==0 || h>geAtmRadii.y-geAtmRadii.x)
+    if(!GE_ATM_PHYSICAL_ON || h>geAtmRadii.y-geAtmRadii.x)
     {
         rayleigh=vec3(0.0); mie=vec3(0.0); extinction=vec3(0.0); return;
     }
