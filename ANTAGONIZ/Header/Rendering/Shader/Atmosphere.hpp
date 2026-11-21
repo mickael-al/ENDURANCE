@@ -155,6 +155,8 @@ namespace Ge
         void setGameFogBinding(std::function<void(unsigned int)> bind);
         void prepare(Camera* camera, double deltaSeconds);
         void prepareShadows();
+        // Ignore an inactive celestial source without reallocating its cascades.
+        bool shadowLayerActive(unsigned layer) const;
         void renderSky(unsigned int cameraSSBO);
         void computeVolumes(Camera* camera);
         // Deferred and forward materials share the same completed IBL/volume set.

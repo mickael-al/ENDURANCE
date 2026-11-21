@@ -214,6 +214,7 @@ void main()
 		vec3 Lo = vec3(0.0);
 		for (int i = 0; i < ubd.maxLight; i++)
 		{
+			if (!geAtmosphereLightEnabled(i)) continue;
 			float shadow = 1.0;
 			vec3 L = normalize(ubl.ubl[i].position - WorldPos);
 			float distance = length(ubl.ubl[i].position - WorldPos);

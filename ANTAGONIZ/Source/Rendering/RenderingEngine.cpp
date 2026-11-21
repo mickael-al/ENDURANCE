@@ -601,6 +601,11 @@ namespace Ge
 		const std::vector<unsigned int>& frameBufferDepthShadow = m_lightManager->getFrameShadowBuffer();
 		for (int i = 0; i < frameBufferDepthShadow.size(); i++)
 		{
+            if (!m_atmosphere->shadowLayerActive(static_cast<unsigned>(i)))
+            {
+                m_lightManager->skipShadowMap(static_cast<unsigned>(i));
+                continue;
+            }
             if (!m_lightManager->shadowMapNeedsRender(static_cast<unsigned>(i))) continue;
 			glBindFramebuffer(GL_FRAMEBUFFER, frameBufferDepthShadow[i]);
 			glClear(GL_DEPTH_BUFFER_BIT);

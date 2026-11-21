@@ -223,6 +223,7 @@ void main()
 		vec3 Lo = vec3(0.0);
 		for (int i = 0; i < ubd.maxLight; i++)
 		{
+			if (!geAtmosphereLightEnabled(i)) continue;
 			float shadow = 1.0;
 			vec3 L;
             vec3 radiance=vec3(0.0);

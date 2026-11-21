@@ -270,6 +270,7 @@ void main()
 		vec3 Lo = vec3(0.0);
 		for (int i = 0; i < ubd.maxLight; i++)
 		{
+			if (!geAtmosphereLightEnabled(i)) continue;
 			if (isLightHiddenByPlane(i, worldPos))
 			{
 				continue;

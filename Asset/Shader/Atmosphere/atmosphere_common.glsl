@@ -82,6 +82,23 @@ layout(std140, binding=6) uniform GeAtmosphereParameters
 vec3 geCustomizeRadiance(vec3 radiance,vec3 direction);
 #endif
 
+// One celestial light at a time. Keep the raw source/disk parameters intact:
+// the visible moon still reflects sunlight when the sun is below our horizon.
+// These predicates are uniform across a dispatch/draw (no pixel divergence).
+bool geAtmSunAboveHorizon()
+{
+    return geAtmSunDirection.w>0.5 && geAtmSunDirection.y>=0.0;
+}
+bool geAtmSunLightingEnabled()
+{
+    return geAtmSunAboveHorizon() && any(greaterThan(geAtmSunRadiance.rgb,vec3(0)));
+}
+bool geAtmMoonLightingEnabled()
+{
+    return !geAtmSunAboveHorizon() && geAtmMoonDirection.w>0.5
+        && geAtmMoonDirection.y>=0.0 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0)));
+}
+
 float geAtmLuminance(vec3 c) { return dot(c,vec3(0.2126,0.7152,0.0722)); }
 vec3 geAtmSaturate(vec3 c,float saturation)
 {

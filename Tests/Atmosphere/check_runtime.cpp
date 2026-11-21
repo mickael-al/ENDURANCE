@@ -414,9 +414,59 @@ namespace
         atmosphere.release(); glDeleteTextures(1,&lights.shadowTexture); glDeleteBuffers(1,&lights.shadowBuffer);
         std::cout<<"PASS volume cache: stable tracked shadows, actual shadowed scattering, fog-only integration, unknown hooks/revisions, cloud motion, camera/projection and disabled god rays\n"<<std::flush;
     }
+    void checkCelestialSelection()
+    {
+        Ge::LightManager lights; Ge::Lights sun,moon;
+        sun.shadow=0; moon.shadow=4; moon.index=1; moon.direction={0,-1,0};
+        lights.lights={&sun,&moon}; lights.shadowFrames.resize(8);
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        atmosphere.setSun(&sun); atmosphere.setMoon(&moon);
+        auto& s=atmosphere.settings(); s=smallSettings();
+        s.clouds=true; s.cloudCoverage=1; s.cloudDensity=.01f; s.cloudWeatherStrength=0;
+        s.cloudBaseHeight=1000; s.cloudThickness=3000; s.wind={0,0};
+        s.moonIlluminanceScale=.03f; s.environmentBlendSeconds=0;
+        std::string error;
+        const auto program=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
+        require(program!=0,error);
+        GLuint output=0; glCreateBuffers(1,&output); glNamedBufferData(output,80,nullptr,GL_DYNAMIC_READ);
+        const auto check=[&](bool solar,bool lunar) {
+            atmosphere.prepare(&camera,0); atmosphere.computeVolumes(&camera);
+            const auto atlas=readTexture(textureAt(5,GL_TEXTURE_BINDING_2D),GL_TEXTURE_2D);
+            float minimum[2]={1,1};
+            for(std::size_t i=0;i<atlas.size();i+=4)
+                for(int c=0;c<2;++c) minimum[c]=std::min(minimum[c],atlas[i+c]);
+            require((solar?minimum[0]<.98f:minimum[0]==1.f) &&
+                    (lunar?minimum[1]<.98f:minimum[1]==1.f),"Cloud atlas evaluated the inactive celestial light");
+            atmosphere.bindLighting(program); glUseProgram(program);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,output); glDispatchCompute(1,1,1);
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+            std::array<float,20> values{}; glGetNamedBufferSubData(output,0,80,values.data());
+            require(values[11]==float(solar) && values[15]==float(lunar),"Material selected the wrong celestial light: expected "+std::to_string(solar)+","+std::to_string(lunar)+" got "+std::to_string(values[11])+","+std::to_string(values[15]));
+            for(int c=0;c<3;++c) require((solar || values[8+c]==0) && (lunar || values[12+c]==0),
+                "Inactive celestial source still adds direct material light");
+            for(unsigned layer=0;layer<8;++layer)
+                if(layer>=4 || sun.active) require(atmosphere.shadowLayerActive(layer)==(layer<4?solar:lunar),"CPU/GPU light selection differs");
+            require(atmosphere.shadowLayerActive(8),"Selection disabled an unrelated light's shadow");
+            checkGL("celestial source selection");
+        };
+        check(true,false);
+        sun.direction={-1,-.0001f,0}; check(true,false);
+        sun.direction={-1,0,0}; check(true,false); // horizon belongs to the day
+        sun.direction={-1,.0001f,0}; check(false,true);
+        sun.direction={0,1,0}; check(false,true);
+        moon.direction={0,1,0}; check(false,false); // both below horizon
+        moon.direction={0,-1,0}; sun.active=false; check(false,true);
+        sun.active=true; sun.direction={0,-1,0}; check(true,false);
+        s.enabled=false;
+        require(atmosphere.shadowLayerActive(0) && atmosphere.shadowLayerActive(4),"Disabled atmosphere kept suppressing shadows");
+        atmosphere.release(); glDeleteProgram(program); glDeleteBuffers(1,&output);
+        std::cout<<"PASS celestial selection: one source at noon/horizon/night, cloud channels, PBR, shadow cascades, missing sun, both below, disable\n"<<std::flush;
+    }
     void checkMoonCloudCache()
     {
         Ge::LightManager lights; Ge::Lights sun,moon;
+        sun.direction={0,1,0}; // night: only the moon illuminates the cloud layer
         moon.index=1; moon.direction={0,-1,0}; lights.lights={&sun,&moon};
         ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
         Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
@@ -715,6 +765,7 @@ namespace
         checkCloudWind();
         checkVolumeCache();
         checkMoonCloudCache();
+        checkCelestialSelection();
         std::string error;
         const GLuint material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
         require(material!=0,error);

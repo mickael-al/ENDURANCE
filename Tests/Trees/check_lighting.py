@@ -191,10 +191,13 @@ def check_lunar_specular(gl, current, baseline):
     illumination(gl, fixture, direction=(.2, .2, 1), ambient=.3, irradiance=(.3,.4,.5,1))
     fixture.parameters.set("Control", 0, 0, 0, 0)
     fixture.parameters.set("MoonRadiance", .8, .9, 1., 1.)
+    fixture.parameters.set("SunDirection", 0., -1., 0., 1.)
+    fixture.parameters.set("MoonDirection", 0., 1., 0., 1.)
 
     def render(shader, suppress):
         fixture.render(shader, True)  # Bind the complete production fixture.
         gl.uniform(shader, "uAtmosphereMoonIndex", "1i", 0)
+        gl.uniform(shader, "uAtmosphereSunIndex", "1i", -1)
         gl.uniform(shader, "uAtmosphereIblActive", "1i", int(suppress))
         gl.uniform(shader, "uAtmosphereIblSaturation", "1f", 1.)
         return gl.draw_engine_triangle(shader, fixture.size)

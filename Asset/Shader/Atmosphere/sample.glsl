@@ -60,8 +60,7 @@ vec3 geAtmDirectTransmission(vec3 worldPosition,vec3 lightDirection)
 {
     if(!uAtmosphereActive) return vec3(1.0);
     vec3 position=geAtmOrigin()+(worldPosition-geAtmCamera.xyz);
-    bool secondary=geAtmMoonDirection.w>0.5 &&
-        dot(lightDirection,geAtmMoonDirection.xyz)>dot(lightDirection,geAtmSunDirection.xyz);
+    bool secondary=geAtmMoonLightingEnabled();
     return geAtmSunTransmittance(position,normalize(lightDirection))
         *geAtmCloudVisibility(worldPosition,normalize(lightDirection),secondary);
 }

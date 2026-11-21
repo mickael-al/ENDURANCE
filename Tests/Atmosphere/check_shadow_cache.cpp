@@ -216,6 +216,30 @@ static void individualLayers()
     std::cout << "PASS per-layer cache: selective refresh, atomic completed revision, restart tokens, no incomplete/NaN reuse\n";
 }
 
+static void skippedCelestialLayers()
+{
+    ShadowMapCache cache;
+    std::vector<glm::mat4> matrices(8,glm::mat4(1));
+    int identity;
+    std::vector<ShadowContentSource> sources{{&identity,1}};
+    const auto frame=[&](bool night) {
+        cache.prepare(matrices,sources,false);
+        for(unsigned i=0;i<8;++i) {
+            if((i<4)==night) { cache.skip(i); cache.skip(i); }
+            else if(cache.needsRender(i)) cache.rendered(i);
+        }
+        cache.finish();
+        require(cache.contentRevision()!=0,"Skipped inactive layers left the frame incomplete");
+        return cache.redrawnLayers();
+    };
+    require(frame(false)==4 && frame(false)==0,"Day rendered lunar cascades or lost stable sun reuse");
+    sources[0].revision=2; matrices[5][3].x=100;
+    require(frame(false)==4,"Active shadows ignored changed geometry");
+    require(frame(true)==4 && frame(true)==0,"Night reused stale lunar maps or rendered solar cascades");
+    require(frame(false)==4 && frame(false)==0,"Sunrise reused skipped stale cascades");
+    std::cout<<"PASS inactive shadow layers: no depth draws, complete revisions, fresh resume, idempotent skip\n";
+}
+
 static void immutableModelIntegration()
 {
     LightManager lights;
@@ -311,6 +335,6 @@ static void layerContentIntegration()
 
 int main()
 {
-    try { managerLifecycle(); localProjectionInvalidation(); individualLayers(); immutableModelIntegration(); layerContentIntegration(); }
+    try { managerLifecycle(); localProjectionInvalidation(); individualLayers(); skippedCelestialLayers(); immutableModelIntegration(); layerContentIntegration(); }
     catch (const std::exception& e) { std::cerr << "FAIL shadow cache: " << e.what() << '\n'; return 1; }
 }

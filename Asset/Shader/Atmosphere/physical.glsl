@@ -66,10 +66,10 @@ vec3 geAtmPhysicalSource(vec3 position,vec3 direction,vec2 sourceVisibility,out 
     vec3 r,m;
     geAtmMediumAt(position,r,m,extinction);
     vec3 source=vec3(0.0);
-    if(geAtmSunDirection.w>0.5)
+    if(geAtmSunLightingEnabled())
         source+=geAtmSourceForLight(position,direction,normalize(geAtmSunDirection.xyz),
             geAtmSunRadiance.rgb,sourceVisibility.x,r,m);
-    if(geAtmMoonDirection.w>0.5 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0))))
+    if(geAtmMoonLightingEnabled())
         source+=geAtmSourceForLight(position,direction,normalize(geAtmMoonDirection.xyz),
             geAtmMoonRadiance.rgb,sourceVisibility.y,r,m);
     return geAtmArtistic(source,direction);
@@ -105,10 +105,10 @@ vec3 geAtmPhysicalSky(vec3 direction)
     if(length(endpoint)<geAtmRadii.x+10.0)
     {
         vec3 up=normalize(endpoint),ground=vec3(0.0);
-        if(geAtmSunDirection.w>0.5)
+        if(geAtmSunLightingEnabled())
             ground+=geAtmSunRadiance.rgb*geAtmSunTransmittance(endpoint+up,normalize(geAtmSunDirection.xyz))
                 *max(dot(up,normalize(geAtmSunDirection.xyz)),0.0);
-        if(geAtmMoonDirection.w>0.5 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0))))
+        if(geAtmMoonLightingEnabled())
             ground+=geAtmMoonRadiance.rgb*geAtmSunTransmittance(endpoint+up,normalize(geAtmMoonDirection.xyz))
                 *max(dot(up,normalize(geAtmMoonDirection.xyz)),0.0);
         scattering+=transmittance*geAtmArtistic(ground*clamp(geAtmArt.w,0.0,1.0)/GE_ATM_PI,direction);

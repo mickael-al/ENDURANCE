@@ -27,10 +27,10 @@ vec4 geAtmLocalFog(vec3 worldPosition)
 vec2 geAtmVisibility(vec3 worldPosition)
 {
     vec2 visibility=vec2(1.0);
-    if(geAtmSunDirection.w>0.5)
+    if(geAtmSunLightingEnabled())
         visibility.x=geAtmTerrainVisibility(worldPosition,geAtmShadow.x)
             *geAtmCloudVisibility(worldPosition,normalize(geAtmSunDirection.xyz),false);
-    if(geAtmMoonDirection.w>0.5 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0))))
+    if(geAtmMoonLightingEnabled())
         visibility.y=geAtmTerrainVisibility(worldPosition,geAtmShadow.y)
             *geAtmCloudVisibility(worldPosition,normalize(geAtmMoonDirection.xyz),true);
     return visibility;
@@ -40,7 +40,7 @@ vec3 geAtmMediumLight(vec3 worldPosition,vec3 planetPosition,vec3 direction,
     vec3 sigmaScattering,float phaseG,vec2 visibility)
 {
     vec3 source=vec3(0.0);
-    if(geAtmSunDirection.w>0.5)
+    if(geAtmSunLightingEnabled())
     {
         vec3 light=normalize(geAtmSunDirection.xyz);
         vec3 direct=geAtmSunTransmittance(planetPosition,light)
@@ -48,7 +48,7 @@ vec3 geAtmMediumLight(vec3 worldPosition,vec3 planetPosition,vec3 direction,
         vec3 ambient=geAtmMultipleScattering(planetPosition,light)*max(geAtmMedium.w,0.0);
         source+=sigmaScattering*geAtmSunRadiance.rgb*(direct+ambient);
     }
-    if(geAtmMoonDirection.w>0.5 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0))))
+    if(geAtmMoonLightingEnabled())
     {
         vec3 light=normalize(geAtmMoonDirection.xyz);
         vec3 direct=geAtmSunTransmittance(planetPosition,light)

@@ -40,6 +40,7 @@ namespace Ge
         void prepareShadowMaps(const std::vector<CustomRenderer*>& renderers, bool untrackedCasters,
             std::uint64_t immutableModelRevision = 0);
         bool shadowMapNeedsRender(unsigned layer) const { return m_shadowMaps.needsRender(layer); }
+        void skipShadowMap(unsigned layer) { m_shadowMaps.skip(layer); }
         void shadowMapRendered(unsigned layer) { m_shadowMaps.rendered(layer); }
         void finishShadowMaps() { m_shadowMaps.finish(); }
 	protected:

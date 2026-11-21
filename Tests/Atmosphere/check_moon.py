@@ -82,6 +82,12 @@ def main():
         assert atmospheric[...,:3].sum()<plain[...,:3].sum()*.99
         assert atmospheric[...,:3].max()>0
         previews.append(('Day atmosphere',render(2)))
+        # Turning the scene light off below the horizon must not turn off the
+        # sunlight which illuminates the remote lunar surface itself.
+        f.parameters.set('SunDirection',*[-float(x) for x in forward],1)
+        assert render()[...,:3].max()>.1,'Night selection extinguished the visible moon'
+        f.parameters.set('SunDirection',-.7,.35,-.622495,1)
+
         # A uniform cloud slab must extinguish the body, not just its centre.
         opaque=gl.texture((2,2,2),target=TEXTURE_3D,value=(1,1,1,1))
         original=f.noise; f.noise=opaque

@@ -51,6 +51,19 @@ namespace Ge
         bool needsRender(std::size_t layer) const noexcept
         { return layer < m_layers.size() && m_layers[layer].dirty; }
 
+        // The source does not illuminate this frame. Its texture is not read;
+        // force a fresh depth pass when it returns, even after geometry moved.
+        void skip(std::size_t index)
+        {
+            if(index>=m_layers.size()) return;
+            auto& layer=m_layers[index];
+            if(layer.skipped) return;
+            if(!layer.dirty) --m_reused;
+            layer.dirty=false;
+            layer.valid=false;
+            layer.skipped=true;
+        }
+
         // Call only after submitting the complete depth pass for this layer.
         void rendered(std::size_t index)
         {
@@ -91,6 +104,7 @@ namespace Ge
             for (std::size_t i = 0; i < matrices.size(); ++i)
             {
                 auto& layer = m_layers[i];
+                layer.skipped = false;
                 const auto& sources = sourceAt(i);
                 layer.pending = matrices[i];
                 layer.pendingSources = sources;
@@ -115,7 +129,7 @@ namespace Ge
         {
             glm::mat4 matrix{1.0f}, pending{1.0f};
             std::vector<ShadowContentSource> sources, pendingSources;
-            bool valid = false, dirty = true, trackable = false;
+            bool valid = false, dirty = true, trackable = false, skipped = false;
         };
         std::vector<Layer> m_layers;
         std::uint64_t m_contentRevision = 0;

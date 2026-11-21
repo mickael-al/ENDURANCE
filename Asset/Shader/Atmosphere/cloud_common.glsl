@@ -161,27 +161,4 @@ float geAtmCloudVisibility(vec3 position,vec3 sourceDirection,bool secondary)
     return mix(1.0,pow(whole,remaining),mapWeight);
 }
 
-float geAtmMoonCloudLight(vec3 position,vec3 direction,int samples)
-{
-#ifdef GE_ATM_EXACT_MOON_CLOUD_LIGHT
-    return geAtmCloudLightRay(position,direction,samples);
-#else
-    // Only approximate a weak daytime secondary light. Night / strong moon
-    // keeps full self-shadowing. Both transitions are continuous and uniform
-    // over the frame, so neither phase changes nor sunrise pop between modes.
-    float sun=max(max(geAtmSunRadiance.r,geAtmSunRadiance.g),geAtmSunRadiance.b);
-    float moon=max(max(geAtmMoonRadiance.r,geAtmMoonRadiance.g),geAtmMoonRadiance.b);
-    float weak=(1.0-smoothstep(0.005,0.01,moon/max(sun,1e-8)))
-        *smoothstep(0.035,0.087,geAtmSunDirection.y)*step(0.5,geAtmSunDirection.w);
-    if(weak<=0.0) return geAtmCloudLightRay(position,direction,samples);
-    float weight=geAtmCloudAtlasWeight(geAtmCloudShadowUV(position,direction));
-    if(weight<=0.0) return geAtmCloudLightRay(position,direction,samples);
-    float cached=geAtmCloudVisibility(position,direction,true);
-    if(weak*weight>=1.0) return cached;
-    float exact=geAtmCloudLightRay(position,direction,samples);
-    // cached already fades to 1 at the atlas edge; replace that clear-sky
-    // endpoint with the exact ray, including far clouds outside map coverage.
-    return clamp(exact+weak*(cached-1.0+weight*(1.0-exact)),0.0,1.0);
-#endif
-}
 #endif

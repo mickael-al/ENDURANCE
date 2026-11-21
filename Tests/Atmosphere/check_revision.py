@@ -114,11 +114,16 @@ def check_grazing_visibility(gl, fixture):
         row = [(0., 2750., 0., 0., *direction, 0.)]
         approximate = query(gl, material, row)[0]
         integrated = query(gl, reference, row)[0]
-        for actual in (*approximate[:2], *integrated[:2]):
+        for actual in integrated[:2]:
             assert 0 <= actual <= 1 and abs(actual - expected) < .002, (
                 "Bounded grazing homogeneous ray violates Beer--Lambert", y, actual, expected,
             )
-        values.append(approximate[0])
+        # The low-level integrator stays valid in either direction. The map
+        # now evaluates only the active celestial source: neither below the
+        # horizon, and sun only when both share a direction above it.
+        assert abs(approximate[0] - (expected if y>=0 else 1.)) < .002
+        assert approximate[1] == 1., "Inactive moon shadow channel was evaluated"
+        values.append(integrated[0])
     assert max(values) - min(values) < .002, (
         "Material visibility jumps around the old +/-0.001 horizon threshold", values,
     )

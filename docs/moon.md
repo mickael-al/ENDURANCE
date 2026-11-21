@@ -124,28 +124,57 @@ régénération du bruit 3D ni saut de phase lors d'un changement de vitesse.
 Une vitesse quatre fois plus élevée ne multiplie pas le nombre de passes ni
 d'échantillons ; toute vitesse non nulle actualise déjà les mêmes caches.
 
-## Coût du second éclairage des nuages
+## Une seule lumière céleste : soleil le jour, lune la nuit
 
-L'ajout lunaire lançait un second rayon d'ombrage à chaque échantillon des
-nuages. Lorsque la lune éclaire très peu face au soleil, le rendu réutilise
-maintenant le canal lunaire de la carte d'ombres des nuages existante. Le calcul
-détaillé reste actif la nuit, au soleil bas, pour une lune forte et hors de la
-carte. Les transitions sont continues ; `GE_ATM_EXACT_MOON_CLOUD_LIGHT` permet
-de compiler la référence exacte pour les comparaisons.
+La direction vers le soleil définit la bascule, indépendamment de l'orientation
+ou de l'altitude de la caméra :
 
-Le seuil se trouve dans `Asset/Shader/Atmosphere/cloud_common.glsl`, fonction
-`geAtmMoonCloudLight` : atlas seul sous 0.5 % du maximum RGB solaire, fondu
-jusqu'à 1 %, avec une transition d'élévation solaire d'environ 2° à 5°.
-Une lune sans énergie ne lance plus ses calculs de diffusion et d'ombre.
-Le cache tient compte de cette activation et de l'origine de la carte.
-Le PBR évite également les calculs GGX de la lumière lunaire lorsque son reflet
-est déjà fourni par l'IBL, tout en conservant Fresnel pour le terme diffus.
+- `sunDirection.y >= 0` : éclairage solaire uniquement.
+- Soleil sous l'horizon, ou absent : éclairage lunaire uniquement, si la lune
+  est au-dessus de l'horizon et possède une énergie non nulle.
+- Deux astres sous l'horizon : aucun de ces deux éclairages directs.
 
-Le [banc reproductible](../Tests/Atmosphere/benchmark_moon_clouds.py) et ses
-[résultats](performance/moon-cloud-lighting.json) comparent les vrais shaders :
-sur llvmpipe, le cas diurne testé passe de 17.45 à 11.85 ms pour les nuages
-visibles et de 1.624 à 1.150 ms pour le volume. Ces mesures synchronisées portent
-sur de petits buffers (96 × 54 et 64 × 36 × 32), **pas sur une image complète
-ni sur la GTX 1660**. L'écart relatif moyen est inférieur à 0.003 % sur ce cas ;
-la nuit et les autres cas nécessitant le calcul exact sont bit-identiques.
-Les gains réels en jeu restent à mesurer sur la machine cible.
+La règle est centralisée dans `Asset/Shader/Atmosphere/atmosphere_common.glsl`
+(`geAtmSunLightingEnabled` et `geAtmMoonLightingEnabled`). Elle s'applique au
+ciel physique, aux nuages, à la perspective aérienne, au brouillard et aux god
+rays. Les matériaux différés, transparents et marins ignorent la source inactive
+avant les calculs PBR et les lectures d'ombre. Les autres lumières de la scène
+restent indépendantes.
+
+La sphère lunaire visible et ses reflets restent présents de jour. Les données
+solaires brutes sont conservées pour éclairer cette surface distante, même
+lorsque le soleil est sous notre horizon ; sa phase et ses taches restent donc
+correctes la nuit. Le gain d'éclairage lunaire n'ajoute plus de lumière directe
+au terrain pendant le jour.
+
+Le rendu saute aussi les cascades d'ombre de la source inactive, si elles sont
+configurées, sans réallocation ni modification des cases `Active` / `Shadow`
+de la scène. Les couches sautées sont invalidées pour être recalculées à leur
+réactivation. L'atmosphère désactivée rend le contrôle aux lumières normales.
+Les ombres lunaires demeurent désactivées par défaut dans la scène.
+
+Il s'agit d'une bascule au passage du centre solaire sous l'horizon, sans
+superposition des deux éclairages. Aucun cycle horaire automatique n'est ajouté.
+L'ancienne approximation de faible lumière lunaire en journée a été retirée :
+le rayon d'ombrage détaillé ne s'exécute que pour la source choisie.
+
+Le [banc reproductible](../Tests/Atmosphere/benchmark_moon_clouds.py) compare les
+shaders actuels à une référence autorisant les deux sources ; ses
+[résultats](performance/moon-cloud-lighting-night.json) sont mesurés sur
+**Mesa llvmpipe**, avec de petits buffers et des dispatchs synchronisés :
+
+| Passe | Deux sources, jour | Soleil seul | Deux sources, nuit | Lune seule |
+| --- | ---: | ---: | ---: | ---: |
+| Nuages visibles, 96 × 54 | 18.54 ms | 10.18 ms | 17.07 ms | 9.87 ms |
+| Volume, 64 × 36 × 32 | 1.73 ms | 0.99 ms | 1.64 ms | 1.11 ms |
+| Ombres des nuages, 192 × 192 | 9.97 ms | 5.22 ms | 9.80 ms | 4.74 ms |
+
+Les sorties sont bit-identiques à la même référence avec seulement la lumière
+choisie présente. Ces nombres ne sont **ni des temps d'image complète, ni des
+mesures sur GTX 1660**. Le rapport précédent `moon-cloud-lighting.json` conserve
+les mesures de l'ancienne approximation diurne, désormais remplacée.
+
+Les tests runtime couvrent midi, l'horizon exact, la nuit, les deux astres sous
+l'horizon, le soleil absent et la désactivation de l'atmosphère. Ils vérifient
+les canaux réels de l'atlas, la sélection CPU/GPU, les matériaux et la reprise
+des cascades après leur suspension.
