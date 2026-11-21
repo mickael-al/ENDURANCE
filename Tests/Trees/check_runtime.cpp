@@ -102,7 +102,7 @@ struct Target
     Target()
     {
         glCreateFramebuffers(1,&fbo); glCreateTextures(GL_TEXTURE_2D,4,colors); glCreateTextures(GL_TEXTURE_2D,1,&depth);
-        GLenum formats[]={GL_RG32F,GL_RGB16F,GL_RGBA8,GL_RGB8};
+        GLenum formats[]={GL_RG32F,GL_RGB16F,GL_RGBA16F,GL_RGB8};
         for(unsigned i=0;i<4;++i)
         { glTextureStorage2D(colors[i],1,formats[i],Size,Size); glNamedFramebufferTexture(fbo,GL_COLOR_ATTACHMENT0+i,colors[i],0); }
         glTextureStorage2D(depth,1,GL_DEPTH_COMPONENT32F,Size,Size); glNamedFramebufferTexture(fbo,GL_DEPTH_ATTACHMENT,depth,0);
@@ -123,7 +123,18 @@ struct Target
     std::vector<unsigned char> colorsRead() const
     {
         std::vector<unsigned char> pixels(Size*Size*4);
-        glGetTextureImage(colors[2],0,GL_RGBA,GL_UNSIGNED_BYTE,static_cast<GLsizei>(pixels.size()),pixels.data()); return pixels;
+        glGetTextureImage(colors[2],0,GL_RGBA,GL_UNSIGNED_BYTE,static_cast<GLsizei>(pixels.size()),pixels.data());
+        // Signed color alpha is material metadata, not coverage. Use actual depth.
+        const auto coverage=depthRead();
+        for(unsigned i=0;i<coverage.size();++i) pixels[i*4+3]=coverage[i]<1?255:0;
+        return pixels;
+    }
+    std::vector<float> materialAlphaRead() const
+    {
+        std::vector<float> pixels(Size*Size*4),alpha(Size*Size);
+        glGetTextureImage(colors[2],0,GL_RGBA,GL_FLOAT,static_cast<GLsizei>(pixels.size()*4),pixels.data());
+        for(unsigned i=0;i<alpha.size();++i) alpha[i]=pixels[i*4+3];
+        return alpha;
     }
     std::vector<float> normalsRead() const
     {
@@ -135,20 +146,24 @@ struct Target
         std::vector<float> pixels(Size*Size);
         glGetTextureImage(depth,0,GL_DEPTH_COMPONENT,GL_FLOAT,static_cast<GLsizei>(pixels.size()*4),pixels.data()); return pixels;
     }
-    // A fixed diffuse inspection light, not an engine screenshot. This makes
-    // the canopy-normal change visible in optional validation captures.
-    void captureLighting(const char* name) const
+    // Optional production G-buffer + camera dump for check_lighting.py. All
+    // lighting is then evaluated by the REAL deferred shader, not CPU Lambert.
+    void captureLighting(const char* name,const RenderView& view) const
     {
         const char* directory=std::getenv("ENDURANCE_TREE_TEST_CAPTURE_DIR"); if(!directory) return;
-        auto color=colorsRead(); auto normal=normalsRead();
-        const glm::vec3 light=glm::normalize(glm::vec3(-.3f,1,.4f));
-        std::ofstream out(std::filesystem::path(directory)/(std::string(name)+".ppm"),std::ios::binary);
-        out<<"P6\n"<<Size<<' '<<Size<<"\n255\n";
-        for(int y=Size-1;y>=0;--y) for(int x=0;x<Size;++x)
+        std::ofstream out(std::filesystem::path(directory)/(std::string(name)+".gbuf"),std::ios::binary);
+        const unsigned size=Size; out.write(reinterpret_cast<const char*>(&size),sizeof(size));
+        const glm::vec4 camera(view.camera,view.albedoGamma);
+        const glm::mat4 inverse=glm::inverse(view.view),projection=view.clip*inverse;
+        for(const auto pair:{std::pair<const void*,unsigned>{&camera,sizeof(camera)},
+            {&view.view,sizeof(view.view)},{&inverse,sizeof(inverse)},{&projection,sizeof(projection)}})
+            out.write(static_cast<const char*>(pair.first),pair.second);
+        const unsigned channels[]={2,3,4,3}; const GLenum formats[]={GL_RG,GL_RGB,GL_RGBA,GL_RGB};
+        for(unsigned i=0;i<4;++i)
         {
-            const int i=y*Size+x; const glm::vec3 n(normal[i*3],normal[i*3+1],normal[i*3+2]);
-            const float shade=.18f+.82f*std::max(glm::dot(n,light),0.0f);
-            for(int c=0;c<3;++c) out.put(static_cast<unsigned char>(color[i*4+c]*shade));
+            std::vector<float> pixels(Size*Size*channels[i]);
+            glGetTextureImage(colors[i],0,formats[i],GL_FLOAT,static_cast<GLsizei>(pixels.size()*4),pixels.data());
+            out.write(reinterpret_cast<const char*>(pixels.data()),pixels.size()*sizeof(float));
         }
     }
     unsigned checkGBuffer(const char* name,bool expect=true) const
@@ -230,7 +245,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         prototype.boundingRadius=radius*2;
         RenderSettings settings; settings.shaderDirectory=(std::filesystem::path(root)/"ENDURANCE/Ressources/Shader/Trees").string();
         settings.maximumDistance=3000; settings.modelBudgetMiB=64;
-        settings.windEnabled=false; settings.foliageNormalBlend=0;
+        settings.windEnabled=false; settings.foliageTransmission=0;
         TreeRenderGpu gpu; require(gpu.initialize({prototype},settings),gpu.error());
         GLuint pool=0,foreign=0; glCreateBuffers(1,&pool); glCreateBuffers(1,&foreign);
         glNamedBufferData(foreign,4096,nullptr,GL_DYNAMIC_COPY);
@@ -424,13 +439,13 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         require(noFade==std::array<unsigned,3>{{2,0,0}} || noFade==std::array<unsigned,3>{{0,2,0}},
             "Transition-disabled shader emitted two LODs");
         gpu.shutdown(); settings.transitionFraction=.15f;
-        // Existing bakes: canopy normals change only normals, never geometry,
-        // coverage, colors or wood shading. Both adjacent geometric LODs work.
+        // Thin foliage changes ONLY signed material metadata. Authored clump
+        // normals, albedo, coverage and geometry remain exactly the same.
         positions.assign(512,position); glNamedBufferSubData(pool,0,positions.size()*sizeof(position),positions.data());
         blocks={block}; blocks[0].allocationRevision=9100;
         view=viewAt(centre,radius*4);
         require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
-        draw(gpu,target,0,view.clip); target.captureLighting("canopy_before");
+        draw(gpu,target,0,view.clip); target.captureLighting("opaque_before",view);
         const auto originalColors=target.colorsRead(); const auto originalNormals=target.normalsRead(),originalDepth=target.depthRead();
         std::vector<unsigned char> originalPbr(Target::Size*Target::Size*3);
         glGetTextureImage(target.colors[3],0,GL_RGB,GL_UNSIGNED_BYTE,originalPbr.size(),originalPbr.data());
@@ -438,20 +453,31 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         view.projectionScale=.065f*glm::length(view.camera-centre)/radius;
         gpu.prepare(pool,blocks,1,view); draw(gpu,target,0,view.clip);
         const auto transitionColors=target.colorsRead(); const auto transitionNormals=target.normalsRead(),transitionDepth=target.depthRead();
-        gpu.shutdown(); settings.foliageNormalBlend=.8f;
+        gpu.shutdown(); settings.foliageTransmission=.65f;
         view=viewAt(centre,radius*4);
         require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
-        draw(gpu,target,0,view.clip); target.checkGBuffer("canopy"); target.captureLighting("canopy_after");
-        const auto roundedNormals=target.normalsRead(); unsigned changedLeaves=0,unchangedWood=0;
+        draw(gpu,target,0,view.clip); target.checkGBuffer("canopy"); target.captureLighting("foliage_after",view);
+        const auto foliageAlpha=target.materialAlphaRead(); unsigned changedLeaves=0,unchangedWood=0;
+        require(target.normalsRead()==originalNormals,"Foliage changed authored clump normals");
         require(target.colorsRead()==originalColors && target.depthRead()==originalDepth,"Canopy normals modified geometry/albedo");
         for(unsigned pixel=0;pixel<originalColors.size()/4;++pixel) if(originalColors[pixel*4+3])
         {
-            const float d=glm::length(glm::vec3(roundedNormals[pixel*3]-originalNormals[pixel*3],
-                roundedNormals[pixel*3+1]-originalNormals[pixel*3+1],roundedNormals[pixel*3+2]-originalNormals[pixel*3+2]));
-            if(originalPbr[pixel*3+1]>220) { require(d<1e-5f,"Canopy correction changed wood normals"); ++unchangedWood; }
-            else if(d>.05f) ++changedLeaves;
+            if(originalPbr[pixel*3+1]>220)
+            { require(foliageAlpha[pixel]==1,"Wood tagged as translucent foliage"); ++unchangedWood; }
+            else
+            { require(std::abs(foliageAlpha[pixel]+.65f)<.001f,"Foliage tag lost in RGBA16F"); ++changedLeaves; }
         }
-        require(changedLeaves>100 && unchangedWood>10,"Canopy normal correction was not exercised");
+        require(changedLeaves>100 && unchangedWood>10,"Foliage/wood material discrimination was not exercised");
+        // Force a close impostor to inspect the crown mask at useful resolution.
+        view.projectionScale=.03f*glm::length(view.camera-centre)/radius;
+        gpu.prepare(pool,blocks,1,view); draw(gpu,target,0,view.clip);
+        target.checkGBuffer("foliage_impostor"); target.captureLighting("foliage_impostor",view);
+        const auto impostorAlpha=target.materialAlphaRead(),impostorDepth=target.depthRead();
+        unsigned crownPixels=0,trunkPixels=0;
+        for(unsigned i=0;i<impostorAlpha.size();++i) if(impostorDepth[i]<1)
+        { if(impostorAlpha[i]<-.64f) ++crownPixels; else if(impostorAlpha[i]==0) ++trunkPixels; }
+        require(crownPixels>100 && trunkPixels>10,"Impostor lost its crown/lower-trunk separation");
+        view=viewAt(centre,radius*4);
         gpu.shutdown(); settings.windEnabled=true; settings.windStrength=.05f; settings.windScale=8;
         require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
         draw(gpu,target,0,view.clip); target.checkGBuffer("wind0"); const auto windDepth0=target.depthRead();
@@ -484,7 +510,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         for(unsigned i=0;i<fadedNormals.size();++i) normalError=std::max(normalError,std::abs(fadedNormals[i]-transitionNormals[i]));
         for(unsigned i=0;i<fadedDepth.size();++i) depthError=std::max(depthError,std::abs(fadedDepth[i]-transitionDepth[i]));
         require(target.colorsRead()==transitionColors && depthError<1e-7f && normalError<.002f,
-            "Wind/canopy correction was not fully faded before the baked-impostor transition; normal="+std::to_string(normalError)+
+            "Wind was not fully faded before the baked-impostor transition; normal="+std::to_string(normalError)+
             " depth="+std::to_string(depthError)+" colorEqual="+std::to_string(target.colorsRead()==transitionColors));
         std::cout<<"Impostor transition: max normal error "<<normalError<<", max depth error "<<depthError<<'\n';
         view.projectionScale=.12f*glm::length(view.camera-centre)/radius;
@@ -516,7 +542,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         const auto tightToken=gpu.shadowContentRevision(25,irrelevantLight);
         view.timeSeconds+=2; gpu.prepare(pool,blocks,2,view);
         require(gpu.shadowContentRevision(25,irrelevantLight)==tightToken,"Oversized sector bounds invalidated an unrelated wind shadow");
-        gpu.shutdown(); settings.windEnabled=false; settings.foliageNormalBlend=0;
+        gpu.shutdown(); settings.windEnabled=false; settings.foliageTransmission=0;
         // Production deformation function: anchored roots, quadratic height,
         // scale-aware bounded displacement and inverse-transpose normals.
         const auto probe=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,(std::filesystem::path(root)/"Tests/Trees/deformation_probe.C.glsl").string(),{}}},error);
@@ -529,6 +555,32 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         require(std::abs(results[1].x-1)<1e-5f && std::abs(results[2].x-4)<1e-5f,"Wind height/scale envelope is incorrect");
         require(std::abs(glm::dot(glm::vec3(results[4]),glm::vec3(results[5])))<.001f,"Wind normal is not perpendicular to the bent surface");
         glUseProgram(0); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,0); glDeleteBuffers(1,&probeBuffer); glDeleteProgram(probe);
+        // Existing conifer and bare-tree bakes: test the material convention on
+        // both geometry and impostors, with the same lighting as the acacia.
+        settings.foliageTransmission=.65f;
+        for(const char* name:{"Conifere/tree_1_seed_1346","ArbreMort/tree_1_seed_1356"})
+        {
+            Tree sample; prototype.asset=(std::filesystem::path(root)/"ENDURANCE/Ressources/Trees/Baked"/name).string();
+            require(loadBakedTree(prototype.asset,sample,error),error);
+            const float sampleRadius=glm::length(sample.boundsMax-sample.boundsMin)*.5f;
+            prototype.boundingRadius=sampleRadius*2;
+            const auto sampleCentre=(sample.boundsMin+sample.boundsMax)*.5f;
+            const bool bare=sample.lods[0].foliage.vertices.empty();
+            view=viewAt(sampleCentre,sampleRadius*3); blocks={block};
+            require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
+            for(bool impostor:{false,true})
+            {
+                if(impostor) { view.projectionScale=.03f*3; gpu.prepare(pool,blocks,1,view); }
+                draw(gpu,target,0,view.clip);
+                target.checkGBuffer(bare?"bare_tree":"conifer");
+                if(!impostor) target.captureLighting(bare?"bare_tree":"conifer_after",view);
+                const auto alpha=target.materialAlphaRead();
+                const auto minimum=*std::min_element(alpha.begin(),alpha.end());
+                require(bare?minimum>=0:minimum<-.64f,"Wrong foliage classification for conifer/bare tree");
+            }
+            gpu.shutdown();
+        }
+        settings.foliageTransmission=0;
         // Old bakes without LOD3 retain the simplified mesh; bad assets fail once.
         auto small=generate(preset(Family::Broadleaf)); const auto fallback=std::filesystem::path(temporary)/"no-impostor";
         require(bake(small,fallback,error),error); prototype.asset=fallback.string();
@@ -545,7 +597,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         gpu.shutdown();
         glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0); glPixelStorei(GL_UNPACK_ROW_LENGTH,0); glPixelStorei(GL_UNPACK_SKIP_ROWS,0);
         glDeleteBuffers(1,&pool); glDeleteBuffers(1,&foreign); clean("shutdown");
-        std::cout<<"Tree runtime: real bake, LOD0/1/3, fades, GPU commands, stable transforms, full pages, scale LOD, 17-view selection, G-buffer, canopy normals, wind/root anchoring, animated shadows, state, cache eviction, budgets and fallback OK\n";
+        std::cout<<"Tree runtime: real bake, LOD0/1/3, fades, GPU commands, stable transforms, full pages, scale LOD, 17-view selection, G-buffer foliage metadata/clump normals, wind/root anchoring, animated shadows, state, cache eviction, budgets and fallback OK\n";
         return 0;
     }
     catch(const std::exception& e) { std::cerr<<"Tree runtime: "<<e.what()<<'\n'; return 1; }

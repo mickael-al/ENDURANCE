@@ -12,6 +12,12 @@ layout(binding=0) uniform sampler2D uSurface;
 layout(binding=1) uniform sampler2DArray uAlbedo;
 layout(binding=2) uniform sampler2DArray uNormal;
 uniform float uGamma;
+#if TREE_FOLIAGE_LIGHTING
+uniform float uFoliageTransmission;
+#if TREE_IMPOSTOR
+in vec2 foliageMask;
+#endif
+#endif
 in vec2 uv;
 #if !TREE_SHADOW
 in vec3 viewPosition,worldNormal;
@@ -76,6 +82,15 @@ void main()
     gPosition=geGBufferPackPosition(viewPosition,tag);
     gNormal=dot(N,N)>0.00001?normalize(N):vec3(0,1,0);
     gColor=vec4(pow(max(albedo,vec3(0)),vec3(1.0/max(uGamma,0.001))),1);
+#if TREE_FOLIAGE_LIGHTING
+    // Signed material metadata in the existing RGBA16F alpha, NOT opacity.
+    // Coverage still uses the original alpha test and writes opaque depth.
+#if TREE_IMPOSTOR
+    gColor.a=-uFoliageTransmission*smoothstep(0.0,1.0,foliageMask.x)*foliageMask.y;
+#else
+    gColor.a=-uFoliageTransmission;
+#endif
+#endif
 #if TREE_IMPOSTOR
     gOther=vec3(0,0.86,1);
 #elif TREE_FOLIAGE

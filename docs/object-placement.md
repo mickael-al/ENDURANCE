@@ -29,7 +29,7 @@ ouvertes ont une densité réduite. Ce sont des réglages artistiques modifiable
 | `maximumSectors` | 2 048 | Budget de secteurs résidents, indépendants des chunks affichés |
 | `candidateSpacing` | 32 m | Pas souhaité des cellules de candidats, arrondi à la puissance de deux compatible avec les voxels |
 | `minimumDistance` | 20 m | Exclusion horizontale entre sites voisins, avant quantification |
-| `retentionDistance` | 10 240 m | Publication autour de la caméra, avec marge conservative ; les positions restent en cache tant que leur terrain est résident |
+| `retentionDistance` | 15 360 m | Publication autour de la caméra, avec marge conservative ; les positions restent en cache tant que leur terrain est résident |
 | `capacity` par modèle | 65 536 | Réserve de positions ; multiple de 64, modifiable individuellement |
 | `minimumScale` / `maximumScale` | Selon le groupe, voir ci-dessous | Plage utilisée par le renderer ; les limites de culling incluent l'échelle maximale |
 
@@ -298,7 +298,8 @@ Résultats sur 268,435456 km², comparés à `d165f928` :
 
 La réduction attendue de 80 % est vérifiée statistiquement ; le nombre exact
 varie avec la seed et la surface. Les grandes zones vides du masque restent
-identiques. La distance de rendu par défaut passe de 2 048 à 10 240 m. Une
+identiques. Cette passe a porté la distance de rendu de 2 048 à 10 240 m
+(ensuite ajustée à 15 360 m, sans autre changement de densité). Une
 portée multipliée par cinq couvre jusqu’à 25 fois plus de surface horizontale :
 la baisse de densité locale ne garantit donc pas moins d’arbres visibles au total.
 

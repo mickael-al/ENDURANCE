@@ -5,7 +5,7 @@
   "maximumSectors": 2048,
   "candidateSpacing": 32.0,
   "minimumDistance": 20.0,
-  "retentionDistance": 10240.0,
+  "retentionDistance": 15360.0,
   "prototypes": [
     {
       "id": 0,

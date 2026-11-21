@@ -10,19 +10,19 @@ moteur fournit les passes G-buffer, les matrices des lumières et le cache d'omb
 
 Le panneau **Affichage des arbres / LOD** expose ces paramètres sérialisés.
 **Afficher les arbres** agit immédiatement, sans régénérer le terrain. Les
-distances, seuils, budgets, normales et vent nécessitent **Régénérer avec ces réglages**.
+distances, seuils, budgets, matériau du feuillage et vent nécessitent **Régénérer avec ces réglages**.
 
 | Paramètre | Défaut | Rôle |
 |---|---:|---|
 | `treeRenderingEnabled` | `true` | Active immédiatement le rendu et la préparation des arbres ; indépendant de la collecte des positions |
-| `treeRenderDistance` | 10 240 m | Portée maximale depuis la caméra principale ; extinction progressive sur les derniers 10 % |
+| `treeRenderDistance` | 15 360 m | Portée maximale depuis la caméra principale ; extinction progressive sur les derniers 10 % |
 | `treeLod0Coverage` | 0,25 | Au-dessus : maillage détaillé LOD0 |
 | `treeImpostorCoverage` | 0,06 | Au-dessous : imposteur LOD3 à 17 vues ; entre les deux : maillage LOD1 |
 | `treeLodTransition` | 0,15 | Demi-largeur relative du fondu autour de chaque seuil |
 | `treeModelBudgetMiB` | 512 Mio | Budget GPU des maillages et textures chargés |
-| `treeFoliageNormalBlend` | 0,8 | Mélange des normales de touffes exportées avec un volume de couronne arrondi ; 0 conserve le bake |
+| `treeFoliageTransmission` | 0,65 | Éclairage de feuille mince : diffusion douce et transmission en contre-jour ; 0 conserve le matériau opaque |
 | `treeWindEnabled` | `true` | Active le vent ; désactivé, le code est retiré à la compilation |
-| `treeWindStrength` | 0,015 | Déplacement horizontal maximal / hauteur de l'arbre, soit 1,5 % |
+| `treeWindStrength` | 0,03 | Déplacement horizontal maximal / hauteur de l'arbre, soit 3 % |
 | `treeWindSpeedX`, `treeWindSpeedZ` | 6, 2 m/s | Vitesse de déplacement du bruit et direction du vent dans le monde |
 | `treeWindScale` | 64 m | Taille d'une cellule du bruit de rafales ; plus grand = variations plus lentes et plus larges |
 | `treeWindDistance` | 256 m | Portée de l'animation ; fondu sur les derniers 30 % |
@@ -143,7 +143,7 @@ couvrent bois, feuilles, imposteur perspective et imposteur parallèle, chacun
 en G-buffer et en ombres. Seuls trois sont utilisés dans une passe. Il ne compile
 aucune variante par biome. `TREE_FOLIAGE`, `TREE_IMPOSTOR`, `TREE_PARALLEL`,
 `TREE_SHADOW`, `TREE_ORTHOGRAPHIC`, `TREE_LOD_TRANSITIONS`, `TREE_WIND` et
-`TREE_CROWN_NORMALS` retirent les choix
+`TREE_FOLIAGE_LIGHTING` retirent les choix
 stables à la compilation. Les programmes sont préparés à l'initialisation et
 réutilisent le cache de binaires ; aucun shader ne compile pendant un draw.
 Le shader maillage n'embarque pas les projections et interpolants des 17 vues ;
@@ -163,15 +163,58 @@ laisser une trame visible en mouvement sans antialiasing temporel. L'imposteur
 reste une approximation : pas de profondeur par pixel ni d'auto-ombrage
 géométrique, et les vues sous 15° utilisent l'anneau inférieur.
 
-## Normales du feuillage et vent
+## Éclairage du feuillage et vent
 
-Le chargement mesure une seule fois le volume du feuillage LOD0. Les deux LOD
-géométriques partagent ce repère. Le vertex shader mélange les normales de
-petites touffes déjà exportées avec des normales dirigées vers l'extérieur de
-la couronne, avec un biais doux vers le haut. Cela adoucit les variations entre
-cartes tout en gardant l'éclairage différé et les ombres. Les normales du bois,
-les palettes, les masques alpha et les fichiers exportés restent inchangés.
-Ce contrôle artistique n'est pas un modèle de transmission ou de subsurface.
+Les bakes possèdent déjà des normales lissées autour de chaque touffe. Le rendu
+les conserve, sans les réorienter vers une couronne unique et sans les retourner
+selon `gl_FrontFacing` : les deux faces d'une même carte gardent une réponse
+diffuse stable. Seule la normale du lobe spéculaire est orientée vers l'observateur.
+Le bois utilise toujours le PBR opaque, avec les mêmes couleurs et normales.
+
+`Asset/Shader/Lighting/foliage.glsl` définit une approximation artistique de feuille
+mince, consommée par **`Asset/Shader/forward.fs.glsl`**, le shader d'éclairage différé :
+
+- diffusion élargie et normalisée (`wrap = 0,35`) pour adoucir les incidences rasantes ;
+- transmission teintée par l'albédo, pondérée par la face opposée à la lumière
+  et un lobe de contre-jour peu coûteux (puissance 4 par multiplications) ;
+- mélange normalisé de l'irradiance des deux hémisphères ; un environnement
+  constant ne gagne pas d'énergie ;
+- même visibilité des ombres, intensité lumineuse et extinction atmosphérique
+  que le reste de la scène ; aucun plancher de luminosité ni émission artificielle.
+
+Le terme de transmission n'utilise pas le Fresnel du demi-vecteur de réflexion,
+qui annulerait la transmission lorsque lumière et vue sont opposées. Ce
+demi-vecteur est également borné pour éviter une normalisation nulle.
+Le SSAO reste réservé à l'éclairage indirect. Il ne s'agit pas d'une simulation
+de diffusion multiple à travers toute une couronne, ni d'un modèle d'épaisseur.
+
+**Contrat G-buffer** : l'alpha signé du `gColor` **RGBA16F existant** contient
+`-transmission` pour le feuillage. Un alpha positif ou nul conserve le matériau
+opaque. La couverture est déjà traitée par la découpe alpha et la profondeur ;
+cette valeur ne représente donc pas une transparence à mélanger. Le format,
+les autres canaux et les passes du moteur restent identiques. Le bois garde
+un alpha de 1. Le chemin différé peut être retiré avec `GE_FOLIAGE_LIGHTING=0` ;
+la distinction effective entre matériaux est nécessairement une décision par pixel.
+
+Le coût ajouté est une lecture de la petite cubemap d'irradiance **uniquement
+sur les pixels de feuillage**, plus quelques opérations arithmétiques par lumière.
+Aucune texture, passe, commande ou donnée par instance supplémentaire. La
+suppression de la correction globale de normales allège les vertex shaders.
+L'impact net dépend du GPU et de la surface occupée par le feuillage.
+
+Les captures LOD3 existantes n'ont pas de canal de matériau. Une rampe douce
+sur la hauteur de leur couronne applique le matériau aux feuilles ; le bas du
+tronc reste opaque et les arbres morts ne sont jamais marqués comme feuillage.
+La hauteur est interpolée **avant** le `smoothstep`, pour éviter d'étendre la
+rampe à tout le quad. Du bois situé à l'intérieur de la couronne peut recevoir
+cette approximation. Il n'y a aucun rebake ni lecture de texture supplémentaire.
+
+Les réglages déjà sauvegardés dans une scène priment sur les nouveaux défauts.
+Pour reproduire ce réglage : distance 15 360 m, amplitude 0,03, transmission 0,65,
+puis **Régénérer avec ces réglages**. L'ancien `treeFoliageNormalBlend` du renderer
+est ignoré au chargement ; le contrôle de normales du générateur d'arbres reste
+disponible pour les nouveaux bakes. La densité et le masque du placement sont
+inchangés. La portée plus grande peut toutefois afficher davantage d'instances.
 
 Le vent échantillonne une grille de valeurs aléatoires précalculée, répétée et
 filtrée linéairement. Ses coordonnées sont `origineXZ / (128 * windScale)` moins
@@ -190,12 +233,12 @@ analytique de cette déformation. Le même code et la même phase servent au
 G-buffer et aux ombres, y compris pour les arbres hors champ.
 
 Les captures LOD3 existantes représentent la pose et les normales exportées.
-Le vent **et la correction de couronne** s'effacent donc progressivement avant
+Le vent s'efface donc progressivement avant
 le début du fondu vers ces captures : poids nul à
 `impostorCoverage * (1 + transitionFraction)`, poids complet au double de cette
 couverture. Le vent a également son fondu de distance. Les imposteurs restent
 statiques, sans calcul de vent ; aucun rebake des 17 vues n'est nécessaire.
-Les exports sans imposteur gardent leur correction de normales sur le LOD1.
+L'éclairage de feuille mince reste actif sur les trois LOD.
 
 Les sphères de culling et les limites de pages incluent le déplacement maximal
 possible, indépendamment du temps. La taille utilisée pour choisir le LOD reste
@@ -260,11 +303,12 @@ n'est ajoutée au chemin de rendu pour alimenter ces statistiques.
 - `ENDURANCE/Ressources/Shader/Trees/instances.C.glsl` : transformations stables.
 - `ENDURANCE/Ressources/Shader/Trees/cull.C.glsl` : visibilité, LOD et commandes indirectes.
 - `ENDURANCE/Ressources/Shader/Trees/render.vs.glsl` et `render.fs.glsl` : G-buffer et ombres.
-- `ENDURANCE/Ressources/Shader/Trees/deformation.glsl` : normales de couronne, fondus et vent.
+- `ENDURANCE/Ressources/Shader/Trees/deformation.glsl` : fondus et flexion du vent.
 - `ENDURANCE/Ressources/Shader/Trees/impostor.glsl` : sélection et repères des captures.
+- `Asset/Shader/Lighting/foliage.glsl` et `Asset/Shader/forward.fs.glsl` : réponse à la lumière des feuilles.
 
 `python Tests/Trees/check_runtime.py` exerce le renderer de production dans un
-contexte OpenGL/EGL, avec un export réel du dépôt. `--fast-math` vérifie également
+contexte OpenGL/EGL, avec des exports réels du dépôt (acacia, conifère et arbre mort). `--fast-math` vérifie également
 les options agressives de compilation ; `--captures dossier` sauvegarde les
 vues de contrôle. Ces tests inspectent les commandes GPU, les trois LOD, leurs
 transitions, la stabilité des transformations, le G-buffer, les ombres hors
@@ -277,10 +321,25 @@ couche et une allocation de visibilité volontairement refusée puis rétablie.
 Les tests du vent vérifient la flexion des deux LOD, les racines immobiles,
 la normale perpendiculaire à la surface déformée, les limites conservatrices,
 l'identité des profondeurs de feuillage entre G-buffer et ombres, les caches
-statiques conservés et le retour au bake avant la transition LOD3. La correction
-de couronne ne modifie ni l'albédo, ni la profondeur, ni les normales du bois.
-Les captures `canopy_before/after` utilisent une lumière diffuse fixe de test,
-sans prétendre reproduire l'éclairage complet du moteur.
+statiques conservés et le retour au bake avant la transition LOD3. Le matériau
+ne modifie ni l'albédo, ni la profondeur, ni les normales exportées. Le marqueur
+signé est contrôlé dans un véritable attachement RGBA16F.
+
+`python Tests/Trees/check_lighting.py` exerce le **vrai shader différé** : matériaux
+opaques, désactivation à la compilation, lumière directionnelle/ponctuelle/spot,
+contre-jour exact, ombre complète, absence de lumière, IBL et incidences rasantes.
+`--baseline ancien_forward.fs.glsl` compare aussi avec une version antérieure.
+Après `check_runtime.py --captures dossier`, l'option `--captures dossier` du test
+d'éclairage produit des aperçus des G-buffers réels sous une lumière fixe, même
+exposition, sans ombres de scène. Ce sont des vues de validation isolées ;
+`opaque_before` désactive la transmission avec les mêmes normales de touffe,
+ce n'est pas une reproduction de l'ancienne correction globale de couronne.
 `python Tests/Trees/check_core.py` compare les mipmaps optimisées à l'ancienne
 méthode sur plusieurs dimensions et seuils alpha, avec et sans fast-math.
 Mesa logiciel valide le fonctionnement, pas les performances sur le GPU cible.
+
+Sources de principe pour le matériau mince :
+[GPU Gems 3, chapitre 16 — Crysis](https://developer.nvidia.com/gpugems/gpugems3/part-iii-rendering/chapter-16-vegetation-procedural-animation-and-shading-crysis)
+et [chapitre 4 — SpeedTree](https://developer.nvidia.com/gpugems/gpugems3/part-i-geometry/chapter-4-next-generation-speedtree-rendering).
+L'implémentation adapte ces principes au G-buffer et à l'IBL d'ENDURANCE ;
+elle ne reproduit pas intégralement leur modèle d'éclairage.

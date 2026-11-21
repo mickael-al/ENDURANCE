@@ -7,7 +7,7 @@ struct TreeModel
 {
     vec4 centreRadius;
     vec4 scalesImpostor; // min/max scale, half extent, has impostor
-    vec4 impostorCentre;
+    vec4 impostorCentre; // Capture centre XYZ, has foliage in W.
     uvec4 counts; // LOD0 wood/leaf, LOD1 wood/leaf
     uvec4 firstIndices;
     ivec4 baseVertices;

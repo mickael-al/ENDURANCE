@@ -59,14 +59,14 @@ public:
     bool objectPlacementEnabled = true;
     std::string objectPlacementFile = "../ENDURANCE/Ressources/Trees/object_placement.json";
     bool treeRenderingEnabled = true;
-    float treeRenderDistance = 10240.0f;
+    float treeRenderDistance = 15360.0f;
     float treeLod0Coverage = 0.25f;
     float treeImpostorCoverage = 0.06f;
     float treeLodTransition = 0.15f;
     std::uint32_t treeModelBudgetMiB = 512;
-    float treeFoliageNormalBlend = 0.8f;
+    float treeFoliageTransmission = 0.65f;
     bool treeWindEnabled = true;
-    float treeWindStrength = 0.015f;
+    float treeWindStrength = 0.03f;
     float treeWindSpeedX = 6.0f, treeWindSpeedZ = 2.0f;
     float treeWindScale = 64.0f, treeWindDistance = 256.0f;
 

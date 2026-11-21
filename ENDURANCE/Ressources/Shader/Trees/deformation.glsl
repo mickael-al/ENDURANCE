@@ -1,7 +1,7 @@
 // Shared by the G-buffer and shadow vertex programs. No per-fragment work.
 // Compile-time features: the static/wood/impostor paths omit unused work.
 uniform vec4 uEffectCamera; // Main camera XYZ, projection scale.
-uniform vec4 uEffectLod; // Impostor fade end, orthographic flag, wind distance, normal blend.
+uniform vec4 uEffectLod; // Impostor fade end, orthographic flag, wind distance, unused.
 #if TREE_WIND
 layout(binding=3) uniform sampler2D uWindNoise;
 uniform vec4 uWind; // Wrapped advection UV, inverse noise period, unused.
@@ -14,22 +14,9 @@ float treeEffectWeight(TreeInstance instance,TreeModel model,out float distanceT
     distanceToCamera=length(centre-uEffectCamera.xyz);
     float projected=model.centreRadius.w*instance.positionScale.w*uEffectCamera.w
         /max(mix(distanceToCamera,1.0,uEffectLod.y),0.01);
-    // Restore the authored pose/normals before the existing baked impostor fades in.
+    // Restore the authored pose before the existing baked impostor fades in.
     return mix(1.0,smoothstep(uEffectLod.x,uEffectLod.x*2.0,projected),model.scalesImpostor.w);
 }
-
-#if TREE_CROWN_NORMALS
-vec3 treeCrownNormal(vec3 position,vec3 authored,TreeModel model,float weight)
-{
-    vec3 outward=(position-model.crown.xyz)*model.crownShape.xyz;
-    // Rounded canopy with a soft upward bias, including the underside of cards.
-    // Artistic shading normals only: this is not light transmission/SSS.
-    outward.y=outward.y*0.35+0.65;
-    outward*=inversesqrt(max(dot(outward,outward),1e-8));
-    vec3 result=mix(authored,outward,weight*uEffectLod.w);
-    return result*inversesqrt(max(dot(result,result),1e-8));
-}
-#endif
 
 #if TREE_WIND
 vec2 treeWindDisplacement(TreeInstance instance,TreeModel model,float weight,float distanceToCamera)

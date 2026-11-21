@@ -28,7 +28,7 @@ REGISTER(Behaviour, ProceduralTerrainComponent, seed, cellSize, maxLod,
     microDetailStrength, microDetailScale, appearance, terrainAppearanceRevision,
     debugLod, collisionEnabled, collisionRadius, objectPlacementEnabled, objectPlacementFile,
     treeRenderingEnabled, treeRenderDistance, treeLod0Coverage, treeImpostorCoverage,
-    treeLodTransition, treeModelBudgetMiB, treeFoliageNormalBlend,
+    treeLodTransition, treeModelBudgetMiB, treeFoliageTransmission,
     treeWindEnabled, treeWindStrength, treeWindSpeedX, treeWindSpeedZ, treeWindScale, treeWindDistance);
 
 ProceduralTerrainComponent::ProceduralTerrainComponent()
@@ -146,7 +146,7 @@ void ProceduralTerrainComponent::start()
             settings.maximumDistance=treeRenderDistance; settings.lod0Coverage=treeLod0Coverage;
             settings.impostorCoverage=treeImpostorCoverage; settings.transitionFraction=treeLodTransition;
             settings.modelBudgetMiB=treeModelBudgetMiB;
-            settings.foliageNormalBlend=treeFoliageNormalBlend;
+            settings.foliageTransmission=treeFoliageTransmission;
             settings.windEnabled=treeWindEnabled; settings.windStrength=treeWindStrength;
             settings.windSpeed={treeWindSpeedX,treeWindSpeedZ}; settings.windScale=treeWindScale; settings.windDistance=treeWindDistance;
             m_trees=std::make_unique<Endurance::TreeRenderer>();
@@ -258,7 +258,7 @@ void ProceduralTerrainComponent::onGUI()
         ImGui::SliderFloat("Largeur des transitions",&treeLodTransition,0.0f,0.2f,"%.2f");
         int budget=static_cast<int>(treeModelBudgetMiB);
         if(ImGui::SliderInt("Cache modeles (Mio)",&budget,64,2048)) treeModelBudgetMiB=static_cast<std::uint32_t>(budget);
-        ImGui::SliderFloat("Normales arrondies du feuillage",&treeFoliageNormalBlend,0.0f,1.0f,"%.2f");
+        ImGui::SliderFloat("Transmission du feuillage",&treeFoliageTransmission,0.0f,1.0f,"%.2f");
         ImGui::Checkbox("Vent sur les arbres",&treeWindEnabled);
         ImGui::SliderFloat("Vent : amplitude / hauteur",&treeWindStrength,0.0f,0.05f,"%.3f");
         ImGui::DragFloat("Vent : vitesse X (m/s)",&treeWindSpeedX,0.1f,-100.0f,100.0f,"%.1f");
@@ -266,7 +266,7 @@ void ProceduralTerrainComponent::onGUI()
         ImGui::DragFloat("Vent : taille des rafales (m)",&treeWindScale,1.0f,1.0f,2048.0f,"%.0f");
         ImGui::DragFloat("Vent : distance maximale (m)",&treeWindDistance,8.0f,16.0f,4096.0f,"%.0f");
         ImGui::TextWrapped("Regenerer pour appliquer ces reglages. Le vent se desactive progressivement avec la distance et avant les imposteurs. "
-            "Les normales arrondies adoucissent l'eclairage sans simuler la transmission. LOD0 detaille, LOD1 simplifie, LOD3 imposteur 17 vues. "
+            "Les feuilles utilisent une diffusion douce et une transmission de lumiere ; le bois reste opaque. LOD0 detaille, LOD1 simplifie, LOD3 imposteur 17 vues. "
             "Les seuils sont des fractions de la hauteur de l'ecran, adaptees a la taille de chaque arbre. "
             "La distance ne cree pas de nouveaux points au-dela des secteurs deja generes.");
         if(!m_treeError.empty()) ImGui::TextWrapped("%s",m_treeError.c_str());

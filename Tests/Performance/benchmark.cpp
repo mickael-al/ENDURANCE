@@ -43,7 +43,7 @@ struct Target
     explicit Target(unsigned resolution):size(resolution)
     {
         glCreateFramebuffers(1,&fbo); glCreateTextures(GL_TEXTURE_2D,4,color); glCreateTextures(GL_TEXTURE_2D,1,&depth);
-        const GLenum formats[]={GL_RG32F,GL_RGB16F,GL_RGBA8,GL_RGB8};
+        const GLenum formats[]={GL_RG32F,GL_RGB16F,GL_RGBA16F,GL_RGB8};
         const GLenum attachments[]={GL_COLOR_ATTACHMENT0,GL_COLOR_ATTACHMENT1,GL_COLOR_ATTACHMENT2,GL_COLOR_ATTACHMENT3};
         for(unsigned i=0;i<4;++i) { glTextureStorage2D(color[i],1,formats[i],size,size); glNamedFramebufferTexture(fbo,attachments[i],color[i],0); }
         glTextureStorage2D(depth,1,GL_DEPTH_COMPONENT32F,size,size); glNamedFramebufferTexture(fbo,GL_DEPTH_ATTACHMENT,depth,0);

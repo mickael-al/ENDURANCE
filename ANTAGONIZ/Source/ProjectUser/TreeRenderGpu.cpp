@@ -169,6 +169,7 @@ struct Asset
 {
     Tree tree; std::vector<ImpostorView> views;
     glm::vec3 crownCentre{0},crownInverseExtent{1};
+    bool hasFoliage=false;
     Mips bark,leaf; std::array<Mips,2> impostors;
     // Both geometric LODs share one draw buffer per material. Commands retain
     // their original index counts, with offsets instead of rebaked indices.
@@ -189,11 +190,12 @@ Asset loadAsset(const std::string& path)
     try
     {
         if(!loadBakedTree(path,asset.tree,asset.error,&asset.views)) return asset;
-        // Reuse existing bakes. Compute the macro canopy once, before releasing
-        // source meshes; both geometric LODs use this identical reference frame.
+        // Reuse existing bakes. Measure crown bounds once, before releasing
+        // source meshes, to identify foliage in legacy impostor captures.
         const auto& foliage=asset.tree.lods[0].foliage.vertices;
         glm::vec3 lo=asset.tree.boundsMin,hi=asset.tree.boundsMax;
-        if(!foliage.empty())
+        asset.hasFoliage=!foliage.empty();
+        if(asset.hasFoliage)
         {
             lo=hi=foliage.front().position;
             for(const auto& v:foliage) { lo=glm::min(lo,v.position); hi=glm::max(hi,v.position); }
@@ -311,12 +313,12 @@ struct ModelGpu
 struct Program
 {
     GLuint id=0;
-    GLint clip=-1,view=-1,eye=-1,gamma=-1;
+    GLint clip=-1,view=-1,eye=-1,gamma=-1,transmission=-1;
     GLint effectCamera=-1,effectLod=-1,wind=-1,windDirection=-1;
     void discover()
     {
         clip=glGetUniformLocation(id,"uClip"); view=glGetUniformLocation(id,"uView"); eye=glGetUniformLocation(id,"uEye");
-        gamma=glGetUniformLocation(id,"uGamma");
+        gamma=glGetUniformLocation(id,"uGamma"); transmission=glGetUniformLocation(id,"uFoliageTransmission");
         effectCamera=glGetUniformLocation(id,"uEffectCamera"); effectLod=glGetUniformLocation(id,"uEffectLod");
         wind=glGetUniformLocation(id,"uWind"); windDirection=glGetUniformLocation(id,"uWindDirection");
     }
@@ -482,7 +484,7 @@ struct TreeRenderGpu::Impl
                     d.crownShape=glm::vec4(asset.crownInverseExtent,windActive?d.crown.w*settings.windStrength:0.0f);
                     model.radius=(glm::length(glm::max(glm::abs(asset.tree.boundsMin),glm::abs(asset.tree.boundsMax)))+d.crownShape.w)*prototypes[loadingID].maximumScale+2.0f;
                     if(!asset.views.empty())
-                    { d.scales.z=asset.views[0].halfExtent; d.scales.w=1; d.impostorCentre=glm::vec4(asset.views[0].centre,0); }
+                    { d.scales.z=asset.views[0].halfExtent; d.scales.w=1; d.impostorCentre=glm::vec4(asset.views[0].centre,asset.hasFoliage?1.0f:0.0f); }
                     d.counts=asset.counts; d.firstIndices=asset.firstIndices; d.baseVertices=asset.baseVertices;
                     statistics.modelBytes+=model.bytes; ++statistics.loadedModels; ++statistics.assetUploads;
                 }
@@ -729,13 +731,13 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
 {
     shutdown(); auto& s=*m; s.failure.clear(); s.settings=settings; s.prototypes=prototypes;
     const float values[]={settings.lod0Coverage,settings.impostorCoverage,settings.transitionFraction,settings.maximumDistance,
-        settings.foliageNormalBlend,settings.windStrength,settings.windScale,settings.windDistance,settings.windSpeed.x,settings.windSpeed.y};
+        settings.foliageTransmission,settings.windStrength,settings.windScale,settings.windDistance,settings.windSpeed.x,settings.windSpeed.y};
     for(float v:values) if(!finiteFieldValue(v)) { s.failure="Non-finite tree rendering setting"; return false; }
     if(prototypes.empty() || prototypes.size()>255 || settings.maximumDistance<=0 || settings.impostorCoverage<=0 ||
         settings.lod0Coverage*(1-settings.transitionFraction)<=settings.impostorCoverage*(1+settings.transitionFraction) ||
         settings.transitionFraction<0 || settings.transitionFraction>0.4f || !settings.modelBudgetMiB || settings.modelBudgetMiB>4096 ||
         !settings.maximumResidentModels || settings.maximumResidentModels>255 ||
-        settings.foliageNormalBlend<0 || settings.foliageNormalBlend>1 || settings.windStrength<0 || settings.windStrength>0.1f ||
+        settings.foliageTransmission<0 || settings.foliageTransmission>1 || settings.windStrength<0 || settings.windStrength>0.1f ||
         settings.windScale<0.1f || settings.windScale>10000 || settings.windDistance<=0 || settings.windDistance>100000 ||
         std::abs(settings.windSpeed.x)>10000 || std::abs(settings.windSpeed.y)>10000)
     { s.failure="Invalid tree render settings"; return false; }
@@ -770,7 +772,7 @@ bool TreeRenderGpu::initialize(const std::vector<ProceduralTerrain::ObjectProtot
             (kind==1?"#define TREE_FOLIAGE 1\n":"#define TREE_FOLIAGE 0\n")+
             (kind==3?"#define TREE_PARALLEL 1\n":"#define TREE_PARALLEL 0\n")+
             (kind<2 && s.windActive?"#define TREE_WIND 1\n":"#define TREE_WIND 0\n")+
-            (kind==1 && !i && settings.foliageNormalBlend>0?"#define TREE_CROWN_NORMALS 1\n":"#define TREE_CROWN_NORMALS 0\n");
+            (kind>0 && !i && settings.foliageTransmission>0?"#define TREE_FOLIAGE_LIGHTING 1\n":"#define TREE_FOLIAGE_LIGHTING 0\n");
         p.id=Ge::buildShaderProgram({{GL_VERTEX_SHADER,path("render.vs.glsl"),define},{GL_FRAGMENT_SHADER,path("render.fs.glsl"),define}},s.failure,i?"Tree shadows":"Tree G-buffer",{true,{}});
         if(!p.id) { shutdown(); return false; }
         p.discover();
@@ -860,10 +862,11 @@ void TreeRenderGpu::draw(std::uint32_t passID,const glm::mat4& clip)
             glUniformMatrix4fv(p.clip,1,GL_FALSE,glm::value_ptr(clip));
             if(p.view>=0) glUniformMatrix4fv(p.view,1,GL_FALSE,glm::value_ptr(s.camera.view));
             if(p.gamma>=0) glUniform1f(p.gamma,s.camera.albedoGamma);
+            if(p.transmission>=0) glUniform1f(p.transmission,s.settings.foliageTransmission);
             if(p.eye>=0) glUniform3fv(p.eye,1,glm::value_ptr(eye));
             if(p.effectCamera>=0) glUniform4f(p.effectCamera,s.camera.camera.x,s.camera.camera.y,s.camera.camera.z,s.camera.projectionScale);
             if(p.effectLod>=0) glUniform4f(p.effectLod,s.settings.impostorCoverage*(1+s.settings.transitionFraction),
-                s.camera.orthographic?1.0f:0.0f,s.settings.windDistance,s.settings.foliageNormalBlend);
+                s.camera.orthographic?1.0f:0.0f,s.settings.windDistance,0);
             if(p.wind>=0) glUniform4f(p.wind,s.windPhase.x,s.windPhase.y,1.0f/(WindNoiseSize*s.settings.windScale),0);
             if(p.windDirection>=0) glUniform2fv(p.windDirection,1,glm::value_ptr(s.windDirection));
         }

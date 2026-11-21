@@ -1,6 +1,6 @@
 #version 460 core
 #include "common.glsl"
-#if TREE_WIND || TREE_CROWN_NORMALS
+#if TREE_WIND
 #include "deformation.glsl"
 #endif
 #if TREE_IMPOSTOR
@@ -18,6 +18,9 @@ uniform vec3 uEye; // Viewpoint, or a constant direction for orthographic passes
 out vec3 viewPosition;
 out vec3 worldNormal;
 out vec3 color;
+#if TREE_IMPOSTOR && TREE_FOLIAGE_LIGHTING
+out vec2 foliageMask;
+#endif
 #endif
 out vec2 uv;
 flat out uint fadeMask,siteHash;
@@ -68,12 +71,9 @@ void main()
 #endif
     vec3 world=instance.positionScale.xyz+treeRotate(local*instance.positionScale.w,rotationValue);
     vec3 normal=inNormal;
-#if TREE_WIND || TREE_CROWN_NORMALS
+#if TREE_WIND
     float distanceToCamera;
     float effectWeight=treeEffectWeight(instance,model,distanceToCamera);
-#if TREE_CROWN_NORMALS
-    normal=treeCrownNormal(local,normal,model,effectWeight);
-#endif
 #endif
     normal=treeRotate(normal,rotationValue);
 #if TREE_WIND
@@ -82,6 +82,14 @@ void main()
     uv=inUV;
 #if !TREE_SHADOW
     worldNormal=normal; color=inColor.rgb;
+#if TREE_IMPOSTOR && TREE_FOLIAGE_LIGHTING
+    // Legacy captures have no material mask. Approximate only the crown region;
+    // bare trees and the lower trunk retain the opaque material. No extra texture.
+    float halfHeight=1.0/max(model.crownShape.y,0.001);
+    float crownBase=model.crown.y-halfHeight;
+    // Interpolate height, not the thresholded mask, to preserve the lower trunk.
+    foliageMask=vec2((local.y-crownBase)/(halfHeight*0.35),model.impostorCentre.w);
+#endif
     viewPosition=(uView*vec4(world,1)).xyz;
 #endif
     gl_Position=uClip*vec4(world,1);

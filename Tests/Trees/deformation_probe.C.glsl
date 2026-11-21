@@ -1,6 +1,5 @@
 #version 460 core
 #define TREE_WIND 1
-#define TREE_CROWN_NORMALS 0
 #define TREE_SHADOW 0
 #include "../../ENDURANCE/Ressources/Shader/Trees/common.glsl"
 #include "../../ENDURANCE/Ressources/Shader/Trees/deformation.glsl"
