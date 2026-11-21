@@ -21,9 +21,9 @@ void main()
             if(geAtmSunDirection.w>0.5)
                 visibility.x=geAtmTerrainVisibility(world,geAtmShadow.x)
                     *geAtmCloudLightRay(world,normalize(geAtmSunDirection.xyz),geAtmSamples.y);
-            if(geAtmMoonDirection.w>0.5)
+            if(geAtmMoonDirection.w>0.5 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0))))
                 visibility.y=geAtmTerrainVisibility(world,geAtmShadow.y)
-                    *geAtmCloudLightRay(world,normalize(geAtmMoonDirection.xyz),geAtmSamples.y);
+                    *geAtmMoonCloudLight(world,normalize(geAtmMoonDirection.xyz),geAtmSamples.y);
             source=geAtmMediumLight(world,geAtmOrigin()+direction*distance,direction,
                 vec3(extinction*0.98),geAtmCloudShape.w,visibility);
         }

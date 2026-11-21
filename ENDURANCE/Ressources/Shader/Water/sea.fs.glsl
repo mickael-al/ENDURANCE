@@ -177,7 +177,7 @@ void main()
     const vec3 deepColor=vec3(0.006,0.025,0.045);
     const vec3 foamColor=vec3(0.66,0.72,0.71);
     const float deepDistance=36.0;
-    const float deepOpacity=0.85; // retain a faint view of an existing seabed
+    const float deepOpacity=0.97; // only 3% of the lit seabed through deep water
     const float foamDistance=0.9;
     const float foamFrequency=0.60;
     ivec2 pixel=clamp(ivec2(gl_FragCoord.xy),ivec2(0),textureSize(opaquePosition,0)-1);
@@ -243,17 +243,22 @@ void main()
 			vec3 H = halfVector * inversesqrt(max(dot(halfVector,halfVector),1e-12));
 
 			// Cook-Torrance BRDF
-			float NDF = DistributionGGX(normal.rgb, H, other.y);
-			float G = GeometrySmith(normal.rgb, V, L, other.y);
 			vec3 F = fresnelSchlick(max(dot(H, V), 0.001), F0);
 
 			vec3 kS = F;
 			vec3 kD = vec3(1.0) - kS;
 			kD *= 1.0 - other.x;
 
-			vec3 numerator = NDF * G * F;
-			float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * NdotL + 0.0001;
-			vec3 specular = (numerator / denominator) * geAtmosphereDirectSpecular(i);
+			vec3 specular = vec3(0.0);
+			// Uniform per light: the lunar area reflection already comes from IBL.
+			if (geAtmosphereDirectSpecular(i) > 0.0)
+			{
+				float NDF = DistributionGGX(normal.rgb, H, other.y);
+				float G = GeometrySmith(normal.rgb, V, L, other.y);
+				vec3 numerator = NDF * G * F;
+				float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * NdotL + 0.0001;
+				specular = (numerator / denominator);
+			}
 
 			// Add to outgoing radiance Lo
 			if (ubl.ubl[i].status == 0) // DirLight

@@ -64,6 +64,9 @@ def check_grazing_visibility(gl, fixture):
     f.parameters = Parameters()
     f.parameters.set("Control", 0, 0, 1, 0)
     f.parameters.set("CloudLayer", 2000, 1500, 1, 1e-6)
+    # A dark moon intentionally skips its shadow integration. This fixture
+    # compares two illuminated channels against the analytic transmission.
+    f.parameters.set("MoonRadiance", 1, 1, 1, 0)
     f.parameters.set("CloudShape", 4000, 4, 0, .6)
     f.parameters.set("CloudWeather", 48000, 0, 1.4, 0)
     f.parameters.set("CloudProfiles", 0, 1, 0, 0)

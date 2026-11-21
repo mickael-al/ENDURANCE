@@ -1206,8 +1206,12 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
         }
         m->multipleDirty=false;
         const auto& oldShadow=m->lastCloudShadowParameters;
+        const auto hasMoonEnergy=[](const glm::vec4& radiance) {
+            return radiance.x>0.f || radiance.y>0.f || radiance.z>0.f;
+        };
         const bool cloudShadowChanged=!m->cloudShadowValid ||
             m->gpu.sunDirection!=oldShadow.sunDirection || m->gpu.moonDirection!=oldShadow.moonDirection ||
+            hasMoonEnergy(m->gpu.moonRadiance)!=hasMoonEnergy(oldShadow.moonRadiance) ||
             m->gpu.misc.x!=oldShadow.misc.x || m->gpu.cloudWeather!=oldShadow.cloudWeather ||
             m->gpu.cloudProfiles!=oldShadow.cloudProfiles ||
             std::memcmp(&m->gpu.cloudLayer,&oldShadow.cloudLayer,4*sizeof(glm::vec4))!=0;
@@ -1320,8 +1324,8 @@ void Atmosphere::computeVolumes(Camera* camera)
     // Disk appearance and specular IBL saturation do not illuminate media.
     aerialKey.sunDisk=aerialKey.moonDisk=glm::vec4(0); aerialKey.art.z=0;
     auto cloudKey=aerialKey;
-    // Cloud coefficients trace their own light rays, not the cloud shadow atlas.
-    cloudKey.shadowOrigin=glm::vec4(0); cloudKey.cloudOffset.z=0;
+    // Weak daytime moon lighting now reuses the cloud shadow atlas. Retain
+    // its origin/extent in the cache key (including snapped camera motion).
     const bool aerialChanged=m->config.physicalAtmosphere && (!m->volumesReady ||
         shadowChanged || unknownRadiance || std::memcmp(&aerialKey,&m->lastAerialParameters,sizeof(aerialKey))!=0);
     const bool cloudChanged=m->cloudsEnabled() && (!m->volumesReady ||

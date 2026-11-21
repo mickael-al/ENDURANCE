@@ -19,6 +19,65 @@ def smooth(a, b, x):
     return t*t*(3-2*t)
 
 
+def simplex3(p, permutation):
+    """Seeded 3D simplex gradient noise, four tetrahedral corners per sample.
+
+    This is an offline NumPy implementation, not a runtime shader dependency.
+    Evaluate in Cartesian sphere coordinates so the atlas has no UV seam.
+    """
+    skew = p.sum(axis=-1, keepdims=True)/3.0
+    cell = np.floor(p+skew).astype(np.int32)
+    q = p-cell+cell.sum(axis=-1, keepdims=True)/6.0
+    x, y, z = np.moveaxis(q, -1, 0)
+    rank = np.stack(((x>=y).astype(np.int8)+(x>=z),
+                     (y>x).astype(np.int8)+(y>=z),
+                     (z>x).astype(np.int8)+(z>y)), axis=-1)
+    gradients = np.array(((1,1,0),(-1,1,0),(1,-1,0),(-1,-1,0),
+                          (1,0,1),(-1,0,1),(1,0,-1),(-1,0,-1),
+                          (0,1,1),(0,-1,1),(0,1,-1),(0,-1,-1)), np.float32)
+    result = np.zeros(p.shape[:-1], np.float32)
+    for corner in range(4):
+        offset = (rank>=3-corner).astype(np.int32)
+        delta = q-offset+corner/6.0
+        ids = (cell+offset)&255
+        gradient = permutation[ids[...,0]+permutation[ids[...,1]+permutation[ids[...,2]]]]%12
+        support = np.maximum(.6-(delta*delta).sum(axis=-1), 0.0)
+        result += (support**4*(gradients[gradient]*delta).sum(axis=-1)).astype(np.float32)
+    return result*32.0
+
+
+def fbm3(p, permutation, octaves=5, lacunarity=2.03, gain=.48):
+    """Zero-centred, amplitude-normalized simplex fBm."""
+    result = np.zeros(p.shape[:-1], np.float32)
+    amplitude = total = 1.0
+    for octave in range(octaves):
+        if octave:
+            p = p*lacunarity
+            amplitude *= gain
+            total += amplitude
+        result += amplitude*simplex3(p, permutation)
+    return result/total
+
+
+def lunar_maria(n, seed):
+    """Broad distorted dark deposits with quiet fine detail, baked to albedo.
+
+    Fixed row batches bound temporary tetrahedral arrays even at 4096 pixels.
+    A separate RNG preserves the existing crater/normal generation exactly.
+    """
+    rng = np.random.default_rng(seed ^ 0x4D4F4F4E)
+    permutation = np.tile(rng.permutation(256), 2)
+    result = np.empty(n.shape[:-1], np.float32)
+    offsets = rng.uniform(-50, 50, (4,3)).astype(np.float32)
+    for row in range(0, n.shape[0], 32):
+        p = n[row:row+32]
+        warp = np.stack([simplex3(p*.85+offset, permutation) for offset in offsets[:3]], axis=-1)
+        field = fbm3((p+.18*warp)*2.4+offsets[3], permutation)
+        # This soft contrast defines deposits, not a binary black/white speckle.
+        result[row:row+32] = smooth(-.05, .22, field)
+    return result
+
+
 def bake(width, seed):
     rng = np.random.default_rng(seed)
     height = width//2
@@ -58,7 +117,11 @@ def bake(width, seed):
         floor = -depth*(1-smooth(.16, 1.0, r))
         rim = depth*.30*np.exp(-((r-1.0)/.085)**2)
         terrain[a:b] += (floor+rim)*(1-.65*maria[a:b])
-    albedo = np.clip(.265-.145*maria+.020*broad+.009*medium+.003*fine, .075, .36)
+    deposits = lunar_maria(n, seed)
+    # Neutral material shades remain independent of solar lighting and phase.
+    # Existing basins still influence deposition very gently; simplex fBm now
+    # controls the broad irregular shapes instead of the circular basin masks.
+    albedo = np.clip(.275-.175*deposits-.018*maria+.008*broad+.004*medium+.002*fine, .08, .36)
     # Height derivatives in the local spherical tangent frame; renormalize
     # object-space normals after filtering at runtime, including polar mips.
     du = (np.roll(terrain, -1, 1)-np.roll(terrain, 1, 1))/(4*np.pi/width)

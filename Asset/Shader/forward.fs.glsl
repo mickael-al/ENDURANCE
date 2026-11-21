@@ -287,17 +287,22 @@ void main()
 			vec3 H = halfVector * inversesqrt(max(dot(halfVector, halfVector), 1e-8));
 
 			// Cook-Torrance BRDF
-			float NDF = DistributionGGX(specularNormal, H, other.y);
-			float G = GeometrySmith(specularNormal, V, L, other.y);
 			vec3 F = fresnelSchlick(max(dot(H, V), 0.001), F0);
 
 			vec3 kS = F;
 			vec3 kD = vec3(1.0) - kS;
 			kD *= 1.0 - other.x;
 
-			vec3 numerator = NDF * G * F;
-			float denominator = 4.0 * max(dot(specularNormal, V), 0.0) * max(dot(specularNormal, L), 0.0) + 0.0001;
-			vec3 specular = (numerator / denominator) * geAtmosphereDirectSpecular(i);
+			vec3 specular = vec3(0.0);
+			// Uniform per light: the lunar area reflection already comes from IBL.
+			if (geAtmosphereDirectSpecular(i) > 0.0)
+			{
+				float NDF = DistributionGGX(specularNormal, H, other.y);
+				float G = GeometrySmith(specularNormal, V, L, other.y);
+				vec3 numerator = NDF * G * F;
+				float denominator = 4.0 * max(dot(specularNormal, V), 0.0) * max(dot(specularNormal, L), 0.0) + 0.0001;
+				specular = (numerator / denominator);
+			}
 
 			// Add to outgoing radiance Lo
 			float NdotL = max(dot(normal.rgb, L), 0.0);

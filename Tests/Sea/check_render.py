@@ -177,7 +177,7 @@ def check_surface(gl):
     assert max_difference(first, shallow) > .01, "Shallow-water depth/foam does not affect the surface"
     rig.set_opaque(-400.)
     deep, _ = rig.draw()
-    assert all(abs(a-.85) < 2e-5 for a in deep[3::4]), "Deep water hides the entire opaque seabed"
+    assert all(abs(a-.97) < 2e-5 for a in deep[3::4]), "Deep water must retain a faint, darkened seabed"
     rig.set_opaque(-100.2, -2.)
     sky, _ = rig.draw()
     rig.set_opaque(0., 0.)

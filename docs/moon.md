@@ -84,9 +84,13 @@ python Tools/bake_moon.py
 
 Outil développeur nécessitant NumPy, SciPy et Pillow, absent du chemin de rendu.
 `--seed`, `--width` et `--output` permettent de fabriquer une autre surface.
-Les grandes taches sont des bassins sombres irréguliers ; les cratères modifient
-une hauteur sphérique dont sont dérivées les normales. Aucun éclairage n'est
-baked. Redémarrer la scène après avoir remplacé le fichier au même emplacement.
+Les grandes taches grises utilisent un **fBm simplex 3D à cinq octaves**,
+lacunarity 2.03 et gain 0.48, avec une légère déformation du domaine. Le bruit
+est évalué sur les coordonnées cartésiennes de la sphère pour éviter une couture
+d'UV. Il est calculé uniquement par cet outil, puis enregistré dans l'albédo
+existant : aucun calcul GPU, canal ni mémoire supplémentaire à l'exécution.
+Les cratères et leurs normales restent inchangés. Aucun éclairage n'est baked.
+Redémarrer la scène après avoir remplacé le fichier au même emplacement.
 
 Format : signature `EMOON001`, largeur et hauteur uint32 little-endian, albédo
 moyen float32 little-endian, puis RGBA8. Le chargeur vérifie dimensions, ratio,
@@ -102,6 +106,7 @@ python Tests/Atmosphere/check_runtime.py
 python Tests/Atmosphere/check_game_component.py
 python Tests/Atmosphere/check_moon.py --preview docs/images/moon-validation.png
 python Tests/Atmosphere/check_revision.py --group visible
+python Tests/Atmosphere/benchmark_moon_clouds.py
 python Tests/Sea/check_render.py
 ```
 
@@ -109,10 +114,38 @@ Les tests exécutent les shaders sur OpenGL/Mesa : phases, noir sans soleil,
 rotation, parallaxe, occultation atmosphère/nuages, alpha de nuages vide,
 cohérence ciel/reflets, chargement réel de l'asset, invalidation des captures,
 désactivation et libération. Les régressions mer vérifient aussi l'opacité
-profonde à 0.85 et l'absence de transparence vers un ciel sans fond marin.
+profonde à 0.97 et l'absence de transparence vers un ciel sans fond marin.
 L'aperçu ci-dessus est issu des shaders, pas d'une capture de la scène complète.
 Ces vérifications ne mesurent pas le coût sur GTX 1660 ni la compilation MSVC.
 
 Le vent des nuages passe de `(12, 4)` à `(48, 16)` m/s dans les valeurs par défaut
 et dans la scène terrain. Le déplacement reste intégré dans le temps, sans
 régénération du bruit 3D ni saut de phase lors d'un changement de vitesse.
+Une vitesse quatre fois plus élevée ne multiplie pas le nombre de passes ni
+d'échantillons ; toute vitesse non nulle actualise déjà les mêmes caches.
+
+## Coût du second éclairage des nuages
+
+L'ajout lunaire lançait un second rayon d'ombrage à chaque échantillon des
+nuages. Lorsque la lune éclaire très peu face au soleil, le rendu réutilise
+maintenant le canal lunaire de la carte d'ombres des nuages existante. Le calcul
+détaillé reste actif la nuit, au soleil bas, pour une lune forte et hors de la
+carte. Les transitions sont continues ; `GE_ATM_EXACT_MOON_CLOUD_LIGHT` permet
+de compiler la référence exacte pour les comparaisons.
+
+Le seuil se trouve dans `Asset/Shader/Atmosphere/cloud_common.glsl`, fonction
+`geAtmMoonCloudLight` : atlas seul sous 0.5 % du maximum RGB solaire, fondu
+jusqu'à 1 %, avec une transition d'élévation solaire d'environ 2° à 5°.
+Une lune sans énergie ne lance plus ses calculs de diffusion et d'ombre.
+Le cache tient compte de cette activation et de l'origine de la carte.
+Le PBR évite également les calculs GGX de la lumière lunaire lorsque son reflet
+est déjà fourni par l'IBL, tout en conservant Fresnel pour le terme diffus.
+
+Le [banc reproductible](../Tests/Atmosphere/benchmark_moon_clouds.py) et ses
+[résultats](performance/moon-cloud-lighting.json) comparent les vrais shaders :
+sur llvmpipe, le cas diurne testé passe de 17.45 à 11.85 ms pour les nuages
+visibles et de 1.624 à 1.150 ms pour le volume. Ces mesures synchronisées portent
+sur de petits buffers (96 × 54 et 64 × 36 × 32), **pas sur une image complète
+ni sur la GTX 1660**. L'écart relatif moyen est inférieur à 0.003 % sur ce cas ;
+la nuit et les autres cas nécessitant le calcul exact sont bit-identiques.
+Les gains réels en jeu restent à mesurer sur la machine cible.

@@ -16,7 +16,7 @@ void main()
             vec3 light=normalize(geAtmSunDirection.xyz);
             transmission.x=geAtmCloudLightRay(vec3(xz.x,geAtmCloudShadowHeight(light),xz.y),light,geAtmSamples.z);
         }
-        if(geAtmMoonDirection.w>0.5)
+        if(geAtmMoonDirection.w>0.5 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0))))
         {
             vec3 light=normalize(geAtmMoonDirection.xyz);
             transmission.y=geAtmCloudLightRay(vec3(xz.x,geAtmCloudShadowHeight(light),xz.y),light,geAtmSamples.z);

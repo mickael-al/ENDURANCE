@@ -53,13 +53,13 @@ def illumination(gl, fixture, direction=(.2, .4, 1), *, light_type=0, enabled=Tr
                                     value=(0, 0, 0, 1)), TEXTURE_CUBE_MAP)
 
 
-def surface(gl, fixture, alpha, normal=(0., 0., 1.)):
+def surface(gl, fixture, alpha, normal=(0., 0., 1.), *, metallic=0., roughness=.82):
     count = math.prod(fixture.size)
     for slot, values, internal in (
         (0, [(-20., 0.)] * count, RG32F),
         (1, [(*normal, 1.)] * count, RGBA32F),
         (2, [(.24, .46, .08, alpha)] * count, RGBA16F),
-        (3, [(0., .82, 1., 1.)] * count, RGBA32F)):
+        (3, [(metallic, roughness, 1., 1.)] * count, RGBA32F)):
         fixture.samplers[slot] = (gl.field_texture(fixture.size, values, repeat=True,
                                                   internal=internal), TEXTURE_2D)
 
@@ -180,6 +180,42 @@ def captures(gl, current, directory):
         print(f"Production deferred previews: {directory/'deferred-comparison.png'}",flush=True)
 
 
+def check_lunar_specular(gl, current, baseline):
+    """Compare guarded GGX against a supplied pre-optimization shader.
+
+    Exercise the actual per-light suppression uniform, not only the ordinary
+    material path: the extended moon is reflected by IBL while Fresnel must
+    still control direct diffuse energy on metals and thin foliage.
+    """
+    fixture = DeferredFixture(gl, (17, 13), 0, 0, "opaque", camera_position=(0, 0, 0))
+    illumination(gl, fixture, direction=(.2, .2, 1), ambient=.3, irradiance=(.3,.4,.5,1))
+    fixture.parameters.set("Control", 0, 0, 0, 0)
+    fixture.parameters.set("MoonRadiance", .8, .9, 1., 1.)
+
+    def render(shader, suppress):
+        fixture.render(shader, True)  # Bind the complete production fixture.
+        gl.uniform(shader, "uAtmosphereMoonIndex", "1i", 0)
+        gl.uniform(shader, "uAtmosphereIblActive", "1i", int(suppress))
+        gl.uniform(shader, "uAtmosphereIblSaturation", "1f", 1.)
+        return gl.draw_engine_triangle(shader, fixture.size)
+
+    largest, suppression = 0., 0.
+    for metallic in (0., 1.):
+        for roughness in (.08, .4, .95):
+            for alpha in (1., -.65):
+                surface(gl, fixture, alpha, metallic=metallic, roughness=roughness)
+                states = []
+                for suppress in (False, True):
+                    image = render(current, suppress)
+                    error = maximum_error(image, render(baseline, suppress))
+                    largest = max(largest, error)
+                    assert error < 2e-5, ("lunar GGX/Fresnel regression", metallic, roughness, alpha, suppress, error)
+                    states.append(image)
+                suppression = max(suppression, maximum_error(*states))
+    assert suppression > .001, "Fixture never exercises lunar specular suppression"
+    print(f"PASS lunar GGX uniform guard: pre-optimization agreement {largest:.3g}, opaque/foliage, metallic/roughness endpoints", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--baseline",type=Path,help="Previous forward.fs.glsl, expands repository-relative includes")
@@ -191,6 +227,7 @@ def main():
         disabled = program(gl,"#define GE_FOLIAGE_LIGHTING 0")
         baseline = program(gl,baseline=args.baseline) if args.baseline else None
         checks(gl,current,disabled,baseline)
+        if baseline: check_lunar_specular(gl,current,baseline)
         if args.captures: captures(gl,current,args.captures)
 
 

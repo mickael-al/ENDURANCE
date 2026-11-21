@@ -17,10 +17,10 @@ vec3 geAtmSkyCloudSource(vec3 world,vec3 planetPosition,vec3 direction,float ext
         vec3 ambient=geAtmMultipleScattering(planetPosition,light)*max(geAtmMedium.w,0.0);
         source+=extinction*0.98*geAtmSunRadiance.rgb*(direct+ambient);
     }
-    if(geAtmMoonDirection.w>0.5)
+    if(geAtmMoonDirection.w>0.5 && any(greaterThan(geAtmMoonRadiance.rgb,vec3(0))))
     {
         vec3 light=normalize(geAtmMoonDirection.xyz);
-        float visibility=geAtmCloudLightRay(world,light,geAtmSamples.y);
+        float visibility=geAtmMoonCloudLight(world,light,geAtmSamples.y);
         vec3 direct=geAtmSunTransmittance(planetPosition,light)
             *geAtmMiePhase(dot(direction,light),geAtmCloudShape.w)*visibility;
         vec3 ambient=geAtmMultipleScattering(planetPosition,light)*max(geAtmMedium.w,0.0);

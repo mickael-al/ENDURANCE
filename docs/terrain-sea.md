@@ -86,8 +86,9 @@ composant retire son callback avant de détruire ses ressources.
   séparation en Z de vue, contre 12 m auparavant. `shallowColor` devient cyan
   `(0.025, 0.24, 0.27)` ; `deepColor` reste `(0.006, 0.025, 0.045)`.
   Ce réglage ne change pas la précision ni la portée du depth buffer.
-- `deepOpacity = 0.85` conserve 15 % du fond opaque sous l'eau profonde.
-  La couleur profonde ne change pas ; seule son opacité diminue. Sans fond
+- `deepOpacity = 0.97` conserve 3 % du fond opaque sous l'eau profonde,
+  contre 15 % auparavant, pour éviter un fond trop clair. La couleur profonde
+  et les eaux peu profondes ne changent pas. Sans fond
   opaque, l'eau reste opaque pour éviter de voir le ciel à travers l'océan.
   L'écume conserve son opacité de 0.98. Aucune texture ni passe supplémentaire.
 - `ENDURANCE/Ressources/Shader/Water/sea.vs.glsl` : placement du plan et décodage

@@ -414,6 +414,62 @@ namespace
         atmosphere.release(); glDeleteTextures(1,&lights.shadowTexture); glDeleteBuffers(1,&lights.shadowBuffer);
         std::cout<<"PASS volume cache: stable tracked shadows, actual shadowed scattering, fog-only integration, unknown hooks/revisions, cloud motion, camera/projection and disabled god rays\n"<<std::flush;
     }
+    void checkMoonCloudCache()
+    {
+        Ge::LightManager lights; Ge::Lights sun,moon;
+        moon.index=1; moon.direction={0,-1,0}; lights.lights={&sun,&moon};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        atmosphere.setSun(&sun); atmosphere.setMoon(&moon);
+        auto& s=atmosphere.settings(); s=smallSettings();
+        s.clouds=true; s.cloudCoverage=1; s.cloudDensity=.01f; s.cloudWeatherStrength=0;
+        s.cloudBaseHeight=1000; s.cloudThickness=3000; s.cloudScale=1200;
+        s.wind={0,0}; s.aerialDistance=4096; s.environmentBlendSeconds=0;
+        s.moonSurface=false; s.moonIlluminanceScale=0;
+        const auto frame=[&]() {
+            atmosphere.prepare(&camera,0); atmosphere.computeVolumes(&camera);
+            require(atmosphere.active(),"Moon cloud cache fixture inactive: "+atmosphere.error());
+            checkGL("moon cloud cache frame"); return atmosphere.stats();
+        };
+        const auto moonShadow=[&]() {
+            const auto atlas=readTexture(textureAt(5,GL_TEXTURE_BINDING_2D),GL_TEXTURE_2D);
+            float minimum=1;
+            for(std::size_t i=1;i<atlas.size();i+=4) minimum=std::min(minimum,atlas[i]);
+            return minimum;
+        };
+        auto previous=frame();
+        require(moonShadow()>.999f,"Zero-energy moon performed a cloud-shadow integration");
+        auto next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches,
+                "Unchanged lunar cloud state was not cached");
+        s.moonIlluminanceScale=.02f; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Zero-to-positive lunar energy left cloud lighting stale");
+        require(moonShadow()<.98f,"Activated moon reused the clear cloud-shadow channel");
+        previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches,
+                "Stable illuminated moon rebuilt cached cloud lighting");
+        s.moonIlluminanceScale=.03f; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Positive lunar gain change unnecessarily rebuilt cloud visibility or left lighting stale");
+        s.aerialDistance*=1.5f; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Cloud atlas extent changed without rebuilding dependent coefficients");
+        camera.position.x+=1024; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Cloud atlas origin changed without rebuilding dependent coefficients");
+        s.moonIlluminanceScale=0; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 && moonShadow()>.999f,
+                "Zero-energy moon retained stale cloud shadow opacity");
+        atmosphere.release();
+        std::cout<<"PASS lunar cloud cache: zero/positive energy, actual shadow channel, stable reuse, atlas extent/origin\n"<<std::flush;
+    }
     void checkCloudWind()
     {
         Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
@@ -658,6 +714,7 @@ namespace
         checkInitialPalette(true,0);
         checkCloudWind();
         checkVolumeCache();
+        checkMoonCloudCache();
         std::string error;
         const GLuint material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
         require(material!=0,error);
