@@ -20,7 +20,7 @@ namespace
     V(mieAbsorption) V(mieScaleHeight) V(mieAnisotropy) V(ozoneCenterHeight) \
     V(ozoneHalfWidth) V(sunAngularRadius) V(sunDiskIntensity) V(sunIlluminanceScale) \
     V(moonAngularRadius) V(moonDiskIntensity) V(moonIlluminanceScale) V(aerialDistance) \
-    V(moonSurface) V(moonDistance) V(moonAzimuth) V(moonElevation) V(moonRotation) V(moonNormalStrength) \
+    V(moonSurface) V(moonDistance) V(moonAzimuth) V(moonElevation) V(moonRotation) V(moonNormalStrength) V(moonMeshResolution) \
     V(altitudeUpdateThreshold) V(shadowCasterMargin) V(fogDensity) V(fogBaseHeight) \
     V(fogScaleHeight) V(fogAnisotropy) V(cloudCoverage) V(cloudDensity) \
     V(cloudBaseHeight) V(cloudThickness) V(cloudScale) V(cloudDetailScale) V(cloudSeed) \
@@ -83,6 +83,7 @@ bool Atmosphere::loadSettings(const std::string& text)
         s.moonElevation=std::clamp(s.moonElevation,-90.0f,90.0f);
         s.moonRotation=std::remainder(s.moonRotation,360.0f);
         s.moonNormalStrength=std::clamp(s.moonNormalStrength,0.0f,2.0f);
+        s.moonMeshResolution=std::clamp(s.moonMeshResolution,512,2048);
         s.cloudCoverage=std::clamp(s.cloudCoverage,0.0f,1.0f);
         s.cloudDensity=std::clamp(s.cloudDensity,0.0f,.1f);
         s.cloudWeatherScale=std::clamp(s.cloudWeatherScale,100.0f,10000000.0f);
@@ -152,7 +153,7 @@ void Atmosphere::onGUI()
         ImGui::ColorEdit3("Sun disk color",&s.sunDiskColor.x,ImGuiColorEditFlags_HDR|ImGuiColorEditFlags_Float);
         ImGui::DragFloat("Sun disk HDR intensity",&s.sunDiskIntensity,.1f,0,10000);
         ImGui::DragFloat("Sun illumination multiplier",&s.sunIlluminanceScale,.1f,0,1000);
-        ImGui::Checkbox("Textured lunar sphere",&s.moonSurface);
+        ImGui::Checkbox("Baked lunar body",&s.moonSurface);
         ImGui::DragFloat("Moon angular radius (degrees)",&s.moonAngularRadius,.01f,.001f,25);
         if(s.moonSurface)
         {
@@ -160,8 +161,12 @@ void Atmosphere::onGUI()
             ImGui::DragFloat("Moon fallback azimuth (degrees)",&s.moonAzimuth,.1f,-180,180);
             ImGui::DragFloat("Moon fallback elevation (degrees)",&s.moonElevation,.1f,-90,90);
             ImGui::DragFloat("Moon surface rotation (degrees)",&s.moonRotation,.1f,-180,180);
-            ImGui::SliderFloat("Moon relief strength",&s.moonNormalStrength,0,2);
-            ImGui::TextWrapped("Assigned moon light controls the orbit direction and shadows. Without one, the sphere still lights the atmosphere and IBL. Surface lighting and phase follow the sun.");
+            ImGui::SliderFloat("Legacy sphere relief strength",&s.moonNormalStrength,0,2);
+            ImGui::SliderInt("Moon cached image size",&s.moonMeshResolution,512,2048);
+            ImGui::Text("Moon cache: %llu images / %llu shadows, %.1f MiB",
+                static_cast<unsigned long long>(metrics.moonImageUpdates),
+                static_cast<unsigned long long>(metrics.moonShadowUpdates),metrics.moonMeshGpuBytes/1048576.0);
+            ImGui::TextWrapped("The baked mesh retains its cavities and fragments. Camera rotation and solar intensity reuse the cache. The assigned moon light keeps the existing night-only terrain lighting.");
         }
         ImGui::ColorEdit3("Moon disk color",&s.moonDiskColor.x,ImGuiColorEditFlags_HDR|ImGuiColorEditFlags_Float);
         ImGui::DragFloat("Moon disk HDR intensity",&s.moonDiskIntensity,.01f,0,1000);

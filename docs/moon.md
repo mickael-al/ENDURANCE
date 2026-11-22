@@ -6,7 +6,12 @@ de l'horizon à 25°. Sa position reste fixe dans le monde : les déplacements
 du joueur produisent une parallaxe. Le rayon angulaire et la distance sont des
 choix artistiques, pas les valeurs de la Lune terrestre.
 
-![Rendus des shaders : pleine lune, quartier, nouvelle lune, atmosphère et nuages](images/moon-validation.png)
+Le modèle exporté `ENDURANCE/Ressources/Model/Moon/Baked/moon.glb` est désormais
+utilisé en jeu : corps creusé, parois intérieures et fragments détachés.
+
+![Ancien atlas sphérique : phases et occultation atmosphérique](images/moon-validation.png)
+
+L’illustration ci-dessus documente l’ancien atlas de secours, pas le nouveau maillage.
 
 ## Réglages
 
@@ -14,11 +19,13 @@ Dans les paramètres de l'atmosphère :
 
 | Paramètre | Effet |
 | --- | --- |
-| `Textured lunar sphere` / `moonSurface` | Active la sphère texturée ; désactivé, conserve l'ancien disque des scènes existantes. |
+| `moonSurface` | Active le corps lunaire détaillé ; utilise le GLB lorsqu’il est chargé, sinon la sphère de secours. |
+| `moonModelFile` | Modèle GLB du jeu ; vide pour sélectionner explicitement l’ancien atlas. |
+| `moonMeshResolution` | Résolution du cache de géométrie, 1024 par défaut. |
 | `Moon angular radius (degrees)` | Rayon apparent à l'origine ; valeur de scène : 10°. |
 | `Moon centre distance (m)` | Distance depuis `(0, seaLevel, 0)` ; la taille physique est déduite du rayon angulaire. |
-| `Moon surface rotation (degrees)` | Tourne les taches et les cratères sur l'astre. |
-| `Moon relief strength` | Force des normales des cratères ; valeur de scène : 0.65. |
+| `Moon surface rotation (degrees)` | Tourne le modèle entier, fragments compris, autour de son axe Y. |
+| `Legacy sphere relief strength` | Contrôle de l’ancien atlas sphérique ; le GLB utilise ses propres normales. |
 | `Moon disk color` / `Moon disk HDR intensity` | Teinte et gain de la lumière réfléchie, également pris en compte pour l'éclairage. |
 | `Moon illumination multiplier` | Ajustement artistique de la lumière directe et de la diffusion atmosphérique ; 1 conserve la calibration de la sphère. |
 | `Optional moon light` | Source directionnelle associée ; la scène sélectionne `Moon`, index 1. |
@@ -39,67 +46,86 @@ existant, y compris son interaction avec les volumes atmosphériques. Sans ces
 ombres, cette lumière directe n'est pas occultée par les reliefs. Les nuages
 atténuent déjà sa lumière, indépendamment de cette case.
 
-## Rendu et séparation moteur / jeu
+## Rendu du modèle et caches
 
-- Le jeu charge `ENDURANCE/Ressources/Atmosphere/moon.surface` via
-  `EnduranceAtmosphereComponent::moonSurfaceFile`. Le moteur reçoit ses pixels
-  par `Atmosphere::setMoonSurface` et possède la copie GPU. Chargement à
-  l'activation et au changement de chemin ; aucune lecture du fichier par image.
-- `Asset/Shader/Atmosphere/moon_surface.glsl` intersecte analytiquement une
-  sphère, calcule ses UV et l'éclaire par le soleil. La surface n'utilise aucun
-  bruit procédural ni raymarch à l'exécution. Les normales donnent un relief
-  d'éclairage, sans modifier la silhouette ni projeter des ombres entre cratères.
-- La texture linéaire **RGBA8 2048 × 1024** contient les normales en RGB et
-  l'albédo en A. Les mipmaps filtrent les détails lointains. Elle occupe environ
-  **10,67 Mio** avec ses mipmaps.
-- Un UBO séparé de 32 octets contient le centre relatif à la caméra, le rayon et
-  les contrôles de surface. L'ABI du bloc atmosphère existant reste inchangée.
-- Le ciel visible applique la transmittance atmosphérique par direction et
-  réutilise l'alpha de la texture des nuages existante pour leur occultation.
-  Aucun nouveau raymarch des nuages par pixel lunaire à pleine résolution.
-- La capture de l'environnement utilise une entrée supplémentaire pour les
-  reflets GGX, contenant la lune mais pas le disque solaire. À 256² par face,
-  elle représente environ **4 Mio** avec ses mipmaps. Les captures et les fondus
-  restent répartis entre plusieurs images comme auparavant.
-- Avec une lumière lunaire associée, le disque est exclu de l'irradiance diffuse
-  de l'IBL, et le reflet ponctuel de cette lumière est supprimé lorsque l'IBL est
-  prêt. Cela évite de compter deux fois sa contribution. Sans lumière associée,
-  l'IBL inclut aussi le disque dans son intégration diffuse.
-- L'éclairage directionnel utilise une direction fixe dans le monde. C'est une
-  approximation pour les distances du terrain ; la sphère visible et les reflets
-  conservent leur parallaxe. Une translation XZ ne reconstruit pas les LUT
-  d'atmosphère claire, et l'IBL respecte le seuil de mouvement existant.
-- `GE_ATM_MOON_SURFACE` spécialise les programmes du ciel et de capture.
-  L'option désactivée ne conserve pas ce chemin de rendu dans ces shaders.
+Le jeu charge le GLB via `EnduranceMoon::loadMoonMesh` et transmet des données
+validées à `Atmosphere::setMoonMesh`. Le moteur possède les buffers et textures
+GPU ; il ne connaît ni le chemin de l’asset ni les recettes du laboratoire.
+Le modèle publié contient **49 412 sommets, 97 600 triangles et 47 parties**,
+avec un atlas sRGB de 2048 × 1024. Les indices des parties sont regroupés pour
+rendre l’ensemble en un appel par passe. Le rayon initial du corps reste 1 ;
+les fragments élargissent les bornes sans réduire la taille apparente de la lune.
 
-Une superposition avec le soleil masque son disque dans le ciel, mais le système
-ne simule pas encore l'ombre d'une éclipse sur le terrain. Aucun changement du
-bloom, de l'exposition ou de la géométrie du terrain n'est nécessaire.
+- Une vue perspective centrée sur l’astre rasterise réellement le maillage dans
+  une texture **RGBA16F**. RGB contient la réponse à un soleil d’intensité unitaire
+  et A la couverture géométrique. Les cavités, les espaces entre fragments et
+  les faces obscures viennent de la géométrie, sans intersection avec une sphère
+  de remplacement.
+- Le cache de vue ne dépend pas de la rotation de la caméra, de son champ de
+  vision ou du temps. Un déplacement suffisant de l’observateur, un changement
+  d’orientation du modèle ou de direction solaire déclenche un nouveau rendu.
+  Les petites translations s’accumulent par rapport à la dernière vue calculée.
+- Les ombres du relief lunaire utilisent une carte locale **D24 2048 × 2048**.
+  Elle dépend de la géométrie, de sa rotation et de la direction solaire :
+  déplacer seulement l’observateur ne la reconstruit pas.
+- La couleur et l’intensité solaires ainsi que la teinte lunaire sont appliquées
+  lors de la composition. Leur changement seul ne nécessite pas de redessiner
+  le modèle. La couverture reste opaque même sur une face sans lumière.
+- Le ciel lit le cache, puis applique les mêmes atténuations atmosphériques et
+  nuageuses qu’avant. Le passage des nuages ne redessine pas le maillage lunaire.
+- Chaque capture IBL fige l’image et sa projection, en réutilisant la copie tant
+  que le cache lunaire n’a pas changé. Ses faces restent cohérentes
+  si le soleil change pendant la génération répartie sur plusieurs images.
+  Les réflexions GGX contiennent la lune ; avec une lumière lunaire associée,
+  la contribution diffuse reste exclue de l’IBL pour éviter de la compter deux fois.
+- `GE_ATM_MOON_MESH` spécialise les shaders de ciel/capture. Les shaders de volume
+  et la sélection soleil le jour / lune la nuit ne prennent pas une seconde
+  passe d’éclairage.
 
-## Refaire la surface
+Le coût du maillage est donc ponctuel ; le coût permanent est l’échantillonnage
+du cache dans la région de l’astre. Ce système utilise de la mémoire GPU pour
+éviter de retraiter environ 98 000 triangles à chaque image. Il n’est pas gratuit :
+une animation continue de la direction solaire peut demander des rafraîchissements
+fréquents. Les compteurs `moonImageUpdates`, `moonShadowUpdates` et
+`moonMeshGpuBytes` permettent de contrôler le travail et la mémoire réellement
+alloués. Les mesures locales ne remplacent pas un profilage sur GTX 1660.
 
-Le laboratoire `ENDURANCE/Scene/MoonGeneratorLab.scene` sculpte désormais un
-vrai modèle 3D creusé et l'exporte en GLB. Cette sortie est distincte de l'atlas
-encore utilisé par le rendu décrit ici : voir [le laboratoire lunaire](moon-lab.md).
-Pour régénérer cet atlas, conserver l'outil natif `Tools/bake_moon.cpp`
-(`endurance_moon_bake`). L'ancien bake Python est remplacé.
+Le cache utilise 512, 1024 ou 2048 pixels de côté selon le réglage. Sa projection
+doit englober les fragments : l’observateur doit rester hors de leur sphère
+englobante. Les 10° de rayon actuels conviennent au modèle publié ; une taille
+exagérée peut rendre cette projection impossible, ce qui masque le corps et
+affiche une erreur plutôt que de conserver une image incorrecte.
 
-La génération conserve deux fBm simplex sphériques (grandes mers sombres et
-variations fines), les impacts et les éjecta. Les failles sinueuses et ramifiées
-sont ajoutées au relief avant le calcul des normales et à l'albédo des roches.
-Toutes ces opérations ont lieu au précalcul : le shader du jeu reste identique.
-La résolution par défaut reste 2048 × 1024 et l'albédo moyen proche de 0.2084.
+L’éclairage directionnel du terrain reste une approximation lambertienne à
+partir de l’albédo moyen et de la phase du corps. Les fragments et cavités sont
+rendus exactement dans la vue mise en cache, mais ne créent pas chacun une
+nouvelle lumière. Une superposition avec le soleil masque son disque ; l’ombre
+d’une éclipse sur le terrain n’est pas simulée.
 
-Les fractures ne changent pas la silhouette de la sphère et ne créent pas de
-trous traversants ou de morceaux détachés. Les effets de profondeur proviennent
-des normales et du matériau ; aucun éclairage solaire n'est précalculé.
-Redémarrer la scène Terrain après avoir remplacé le fichier au même emplacement.
+## Chargement et remplacement de l’asset
 
-Format : signature `EMOON001`, largeur et hauteur uint32 little-endian, albédo
-moyen float32 little-endian, puis RGBA8. Le chargeur vérifie dimensions, ratio,
-albédo et longueur exacte avant l'upload. Un remplacement invalide ne détruit pas
-la surface précédemment chargée. Un remplacement valide annule une capture en
-cours avant de remplacer son atlas, sans retirer l'environnement déjà publié.
+Le composant utilise `moonModelFile`, par défaut
+`../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb`. Le chargement se fait une
+fois à l’activation, au changement de chemin ou avec **Lunar model → Reload lunar
+asset**. Aucune lecture de fichier ni génération procédurale n’est effectuée par
+image. Le décodeur PNG du chargeur est privé : les réglages de retournement des
+textures du reste du moteur ne peuvent pas modifier cet atlas.
+
+Un remplacement invalide garde le dernier modèle valide et affiche son erreur.
+Si aucun modèle n’a pu être chargé, `moonSurfaceFile` fournit l’ancien atlas
+sphérique de secours. Un chemin de modèle vide sélectionne explicitement ce
+secours. L’atlas historique n’est pas conservé en VRAM lorsque le GLB est utilisé.
+La désactivation de la scène libère les deux ressources.
+
+Pour modifier le modèle, utiliser `ENDURANCE/Scene/MoonGeneratorLab.scene`,
+exporter le GLB, puis recharger l’asset : voir [le laboratoire lunaire](moon-lab.md).
+Les bruits, les cavités et la simplification du maillage restent précalculés
+hors jeu en C++. Aucun bruit 3D ni raymarch de géométrie n’est ajouté au rendu.
+
+L’ancien `Tools/bake_moon.cpp` reste disponible pour régénérer `moon.surface`.
+Son format `EMOON001` contient dimensions, albédo moyen et RGBA8
+(normale objet RGB, albédo A). Il ne modifie pas la silhouette sphérique :
+ce comportement ne concerne que le secours analytique.
 
 ## Validation
 
@@ -107,6 +133,7 @@ cours avant de remplacer son atlas, sans retirer l'environnement déjà publié.
 python Tests/Atmosphere/check_shaders.py
 python Tests/Atmosphere/check_runtime.py
 python Tests/Atmosphere/check_game_component.py
+python Tests/Atmosphere/check_moon_mesh_runtime.py
 python Tests/Atmosphere/check_moon.py --preview docs/images/moon-validation.png
 python Tests/Atmosphere/check_revision.py --group visible
 python Tests/Atmosphere/benchmark_moon_clouds.py
@@ -146,7 +173,7 @@ rays. Les matériaux différés, transparents et marins ignorent la source inact
 avant les calculs PBR et les lectures d'ombre. Les autres lumières de la scène
 restent indépendantes.
 
-La sphère lunaire visible et ses reflets restent présents de jour. Les données
+Le corps lunaire visible et ses reflets restent présents de jour. Les données
 solaires brutes sont conservées pour éclairer cette surface distante, même
 lorsque le soleil est sous notre horizon ; sa phase et ses taches restent donc
 correctes la nuit. Le gain d'éclairage lunaire n'ajoute plus de lumière directe

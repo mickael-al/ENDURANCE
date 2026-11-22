@@ -13,6 +13,7 @@ namespace Ge
 {
     class Camera;
     class Lights;
+    struct MoonMeshData;
 
     enum class AtmosphereQuality { Low=0, Medium=1, High=2, Ultra=3 };
 
@@ -61,6 +62,7 @@ namespace Ge
         float moonDistance=1000000.0f; // centre from world (0, seaLevel, 0), metres
         float moonAzimuth=140.0f, moonElevation=35.0f; // fallback without a moon light
         float moonRotation=0.0f, moonNormalStrength=0.65f;
+        int moonMeshResolution=1024; // cached geometry image, independent of screen/cubemap size
         float aerialDistance=32768.0f;
         float altitudeUpdateThreshold=1.0f;
         float shadowCasterMargin=4000.0f; // base; available caster bounds may extend each cascade
@@ -105,6 +107,7 @@ namespace Ge
         std::uint64_t dispatches=0, aerialDispatches=0, cloudVolumeDispatches=0;
         std::uint64_t cloudShadowDispatches=0, visibleCloudDispatches=0, fogDispatches=0;
         std::uint64_t programVariantBuilds=0, programVariantHits=0, lightingLocationQueries=0;
+        std::uint64_t moonImageUpdates=0, moonShadowUpdates=0, moonMeshGpuBytes=0;
         unsigned residentProgramVariants=0;
         // CPU accounting of owned texel storage; excludes driver allocation
         // overhead and includes retained published/capture resources.
@@ -144,6 +147,9 @@ namespace Ge
         // Copies a linear RGBA8 atlas: object-space normal RGB, albedo A.
         // nullptr releases it; the renderer owns its GPU copy. No frame readback.
         bool setMoonSurface(const std::uint8_t* rgba, unsigned width, unsigned height, float meanAlbedo);
+        // Render-thread upload of a baked body and its fragments. nullptr restores
+        // the legacy atlas; geometry is rasterized only when its cached view changes.
+        bool setMoonMesh(const MoonMeshData* mesh);
         // Optional caller-owned HDR source, excluding directional-source disks.
         // A revision change schedules a complete environment transaction.
         void setExternalEnvironment(unsigned int cubemap, std::uint64_t revision=0);

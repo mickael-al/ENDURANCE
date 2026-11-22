@@ -50,6 +50,8 @@ public:
     void load(std::string data) override;
 
     std::string paletteFile="../ENDURANCE/Ressources/Atmosphere/biome_palettes.json";
+    // The model is preferred; an empty path explicitly selects the legacy atlas.
+    std::string moonModelFile="../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb";
     std::string moonSurfaceFile="../ENDURANCE/Ressources/Atmosphere/moon.surface";
     std::vector<EnduranceSkyBiomeStyle> palettes;
     std::string engineSettings;

@@ -28,7 +28,9 @@ def main():
             command.extend(("-I",str(ROOT/path)))
         sources=("Tests/Atmosphere/check_game_component.cpp",
                  "ANTAGONIZ/Source/ProjectUser/EnduranceAtmosphere.cpp",
+                 "ANTAGONIZ/Source/ProjectUser/EnduranceMoonMesh.cpp",
                  "ANTAGONIZ/Source/Rendering/Shader/Atmosphere.cpp",
+                 "ANTAGONIZ/Source/Rendering/Shader/MoonMeshCache.cpp",
                  "ANTAGONIZ/Source/Rendering/Shader/AtmosphereSettings.cpp",
                  "ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp",
                  "ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp",

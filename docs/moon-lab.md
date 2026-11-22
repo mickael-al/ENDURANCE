@@ -96,10 +96,11 @@ est également accepté avec données et texture intégrées, mais le GLB évite
 surcoût du base64. L'écriture remplace un seul fichier complet ; un échec laisse
 l'ancien export intact.
 
-**Ce laboratoire ne remplace pas encore le rendu de la scène Terrain.** Le jeu
-continue à lire `moon.surface` et à afficher sa sphère analytique. Le modèle
-exporté prépare la prochaine intégration du maillage dans le ciel, les nuages,
-l'atmosphère et les reflets. Il ne faut pas remplacer `moon.surface` par un GLB.
+**La scène Terrain utilise désormais le modèle GLB exporté.** Le moteur rend
+sa géométrie dans un cache HDR mis à jour lorsque la vue de l'astre ou sa direction
+d'éclairage change, puis le compose avec le ciel, les nuages et les reflets.
+Voir [le rendu lunaire et ses caches](moon.md). `moon.surface` reste un secours
+sphérique distinct ; il ne faut pas remplacer ce fichier par un GLB.
 Les anciens chemins `.surface` des scènes de laboratoire sont migrés vers le
 nouveau chemin pour éviter cet écrasement.
 
@@ -112,7 +113,7 @@ cmake --build build/moon-bake --config Release
 
 `endurance_moon_model --output chemin/moon.glb` utilise le même générateur que
 la scène. `--help` liste les réglages. `endurance_moon_bake` reste disponible
-pour produire l'ancien atlas `moon.surface`, utilisé par le jeu actuel.
+pour produire l'ancien atlas `moon.surface`, utilisé uniquement en secours.
 
 ```sh
 Tests/Atmosphere/check_moon_geometry.sh

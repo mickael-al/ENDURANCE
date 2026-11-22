@@ -1,5 +1,6 @@
 #include "glcore.hpp"
 #include "EnduranceAtmosphere.hpp"
+#include "EnduranceMoonMesh.hpp"
 #define CLEAR_REGISTRY
 #include "Atmosphere.hpp"
 #include "Camera.hpp"
@@ -21,7 +22,7 @@
 #include <utility>
 
 REGISTER(Behaviour,EnduranceAtmosphereComponent,paletteFile,palettes,engineSettings,
-         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent,fogWind,moonSurfaceFile);
+         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent,fogWind,moonSurfaceFile,moonModelFile);
 
 namespace
 {
@@ -200,8 +201,8 @@ struct EnduranceAtmosphereComponent::Impl
     bool lightSelectionDirty=false;
     bool registered=false,stylesDirty=true,forceSample=true,reloadRequested=false;
     bool atlasValid=false,atlasDirty=true,hasPosition=false;
-    bool moonLoadAttempted=false;
-    std::string loadedMoonFile;
+    bool moonLoadAttempted=false,moonReloadRequested=false,moonMeshLoaded=false,moonAtlasLoaded=false;
+    std::string loadedMoonFile,loadedMoonModelFile,moonError;
     std::string error;
     GLuint paletteProgram=0,fogProgram=0,mapping=0,styleBuffer=0;
     GLuint fogMedium=0,fogShape=0;
@@ -225,6 +226,48 @@ struct EnduranceAtmosphereComponent::Impl
     std::array<Slot,3> slots;
     GLuint atlasQueries[2]{0,0};
     bool atlasTimingPending=false;
+
+    void loadMoonAssets(const std::string& modelPath,const std::string& surfacePath)
+    {
+        // Asset work is triggered by an explicit request/path change, never by
+        // the animation clock, camera movement or a failed previous attempt.
+        moonLoadAttempted=true; moonReloadRequested=false;
+        loadedMoonModelFile=modelPath; loadedMoonFile=surfacePath; moonError.clear();
+        if(!modelPath.empty())
+        {
+            Ge::MoonMeshData mesh;
+            if(EnduranceMoon::loadMoonMesh(modelPath,mesh,moonError))
+            {
+                if(atmosphere->setMoonMesh(&mesh))
+                {
+                    moonMeshLoaded=true; moonAtlasLoaded=false;
+                    // The GLB owns its albedo; avoid retaining the old 8 MiB atlas.
+                    atmosphere->setMoonSurface(nullptr,0,0,0);
+                    return;
+                }
+                moonError="Cannot upload lunar mesh: "+atmosphere->error();
+            }
+            // Failed hot reloads leave the complete previously loaded body.
+            if(moonMeshLoaded) return;
+        }
+        else
+        {
+            atmosphere->setMoonMesh(nullptr);
+            moonMeshLoaded=false;
+        }
+        std::string surfaceError;
+        if(!surfacePath.empty() && loadMoonSurface(*atmosphere,surfacePath,surfaceError))
+        { moonAtlasLoaded=true; return; }
+        if(!surfaceError.empty())
+            moonError+=(moonError.empty()?"":"\n")+surfaceError;
+        // Preserve a previously valid atlas on failure; an empty path is an
+        // explicit request for the renderer's analytic fallback.
+        if(surfacePath.empty())
+        {
+            atmosphere->setMoonSurface(nullptr,0,0,0);
+            moonAtlasLoaded=false;
+        }
+    }
 
     std::pair<Ge::Lights*,Ge::Lights*> resolveLights(int& sunIndex,int& moonIndex)
     {
@@ -385,11 +428,8 @@ void EnduranceAtmosphereComponent::start()
             m->error="Invalid saved atmosphere settings; keeping the engine defaults.";
     }
     else m->atmosphere->settings().enabled=true;
-    if(m->atmosphere->settings().moonSurface && !moonSurfaceFile.empty())
-    {
-        m->moonLoadAttempted=true; m->loadedMoonFile=moonSurfaceFile;
-        loadMoonSurface(*m->atmosphere,moonSurfaceFile,m->error);
-    }
+    if(m->atmosphere->settings().moonSurface)
+        m->loadMoonAssets(moonModelFile,moonSurfaceFile);
     m->atmosphere->setPaletteTarget(enginePalette(palettes[12]),true);
     const auto mapping=ProceduralTerrain::makeBiomeCellTable();
     glCreateBuffers(1,&m->mapping);
@@ -423,6 +463,7 @@ void EnduranceAtmosphereComponent::stop()
             m->atmosphere->setGameFogBinding({});
             m->atmosphere->setGameFogShader({});
             m->atmosphere->setSun(nullptr); m->atmosphere->setMoon(nullptr);
+            m->atmosphere->setMoonMesh(nullptr);
             m->atmosphere->setMoonSurface(nullptr,0,0,0);
         }
         activeComponent=nullptr;
@@ -473,12 +514,9 @@ void EnduranceAtmosphereComponent::prepareRenderer()
         m->collect();
         return;
     }
-    if(m->atmosphere->settings().moonSurface && (!m->moonLoadAttempted || m->loadedMoonFile!=moonSurfaceFile))
-    {
-        m->moonLoadAttempted=true; m->loadedMoonFile=moonSurfaceFile;
-        if(!moonSurfaceFile.empty()) loadMoonSurface(*m->atmosphere,moonSurfaceFile,m->error);
-        else m->atmosphere->setMoonSurface(nullptr,0,0,0);
-    }
+    if(m->atmosphere->settings().moonSurface && (!m->moonLoadAttempted || m->moonReloadRequested ||
+        m->loadedMoonModelFile!=moonModelFile || m->loadedMoonFile!=moonSurfaceFile))
+        m->loadMoonAssets(moonModelFile,moonSurfaceFile);
 
     ProceduralGeneration* terrain=nullptr;
     for(auto* renderer:m->pc->graphiquePipelineManager->getCustomRenderer())
@@ -637,6 +675,22 @@ void EnduranceAtmosphereComponent::onGUI()
     };
     lightSelector("Atmospheric sun",sunLightIndex,true);
     lightSelector("Optional moon light",moonLightIndex,false);
+    if(ImGui::TreeNode("Lunar model"))
+    {
+        ImGui::TextWrapped("Model: %s",moonModelFile.empty()?"(legacy surface)":moonModelFile.c_str());
+        if(m->registered && ImGui::Button("Reload lunar asset")) m->moonReloadRequested=true;
+        if(m->registered)
+        {
+            ImGui::TextUnformatted(m->moonMeshLoaded?"Cached excavated mesh":
+                (m->moonAtlasLoaded?"Legacy surface atlas":"Analytic fallback"));
+            const auto& stats=m->atmosphere->stats();
+            ImGui::Text("Mesh image / shadow updates: %llu / %llu",
+                static_cast<unsigned long long>(stats.moonImageUpdates),
+                static_cast<unsigned long long>(stats.moonShadowUpdates));
+        }
+        if(!m->moonError.empty()) ImGui::TextWrapped("%s",m->moonError.c_str());
+        ImGui::TreePop();
+    }
     bool atlasChanged=ImGui::SliderInt("Fog atlas resolution (0 = quality)",&fogAtlasResolution,0,512);
     atlasChanged|=ImGui::DragFloat("Fog atlas extent (m)",&fogAtlasExtent,256.0f,1024.0f,262144.0f,"%.0f");
     if(atlasChanged) m->atlasDirty=true;

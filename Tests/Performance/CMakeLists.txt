@@ -22,6 +22,9 @@ add_executable(endurance_performance benchmark.cpp
     "${_shader}/ShaderProgramBatch.cpp" "${_shader}/ParallelShaderCompiler.cpp" "${_shader}/ComputeShader.cpp"
     "${_shader}/Atmosphere.cpp"
     "${ENDURANCE_SOURCE_ROOT}/ThirdParty/stb-cmake/stb_shared.c")
+if(EXISTS "${_shader}/MoonMeshCache.cpp")
+    target_sources(endurance_performance PRIVATE "${_shader}/MoonMeshCache.cpp")
+endif()
 target_compile_features(endurance_performance PRIVATE cxx_std_17)
 target_include_directories(endurance_performance PRIVATE
     "${CMAKE_CURRENT_LIST_DIR}/runtime_fixture"

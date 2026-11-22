@@ -139,6 +139,8 @@ namespace
         require(json.contains("fogWind"),"Component REGISTER omitted fogWind");
         require(json.contains("moonSurfaceFile") && json["moonSurfaceFile"]==component.moonSurfaceFile,
                 "Component REGISTER omitted the baked lunar surface path");
+        require(json.contains("moonModelFile") && json["moonModelFile"]==component.moonModelFile,
+                "Component REGISTER omitted the baked lunar model path");
         require(json["fogWind"]==nlohmann::json({20.0f,1.5f,-7.5f}),"Component serializer lost fog wind axes");
         {
             EnduranceAtmosphereComponent restored;
@@ -148,6 +150,7 @@ namespace
                     "New atmosphere component reused another instance's shadow identity");
             require(restored.fogWind==component.fogWind,"Component wind JSON round trip failed");
             require(restored.moonSurfaceFile==component.moonSurfaceFile,"Lunar surface path failed JSON round trip");
+            require(restored.moonModelFile==component.moonModelFile,"Lunar model path failed JSON round trip");
             require(restored.palettes.size()==26 && restored.palettes[14].fogDensity==.001f,
                     "Component JSON round trip lost the actual fog profile");
             EnduranceAtmosphereComponent legacy;
@@ -156,6 +159,8 @@ namespace
                     legacy.shadowContentRevision()!=restored.shadowContentRevision(),
                     "Legacy/new component shadow identities collided");
             require(legacy.fogWind==std::array<float,3>{{4,0,1}},"Older scenes lost default game fog wind");
+            require(legacy.moonModelFile=="../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb",
+                    "Older scenes lost the default baked lunar model path");
         }
         std::cout<<"PASS game component JSON: real registration/serialize/load, wind XYZ and legacy defaults\n"<<std::flush;
 
@@ -277,10 +282,30 @@ namespace
         std::cout<<"PASS game fog cache contract: animated caller medium reintegrates with unchanged engine parameters\n"<<std::flush;
 
         const auto bytesBeforeMoon=atmosphere.stats().gpuTextureBytes;
+        const auto modelPath=component.moonModelFile;
+        component.moonModelFile.clear(); // Explicitly retain and verify the legacy fallback.
         config.moonSurface=true; clock.delta=0; component.prepareRenderer();
         require(atmosphere.stats().gpuTextureBytes>=bytesBeforeMoon+2048u*1024u*4u,
                 "Game component did not lazily load the production lunar surface");
-        std::cout<<"PASS game lunar asset: serialized path and real bounded loader/upload after runtime enable\n"<<std::flush;
+        component.moonModelFile=modelPath; prepare(0);
+        require(atmosphere.stats().moonMeshGpuBytes>0 && atmosphere.stats().moonImageUpdates>0,
+                "Game component did not load/render the pushed lunar GLB");
+        const auto meshBytes=atmosphere.stats().moonMeshGpuBytes;
+        const auto imageUpdates=atmosphere.stats().moonImageUpdates;
+        const auto shadowUpdates=atmosphere.stats().moonShadowUpdates;
+        prepare(0);
+        require(atmosphere.stats().moonImageUpdates==imageUpdates &&
+                atmosphere.stats().moonShadowUpdates==shadowUpdates,
+                "Game component reuploaded an unchanged lunar asset");
+        component.moonModelFile="missing-lunar-model-for-regression.glb"; prepare(0);
+        require(atmosphere.stats().moonMeshGpuBytes==meshBytes &&
+                atmosphere.stats().moonImageUpdates==imageUpdates,
+                "Failed lunar replacement discarded/rebuilt the last good mesh");
+        component.moonModelFile.clear(); prepare(0);
+        require(atmosphere.stats().moonMeshGpuBytes==0 &&
+                atmosphere.stats().gpuTextureBytes>=bytesBeforeMoon+2048u*1024u*4u,
+                "Explicit legacy fallback did not release the mesh and restore its atlas");
+        std::cout<<"PASS game lunar assets: model/legacy serialization, lazy GLB load, cache reuse, failed replacement and fallback\n"<<std::flush;
         component.stop(); component.stop();
         require(pipeline.getCustomRenderer().size()==1,"Game component stop leaked its renderer callback");
         atmosphere.release();

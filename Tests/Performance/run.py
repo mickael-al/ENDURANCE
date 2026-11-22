@@ -50,6 +50,9 @@ def scene(path):
     return settings,[camera[key] for key in ("x","y","z")]
 
 def build(root,library):
+    # Older comparison checkouts predate the optional cached lunar mesh.
+    moon_cache="ANTAGONIZ/Source/Rendering/Shader/MoonMeshCache.cpp"
+    sources=SOURCES+((moon_cache,) if (root/moon_cache).is_file() else ())
     library.parent.mkdir(parents=True,exist_ok=True)
     def inputs():
         support=sorted({path for base in (root/"ANTAGONIZ/Header",root/"ANTAGONIZ/Source",root/"Tests/Atmosphere/runtime_fixture")
@@ -57,7 +60,7 @@ def build(root,library):
         return {"engine_root":str(root),"harness_sha256":hashlib.sha256((HERE/"benchmark.cpp").read_bytes()).hexdigest(),
             "instrumentation_sha256":hashlib.sha256((HERE/"gl_call_probe.hpp").read_bytes()).hexdigest(),
             "camera_fixture_sha256":hashlib.sha256((HERE/"runtime_fixture/Camera.hpp").read_bytes()).hexdigest(),
-            "source_sha256":{path:hashlib.sha256((root/path).read_bytes()).hexdigest() for path in SOURCES},
+            "source_sha256":{path:hashlib.sha256((root/path).read_bytes()).hexdigest() for path in sources},
             "support_sha256":{str(path.relative_to(root)):hashlib.sha256(path.read_bytes()).hexdigest() for path in support}}
     provenance=inputs()
     with tempfile.TemporaryDirectory(prefix="endurance-perf-build-") as temporary:
@@ -77,7 +80,7 @@ def build(root,library):
         for path in ("ThirdParty","ThirdParty/glm","ANTAGONIZ/Header/Struct","ANTAGONIZ/Header/Miscellaneous",
                      "ANTAGONIZ/Header/Interface","ANTAGONIZ/Header/ProjectUser","ANTAGONIZ/Header/Rendering/Shader"):
             command.extend(["-I",str(root/path)])
-        command.append(str(HERE/"benchmark.cpp")); command.extend(str(root/path) for path in SOURCES)
+        command.append(str(HERE/"benchmark.cpp")); command.extend(str(root/path) for path in sources)
         glew=ctypes.util.find_library("GLEW")
         if not glew: raise RuntimeError("Install GLEW for the Linux runner or use the standalone CMake target")
         command.extend([str(stb),"-l:"+glew,"-l:libGL.so.1","-l:libEGL.so.1","-o",str(pending)])
