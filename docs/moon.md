@@ -78,38 +78,21 @@ bloom, de l'exposition ou de la géométrie du terrain n'est nécessaire.
 
 ## Refaire la surface
 
-```sh
-python Tools/bake_moon.py
-```
+Ouvrir `ENDURANCE/Scene/MoonGeneratorLab.scene` et lancer Play pour générer,
+prévisualiser et exporter une lune fissurée. Le générateur est désormais natif
+C++ et partagé avec `Tools/bake_moon.cpp` ; l'ancien bake Python est remplacé.
+Voir [le laboratoire lunaire](moon-lab.md) pour les réglages et l'outil autonome.
 
-Outil développeur nécessitant NumPy et Pillow, absent du chemin de rendu.
-`--seed`, `--width` et `--output` permettent de fabriquer une autre surface.
-La surface combine **deux fBm simplex 3D**, avec une lacunarité de 2.03 et
-jusqu'à huit octaves. Les octaves trop fines pour les texels sont progressivement
-retirées au bake pour éviter du bruit sous-pixel ; augmenter leur nombre seul
-ne force donc pas des détails que la texture ne peut pas représenter.
+La génération conserve deux fBm simplex sphériques (grandes mers sombres et
+variations fines), les impacts et les éjecta. Les failles sinueuses et ramifiées
+sont ajoutées au relief avant le calcul des normales et à l'albédo des roches.
+Toutes ces opérations ont lieu au précalcul : le shader du jeu reste identique.
+La résolution par défaut reste 2048 × 1024 et l'albédo moyen proche de 0.2084.
 
-| Réglage dans `Tools/bake_moon.py` | Valeur | Effet |
-| --- | --- | --- |
-| `macro_scale`, fonction `lunar_fields` | 2.4 | Échelle conservée des grandes mers sombres, avec déformation du domaine. |
-| `detail_scale`, même fonction | 18.0 | Motifs 7,5 fois plus fins, avec un décalage indépendant. |
-| Gain du fBm large / fin | 0.52 / 0.60 | Poids des octaves de détail. |
-| `highland` / `basalt`, fonction `bake` | Palettes d'albédo en gris linéaire | Reliefs clairs plus texturés et plaines sombres plus homogènes. |
-| Boucle `impact` / seuil `young` | 1 800 / 24 | Impacts de tailles variées ; quelques cratères jeunes possèdent des traînées d'éjecta clairs. |
-
-Les deux bruits sont évalués sur les coordonnées cartésiennes de la sphère,
-sans couture d'UV. Les petites variations restent présentes à l'intérieur des
-grandes taches, sans transformer toute la surface en un bruit uniforme. Les
-cratères fournissent aussi des normales ; leurs traces claires sont une variation
-de matériau, pas un éclairage précalculé. Aucun soleil ni ombre n'est baked.
-
-L'albédo moyen reste proche de **0.2084**, celui de l'asset précédent : le contraste
-local augmente sans modifier sensiblement la puissance globale de la lumière
-lunaire. Le format, la résolution, les mipmaps et les shaders de rendu restent
-identiques : aucun échantillon, canal ni mémoire GPU supplémentaire.
-Redémarrer la scène après avoir remplacé le fichier au même emplacement.
-
-![Avant / après, mêmes shaders et exposition](images/moon-surface-comparison.png)
+Les fractures ne changent pas la silhouette de la sphère et ne créent pas de
+trous traversants ou de morceaux détachés. Les effets de profondeur proviennent
+des normales et du matériau ; aucun éclairage solaire n'est précalculé.
+Redémarrer la scène Terrain après avoir remplacé le fichier au même emplacement.
 
 Format : signature `EMOON001`, largeur et hauteur uint32 little-endian, albédo
 moyen float32 little-endian, puis RGBA8. Le chargeur vérifie dimensions, ratio,
