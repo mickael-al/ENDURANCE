@@ -25,11 +25,18 @@ namespace Ge
 			m_gdm->str_default_pipeline_forward_transparency = createPipeline("../Asset/Shader/forward_transparency.fs.glsl", "../Asset/Shader/forward_transparency.vs.glsl", false, true, true, 1);
 			m_gdm->str_skinned_pipeline_transparency = createPipeline("../Asset/Shader/forward_transparency.fs.glsl", "../Asset/Shader/forward_transparency_skinned.vs.glsl", false, true, true, 1);
 		}
-		return true;
+		// Keep the SSAO-free program ready even when the engine starts with SSAO
+		// enabled. Switching settings only selects a program, without compilation.
+		delete m_deferredWithoutSsao;
+		m_deferredWithoutSsao = new GraphiquePipeline(m_gdm,
+			m_gdm->str_default_pipeline_forward->getShaderPair(), "#define SSAO_ACTIVE 0\n");
+		return m_gdm->str_default_pipeline_forward->isValid() && m_deferredWithoutSsao->isValid();
 	}
 
 	void GraphiquePipelineManager::release()
 	{
+		delete m_deferredWithoutSsao;
+		m_deferredWithoutSsao = nullptr;
 		m_fileNameShaders.clear();
 		for (int i = 0; i < m_graphiquePipeline.size(); i++)
 		{
@@ -37,6 +44,11 @@ namespace Ge
 			delete (m_graphiquePipeline[i]);
 		}
 		m_graphiquePipeline.clear();
+	}
+
+	GraphiquePipeline* GraphiquePipelineManager::getDeferredLightingPipeline(bool ssaoEnabled) const
+	{
+		return ssaoEnabled ? m_gdm->str_default_pipeline_forward : m_deferredWithoutSsao;
 	}
 
 	void GraphiquePipelineManager::addCustomRenderer(CustomRenderer * c)

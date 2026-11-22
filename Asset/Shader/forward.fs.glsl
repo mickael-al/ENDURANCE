@@ -1,4 +1,9 @@
 #version 450
+
+// Engine default. ENDURANCE selects the precompiled SSAO_ACTIVE=0 variant.
+#ifndef SSAO_ACTIVE
+#define SSAO_ACTIVE 1
+#endif
 #include "Geometry/gbuffer_position.glsl"
 #include "Atmosphere/lighting.glsl"
 #include "Shadow/spot_surface.glsl"
@@ -60,10 +65,12 @@ layout(std430, binding = 3) buffer UniformBufferShadow
 	StructShadow s[];
 } ubs;
 
+#if SSAO_ACTIVE
 layout(std430, binding = 4) buffer UniformBufferSSAO
 {
 	vec4 samples[];
 } ubssao;
+#endif
 
 struct PlaneLightHidden
 {
@@ -174,7 +181,9 @@ layout(binding = 1) uniform sampler2D gNormal;
 layout(binding = 2) uniform sampler2D gColor;
 layout(binding = 3) uniform sampler2D gOther;
 layout(binding = 4) uniform sampler2DArray shadowDepth;
+#if SSAO_ACTIVE
 layout(binding = 5) uniform sampler2D texNoise;
+#endif
 layout(binding = 6) uniform samplerCube irradianceMap;
 layout(binding = 7) uniform samplerCube prefilterMap;
 layout(binding = 8) uniform sampler2D brdfLUT;
@@ -217,7 +226,9 @@ float filterPCF(vec4 sc, uint cascadeIndex, float bias)
 
 in vec2 v_UV;
 
+#if SSAO_ACTIVE
 #include "SSAO/evaluate.glsl"
+#endif
 
 out vec3 o_FragColor;
 
@@ -417,12 +428,16 @@ void main()
 
 		vec3 ambient = (kD * diffuse + specular) * other.z;
 		Lo = max(vec3(0), Lo);
+#if SSAO_ACTIVE
 		// AO attenuates indirect light; direct light already uses shadow maps.
 		// Preserve the material normal (including smoothing/normal maps), in
 		// the VIEW space used by the sample hemisphere. Primitive normals
 		// remain reserved for shadow bias, to avoid faceting the SSAO.
 		vec3 aoNormal = mat3(ubc.view) * normal;
 		color = ambient * geSsaoEvaluate(viewPos.xyz, aoNormal, ivec2(gl_FragCoord.xy)) + Lo;
+#else
+		color = ambient + Lo;
+#endif
 	}
 	else
 	{

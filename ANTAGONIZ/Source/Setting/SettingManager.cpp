@@ -93,6 +93,16 @@ namespace Ge
         return m_settingInfo.m_ambient;
     }
 
+    void SettingManager::setSsaoEnabled(bool enabled)
+    {
+        m_settingInfo.m_ssaoEnabled = enabled;
+    }
+
+    bool SettingManager::getSsaoEnabled() const
+    {
+        return m_settingInfo.m_ssaoEnabled;
+    }
+
     void SettingManager::setEditor(bool state)
     {
         m_settingInfo.m_editor = state;

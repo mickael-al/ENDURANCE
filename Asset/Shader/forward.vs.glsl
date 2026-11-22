@@ -38,11 +38,12 @@ layout(std430, binding = 2) buffer UniformBufferDivers
 	bool ortho;
 } ubd;
 
-in vec3 a_Position;
+// Shared fullscreen VAO: identical layout across lighting variants and post passes.
+layout(location = 0) in vec3 a_Position;
 in vec3 a_Normal;
 in vec3 a_Tangents;
 in vec3 a_Color;
-in vec2 a_TexCoords;
+layout(location = 1) in vec2 a_TexCoords;
 
 out vec2 v_UV;
 

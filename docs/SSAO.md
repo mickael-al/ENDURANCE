@@ -5,6 +5,44 @@ Le moteur conserve le SSAO à hémisphère orienté issu de LearnOpenGL :
 Le calcul utilise la profondeur linéaire RG32F du G-buffer ; aucune réduction
 de sa précision ni résolution intermédiaire à demi-taille n'est introduite.
 
+## Activer ou désactiver le SSAO
+
+Le moteur active le SSAO par défaut (`SettingInfo::m_ssaoEnabled = true`).
+ENDURANCE le désactive dans `ANTAGONIZ/Source/Main.cpp`, avant l'initialisation :
+
+```cpp
+e.settingManager->setSsaoEnabled(false);
+```
+
+Le même setter peut être appelé pendant le jeu, depuis le thread du moteur.
+Passer `true` réactive l'effet à la prochaine image ; `getSsaoEnabled()` permet
+de consulter le choix. L'entrée dans une grotte n'est pas détectée automatiquement :
+le jeu pourra appeler ce setter à partir de ses propres zones ou réglages.
+
+Le gestionnaire prépare deux programmes d'éclairage au chargement. Dans
+`Asset/Shader/forward.fs.glsl`, `SSAO_ACTIVE` vaut `1` par défaut et la variante
+désactivée reçoit `#define SSAO_ACTIVE 0`. Les gardes `#if SSAO_ACTIVE` retirent
+la fonction et sa boucle de 64 échantillons, la transformation de normale pour
+l'AO, le SSBO du kernel et le sampler du bruit. Il n'y a aucun branchement
+d'activation par fragment, ni compilation au moment de changer le réglage.
+Le rendu ignore également les bindings SSAO quand il est désactivé. Le même
+triangle plein écran sert aux deux variantes ; ses attributs ont des emplacements
+explicites, partagés avec les passes de post-traitement.
+
+Les minuscules ressources statiques restent préparées pour éviter une allocation
+à la réactivation : 1 024 octets de kernel et 128 octets de texels de bruit,
+hors surcoût des objets du pilote. Aucune texture AO plein écran n'est allouée.
+La variante désactivée conserve l'occlusion des matériaux (`other.z`), les ombres,
+l'éclairage direct, l'IBL et la composition atmosphérique.
+
+`Tests/SSAO/check_gpu.py` compile les vrais gestionnaires C++ et les programmes
+GLSL, vérifie l'absence des interfaces SSAO dans le programme désactivé et alterne
+les deux programmes avec le même VAO. Il compare le résultat à une référence
+d'éclairage où l'AO écran vaut exactement 1, avec et sans atmosphère, puis vérifie
+que le contact entre surfaces revient à la réactivation. Le gain de temps de
+frame dépend de la vue : les raccourcis sur le ciel et les surfaces lointaines
+étaient déjà actifs dans la version avec SSAO.
+
 ## Défauts de l'ancienne version
 
 L'upload de `64 * sizeof(glm::vec3)` ne correspondait pas au pas de 16 octets

@@ -28,6 +28,10 @@ namespace Ge
         float getGamma() const;
         void setAmbient(float ambiant);
         float getAmbient() const;
+        // Render-thread setting: selects a precompiled deferred-lighting variant.
+        // Effective on the next frame; does not modify material AO or shadows.
+        void setSsaoEnabled(bool enabled);
+        bool getSsaoEnabled() const;
         void setEditor(bool state);
         bool getEditor() const;
         void setEditorPath(const char * path);

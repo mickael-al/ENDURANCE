@@ -306,6 +306,8 @@ namespace Ge
 			Debug::INITFAILED("LightManager");
 			return false;
 		}
+		// Prewarm the tiny static resources (1024-byte kernel + 4x4 RG32F noise)
+		// so enabling SSAO later requires neither allocation nor upload.
 		if (!m_ssaoBuffer->initialize(m_graphicsDataMisc))
 		{
 			Debug::INITFAILED("SSAOManager");
@@ -683,12 +685,15 @@ namespace Ge
 		m_atmosphere->computeVolumes(m_cameraManager->getCurrentCamera());
         m_gpuFrameProfiler.mark(FrameGpuProfiler::Stage::Atmosphere);
 
+		const bool ssaoEnabled = m_ptrClass->settingManager->getSsaoEnabled();
+		GraphiquePipeline* lightingPipeline = m_graphiquePipelineManager->getDeferredLightingPipeline(ssaoEnabled);
 		glBindFramebuffer(GL_FRAMEBUFFER, m_frameBuffer->getFowardFrameBuffer());		
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_cameraManager->getSSBO());
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 1, m_lightManager->getSSBO());
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 2, m_shaderDataMisc->getSSBO());
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 3, m_lightManager->getSsboShadow());
-		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_ssaoBuffer->getSSBO());
+		if (ssaoEnabled)
+			glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 4, m_ssaoBuffer->getSSBO());
 		glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 5, m_lightManager->getSsboPlaneHidden());
 		glActiveTexture(GL_TEXTURE0);
 		glBindTexture(GL_TEXTURE_2D, m_frameBuffer->getPosition());
@@ -700,17 +705,20 @@ namespace Ge
 		glBindTexture(GL_TEXTURE_2D, m_frameBuffer->getOther());
 		glActiveTexture(GL_TEXTURE4);
 		glBindTexture(GL_TEXTURE_2D_ARRAY, m_lightManager->getTextureShadowArray());
-		glActiveTexture(GL_TEXTURE5);
-		glBindTexture(GL_TEXTURE_2D, m_ssaoBuffer->getNoiseTexture());
+		if (ssaoEnabled)
+		{
+			glActiveTexture(GL_TEXTURE5);
+			glBindTexture(GL_TEXTURE_2D, m_ssaoBuffer->getNoiseTexture());
+		}
 		glActiveTexture(GL_TEXTURE6);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, m_skybox->getIrradianceMap());
 		glActiveTexture(GL_TEXTURE7);
 		glBindTexture(GL_TEXTURE_CUBE_MAP, m_skybox->getPrefilterMap());
 		glActiveTexture(GL_TEXTURE8);
 		glBindTexture(GL_TEXTURE_2D, m_skybox->getBrdfLUTTexture());
-		m_atmosphere->bindLighting(m_graphicsDataMisc->str_default_pipeline_forward->getProgram(), false,
-            m_graphicsDataMisc->str_default_pipeline_forward->shadowContentRevision());
-		glUseProgram(m_graphicsDataMisc->str_default_pipeline_forward->getProgram());
+		m_atmosphere->bindLighting(lightingPipeline->getProgram(), false,
+            lightingPipeline->shadowContentRevision());
+		glUseProgram(lightingPipeline->getProgram());
 		glViewport(0, 0, m_graphicsDataMisc->str_width, m_graphicsDataMisc->str_height);
 
 		ShapeBuffer* sb = m_modelManager->getFullScreenTriangle();

@@ -27,6 +27,7 @@ def main():
                "Rendering/Shader/PostProcess.cpp", "Rendering/Shader/OilPainting.cpp",
                "Rendering/Shader/Bloom.cpp", "Rendering/Shader/DepthOfField.cpp", "Rendering/Shader/ColorTint.cpp",
                "Rendering/Shader/ShaderDataMisc.cpp", "Rendering/Shader/GraphiquePipeline.cpp",
+               "Rendering/Shader/GraphiquePipelineManager.cpp", "Setting/SettingManager.cpp", "Main.cpp",
                "Rendering/Light/Lights.cpp",
                "Rendering/Light/LightManager.cpp", "Rendering/Light/SpotLight.cpp",
                "Rendering/Shader/Atmosphere.cpp", "Rendering/Shader/MoonMeshCache.cpp", "Rendering/Window/FrameBuffer.cpp", "Rendering/Window/SSAOBuffer.cpp",

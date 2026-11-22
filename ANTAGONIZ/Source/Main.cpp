@@ -29,6 +29,9 @@ int main(int argc, char *argv[])
 	vers.patch = 0;
 	e.settingManager->setVersion(vers);
 	e.settingManager->setFps(120.0f);
+	// The engine defaults to SSAO on; ENDURANCE opts out for outdoor rendering.
+	// Can be enabled again at runtime without compiling a shader during gameplay.
+	e.settingManager->setSsaoEnabled(false);
 
 	if (!engine.initialize())
 	{

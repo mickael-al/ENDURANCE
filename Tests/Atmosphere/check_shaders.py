@@ -46,6 +46,11 @@ def compile_shaders(gl):
         programs[name]=gl.compile([(0x8B31,shader_source(shaders/f"{vertex}.vs.glsl")),
                                    (0x8B30,shader_source(shaders/f"{fragment}.fs.glsl"))],name)
         print(f"PASS link engine material {name}",flush=True)
+    programs['forward.ssao-off']=gl.compile([
+        (0x8B31,shader_source(ROOT/'Asset/Shader/forward.vs.glsl')),
+        (0x8B30,shader_source(ROOT/'Asset/Shader/forward.fs.glsl','#define SSAO_ACTIVE 0'))],
+        'deferred lighting without SSAO')
+    print('PASS link deferred lighting without SSAO',flush=True)
     gl.check("all atmosphere shader compilation")
     return programs
 
