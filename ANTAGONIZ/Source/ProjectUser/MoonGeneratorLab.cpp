@@ -9,13 +9,23 @@
 #include "Hud.hpp"
 #include "Debug.hpp"
 #include <algorithm>
+#include <filesystem>
 
 JS_OBJ_EXT(EnduranceMoon::Params,seed,width,macroScale,detailScale,octaves,
     fractureCount,fractureWidth,fractureDepth,fractureStrength);
-REGISTER(Behaviour,MoonGeneratorLabComponent,parameters,exportPath,previewWidth,
-    autoGenerate,showWindow);
+JS_OBJ_EXT(EnduranceMoon::GeometryParams,seed,resolution,excavationStrength,
+    cavityCount,cavitySize,cavityDepth,excavationYaw,excavationPitch,
+    erosionStrength,erosionScale,erosionOctaves,debrisCount,debrisSpread,debrisSize);
+REGISTER(Behaviour,MoonGeneratorLabComponent,parameters,geometry,exportPath,
+    previewWidth,previewResolution,autoGenerate,showWindow);
 
-MoonGeneratorLabComponent::MoonGeneratorLabComponent()=default;
+MoonGeneratorLabComponent::MoonGeneratorLabComponent()
+{
+    // True fractures come from the volume. The old atlas remains useful for
+    // craters and lunar deposits, without engraving unrelated surface faults.
+    parameters.fractureCount=0;
+    parameters.fractureStrength=0;
+}
 MoonGeneratorLabComponent::~MoonGeneratorLabComponent() { stop(); }
 
 void MoonGeneratorLabComponent::start()
@@ -35,24 +45,27 @@ void MoonGeneratorLabComponent::start()
 void MoonGeneratorLabComponent::stop()
 {
     if(m_panel && m_pc && m_pc->hud) m_pc->hud->removeImgui(m_panel.get());
-    m_panel.reset(); // Cancel and join the CPU job before deleting preview textures.
+    m_panel.reset(); // Cancel/join before releasing the owning GL context.
     m_pc=nullptr;
 }
 
 void MoonGeneratorLabComponent::onGUI()
 {
-    ImGui::TextUnformatted("Moon Generator Lab - creation hors jeu");
+    ImGui::TextUnformatted("Moon Generator Lab - sculpture 3D hors jeu");
     ImGui::Checkbox("Afficher le laboratoire",&showWindow);
-    ImGui::TextWrapped("Ouvrez MoonGeneratorLab.scene puis lancez Play. Les reglages et l'apercu restent dans la fenetre principale. Seul le bouton d'export ecrit le fichier lunaire.");
+    ImGui::TextWrapped("Ouvrez MoonGeneratorLab.scene puis lancez Play. Le laboratoire sculpte un vrai maillage, ses cavites et ses fragments. L'export GLB contient la geometrie et la texture.");
     if(!m_error.empty()) ImGui::TextWrapped("%s",m_error.c_str());
 }
 
 std::string MoonGeneratorLabComponent::serialize()
 {
+    geometry=EnduranceMoon::sanitizeGeometry(geometry);
+    parameters.seed=geometry.seed;
     parameters=EnduranceMoon::sanitize(parameters);
     auto preview=parameters;
     preview.width=(std::max)(128,(std::min)(previewWidth,1024));
     previewWidth=EnduranceMoon::sanitize(preview).width;
+    previewResolution=std::clamp(previewResolution,32,128);
     return JS::serializeStruct(*this);
 }
 
@@ -61,8 +74,15 @@ void MoonGeneratorLabComponent::load(std::string data)
     JS::ParseContext context(data);
     if(context.parseTo(*this)!=JS::Error::NoError)
         Ge::Debug::Warn("Invalid MoonGeneratorLabComponent scene settings.");
+    geometry=EnduranceMoon::sanitizeGeometry(geometry);
+    parameters.seed=geometry.seed;
     parameters=EnduranceMoon::sanitize(parameters);
     auto preview=parameters;
     preview.width=(std::max)(128,(std::min)(previewWidth,1024));
     previewWidth=EnduranceMoon::sanitize(preview).width;
+    previewResolution=std::clamp(previewResolution,32,128);
+    // Older saved labs pointed at the game atlas. A mesh export must never
+    // overwrite that file, even when opening an old editor scene.
+    if(std::filesystem::path(exportPath).extension()==".surface")
+        exportPath="../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb";
 }

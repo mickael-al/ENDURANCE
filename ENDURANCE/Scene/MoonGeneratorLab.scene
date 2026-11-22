@@ -21,7 +21,7 @@
       "scripts": [
         {
           "pathName": "MoonGeneratorLabComponent",
-          "data": "{\"parameters\": {\"seed\": 68291, \"width\": 2048, \"macroScale\": 2.4, \"detailScale\": 18.0, \"octaves\": 8, \"fractureCount\": 9, \"fractureWidth\": 0.018, \"fractureDepth\": 0.025, \"fractureStrength\": 1.25}, \"exportPath\": \"../ENDURANCE/Ressources/Atmosphere/moon.surface\", \"previewWidth\": 512, \"autoGenerate\": true, \"showWindow\": true}"
+          "data": "{\"parameters\":{\"seed\":68291,\"width\":2048,\"macroScale\":2.4,\"detailScale\":18.0,\"octaves\":8,\"fractureCount\":0,\"fractureWidth\":0.018,\"fractureDepth\":0.025,\"fractureStrength\":0.0},\"geometry\":{\"seed\":68291,\"resolution\":128,\"excavationStrength\":1.0,\"cavityCount\":6,\"cavitySize\":0.72,\"cavityDepth\":0.78,\"excavationYaw\":60.0,\"excavationPitch\":10.0,\"erosionStrength\":0.065,\"erosionScale\":5.0,\"erosionOctaves\":4,\"debrisCount\":24,\"debrisSpread\":0.65,\"debrisSize\":0.1},\"exportPath\":\"../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb\",\"previewWidth\":1024,\"previewResolution\":96,\"autoGenerate\":true,\"showWindow\":true}"
         }
       ],
       "collisions": [],

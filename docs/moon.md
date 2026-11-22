@@ -78,10 +78,11 @@ bloom, de l'exposition ou de la géométrie du terrain n'est nécessaire.
 
 ## Refaire la surface
 
-Ouvrir `ENDURANCE/Scene/MoonGeneratorLab.scene` et lancer Play pour générer,
-prévisualiser et exporter une lune fissurée. Le générateur est désormais natif
-C++ et partagé avec `Tools/bake_moon.cpp` ; l'ancien bake Python est remplacé.
-Voir [le laboratoire lunaire](moon-lab.md) pour les réglages et l'outil autonome.
+Le laboratoire `ENDURANCE/Scene/MoonGeneratorLab.scene` sculpte désormais un
+vrai modèle 3D creusé et l'exporte en GLB. Cette sortie est distincte de l'atlas
+encore utilisé par le rendu décrit ici : voir [le laboratoire lunaire](moon-lab.md).
+Pour régénérer cet atlas, conserver l'outil natif `Tools/bake_moon.cpp`
+(`endurance_moon_bake`). L'ancien bake Python est remplacé.
 
 La génération conserve deux fBm simplex sphériques (grandes mers sombres et
 variations fines), les impacts et les éjecta. Les failles sinueuses et ramifiées

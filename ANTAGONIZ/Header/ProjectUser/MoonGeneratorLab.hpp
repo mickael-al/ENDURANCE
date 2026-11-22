@@ -3,13 +3,15 @@
 
 #include "Behaviour.hpp"
 #include "ProceduralMoon.hpp"
+#include "ProceduralMoonGeometry.hpp"
 #include <memory>
 #include <string>
 
 struct ptrClass;
 class MoonGeneratorLabPanel;
 
-// Offline authoring only. The game keeps reading its baked moon.surface atlas.
+// Offline mesh authoring. This component never replaces the live atmosphere
+// atlas: explicit export creates a model with its own embedded material.
 class MoonGeneratorLabComponent final : public Behaviour
 {
 public:
@@ -24,8 +26,10 @@ public:
     void load(std::string data) override;
 
     EnduranceMoon::Params parameters;
-    std::string exportPath="../ENDURANCE/Ressources/Atmosphere/moon.surface";
-    int previewWidth=512;
+    EnduranceMoon::GeometryParams geometry;
+    std::string exportPath="../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb";
+    int previewWidth=1024;
+    int previewResolution=96;
     bool autoGenerate=true;
     bool showWindow=true;
 private:

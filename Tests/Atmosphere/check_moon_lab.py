@@ -2,7 +2,7 @@
 """Compile and run the real native Moon Lab component in a disposable GL context.
 
 Python only builds and launches the C++ integration tests. Surface generation,
-preview work, serialization and export use production C++; the engine's HUD and
+geometry generation, preview, serialization and export use production C++; the engine's HUD and
 service locator are narrow fixtures. All export paths resolve inside a temporary
 working directory, never the project's production moon.surface.
 """
@@ -26,7 +26,10 @@ def main():
                         help="Reuse a PIC GLEW object instead of the system library")
     parser.add_argument("--fast-math", action="store_true",
                         help="Match the engine's Release floating-point flags")
+    parser.add_argument("--capture-dir", type=Path, help="Save real GPU preview PPM captures")
     args = parser.parse_args()
+    if args.capture_dir:
+        os.environ["ENDURANCE_MOON_CAPTURE_DIR"] = str(args.capture_dir.resolve())
     with tempfile.TemporaryDirectory(prefix="endurance-moon-lab-") as temporary:
         directory = Path(temporary)
         binary = directory / "Bin"
@@ -44,7 +47,10 @@ def main():
             command.extend(("-I", str(ROOT / include)))
         sources = ["Tests/Atmosphere/check_moon_lab.cpp",
                    "ANTAGONIZ/Source/ProjectUser/ProceduralMoon.cpp",
-                   "ANTAGONIZ/Source/ProjectUser/MoonLabPreview.cpp"]
+                   "ANTAGONIZ/Source/ProjectUser/MoonLabPreview.cpp",
+                   "ANTAGONIZ/Source/ProjectUser/ProceduralMoonGeometry.cpp",
+                   "ANTAGONIZ/Source/ProjectUser/ProceduralMoonExport.cpp",
+                   "ANTAGONIZ/Source/ProjectUser/MoonMeshPreview.cpp"]
         sources.extend("ThirdParty/imgui-cmake/Source/" + name + ".cpp"
                        for name in ("imgui", "imgui_draw", "imgui_widgets", "imgui_tables"))
         command.extend(str(ROOT / source) for source in sources)

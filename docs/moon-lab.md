@@ -1,100 +1,131 @@
-# Laboratoire lunaire natif
+# Laboratoire de sculpture lunaire
 
-Le laboratoire fabrique une lune procédurale fissurée en **C++**, hors du rendu
-du jeu. Il partage son générateur avec l'outil natif en ligne de commande ;
-Python n'intervient pas dans la création de la surface.
+Ouvrir `ENDURANCE/Scene/MoonGeneratorLab.scene`, puis lancer **Play**. Le
+laboratoire génère maintenant un **vrai maillage creusé**, avec des parois
+intérieures, une silhouette entamée et des fragments détachés. La génération
+est native C++ ; elle ne dépend pas de Python, de Houdini ou d'un service externe.
 
-## Utilisation dans ENDURANCE
+Le preset propose une grande excavation asymétrique, des arrachements secondaires
+et des roches dispersées. Il sert de point de départ pour une lune qui se disloque.
+La référence visuelle guide la silhouette et les volumes ; le fond violet et la
+lumière se règlent dans l'aperçu et ne sont pas peints dans le matériau.
 
-Ouvrir `ENDURANCE/Scene/MoonGeneratorLab.scene`, puis lancer **Play**.
-Le panneau du laboratoire est attaché à la fenêtre principale. Régler la seed,
-les deux échelles de bruit, les octaves et les fractures, puis régénérer l'aperçu.
-L'aperçu utilise une résolution réduite pour les essais ; l'export calcule la
-résolution finale choisie. Un seul travail CPU est autorisé à la fois.
+![Preset du laboratoire, rendu du vrai maillage](images/moon-mesh-lab.png)
 
-Le bouton d'export enregistre le fichier `moon.surface` au chemin affiché.
-Le chemin par défaut est celui qu'utilise la scène Terrain :
-`../ENDURANCE/Ressources/Atmosphere/moon.surface`, depuis le répertoire `Bin`.
-Les essais et l'ouverture du laboratoire n'écrivent pas automatiquement cet asset.
-Après export, redémarrer la scène Terrain pour charger la nouvelle version.
+## Utilisation
 
-## Réglages de génération
+- Les panneaux restent attachés à la fenêtre principale et suivent sa taille.
+- Glisser dans l'aperçu pour tourner autour du modèle ; molette pour zoomer.
+- Modifier le soleil pour examiner les ombres dans les cavités. Les modes
+  normales et fil de fer permettent de vérifier la forme et sa résolution.
+- La seed reproduit la forme et le matériau. « Variante suivante » propose une
+  nouvelle réalisation sans changer les autres réglages.
+- L'aperçu automatique attend la fin des modifications avant de recalculer.
+  Un seul travail CPU est actif, annulable ; la dernière image reste affichée.
+- L'export est explicite. L'ouverture du laboratoire et les essais n'écrivent
+  aucun modèle dans le projet.
 
-| Paramètre | Rôle |
+## Contrôles
+
+| Groupe | Réglages |
 | --- | --- |
-| Seed | Reproduit le même paysage et le même réseau de fractures. |
-| Macro scale | Fréquence des grandes mers sombres. |
-| Detail scale | Fréquence des variations minérales plus fines. |
-| Octaves | Détails du fBm, filtrés selon la résolution de la texture. |
-| Fracture count | Nombre de grandes failles ; des branches secondaires leur sont rattachées. |
-| Fracture width | Largeur relative des failles sur la sphère. |
-| Fracture depth | Profondeur utilisée pour produire les normales des parois. |
-| Fracture strength | Intensité globale ; zéro permet une lune intacte. |
-| Width | Résolution finale de l'atlas 2:1 ; 2048 conserve le budget du jeu. |
+| Volumes arrachés | Intensité, nombre de cavités, taille, profondeur, direction et élévation de destruction. |
+| Parois et érosion | Amplitude, fréquence et octaves du bruit géométrique. |
+| Fragments | Nombre, taille et dispersion des morceaux. |
+| Roche | Fréquence des mers sombres, fréquence des détails et octaves du matériau. |
+| Qualité | Résolutions distinctes du maillage et de la texture pour l'aperçu et l'export. |
+| Aperçu | Orbite, zoom, soleil, exposition, ambiance, ombres, normales et fil de fer. |
 
-Le preset livré utilise la seed **68291**, 9 grandes failles, une demi-largeur
-angulaire de **0.018**, une profondeur relative de **0.025** et une intensité
-de **1.25**. Les deux fréquences sont 2.4 et 18, avec jusqu'à 8 octaves.
-Le remplacement du générateur change la réalisation aléatoire par rapport à
-l'ancien script, tout en conservant la méthode et la palette lunaire.
+Les distances géométriques sont relatives au rayon de la lune intacte, fixé à 1.
+L'intensité de destruction à zéro produit une lune intacte et retire les débris.
+La résolution géométrique utilise 32 à 256 cellules par côté pour l'export,
+32 à 128 pour l'aperçu. La texture finale va de 128 à 4096 pixels de large,
+avec un ratio 2:1. Les paramètres hors limites sont bornés à la lecture.
 
-Les grandes failles sont des tracés sinueux définis sur la sphère, avec une
-largeur variable. Elles modifient le relief dont sont dérivées les normales et
-l'albédo des roches exposées. Le réseau n'est pas une grille de Voronoï régulière.
-Les bruits sphériques, les cratères et les fractures sont calculés avant l'export.
-L'albédo moyen est conservé près de celui de la lune précédente pour limiter
-les changements de puissance de la lumière lunaire.
+## Génération et coût
 
-## Budget et limites
+Le corps est décrit par un champ implicite. Des volumes d'excavation orientés,
+déformés par un bruit simplex composé, sont soustraits à la sphère. Une extraction
+indexée par tétraèdres produit la surface. Une simplification par erreur
+quadratique réduit ensuite les faces tout en protégeant la topologie et les
+changements d'orientation. Les fragments sont des volumes rocheux fermés avec
+anisotropie et plans de cassure ; ils ne représentent pas une simulation physique
+de fracture ni une conservation exacte de la masse retirée.
 
-La sortie conserve le format **EMOON001**, normal objet RGB et albédo A, RGBA8
-linéaire. À 2048 × 1024, elle occupe 8 Mio avant mipmaps, environ 10,67 Mio après.
-Les shaders, les lectures de texture et le nombre de passes du jeu ne changent
-pas. Le worker et les textures d'aperçu sont propres au laboratoire.
+Les grandes formes sont dans les triangles. Les petites variations lunaires,
+les impacts et les éjecta sont calculés hors jeu dans la texture d'albédo.
+Les normales de l'ancienne texture sphérique ne sont pas appliquées aux parois
+intérieures : leur orientation provient du nouveau maillage.
 
-Cette version représente des **fissures de surface**. La sphère conserve sa
-silhouette ; les creux ne sont pas des trous traversants et aucun morceau ne
-flotte autour de la lune. Les normales ne projettent pas d'ombres entre parois.
-Ces limites permettent de conserver le chemin de rendu actuel, y compris les
-phases, l'atmosphère, les nuages et les reflets.
+La modification de la texture réutilise le maillage si ses paramètres n'ont pas
+changé, et réciproquement. Tourner la caméra ou déplacer le soleil ne relance pas
+le générateur. L'aperçu utilise un dessin indexé et une carte d'ombres locale
+D24 de 2048², conservée tant que le soleil et le maillage ne changent pas.
+Une vue entièrement inchangée conserve également son image. Aucun bruit
+volumétrique ni raymarch n'est recalculé dans le fragment shader de l'aperçu.
+Les modes de diagnostic sont des variantes GLSL compilées.
 
-## Outil natif facultatif
+Le budget final dépend de la précision et de l'érosion. Le panneau affiche le
+nombre réel de sommets, triangles et morceaux ainsi que le temps du dernier
+calcul CPU. Il ne s'agit pas d'une mesure des FPS du jeu.
 
-La scène suffit pour créer et exporter la lune. Pour automatiser un bake sans
-ouvrir le moteur, depuis la racine du dépôt :
+Le preset livré (seed 68291, direction 60°, 24 fragments) exporté à résolution
+128 contient **46 031 sommets et 90 560 triangles**, dont environ 80 000 pour
+le corps. Le bake complet avec texture 2048 × 1024 et export prend environ
+**6,6 secondes** sur l'environnement Linux de validation ; le GLB occupe
+environ **5,4 Mio**. Ces valeurs ne mesurent pas le PC du joueur.
+
+![Même géométrie avec le soleil tourné vers les cavités](images/moon-mesh-interior.png)
+
+## Export
+
+Chemin par défaut depuis `Bin` :
+`../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb`.
+
+Le fichier **GLB** contient le maillage, une texture PNG d'albédo sans lumière,
+le matériau opaque rugueux, les couleurs de matériau par sommet et la recette
+de génération dans `extras`. Le corps et chaque fragment sont des nœuds séparés,
+avec leurs propres plages compactes de sommets et d'indices. La texture est
+commune. Les coordonnées gardent le rayon de référence 1 ; appliquer l'échelle
+physique à l'intégration dans le jeu.
+
+L'albédo du générateur est linéaire ; le PNG du matériau glTF est encodé en sRGB.
+Les multiplicateurs de couleur des sommets restent linéaires. L'éclairage et les
+ombres de l'aperçu ne sont jamais exportés dans la couleur. Le format `.gltf`
+est également accepté avec données et texture intégrées, mais le GLB évite le
+surcoût du base64. L'écriture remplace un seul fichier complet ; un échec laisse
+l'ancien export intact.
+
+**Ce laboratoire ne remplace pas encore le rendu de la scène Terrain.** Le jeu
+continue à lire `moon.surface` et à afficher sa sphère analytique. Le modèle
+exporté prépare la prochaine intégration du maillage dans le ciel, les nuages,
+l'atmosphère et les reflets. Il ne faut pas remplacer `moon.surface` par un GLB.
+Les anciens chemins `.surface` des scènes de laboratoire sont migrés vers le
+nouveau chemin pour éviter cet écrasement.
+
+## Outils natifs et vérification
 
 ```sh
 cmake -S Tools -B build/moon-bake -DCMAKE_BUILD_TYPE=Release
 cmake --build build/moon-bake --config Release
 ```
 
-L'exécutable `endurance_moon_bake` est dans le répertoire de build (dans
-`Release` pour un générateur Visual Studio). Consulter `--help` pour les options.
-Il utilise `ProceduralMoon.cpp`, exactement comme le laboratoire.
-
-Les tests automatisés peuvent utiliser Python pour lancer le contexte OpenGL
-existant ; cela ne constitue pas une dépendance de génération ou du jeu.
-
-## Vérifications
+`endurance_moon_model --output chemin/moon.glb` utilise le même générateur que
+la scène. `--help` liste les réglages. `endurance_moon_bake` reste disponible
+pour produire l'ancien atlas `moon.surface`, utilisé par le jeu actuel.
 
 ```sh
+Tests/Atmosphere/check_moon_geometry.sh
 Tests/Atmosphere/check_moon_bake.sh
 python Tests/Atmosphere/check_moon_lab.py
 python Tests/Atmosphere/check_moon_lab.py --fast-math
-python Tests/Atmosphere/check_moon.py
-python Tests/Atmosphere/check_game_component.py
 ```
 
-Le générateur natif est testé en C++17 normal et fast-math : seed, normales,
-albédo, couture sphérique, paramètres invalides, annulation, format binaire et
-remplacement sûr du fichier. Le laboratoire est exercé avec le vrai ImGui et
-OpenGL : sérialisation, publication sur le thread de rendu, état GL, résultats
-périmés, export et arrêt du worker. Les shaders existants valident phases,
-nuages, atmosphère et reflets avec le nouvel atlas.
+Les scripts Python éventuels lancent les tests et un contexte OpenGL ; ils ne
+créent pas la géométrie. Validation native et OpenGL sous Linux/Mesa llvmpipe.
+Le build MSVC complet et l'essai interactif sur GTX 1660 restent à vérifier.
 
-Le bake natif 2048 × 1024 prend environ **3 secondes sur l'environnement Linux
-de validation**. Ce n'est pas une mesure sur le PC du joueur. Les tests de rendu
-utilisent Mesa llvmpipe ; le build complet MSVC et la validation interactive
-sur GTX 1660 restent à effectuer.
-
-![Surface fissurée, pleine lune et quartier : shaders réels](images/moon-fractures.png)
+Les suites standard et fast-math valident la fermeture et l'orientation du
+maillage, les normales, les résolutions 32/96/128, plusieurs réglages extrêmes,
+le déterminisme, l'annulation, les exports GLB/glTF avec PNG, les ombres réelles,
+la restauration de l'état GL, les caches et le cycle d'ouverture du panneau.
