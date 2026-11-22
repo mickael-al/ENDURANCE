@@ -1,22 +1,56 @@
 {
-  "freeCamPos": {"x": 0.0, "y": 0.0, "z": 0.0},
-  "freeCamRot": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
-  "freeCamAngle": {"x": 0.0, "y": 0.0},
-  "skeletonData": [],
-  "bufferData": [],
-  "shaderData": [],
-  "materialData": [],
-  "textureData": [],
-  "modelData": [],
-  "lightData": [],
-  "soundBufferData": [],
-  "audioData": [],
+  "freeCamPos": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0
+  },
+  "freeCamRot": {
+    "x": 0.0,
+    "y": 0.0,
+    "z": 0.0,
+    "w": 1.0
+  },
+  "freeCamAngle": {
+    "x": 0.0,
+    "y": 0.0
+  },
+  "skeletonData": [
+  ],
+  "bufferData": [
+  ],
+  "shaderData": [
+  ],
+  "materialData": [
+  ],
+  "textureData": [
+  ],
+  "modelData": [
+  ],
+  "lightData": [
+  ],
+  "soundBufferData": [
+  ],
+  "audioData": [
+  ],
   "emptyData": [
     {
       "name": "Moon Generator Lab",
-      "position": {"x": 0.0, "y": 0.0, "z": 0.0},
-      "rotation": {"x": 0.0, "y": 0.0, "z": 0.0, "w": 1.0},
-      "scale": {"x": 1.0, "y": 1.0, "z": 1.0},
+      "position": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0
+      },
+      "rotation": {
+        "x": 0.0,
+        "y": 0.0,
+        "z": 0.0,
+        "w": 1.0
+      },
+      "scale": {
+        "x": 1.0,
+        "y": 1.0,
+        "z": 1.0
+      },
       "idParent": -1,
       "scripts": [
         {
@@ -24,15 +58,29 @@
           "data": "{\"parameters\":{\"seed\":68291,\"width\":2048,\"macroScale\":2.4,\"detailScale\":18.0,\"octaves\":8,\"fractureCount\":0,\"fractureWidth\":0.018,\"fractureDepth\":0.025,\"fractureStrength\":0.0},\"geometry\":{\"seed\":68291,\"resolution\":128,\"excavationStrength\":1.0,\"cavityCount\":6,\"cavitySize\":0.72,\"cavityDepth\":0.78,\"excavationYaw\":60.0,\"excavationPitch\":10.0,\"erosionStrength\":0.065,\"erosionScale\":5.0,\"erosionOctaves\":4,\"debrisCount\":24,\"debrisSpread\":0.65,\"debrisSize\":0.1},\"exportPath\":\"../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb\",\"previewWidth\":1024,\"previewResolution\":96,\"autoGenerate\":true,\"showWindow\":true}"
         }
       ],
-      "collisions": [],
-      "tags": []
+      "collisions": [
+      ],
+      "tags": [
+      ]
     }
   ],
   "path": {
     "has": false,
-    "pathPosition": {"x": 0.0, "y": 0.0, "z": 0.0},
-    "zoneSize": {"x": 0.0, "y": 0.0, "z": 0.0},
-    "pointCount": {"x": 0.0, "y": 0.0, "z": 0.0},
+    "pathPosition": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "zoneSize": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
+    "pointCount": {
+      "x": 0.0,
+      "y": 0.0,
+      "z": 0.0
+    },
     "pathFolder": "",
     "pathLiasonPercent": 0.0
   },
@@ -49,7 +97,11 @@
     "fog_min_distance": 100.0,
     "fog_max_distance": 800.0,
     "fog_mode": 0,
-    "fog_color": {"x": 1.0, "y": 1.0, "z": 1.0},
+    "fog_color": {
+      "x": 1.0,
+      "y": 1.0,
+      "z": 1.0
+    },
     "depth_of_field": false,
     "dof_focus_distance": 12.0,
     "dof_focal_length": 50.0,
@@ -58,11 +110,16 @@
     "dof_max_radius": 12.0,
     "dof_match_camera_fov": true,
     "color_tint": false,
-    "tint_color": {"x": 1.0, "y": 1.0, "z": 1.0},
+    "tint_color": {
+      "x": 1.0,
+      "y": 1.0,
+      "z": 1.0
+    },
     "tint_strength": 0.5,
     "tint_saturation": 1.0,
     "tint_contrast": 1.0,
     "oil_painting": false,
-    "oilp_radius": 1
+    "oilp_radius": 1,
+    "oilp_strength": 0.65
   }
 }
