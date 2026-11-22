@@ -25,6 +25,7 @@ def main():
     sources = ("Rendering/RenderingEngine.cpp", "Rendering/FrameGpuProfiler.cpp",
                "Rendering/Camera/Camera.cpp", "Rendering/Camera/CameraManager.cpp",
                "Rendering/Shader/PostProcess.cpp", "Rendering/Shader/OilPainting.cpp",
+               "Rendering/Shader/EnvironmentScreenEffects.cpp",
                "Rendering/Shader/Bloom.cpp", "Rendering/Shader/DepthOfField.cpp", "Rendering/Shader/ColorTint.cpp",
                "Rendering/Shader/ShaderDataMisc.cpp", "Rendering/Shader/GraphiquePipeline.cpp",
                "Rendering/Shader/GraphiquePipelineManager.cpp", "Setting/SettingManager.cpp", "Main.cpp",
@@ -36,6 +37,8 @@ def main():
                "Miscellaneous/ProceduralGeneration.cpp",
                "ProjectUser/ProceduralTerrain.cpp",
                "ProjectUser/EnduranceAtmosphere.cpp", "ProjectUser/EnduranceMoonMesh.cpp",
+               "ProjectUser/EnduranceBiomeEffects.cpp", "ProjectUser/EnduranceBiomeEffectsCatalog.cpp",
+               "ProjectUser/EnduranceBiomeEffectsState.cpp", "ProjectUser/EnduranceBiomeParticles.cpp",
                "ProjectUser/TreeRenderGpu.cpp", "ProjectUser/EnduranceTreeRenderer.cpp",
                "ProjectUser/EnduranceTerrainMaterials.cpp",
                "ProjectUser/EnduranceTerrainMaterialPanel.cpp")

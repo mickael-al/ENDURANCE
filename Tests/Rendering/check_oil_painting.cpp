@@ -126,7 +126,9 @@ void run(const char* root)
 #else
     constexpr bool integrated=false;
     require(!oil,"Parked oil paint is still registered in the editor");
-    require(manager.owned.size()==9,"Disabled oil paint initialized extra shaders");
+    // The standard post chain now also prepares sixteen bounded environment
+    // screen variants. Parked oil painting must still add none of its own.
+    require(manager.owned.size()==9+16,"Disabled oil paint initialized unexpected shaders");
     // Preserve numerical coverage of the corrected standalone filter, without
     // registering it in the production chain that must ignore old scene flags.
     require(archivedOil.initialize(&graphics),"Standalone oil initialization failed");

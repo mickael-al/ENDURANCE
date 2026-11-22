@@ -105,7 +105,7 @@ def run():
         print('OpenGL:',gl.version,'/',gl.renderer)
         mapping=gl.buffer(packed_biome_cells(),7)
         style_buffer=gl.buffer(packed_styles(styles),12)
-        result=gl.buffer(64,11)
+        result=gl.buffer(80,11)
         palette=gl.compute(SHADERS/'palette.C.glsl')
         classifier=gl.compute(TERRAIN/'field_batch_classify.C.glsl')
         for biome,s in enumerate(styles):
@@ -113,9 +113,11 @@ def run():
             gl.uniform(palette,'uPaletteCameraXZ','2f',-754.5,12864.25)
             gl.dispatch(palette,1)
             actual=struct.unpack('<16f',gl.read(result,64))
+            dominant,weight=struct.unpack_from('<If',gl.read(result,80),64)
             expected=[*s['horizon'],s['middleElevation'],*s['middle'],s['gradientPower'],
                       *s['zenith'],s['strength'],s['exposure']]
             assert max(abs(a-b) for a,b in zip(actual,expected))<1e-6,(biome,actual,expected)
+            assert dominant==biome and weight==1.0,(biome,dominant,weight)
         initial_horizon,initial_exposure=styles[0]['horizon'],styles[0]['exposure']
         styles[0]['horizon']=[3.2,1.7,0.4]; styles[0]['exposure']=2.5
         gl.write(style_buffer,packed_styles(styles))
@@ -124,7 +126,7 @@ def run():
         assert abs(hdr[0]-3.2)<1e-6 and abs(hdr[1]-1.7)<1e-6 and hdr[12]==2.5
         styles[0]['horizon']=initial_horizon; styles[0]['exposure']=initial_exposure
         gl.write(style_buffer,packed_styles(styles))
-        print('PASS all 26 forced palettes, unclipped HDR colors/exposure and gradient controls')
+        print('PASS all 26 forced palettes/dominant biomes, unclipped HDR colors/exposure and gradient controls')
 
         rng=random.Random(5213)
         visited=set()
@@ -141,12 +143,16 @@ def run():
                 gl.bind(result,11); gl.bind(style_buffer,12)
                 gl.dispatch(palette,1)
                 actual=struct.unpack('<16f',gl.read(result,64))
+                dominant,dominant_weight=struct.unpack_from('<If',gl.read(result,80),64)
+                expected_dominant=max(range(26),key=weights.__getitem__)
+                assert dominant==expected_dominant,(seed,x,z,dominant,expected_dominant,weights)
+                assert abs(dominant_weight-weights[dominant])<3e-5
                 expected=[sum(weights[b]*styles[b][key][axis] for b in range(26))
                           for key in ['horizon','middle','zenith'] for axis in range(3)]
                 rgb=[actual[i] for i in [0,1,2,4,5,6,8,9,10]]
                 assert max(abs(a-b) for a,b in zip(rgb,expected))<3e-5,(seed,x,z,rgb,expected)
                 assert abs(actual[15]-weights[25])<3e-5
-        print('PASS 30 seeded world points match terrain classifier weights; sampled biome IDs:',sorted(visited))
+        print('PASS 30 seeded world points match terrain classifier weights and dominant ID/weight (including marine); sampled biome IDs:',sorted(visited))
 
         # Changing altitude does not enter palette selection: the API/shader
         # accepts only camera XZ. The world medium independently uses Y.

@@ -1488,6 +1488,17 @@ void Atmosphere::bindLighting(unsigned int program,bool,std::uint64_t programRev
         1.0f/std::max(m->graphics->str_width,1u),1.0f/std::max(m->graphics->str_height,1u));
 }
 
+void Atmosphere::bindParticleMedium(unsigned int program,int activeLocation)
+{
+    if(!program) return;
+    const bool ready=active() && m->volumesReady;
+    glProgramUniform1i(program,activeLocation,ready?1:0);
+    if(m->parameters) glBindBufferBase(GL_UNIFORM_BUFFER,6,m->parameters);
+    if(!ready) return;
+    textureUnit(12,m->scattering);
+    textureUnit(13,m->transmission);
+}
+
 void Atmosphere::release()
 {
     if(!m) return;

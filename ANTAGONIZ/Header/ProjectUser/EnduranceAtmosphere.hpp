@@ -7,6 +7,7 @@
 #include <memory>
 #include <string>
 #include <vector>
+#include <glm/vec2.hpp>
 #ifndef JS_STL_ARRAY
 #define JS_STL_ARRAY
 #endif
@@ -26,6 +27,18 @@ struct EnduranceSkyBiomeStyle
     float fogNoiseAmount=0.0f, fogNoiseScale=0.002f;
     JS_OBJ(biome,horizon,middle,zenith,middleElevation,gradientPower,strength,exposure,
            fogDensity,fogAlbedo,fogBaseHeight,fogHeightScale,fogNoiseAmount,fogNoiseScale);
+};
+
+// Latest completed climate sample shared with game systems. Reading this is
+// CPU-only on the render thread; the sky's existing asynchronous GPU request
+// produces the snapshot.
+struct EnduranceBiomeSample
+{
+    bool valid=false;
+    std::uint32_t biome=0;
+    float weight=0.0f;
+    glm::vec2 worldXZ{0.0f};
+    std::uint64_t revision=0;
 };
 
 class EnduranceAtmosphereComponent final : public Behaviour, public CustomRenderer
@@ -48,6 +61,7 @@ public:
     void onGUI() override;
     std::string serialize() override;
     void load(std::string data) override;
+    static EnduranceBiomeSample currentBiomeSample();
 
     std::string paletteFile="../ENDURANCE/Ressources/Atmosphere/biome_palettes.json";
     // The model is preferred; an empty path explicitly selects the legacy atlas.

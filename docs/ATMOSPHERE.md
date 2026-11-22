@@ -112,7 +112,9 @@ la transmittance et la perspective aerienne.
 La recette climatique actuelle est relativement lourde : cinq couches,
 huit octaves et deux axes. Un lancement de calcul ponctuel n’est donc pas
 suppose gratuit. L’implementation conserve la recette GPU du terrain et utilise
-un petit resultat de **64 octets**. Trois emplacements permettent de recueillir
+un petit resultat de **80 octets**, dont 16 pour le biome dominant partage avec
+les effets environnementaux (sans lancement de calcul supplementaire).
+Trois emplacements permettent de recueillir
 les resultats differes :
 
 1. Soumettre le calcul uniquement apres franchissement du seuil de deplacement

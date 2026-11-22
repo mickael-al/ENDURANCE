@@ -2,7 +2,8 @@
 """Exercise the real oil paint shader and postprocess routing in headless OpenGL.
 
 Window/editor/camera services and disabled fog are doubled; PostProcess, Bloom,
-DepthOfField, OilPainting, ColorTint and shader compilation are production code.
+DepthOfField, OilPainting, ColorTint, EnvironmentScreenEffects and shader
+compilation are production code.
 """
 import ctypes
 import argparse
@@ -63,6 +64,9 @@ namespace Ge { class NAME final : public ModulePP { public:
  void resize(int,int) override {} void onGui(PPSetting*,PPSetting*) override {}
  void compute(unsigned,unsigned,unsigned,ShapeBuffer*,PPSetting*) override {}
 }; }'''.replace("NAME", name)
+    services['GraphiquePipeline.hpp'] = services['GraphiquePipeline.hpp'].replace(
+        'unsigned getProgram() const { return program; }',
+        'unsigned getProgram() const { return program; } bool isValid() const { return program!=0; }')
     with tempfile.TemporaryDirectory(prefix="endurance-oil-") as temporary:
         directory = Path(temporary)
         for name, text in services.items():
@@ -78,7 +82,7 @@ namespace Ge { class NAME final : public ModulePP { public:
                      ROOT/"ANTAGONIZ/Header/Struct", ROOT/"ThirdParty", ROOT/"ThirdParty/glm"):
             command += ["-I", str(path)]
         command.append(str(ROOT / "Tests/Rendering/check_oil_painting.cpp"))
-        for source in ("PostProcess", "OilPainting", "Bloom", "DepthOfField", "ColorTint",
+        for source in ("PostProcess", "OilPainting", "Bloom", "DepthOfField", "ColorTint", "EnvironmentScreenEffects",
                        "ShaderCompilation", "ShaderBinaryCache"):
             command.append(str(ROOT / "ANTAGONIZ/Source/Rendering/Shader" / (source + ".cpp")))
         command += ["-l:libGLEW.so.2.2", "-l:libGL.so.1", "-l:libEGL.so.1", "-ldl",

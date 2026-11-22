@@ -169,6 +169,9 @@ namespace Ge
         // A nonzero lifetime/relink revision permits cached uniform locations.
         // Raw external program IDs retain the conservative uncached path.
         void bindLighting(unsigned int program, bool transparent=false, std::uint64_t programRevision=0);
+        // Only medium UBO6 and perspective volumes12/13; callers cache the
+        // uAtmosphereActive location when compiling their particle program.
+        void bindParticleMedium(unsigned int program, int activeLocation);
         std::string serializeSettings() const;
         bool loadSettings(const std::string& json);
         void onGUI();

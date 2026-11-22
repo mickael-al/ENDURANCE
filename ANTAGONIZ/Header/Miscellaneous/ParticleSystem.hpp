@@ -73,6 +73,11 @@ namespace Ge
         void removeGroup(size_t groupID);
         void render(bool* currentDepthWrite);
         void updateInstanced();
+        bool isValid() const
+        {
+            return m_baseRender && m_baseRender->isValid() && m_baseCs && m_baseCs->isValid()
+                && m_init && m_init->isValid() && m_ufill && m_ufill->isValid();
+        }
     private:
         const ptrClass* m_pc = nullptr;
         DynamicGPUAllocator * m_allocator;

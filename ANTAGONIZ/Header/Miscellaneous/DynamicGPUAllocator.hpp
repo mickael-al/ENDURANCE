@@ -45,7 +45,8 @@ public:
             if (blockSize >= size) 
             {
                 glBindBuffer(m_target, ssbo);
-                glBufferSubData(m_target, offset, size, data);
+                // nullptr reserves storage; the caller initializes it on the GPU.
+                if (data != nullptr && size != 0) glBufferSubData(m_target, offset, size, data);
 
                 usedBlocks[offset] = size;
 
