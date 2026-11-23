@@ -1,6 +1,7 @@
 // CPU-only tests of production catalogue/selection. No renderer substitutes,
 // random sampling, GL context or frame-time assumptions are needed here.
 #include "EnduranceBiomeEffectsState.hpp"
+#include "EnduranceBiomeParticles.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -12,6 +13,7 @@
 #include <vector>
 
 namespace E = EnduranceEnvironment;
+glm::vec2 productionParticleWind(glm::vec2 base, double seconds, float variation, float period);
 namespace {
 void require(bool value, const std::string& message)
 {
@@ -77,7 +79,7 @@ void catalogue()
         finiteVector(s.tint, label + "Invalid screen tint");
         require(finite(s.scale) && s.scale > 0 && finite(s.speed) && s.speed >= 0, label + "Invalid screen motion");
         require(static_cast<unsigned>(p.shape) < static_cast<unsigned>(E::ParticleShape::Count), label + "Invalid sprite shape");
-        require(p.count <= 32768, label + "Unbounded single-effect particle pool");
+        require(p.count <= 65536, label + "Unbounded single-effect base particle pool");
         if (p.count)
         {
             require(finite(g.lifeTimeMin) && finite(g.lifeTimeMax) && g.lifeTimeMin > 0
@@ -133,11 +135,101 @@ void catalogue()
         unsigned particles = 0;
         for (auto id : maskIds(m.passive)) particles += definitions[index(id)].particles.count;
         maxParticles = (std::max)(particles, maxParticles);
-        require(particles <= 4096, "Biome passive particles exceed conservative ambient budget");
+        require(particles <= 65536, "Biome passive particles exceed ambient budget");
+        std::vector<unsigned> eventCounts;
+        for (auto id : maskIds(m.active)) eventCounts.push_back(definitions[index(id)].particles.count);
+        std::sort(eventCounts.rbegin(), eventCounts.rend());
+        unsigned peak = particles;
+        for (unsigned i = 0; i < (std::min)(2u, static_cast<unsigned>(eventCounts.size())); ++i)
+            peak += eventCounts[i];
+        require(peak * 4 <= EnduranceBiomeParticles::MaxLiveParticles,
+                "A legal biome plus two events is silently truncated at supported density4");
     }
     require(assignedPassive == passiveIds && assignedActive == activeIds, "Some of the 40 effects are unreachable from the biome matrix");
     std::cout << "PASS catalogue: 40 distinct finite visual recipes, 28 passive/12 events, all 26 biome mappings; max ambient particles "
         << maxParticles << '\n';
+}
+
+void extendedArtRecipes()
+{
+    // Baseline capacities/reach before the requested tenfold expansion. This
+    // compares the authored result with the user's target, not a renderer copy.
+    constexpr std::array<unsigned, 40> previousCounts{{
+        0,1536,1152,384,72,1536,0,256,80,192,208,384,384,40,48,896,40,192,40,384,
+        128,384,64,96,12,0,0,0,3072,6144,6144,6144,4096,4608,2048,3584,32,1280,2048,960}};
+    constexpr std::array<float, 40> previousReach{{
+        0,23,22,18,16,23,0,18,28,22,19,22,17,28,23,23,28,21,22,18,
+        16,20,14,25,0,0,0,0,28,31,32,30,30,30,27,28,220,31,26,24}};
+    const auto& definitions = E::effectDefinitions();
+    for (std::size_t i = 0; i < definitions.size(); ++i)
+    {
+        const auto& p = definitions[i].particles;
+        const auto& g = p.group;
+        require(p.count >= previousCounts[i] * 10,
+                std::string(definitions[i].key) + " does not meet requested10x population");
+        if (previousReach[i] > 0)
+        {
+            const float reach = (std::min)(.5f * (g.emitScaleMax.x - g.emitScaleMin.x),
+                                           .5f * (g.emitScaleMax.z - g.emitScaleMin.z));
+            require(reach >= 10 * previousReach[i] - .001f,
+                    std::string(definitions[i].key) + " does not meet requested10x horizontal reach");
+        }
+    }
+    require(E::findEffect("cold_breath") == nullptr, "First-person breath remains in environment catalogue");
+    const auto* haze = E::findEffect("ice_haze");
+    require(haze && haze->particles.group.emitScaleMax.x > 50
+        && haze->particles.group.emitScaleMax.z > 50,
+        "Breath replacement is still a mouth-sized emitter");
+    const auto& snow = definitions[index(E::EffectId::LightSnow)].particles;
+    const auto& pollen = definitions[index(E::EffectId::WindPollen)].particles;
+    require(snow.shape != pollen.shape, "Snow and pollen still use the same sprite kind");
+    require((snow.group.flags & Ge::RotateSprite) && std::abs(snow.group.rotateSprite) > .05f,
+            "Snow lacks visible sprite rotation");
+    require(snow.group.velocityMax <= 1.0f && snow.windScale < .5f,
+            "Gentle snowfall is still driven like a windstorm");
+    std::cout << "PASS art requirements: tenfold populations/reach, environmental ice haze, distinct slow rotating snowfall\n";
+}
+
+void independentParticleWind()
+{
+    const glm::vec2 base(3, 1);
+    const float speed = glm::length(base);
+    auto previous = productionParticleWind(base, 0, 1, 24);
+    bool rotated = false, changedStrength = false;
+    for (unsigned i = 0; i < 3600; ++i)
+    {
+        const double seconds = i / 60.0;
+        const auto wind = productionParticleWind(base, seconds, 1, 24);
+        const float length = glm::length(wind);
+        require(finite(wind.x) && finite(wind.y), "Animated wind became nonfinite");
+        require(length >= speed * .5199f && length <= speed * 1.4801f,
+                "Animated wind exceeded its bounded gust range");
+        require(glm::length(wind - previous) < .025f * speed, "Wind jumps between adjacent frames");
+        require(wind == productionParticleWind(base, seconds, 1, 24), "Wind depends on evaluation history");
+        require(productionParticleWind(base, seconds, 0, 24) == base, "Zero variation changes base wind");
+        require(productionParticleWind(glm::vec2(0), seconds, 1, 24) == glm::vec2(0),
+                "Zero base wind produces unexpected gusts");
+        rotated |= std::abs(wind.x * base.y - wind.y * base.x) > .2f;
+        changedStrength |= std::abs(length - speed) > .2f;
+        previous = wind;
+    }
+    require(rotated && changedStrength, "Wind does not vary both direction and strength");
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    const float inf = std::numeric_limits<float>::infinity();
+    for (float value : {nan, inf, -inf})
+    for (unsigned field = 0; field < 5; ++field)
+    {
+        auto input = base;
+        double seconds = 3;
+        float variation = 1, period = 24;
+        if (field < 2) input[field] = value;
+        if (field == 2) seconds = value;
+        if (field == 3) variation = value;
+        if (field == 4) period = value;
+        const auto wind = productionParticleWind(input, seconds, variation, period);
+        require(finite(wind.x) && finite(wind.y), "Invalid wind setting escaped input sanitization");
+    }
+    std::cout << "PASS independent particle wind: smooth heading/gusts, bounded speed, zero/static controls, deterministic time and invalid inputs\n";
 }
 
 void passiveSelection()
@@ -217,10 +309,16 @@ void previewsAndInputs()
 {
     E::EffectsState state;
     state.setBiome(12); settle(state);
+    require(state.previewEffect(E::EffectId::FrostRim), "Default frost preview rejected");
+    settle(state, E::effectDefinitions()[index(E::EffectId::FrostRim)].fadeIn + 2.0f);
+    require(state.previewing() && state.strengths()[index(E::EffectId::FrostRim)] == 1.0f,
+            "Default preview ends before authored crystal growth can be inspected");
+    state.stopPreview(); settle(state);
     for (const auto& d : E::effectDefinitions())
     {
-        require(state.previewEffect(d.id, 10.0f), "Valid explicit preview was rejected");
-        settle(state, 6.0f);
+        const float hold = (std::max)(6.0f, d.fadeIn + .1f);
+        require(state.previewEffect(d.id, hold + 10.0f), "Valid explicit preview was rejected");
+        settle(state, hold);
         require(state.previewing() && liveMask(state) == E::effectBit(d.id)
             && state.strengths()[index(d.id)] == 1.0f, std::string("Preview does not isolate selected effect: ") + d.key);
         settle(state, 20.0f);
@@ -296,7 +394,7 @@ void timestep()
 
 int main()
 {
-    try { catalogue(); passiveSelection(); eventLifecycle(); previewsAndInputs(); timestep(); }
+    try { catalogue(); extendedArtRecipes(); independentParticleWind(); passiveSelection(); eventLifecycle(); previewsAndInputs(); timestep(); }
     catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
     std::cout << "PASS biome effects production catalogue/state\n";
 }

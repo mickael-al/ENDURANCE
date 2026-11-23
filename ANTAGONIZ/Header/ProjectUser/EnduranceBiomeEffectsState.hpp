@@ -17,7 +17,7 @@ namespace EnduranceEnvironment
         void stopEvent(EffectId id);
         void stopEvents();
         // Deliberate editor preview, never called by biome selection or a timer.
-        bool previewEffect(EffectId id, float seconds = 12.0f);
+        bool previewEffect(EffectId id, float seconds = 24.0f);
         void stopPreview();
         void update(float deltaSeconds);
         void clear();

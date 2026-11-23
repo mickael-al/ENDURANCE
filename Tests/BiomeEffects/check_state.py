@@ -14,8 +14,9 @@ def main():
         command = [os.environ.get("CXX", "c++"), "-std=c++17", "-O2", "-Wall", "-Wextra", "-pedantic"]
         for path in ("ANTAGONIZ/Header/ProjectUser", "ANTAGONIZ/Header/Miscellaneous", "ThirdParty/glm"):
             command += ["-I", str(ROOT / path)]
-        command += [str(ROOT / path) for path in (
+        sources = [str(ROOT / path) for path in (
             "Tests/BiomeEffects/check_state.cpp",
+            "Tests/BiomeEffects/wind_runtime.cpp",
             "ANTAGONIZ/Source/ProjectUser/EnduranceBiomeEffectsCatalog.cpp",
             "ANTAGONIZ/Source/ProjectUser/EnduranceBiomeEffectsState.cpp")]
         # Compile the test oracle without fast-math, while separately compiling
@@ -23,8 +24,7 @@ def main():
         # the test itself could stop detecting invalid results.
         for fast in (False, True):
             objects=[]
-            sources=command[-3:]
-            common=command[:-3]
+            common=command
             for i, source in enumerate(sources):
                 output=Path(temporary)/f"{i}.o"
                 flags=["-ffast-math"] if fast and i>0 else []

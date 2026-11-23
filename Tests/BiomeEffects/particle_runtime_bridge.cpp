@@ -7,9 +7,13 @@
 #include "RenderingEngine.hpp"
 #include "GraphicsDataMisc.hpp"
 #include "GraphiquePipeline.hpp"
+#include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstring>
+#include <cstdlib>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <limits>
 #include <set>
@@ -27,10 +31,12 @@ void checkGL(const char* stage) {
 struct Calls {
     unsigned dispatch=0,draw=0,program=0,buffer=0,data=0,subdata=0;
 };
-struct Init { GLuint buffer=0,offset=0,count=0; } lastInit;
+struct Init { GLuint buffer=0,offset=0,count=0,settings=0; } lastInit;
 Calls calls;
 std::set<GLuint> ownedBuffers,ownedPrograms;
 GLuint drawData=0,drawInstances=0;
+unsigned largestDrawInstanceCount=0;
+bool skipRasterization = false;
 PFNGLDISPATCHCOMPUTEPROC dispatchOriginal;
 PFNGLDRAWARRAYSINSTANCEDPROC drawOriginal;
 PFNGLCREATEPROGRAMPROC createProgramOriginal;
@@ -43,20 +49,23 @@ void GLAPIENTRY dispatchHook(GLuint x,GLuint y,GLuint z) {
     ++calls.dispatch;
     GLint program=0; glGetIntegerv(GL_CURRENT_PROGRAM,&program);
     auto location=glGetUniformLocation(program,"u_offset");
-    if(location>=0) {
+    const auto settingsLocation=glGetUniformLocation(program,"u_offsetSettings");
+    if(location>=0 && settingsLocation>=0) {
         GLint buffer=0; glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING,0,&buffer);
         lastInit.buffer=GLuint(buffer);
         glGetUniformuiv(program,location,&lastInit.offset);
         glGetUniformuiv(program,glGetUniformLocation(program,"u_count"),&lastInit.count);
+        glGetUniformuiv(program,settingsLocation,&lastInit.settings);
     }
     dispatchOriginal(x,y,z);
 }
 void GLAPIENTRY drawHook(GLenum mode,GLint first,GLsizei count,GLsizei instances) {
     ++calls.draw;
+    largestDrawInstanceCount=(std::max)(largestDrawInstanceCount,unsigned(instances));
     GLint buffer=0;
     glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING,6,&buffer); drawData=GLuint(buffer);
     glGetIntegeri_v(GL_SHADER_STORAGE_BUFFER_BINDING,7,&buffer); drawInstances=GLuint(buffer);
-    drawOriginal(mode,first,count,instances);
+    if (!skipRasterization) drawOriginal(mode,first,count,instances);
 }
 GLuint GLAPIENTRY createProgramHook() {
     ++calls.program; const auto id=createProgramOriginal(); ownedPrograms.insert(id); return id;
@@ -138,6 +147,7 @@ struct Fixture {
     std::array<GLuint,5> buffers{};
     std::array<GLuint,4> textures{};
     GLuint sampler=0,vao=0,fbo=0,program=0;
+    float seconds=0;
     Fixture() {
         pointers={&pipelines,&renderer,&data,&time};
         Ge::Engine::pointers=&pointers;
@@ -196,6 +206,10 @@ struct Fixture {
         glActiveTexture(GL_TEXTURE4);glBindVertexArray(vao);glUseProgram(program);
         glEnable(GL_CULL_FACE);glDepthMask(GL_TRUE);
     }
+    void tick() {
+        seconds += time.getDeltaTime();
+        glNamedBufferSubData(buffers[1],1024+sizeof(float),sizeof(seconds),&seconds);
+    }
     ~Fixture() {
         glUseProgram(0);glDeleteProgram(program);glDeleteSamplers(1,&sampler);
         glDeleteVertexArrays(1,&vao);glDeleteFramebuffers(1,&fbo);
@@ -209,14 +223,58 @@ std::vector<unsigned char> particles(const Init& allocation) {
     glGetNamedBufferSubData(allocation.buffer,allocation.offset*4,bytes.size(),bytes.data());
     return bytes;
 }
+std::vector<Ge::Particle> readParticles(const Init& allocation) {
+    std::vector<Ge::Particle> values(allocation.count);
+    glGetNamedBufferSubData(allocation.buffer,allocation.offset*4,values.size()*sizeof(Ge::Particle),values.data());
+    return values;
+}
+Ge::ParticleBaseGroup readSettings(const Init& allocation) {
+    Ge::ParticleBaseGroup value;
+    glGetNamedBufferSubData(allocation.buffer,allocation.settings*4,sizeof(value),&value);
+    return value;
+}
+glm::vec3 velocity(const Ge::Particle& particle) {
+    return (glm::vec3(particle.vx,particle.vy,particle.vz) / 32767.5f - 1.f) * 256.f;
+}
+glm::dvec3 worldPosition(const Ge::Particle& particle,const Ge::ParticleBaseGroup& settings) {
+    return glm::dvec3(particle.position)+glm::dvec3(settings.target);
+}
+void checkSpawnField(const Init& allocation,const glm::vec3& camera) {
+    const auto values=readParticles(allocation);
+    const auto settings=readSettings(allocation);
+    unsigned near=0,far=0,alive=0;
+    float minimumAge=1000,maximumAge=0;
+    const auto center=glm::dvec3(settings.emitPosition);
+    const auto extent=(settings.emitScaleMax-settings.emitScaleMin)*.5f;
+    const float travel=(std::max)(settings.lifeTimeMin,settings.lifeTimeMax)*
+        ((std::max)(std::abs(settings.velocityMin),std::abs(settings.velocityMax))
+        +std::abs(settings.externalForce.y)+std::abs(settings.gravity.y)/(std::max)(settings.drag,.25f));
+    require(glm::length(settings.target-camera)<.01f,"New field anchor is not its camera position");
+    for(const auto& particle:values) {
+        const auto world=worldPosition(particle,settings);
+        const auto q=world-center;
+        const double radial=std::sqrt(q.x*q.x/(extent.x*extent.x)+q.z*q.z/(extent.z*extent.z));
+        require(std::isfinite(radial) && radial<=1.001,"Spawn exceeded extended elliptical volume");
+        require(q.y>=settings.emitScaleMin.y-travel-.01 && q.y<=settings.emitScaleMax.y+travel+.01,
+            "Prewarmed field exceeded birth layer plus lifetime travel bounds");
+        near+=radial<.12;far+=radial>.5;
+        alive+=particle.time>0 && particle.scale>0;
+        minimumAge=(std::min)(minimumAge,particle.time);maximumAge=(std::max)(maximumAge,particle.time);
+    }
+    require(near>values.size()/4 && far>values.size()/10,
+        "Extended field has no populated near/far bands or diluted all near detail");
+    require(alive>values.size()*9/10 && maximumAge-minimumAge>1,
+        "Field does not start filled with varied particle ages");
+}
 void run() {
     Fixture f;
     Hooks hooks;
     EnduranceBiomeParticles adapter;
     require(!adapter.initialize(nullptr),"Null engine accepted");
     require(adapter.initialize(&f.pointers),adapter.error().c_str());
-    require(f.pipelines.GetPipelines().size()==9,"Expected eight precompiled families and engine base program");
-    require(calls.program==12,"Expected eight families, base sprite, three compute programs");
+    const auto kinds=static_cast<unsigned>(ParticleShape::Count);
+    require(f.pipelines.GetPipelines().size()==kinds+1,"Expected all precompiled kinds and engine base program");
+    require(calls.program>=kinds+3 && calls.program<=kinds+8,"Initialization shader set is unbounded or incomplete");
     const unsigned programs=calls.program;
     require(f.renderer.callbacks.empty(),"Empty adapter registered a render callback");
     std::array<float,EffectCount> strengths{};
@@ -227,6 +285,7 @@ void run() {
         checkGL("update");
     };
     auto render=[&]() {
+        f.tick();
         const auto before=snapshot();bool depthWrite=true;
         f.renderer.render(&depthWrite);
         require(snapshot()==before,"Render leaked GL state or indexed buffer ranges");
@@ -260,7 +319,14 @@ void run() {
     const auto beforeTeleport=calls.dispatch;
     update({5000,20,4000},true);
     require(calls.dispatch==beforeTeleport+1,"Teleport did not restart existing particles once");
-    require(particles(allocation)==initialParticles,"Teleport retained old positions/lifetimes");
+    require(readSettings(allocation).target==glm::vec3(5000,20,4000),
+        "Teleport did not move the stable local-space anchor to destination");
+    const auto teleportParticles=readParticles(allocation);
+    for(const auto& particle:teleportParticles) {
+        require(std::isfinite(particle.position.x) && std::isfinite(particle.position.y)
+            && std::isfinite(particle.position.z),"Teleport created a nonfinite local position");
+        require(glm::length(particle.position)<1000,"Teleport retained obsolete distant world positions");
+    }
     const auto densityBefore=calls.dispatch;
     update({},false,2);
     require(adapter.liveParticleCount()==2*effectDefinitions()[id].particles.count
@@ -277,6 +343,85 @@ void run() {
     std::cout<<"PASS native moving/fading group: stable buffers/counts, world-space particles, teleport restart\n";
 
     strengths={};update();
+    strengths[std::size_t(EffectId::LightSnow)]=1;
+    const glm::vec3 farCamera(40000,70,-40000);
+    update(farCamera,true);
+    const auto snowAllocation=lastInit;
+    checkSpawnField(snowAllocation,farCamera);
+    const auto bornSnow=readParticles(snowAllocation);
+    const auto bornSettings=readSettings(snowAllocation);
+    skipRasterization=true; // Exercise real compute without paying repeated raster fill in a simulation test.
+    for(unsigned frame=0;frame<360;++frame) render();
+    const auto movedSnow=readParticles(snowAllocation);
+    unsigned changed=0;double down=0;float maximumSpeed=0;
+    for(std::size_t i=0;i<movedSnow.size();++i) {
+        const auto v=velocity(movedSnow[i]);
+        require(std::isfinite(v.x)&&std::isfinite(v.y)&&std::isfinite(v.z),"Snow velocity became nonfinite");
+        maximumSpeed=(std::max)(maximumSpeed,glm::length(v));down+=v.y;
+        changed+=glm::length(movedSnow[i].position-bornSnow[i].position)>.001f;
+    }
+    require(changed>movedSnow.size()*9/10,"Slow snowfall froze at distant world coordinates");
+    require(maximumSpeed<6 && down/movedSnow.size()<-.05,"Gentle snow accelerates without bound or does not fall");
+    const auto beforeMove=readParticles(snowAllocation);
+    update(farCamera+glm::vec3(1,0,0));
+    const auto afterMove=readParticles(snowAllocation);
+    const auto afterSettings=readSettings(snowAllocation);
+    for(std::size_t i=0;i<afterMove.size();++i)
+        require(glm::length(worldPosition(afterMove[i],afterSettings)-worldPosition(beforeMove[i],bornSettings))<.0001,
+            "Ordinary camera movement transported existing particles");
+    const auto newCamera=farCamera+glm::vec3(700,0,500);
+    update(newCamera);
+    for(unsigned frame=0;frame<6;++frame) render();
+    const auto recycled=readParticles(snowAllocation);
+    const auto recycledSettings=readSettings(snowAllocation);
+    const auto snowExtent=(recycledSettings.emitScaleMax-recycledSettings.emitScaleMin)*.5f;
+    unsigned aroundDestination=0;
+    for(const auto& particle:recycled) {
+        const auto q=worldPosition(particle,recycledSettings)-glm::dvec3(recycledSettings.emitPosition);
+        const double radial=q.x*q.x/(snowExtent.x*snowExtent.x)+q.z*q.z/(snowExtent.z*snowExtent.z);
+        aroundDestination+=radial<=1.02;
+    }
+    require(aroundDestination>recycled.size()*95/100,"Camera-local field did not recycle into destination volume");
+    const auto preRebase=readParticles(snowAllocation);
+    const auto preRebaseSettings=readSettings(snowAllocation);
+    const auto beforeRebaseCalls=calls;
+    const auto rebaseCamera=farCamera+glm::vec3(2200,100,0);
+    update(rebaseCamera);
+    const auto postRebase=readParticles(snowAllocation);
+    const auto postRebaseSettings=readSettings(snowAllocation);
+    require(calls.dispatch==beforeRebaseCalls.dispatch+1 && calls.buffer==beforeRebaseCalls.buffer
+        && calls.data==beforeRebaseCalls.data,"Rare anchor rebase reallocates or performs multiple passes");
+    require(postRebaseSettings.target==rebaseCamera,"Distant drift did not rebase the local anchor");
+    for(std::size_t i=0;i<preRebase.size();++i) {
+        require(glm::length(worldPosition(preRebase[i],preRebaseSettings)-worldPosition(postRebase[i],postRebaseSettings))<.001,
+            "Anchor rebase visibly moves existing world positions");
+        require(std::memcmp(reinterpret_cast<const unsigned char*>(&preRebase[i])+12,
+            reinterpret_cast<const unsigned char*>(&postRebase[i])+12,sizeof(Ge::Particle)-12)==0,
+            "Anchor rebase resets ages, colors, scale or velocity");
+    }
+    const auto stableRebase=calls;update(rebaseCamera);
+    require(calls.dispatch==stableRebase.dispatch && calls.subdata==stableRebase.subdata,
+        "Stable rebased field repeats dispatch/uploads");
+    skipRasterization=false;
+    std::cout<<"PASS native extended snowfall: near/far population, world40km precision, slow bounded fall, anchoring, recycling and rare rebase\n";
+
+    strengths={};update();
+    strengths[std::size_t(EffectId::GroundMist)]=1;update();const auto firstMist=lastInit;
+    strengths[std::size_t(EffectId::Fumaroles)]=1;update();const auto secondMist=lastInit;
+    require(firstMist.count==secondMist.count,"Grouped simulation fixture needs matching counts");
+    const auto firstBefore=particles(firstMist),secondBefore=particles(secondMist);
+    const auto plumeSettings=readSettings(secondMist);
+    unsigned risen=0;
+    for(const auto& particle:readParticles(secondMist))
+        risen+=worldPosition(particle,plumeSettings).y>plumeSettings.emitPosition.y+plumeSettings.emitScaleMax.y;
+    require(risen>secondMist.count/2,"Prewarmed fumeroles are trapped in the birth slab instead of rising");
+    largestDrawInstanceCount=0;render();
+    require(largestDrawInstanceCount>=2,"Same-kind/count effects did not exercise an instanced batch");
+    require(particles(firstMist)!=firstBefore&&particles(secondMist)!=secondBefore,
+        "Instanced simulation ignored or misaddressed one emitter");
+    std::cout<<"PASS same-kind/count multi-emitter batch: both independent settings/data ranges advance\n";
+
+    strengths={};update();
     require(adapter.groupCount()==0 && adapter.liveParticleCount()==0 && f.renderer.callbacks.empty(),"Zero strength did not release groups/callback");
     for(std::size_t i=0;i<EffectCount;++i) {
         strengths={};strengths[i]=1;update();
@@ -284,35 +429,84 @@ void run() {
         require(adapter.groupCount()==(count?1u:0u) && adapter.liveParticleCount()==count,"Recipe transition retained stale groups");
         render();require(calls.program==programs,"Transition compiled another shader program");
     }
+    // The largest legal stable combination (one biome plus two explicit
+    // events) must fit even at the exposed4x density, not silently thin out.
+    std::size_t peak=0;EffectMask peakMask=0;
+    for(const auto& biome:biomeEffectMatrix()) {
+        std::vector<std::pair<std::size_t,EffectId>> events;
+        EffectMask combined=biome.passive;std::size_t count=0;
+        for(const auto& effect:effectDefinitions()) {
+            if(biome.passive&effectBit(effect.id)) count+=effect.particles.count;
+            if(biome.active&effectBit(effect.id)) events.push_back({effect.particles.count,effect.id});
+        }
+        std::sort(events.rbegin(),events.rend());
+        for(unsigned e=0;e<(std::min)(2u,unsigned(events.size()));++e) {
+            count+=events[e].first;combined|=effectBit(events[e].second);
+        }
+        if(count>peak) { peak=count;peakMask=combined; }
+    }
+    strengths={};update();
+    for(unsigned i=0;i<EffectCount;++i) if(peakMask&effectBit(EffectId(i))) strengths[i]=1;
+    update({},false,4);
+    require(adapter.liveParticleCount()==peak*4,"Legal passive/event combination silently lost requested particle density");
+    std::cout<<"PASS native largest legal biome/event combination: "<<peak*4<<" particles at4x without truncation\n";
     strengths.fill(1);update();require(adapter.groupCount()==8,"Eight-group hard cap not enforced");
-    require(adapter.liveParticleCount()<=32768,"Particle budget exceeded");
+    require(adapter.liveParticleCount()<=EnduranceBiomeParticles::MaxLiveParticles,"Particle budget exceeded");
     strengths={};update();
     for(auto event: {EffectId::Rain,EffectId::HeavyRain,EffectId::Sandstorm,EffectId::Blizzard}) strengths[std::size_t(event)]=1;
-    update({},false,4);require(adapter.liveParticleCount()==32768 && adapter.groupCount()<=4,
-        "Particle budget must truncate last eligible group at 32768");
+    update({},false,4);require(adapter.liveParticleCount()==EnduranceBiomeParticles::MaxLiveParticles && adapter.groupCount()<=4,
+        "Particle budget must truncate the last eligible group at the configured cap");
     const auto truncated=calls;
     update({1,0,0},false,40);
-    require(adapter.liveParticleCount()==32768 && calls.dispatch==truncated.dispatch
+    require(adapter.liveParticleCount()==EnduranceBiomeParticles::MaxLiveParticles && calls.dispatch==truncated.dispatch
         && calls.buffer==truncated.buffer,"Clamped density recreated budget-truncated groups");
     strengths={};update();
-    strengths[std::size_t(EffectId::Rain)]=strengths[std::size_t(EffectId::HeavyRain)]=1;
+    for(auto effect:{EffectId::Rain,EffectId::HeavyRain,EffectId::Sandstorm}) strengths[std::size_t(effect)]=1;
     update({},false,4);
-    require(adapter.liveParticleCount()==32768 && adapter.groupCount()==2,"Promotion fixture did not saturate pool");
+    require(adapter.liveParticleCount()==EnduranceBiomeParticles::MaxLiveParticles && adapter.groupCount()==3,"Promotion fixture did not saturate pool");
     const auto beforePromotion=calls.dispatch;
-    strengths[std::size_t(EffectId::Rain)]=0;update({},false,4);
-    require(adapter.groupCount()==1 && adapter.liveParticleCount()==4*effectDefinitions()[std::size_t(EffectId::HeavyRain)].particles.count
+    strengths[std::size_t(EffectId::Rain)]=strengths[std::size_t(EffectId::HeavyRain)]=0;update({},false,4);
+    require(adapter.groupCount()==1 && adapter.liveParticleCount()==4*effectDefinitions()[std::size_t(EffectId::Sandstorm)].particles.count
         && calls.dispatch==beforePromotion+1,"Truncated group did not recover density when budget became available");
     const auto promoted=calls;update({},false,4);
     require(calls.dispatch==promoted.dispatch && calls.subdata==promoted.subdata && calls.data==promoted.data
         && calls.buffer==promoted.buffer,"Promoted unchanged group rebuilt/uploaded again");
     update({},false,std::numeric_limits<float>::quiet_NaN());
-    require(adapter.liveParticleCount()==effectDefinitions()[std::size_t(EffectId::HeavyRain)].particles.count,
+    require(adapter.liveParticleCount()==effectDefinitions()[std::size_t(EffectId::Sandstorm)].particles.count,
         "Nonfinite density did not fall back to configured default");
     strengths.fill(std::numeric_limits<float>::quiet_NaN());update();
     require(adapter.groupCount()==0 && f.renderer.callbacks.empty(),"Nonfinite strengths retained live groups");
     strengths[id]=1;update();update({std::numeric_limits<float>::infinity(),0,0});
     require(adapter.groupCount()==0 && f.renderer.callbacks.empty(),"Invalid camera retained live groups");
-    std::cout<<"PASS all40 native transitions: precompiled programs, density0..4, eight groups/32768 slots, invalid input cleanup\n";
+    std::cout<<"PASS all40 native transitions: precompiled programs, density0..4, eight groups/bounded pool, invalid input cleanup\n";
+
+    if(const char* previewPath=std::getenv("ENDURANCE_PARTICLE_PREVIEW")) {
+        strengths={};update();strengths[std::size_t(EffectId::LightSnow)]=1;update({},true);
+        constexpr unsigned width=960,height=540;
+        f.data.str_width=width;f.data.str_height=height;
+        glBindTexture(GL_TEXTURE_2D,f.textures[2]);
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA16F,width,height,0,GL_RGBA,GL_FLOAT,nullptr);
+        const float projectionX=1.3f*float(height)/width;
+        glNamedBufferSubData(f.buffers[0],1024+36*sizeof(float),sizeof(float),&projectionX);
+        glViewport(0,0,width,height);glDisable(GL_DEPTH_TEST);
+        glEnable(GL_BLEND);glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+        glClearColor(.19f,.28f,.39f,1);glClear(GL_COLOR_BUFFER_BIT);
+        render();
+        std::vector<unsigned char> pixels(width*height*3);
+        glReadPixels(0,0,width,height,GL_RGB,GL_UNSIGNED_BYTE,pixels.data());
+        std::ofstream image(previewPath,std::ios::binary);
+        require(bool(image),"Cannot write optional snow diagnostic image");
+        image<<"P6\n"<<width<<" "<<height<<"\n255\n";
+        for(unsigned row=height;row--;) image.write(reinterpret_cast<const char*>(pixels.data()+row*width*3),width*3);
+        require(bool(image),"Cannot finish optional snow diagnostic image");
+        f.data.str_width=f.data.str_height=32;
+        glBindTexture(GL_TEXTURE_2D,f.textures[2]);
+        glTexImage2D(GL_TEXTURE_2D,0,GL_RGBA32F,32,32,0,GL_RGBA,GL_FLOAT,nullptr);
+        const float originalX=1.3f;
+        glNamedBufferSubData(f.buffers[0],1024+36*sizeof(float),sizeof(float),&originalX);
+        glViewport(0,0,32,32);glDisable(GL_BLEND);f.bindSentinels();
+        std::cout<<"Saved authored15360-particle snowfall diagnostic: "<<previewPath<<'\n';
+    }
 
     strengths={};strengths[id]=1;update();
     const auto resources=ownedBuffers;const auto shaders=ownedPrograms;
@@ -331,6 +525,28 @@ void run() {
     require(adapter.initialize(&f.pointers),"Reinitialize failed");
     require(f.renderer.callbacks.empty(),"Reinitialize restored obsolete callback");
     adapter.release();checkGL("release/reinitialize");
+    {
+        Ge::ParticleSystem legacy;
+        require(legacy.isValid(),"Legacy particle system failed initialization");
+        Ge::ParticleBaseGroup settings;
+        for(auto& stop:settings.colorGradient) stop=glm::vec4(1);
+        settings.flags=Ge::InstantParticuleInitialize;
+        const auto group=legacy.createGroup(&settings,sizeof(settings),32,&f.white);
+        const auto allocated=lastInit;
+        const auto before=particles(allocated);
+        for(const auto& particle:readParticles(allocated))
+            require(particle.position.y==100000 && particle.time==-1 && particle.scale==0,
+                "Omitted custom initializer changed legacy initialization behavior");
+        bool depthWrite=true;legacy.render(&depthWrite);
+        require(particles(allocated)!=before,"Legacy default simulation stopped advancing");
+        legacy.restartGroup(group);
+        require(particles(allocated)==before,"Legacy restart did not use the default initializer");
+        legacy.removeGroup(group);
+    }
+    require(f.renderer.callbacks.empty() && ownedBuffers.empty() && ownedPrograms.empty()
+        && f.pipelines.GetPipelines().empty(),"Legacy fallback cleanup leaked resources or callback");
+    checkGL("legacy initializer fallback");
+    std::cout<<"PASS legacy create/restart fallback remains unchanged with optional custom initializer\n";
     std::cout<<"PASS native GL isolation: range offsets/sizes, textures/samplers, program/VAO/cull; release/reinitialize cleanup\n";
 }
 }

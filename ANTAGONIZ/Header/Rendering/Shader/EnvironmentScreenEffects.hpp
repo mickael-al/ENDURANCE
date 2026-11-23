@@ -40,5 +40,6 @@ namespace Ge
         // Dust and lightning use only inexpensive compositing arithmetic.
         std::array<Variant, 16> m_variants{};
         EnvironmentScreenState m_state{};
+        unsigned int m_frostPattern = 0;
     };
 }

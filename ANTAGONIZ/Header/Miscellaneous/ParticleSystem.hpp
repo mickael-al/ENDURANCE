@@ -41,6 +41,7 @@ namespace Ge
         size_t offsetData;
         size_t countData;        
         ComputeShader* cs = nullptr;
+        ComputeShader* init = nullptr;
         GraphiquePipeline* pipeline = nullptr;
         GraphiquePipeline* depth_pipeline = nullptr;
         Textures* texture = nullptr;
@@ -67,9 +68,12 @@ namespace Ge
         ParticleSystem();
         ~ParticleSystem();
 
-        size_t createGroup(void * settings,size_t sizeSettings, size_t nbParticule, Textures* tex, ComputeShader* cs = nullptr, GraphiquePipeline* gp = nullptr, GraphiquePipeline* dgp = nullptr);
+        // Optional shader pointers are caller-owned and must outlive the group.
+        size_t createGroup(void * settings,size_t sizeSettings, size_t nbParticule, Textures* tex, ComputeShader* cs = nullptr, GraphiquePipeline* gp = nullptr, GraphiquePipeline* dgp = nullptr, ComputeShader* initializer = nullptr);
         void updateGroup(size_t groupID, void* settings, size_t sizeSettings);
         void restartGroup(size_t groupID);
+        // Execute a group-local compute over its records using the init ABI.
+        void dispatchGroup(size_t groupID, ComputeShader* shader);
         void removeGroup(size_t groupID);
         void render(bool* currentDepthWrite);
         void updateInstanced();
@@ -79,6 +83,7 @@ namespace Ge
                 && m_init && m_init->isValid() && m_ufill && m_ufill->isValid();
         }
     private:
+        void dispatchGroupData(const ParticleGroup& group, ComputeShader* shader);
         const ptrClass* m_pc = nullptr;
         DynamicGPUAllocator * m_allocator;
         DynamicGPUAllocator * m_instancingGroup;

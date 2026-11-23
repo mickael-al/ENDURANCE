@@ -21,17 +21,16 @@ def main():
     with tempfile.TemporaryDirectory(prefix='endurance-particle-runtime-') as temporary:
         directory=Path(temporary)
         library=directory/'particles.so'
-        command=[os.environ.get('CXX','c++'),'-std=c++17','-O2','-fPIC','-shared',
+        command=[os.environ.get('CXX','c++'),'-std=c++17','-O2','-fPIC',
                  '-DGLEW_NO_GLU','-DGLFW_INCLUDE_NONE','-pthread',
                  '-fvisibility=hidden','-ffunction-sections','-fdata-sections']
-        if '--fast-math' in sys.argv: command.append('-ffast-math')
         for path in ('Tests/BiomeEffects/particle_runtime_fixture','Tests/SSAO/runtime_fixture',
                      'ANTAGONIZ/Header/Struct','ANTAGONIZ/Header/Interface',
                      'ANTAGONIZ/Header/Miscellaneous','ANTAGONIZ/Header/ProjectUser',
                      'ANTAGONIZ/Header/Rendering/Shader','ANTAGONIZ/Header/Rendering/Window',
                      'ThirdParty','ThirdParty/glm','ThirdParty/glfw/include'):
             command+=['-I',str(ROOT/path)]
-        for path in ('Tests/BiomeEffects/particle_runtime_bridge.cpp',
+        sources=('Tests/BiomeEffects/particle_runtime_bridge.cpp',
                      'ANTAGONIZ/Source/ProjectUser/EnduranceBiomeParticles.cpp',
                      'ANTAGONIZ/Source/ProjectUser/EnduranceBiomeEffectsCatalog.cpp',
                      'ANTAGONIZ/Source/Miscellaneous/ParticleSystem.cpp',
@@ -40,9 +39,16 @@ def main():
                      'ANTAGONIZ/Source/Rendering/Shader/ComputeShader.cpp',
                      'ANTAGONIZ/Source/Rendering/Shader/ShaderPair.cpp',
                      'ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp',
-                     'ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp'):
-            command.append(str(ROOT/path))
-        command+=['-l:libGLEW.so.2.2','-l:libGL.so.1','-l:libEGL.so.1','-ldl',
+                     'ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp')
+        objects=[]
+        for index,path in enumerate(sources):
+            output=directory/f'{index}.o'
+            # The test oracle remains strict even when production uses the
+            # engine's -ffast-math; invalid-result assertions must stay valid.
+            flags=['-ffast-math'] if '--fast-math' in sys.argv and index>0 else []
+            subprocess.run(command+flags+['-c',str(ROOT/path),'-o',str(output)],check=True)
+            objects.append(str(output))
+        command=[command[0],'-shared',*objects,'-l:libGLEW.so.2.2','-l:libGL.so.1','-l:libEGL.so.1','-ldl',
                   '-Wl,--gc-sections','-Wl,-z,defs','-o',str(library)]
         subprocess.run(command,check=True)
         os.environ['ENDURANCE_SHADER_CACHE_DIR']=str(directory/'cache')

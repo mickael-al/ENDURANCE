@@ -35,6 +35,7 @@ def main():
                "Rendering/Shape/Model.cpp", "Rendering/Shape/ShapeBufferBase.cpp",
                "Rendering/Materials/Textures.cpp", "Miscellaneous/Editor.cpp",
                "Miscellaneous/ProceduralGeneration.cpp",
+               "Miscellaneous/ParticleSystem.cpp",
                "ProjectUser/ProceduralTerrain.cpp",
                "ProjectUser/EnduranceAtmosphere.cpp", "ProjectUser/EnduranceMoonMesh.cpp",
                "ProjectUser/EnduranceBiomeEffects.cpp", "ProjectUser/EnduranceBiomeEffectsCatalog.cpp",

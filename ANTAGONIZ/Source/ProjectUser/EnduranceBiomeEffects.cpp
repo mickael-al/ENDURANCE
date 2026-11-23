@@ -3,6 +3,7 @@
 #include "EnduranceAtmosphere.hpp"
 #include "EnduranceBiomeEffectsState.hpp"
 #include "EnduranceBiomeParticles.hpp"
+#include "EnduranceParticleWind.hpp"
 #include "Camera.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
@@ -12,7 +13,7 @@
 #include <cstring>
 
 REGISTER(Behaviour, EnduranceBiomeEffectsComponent, enabled, particlesEnabled, screenEnabled,
-         passiveIntensity, screenIntensity, particleDensity, wind, teleportDistance);
+         passiveIntensity, screenIntensity, particleDensity, wind, windVariation, windPeriod, teleportDistance);
 
 namespace
 {
@@ -71,6 +72,7 @@ struct EnduranceBiomeEffectsComponent::Impl
     EnduranceBiomeParticles particles;
     bool registered = false, hasPosition = false;
     glm::vec3 previousPosition{};
+    glm::vec2 currentWind{};
     double seconds = 0.0;
     float dominantWeight = 0.0f;
     int preview = 0;
@@ -158,11 +160,9 @@ void EnduranceBiomeEffectsComponent::prepareRenderer()
     const auto& definitions = effectDefinitions();
     for (std::size_t i = 0; i < EffectCount; ++i)
         if (!definitions[i].activeEvent) strengths[i] *= passive;
-    const glm::vec2 velocity(finiteRange(wind[0], 3.0f, -100.0f, 100.0f),
-                             finiteRange(wind[1], 1.0f, -100.0f, 100.0f));
-    const glm::vec3 forward = glm::vec3(glm::inverse(camera->getViewMatrix())[2]) * -1.0f;
+    m->currentWind = particleWind({wind[0], wind[1]}, m->seconds, windVariation, windPeriod);
     m->particles.update(particlesEnabled ? strengths : std::array<float, EffectCount>{},
-                        position, forward, velocity, dt, teleport,
+                        position, glm::vec3(0.0f), m->currentWind, dt, teleport,
                         finiteRange(particleDensity, 1.0f, 0.0f, 4.0f));
 
     if (screenEnabled)
@@ -191,7 +191,10 @@ void EnduranceBiomeEffectsComponent::onGUI()
     }
     ImGui::SliderFloat("Passive intensity", &passiveIntensity, 0.0f, 1.0f);
     ImGui::SliderFloat("Screen intensity", &screenIntensity, 0.0f, 1.0f);
-    ImGui::DragFloat2("Wind XZ (m/s)", wind.data(), 0.1f, -100.0f, 100.0f);
+    ImGui::DragFloat2("Particle wind XZ (m/s)", wind.data(), 0.1f, -100.0f, 100.0f);
+    ImGui::SliderFloat("Wind variation", &windVariation, 0.0f, 1.0f);
+    ImGui::DragFloat("Gust period (seconds)", &windPeriod, 0.5f, 2.0f, 180.0f);
+    if (m->registered) ImGui::Text("Current particle wind: %.2f, %.2f m/s", m->currentWind.x, m->currentWind.y);
     ImGui::DragFloat("Teleport reset distance", &teleportDistance, 1.0f, 16.0f, 4096.0f);
     if (!m->error.empty()) ImGui::TextWrapped("%s", m->error.c_str());
     if (!m->particles.error().empty()) ImGui::TextWrapped("%s", m->particles.error().c_str());
@@ -235,7 +238,7 @@ void EnduranceBiomeEffectsComponent::onGUI()
                 if (ImGui::Selectable(definitions[i].name, m->preview == i)) m->preview = i;
             ImGui::EndCombo();
         }
-        if (enabled && ImGui::Button("Preview for 12 seconds"))
+        if (enabled && ImGui::Button("Preview for 24 seconds"))
             m->state.previewEffect(static_cast<EffectId>(m->preview));
         ImGui::SameLine();
         if (ImGui::Button("Stop preview")) m->state.stopPreview();
@@ -255,5 +258,7 @@ void EnduranceBiomeEffectsComponent::load(std::string data)
     particleDensity = finiteRange(particleDensity, 1.0f, 0.0f, 4.0f);
     wind[0] = finiteRange(wind[0], 3.0f, -100.0f, 100.0f);
     wind[1] = finiteRange(wind[1], 1.0f, -100.0f, 100.0f);
+    windVariation = finiteRange(windVariation, 0.65f, 0.0f, 1.0f);
+    windPeriod = finiteRange(windPeriod, 24.0f, 2.0f, 180.0f);
     teleportDistance = finiteRange(teleportDistance, 128.0f, 16.0f, 4096.0f);
 }

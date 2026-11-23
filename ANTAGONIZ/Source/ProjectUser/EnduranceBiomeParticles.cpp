@@ -18,7 +18,7 @@
 namespace
 {
     using namespace EnduranceEnvironment;
-    constexpr unsigned FamilyCount = 8;
+    constexpr unsigned FamilyCount = static_cast<unsigned>(ParticleShape::Count);
     constexpr char ShaderRoot[] = "../ENDURANCE/Ressources/Shader/Environment/";
     struct RuntimeSettings
     {
@@ -33,18 +33,7 @@ namespace
 
     unsigned family(ParticleShape shape)
     {
-        switch(shape)
-        {
-        case ParticleShape::Flake: return 1;
-        case ParticleShape::Streak: case ParticleShape::Seed:
-        case ParticleShape::Droplet: case ParticleShape::Meteor: return 2;
-        case ParticleShape::Leaf: case ParticleShape::Petal: return 3;
-        case ParticleShape::Glow: case ParticleShape::Ember: return 4;
-        case ParticleShape::Mist: return 5;
-        case ParticleShape::Crystal: return 6;
-        case ParticleShape::Insect: return 7;
-        default: return 0;
-        }
+        return static_cast<unsigned>(shape);
     }
     bool finiteFloat(float value)
     {
@@ -155,6 +144,8 @@ struct EnduranceBiomeParticles::Impl
 {
     const ptrClass* engine = nullptr;
     std::unique_ptr<Ge::ParticleSystem> system;
+    std::unique_ptr<Ge::ComputeShader> simulation, initializer, rebase;
+    GLint rebaseDelta = -1;
     std::array<Ge::GraphiquePipeline*, FamilyCount> pipelines{};
     std::array<GLint,FamilyCount> mediumLocations{},resolutionLocations{};
     struct Group
@@ -218,6 +209,7 @@ struct EnduranceBiomeParticles::Impl
         registerCallback(false);
         // Delete groups/allocator before their shaders or engine services.
         system.reset();
+        rebase.reset(); initializer.reset(); simulation.reset();
         for(auto*& pipeline:pipelines)
         {
             if(pipeline && engine && engine->graphiquePipelineManager)
@@ -236,14 +228,27 @@ bool EnduranceBiomeParticles::initialize(const ptrClass* engine)
     if(!engine || !engine->renderingEngine || !engine->graphiquePipelineManager || !engine->gdm)
     { m->error="Biome particles require an initialized rendering engine."; return false; }
     m->engine=engine;
+    Ge::ShaderCacheOptions cache;
+    cache.enabled=true;
+    m->simulation=std::make_unique<Ge::ComputeShader>(std::string(ShaderRoot)+"particle_sim.C.glsl", "", "Biome particle simulation", cache);
+    m->initializer=std::make_unique<Ge::ComputeShader>(std::string(ShaderRoot)+"particle_init.C.glsl", "", "Biome particle initialization", cache);
+    m->rebase=std::make_unique<Ge::ComputeShader>(std::string(ShaderRoot)+"particle_rebase.C.glsl", "", "Biome particle rebase", cache);
+    if(!m->simulation->isValid() || !m->initializer->isValid() || !m->rebase->isValid())
+    {
+        m->error="Biome particle volume shaders failed to compile: "+m->simulation->getLastError()
+            +m->initializer->getLastError()+m->rebase->getLastError();
+        m->clear(); return false;
+    }
+    m->rebaseDelta=glGetUniformLocation(m->rebase->getProgram(),"uAnchorDelta");
     for(unsigned f=0; f<FamilyCount; ++f)
     {
         m->pipelines[f]=engine->graphiquePipelineManager->createPipeline(
             std::string(ShaderRoot)+"particle.fs.glsl", std::string(ShaderRoot)+"particle.vs.glsl",
-            false, true, true, 2, "#define GE_BIOME_PARTICLE_SHAPE "+std::to_string(f)+"\n");
-        if(!m->pipelines[f]->isValid())
+            false, true, true, 2, "#define GE_BIOME_PARTICLE_KIND "+std::to_string(f)+"\n", cache);
+        if(!m->pipelines[f] || !m->pipelines[f]->isValid())
         {
-            m->error=m->pipelines[f]->getLastError(); m->clear(); return false;
+            m->error=m->pipelines[f] ? m->pipelines[f]->getLastError() : "Unable to create biome particle pipeline.";
+            m->clear(); return false;
         }
         const unsigned program=m->pipelines[f]->getProgram();
         m->mediumLocations[f]=glGetUniformLocation(program,"uAtmosphereActive");
@@ -268,7 +273,8 @@ void EnduranceBiomeParticles::update(const std::array<float, EffectCount>& stren
     if(!m->system) return;
     std::optional<UpdateState> state;
     const auto captureState=[&state]() { if(!state) state.emplace(); };
-    (void)dt; // Existing ParticleSystem simulation consumes the engine's bounded delta time.
+    (void)dt; // Existing ParticleSystem dispatch supplies its bounded delta time.
+    (void)cameraForward; // All recipes are environmental, not character/mouth effects.
     const auto& definitions=effectDefinitions();
     const bool validPosition=finiteVector(cameraPosition);
     density=finiteClamped(density,0.0f,4.0f,1.0f);
@@ -306,21 +312,20 @@ void EnduranceBiomeParticles::update(const std::array<float, EffectCount>& stren
         RuntimeSettings next;
         next.group=preset.group;
         next.group.emitPosition += cameraPosition;
-        // Breath is attached to a mouth-sized emission region in front of the
-        // camera, but previously emitted vapor stays in world coordinates.
-        if(i==static_cast<std::size_t>(EffectId::ColdBreath) && finiteVector(cameraForward))
+        // A stable local anchor retains slow drift precision at world distances
+        // of tens of kilometers. Camera movement alone never drags particles.
+        next.group.target=group.id && !teleport ? group.settings.group.target : cameraPosition;
+        const glm::vec3 relativeCamera=cameraPosition-next.group.target;
+        if(group.id && !teleport && glm::dot(relativeCamera,relativeCamera)>1024.0f*1024.0f)
         {
-            const float len2=glm::dot(cameraForward,cameraForward);
-            const auto forward=len2>1e-8f?cameraForward/std::sqrt(len2):glm::vec3(0,0,-1);
-            glm::vec3 right=glm::cross(forward,glm::vec3(0,1,0));
-            const float rightLength=glm::dot(right,right);
-            right=rightLength>1e-8f?right/std::sqrt(rightLength):glm::vec3(1,0,0);
-            const glm::vec3 up=glm::cross(right,forward);
-            const auto offset=preset.group.emitPosition;
-            const auto direction=preset.group.emitDirection;
-            next.group.emitPosition=cameraPosition+right*offset.x+up*offset.y-forward*offset.z;
-            next.group.emitDirection=right*direction.x+up*direction.y-forward*direction.z;
+            const glm::vec3 delta=next.group.target-cameraPosition;
+            captureState();
+            glProgramUniform3fv(m->rebase->getProgram(),m->rebaseDelta,1,&delta.x);
+            m->system->dispatchGroup(group.id,m->rebase.get());
+            next.group.target=cameraPosition;
         }
+        // Game-specific simulation interprets externalForce as air velocity;
+        // unlike the generic force integrator it cannot accelerate wind forever.
         next.group.externalForce += glm::vec3(
             finiteClamped(wind.x,-100,100,0),0,finiteClamped(wind.y,-100,100,0))*preset.windScale;
         next.group.flags &= ~Ge::AttachToEmitPoint;
@@ -335,7 +340,7 @@ void EnduranceBiomeParticles::update(const std::array<float, EffectCount>& stren
             if(!group.count) continue;
             captureState();
             group.id=m->system->createGroup(&next,sizeof next,group.count,
-                m->engine->gdm->str_default_texture,nullptr,m->pipelines[family(preset.shape)]);
+                m->engine->gdm->str_default_texture,m->simulation.get(),m->pipelines[family(preset.shape)],nullptr,m->initializer.get());
             group.settings=next;
             group.requestedCount=requested;
             m->particles+=group.count; ++m->liveGroups;

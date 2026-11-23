@@ -23,7 +23,7 @@ public:
     std::size_t liveParticleCount() const;
     std::size_t groupCount() const;
     const std::string& error() const;
-    static constexpr std::size_t MaxLiveParticles = 32768;
+    static constexpr std::size_t MaxLiveParticles = 524288;
     static constexpr std::size_t MaxLiveGroups = 8;
 private:
     struct Impl;

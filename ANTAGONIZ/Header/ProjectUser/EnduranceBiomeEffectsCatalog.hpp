@@ -16,13 +16,17 @@ namespace EnduranceEnvironment
         FrostRim, IceCrystals, GroundSnowDrift, WindLeaves, Petals, DrySeeds,
         DustMotes, GroundMist, SwampVapor, SeaSpray, SaltMist, VolcanicEmbers,
         Fumaroles, Spores, GlowingSpores, CanopyDrips, Insects, WindStreaks,
-        ColdBreath, WetLens, Condensation, SandVeil,
+        IceHaze, WetLens, Condensation, SandVeil,
         Rain, HeavyRain, Sandstorm, Blizzard, AshStorm, Thunderstorm,
         Hail, Sleet, MeteorShower, LunarDustFall, PollenBurst, SporeBloom,
         Count
     };
     inline constexpr std::size_t EffectCount = static_cast<std::size_t>(EffectId::Count);
     static_assert(EffectCount == 40, "Keep stable IDs for all 40 biome effects");
+    // Relative to the first environmental-effects pass: count and horizontal
+    // reach both grow tenfold; vertical layers retain their authored scale.
+    inline constexpr std::uint32_t ParticlePopulationScale = 10;
+    inline constexpr float ParticleHorizontalReachScale = 10.0f;
     using EffectMask = std::uint64_t;
     constexpr EffectMask effectBit(EffectId id) noexcept
     {
@@ -34,7 +38,7 @@ namespace EnduranceEnvironment
     enum class ParticleShape : std::uint8_t
     {
         Dust, Flake, Streak, Leaf, Petal, Seed, Glow, Mist, Ember, Crystal,
-        Droplet, Insect, Meteor, Count
+        Droplet, Insect, Meteor, Ash, Pollen, Spore, Count
     };
 
     struct ParticlePreset

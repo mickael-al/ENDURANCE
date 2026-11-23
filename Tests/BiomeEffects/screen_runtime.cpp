@@ -34,7 +34,22 @@ EXPORTED void* screen_create(const char* root)
         value->camera.projection[2][2]=-1.000002f;
         value->camera.projection[3][2]=-.2000002f;
         value->camera.projection[2][3]=-1.f;
+        // The one-time pattern upload must not interpret its CPU pointer as a
+        // PBO offset or inherit editor texture uploader row/skip settings.
+        GLuint unpack=0;glGenBuffers(1,&unpack);glBindBuffer(GL_PIXEL_UNPACK_BUFFER,unpack);
+        glBufferData(GL_PIXEL_UNPACK_BUFFER,256,nullptr,GL_STATIC_DRAW);
+        glPixelStorei(GL_UNPACK_ALIGNMENT,8);glPixelStorei(GL_UNPACK_ROW_LENGTH,32);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS,2);glPixelStorei(GL_UNPACK_SKIP_PIXELS,3);
         if(!value->effects.initialize(&value->graphics)){delete value;return nullptr;}
+        GLint actual=0;glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING,&actual);
+        if(actual!=GLint(unpack))throw std::runtime_error("Pattern upload changed unpack buffer");
+        glGetIntegerv(GL_UNPACK_ALIGNMENT,&actual);if(actual!=8)throw std::runtime_error("Pattern unpack alignment");
+        glGetIntegerv(GL_UNPACK_ROW_LENGTH,&actual);if(actual!=32)throw std::runtime_error("Pattern unpack row");
+        glGetIntegerv(GL_UNPACK_SKIP_ROWS,&actual);if(actual!=2)throw std::runtime_error("Pattern unpack rows");
+        glGetIntegerv(GL_UNPACK_SKIP_PIXELS,&actual);if(actual!=3)throw std::runtime_error("Pattern unpack pixels");
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0);glDeleteBuffers(1,&unpack);
+        glPixelStorei(GL_UNPACK_ALIGNMENT,4);glPixelStorei(GL_UNPACK_ROW_LENGTH,0);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS,0);glPixelStorei(GL_UNPACK_SKIP_PIXELS,0);
         const float points[]={-1,-1,0,0, 1,-1,1,0, 1,1,1,1, -1,1,0,1};
         const unsigned indices[]={0,1,2,0,2,3};
         glGenVertexArrays(1,&value->quad.vao);glBindVertexArray(value->quad.vao);

@@ -6,7 +6,7 @@
 struct GraphicsDataMisc;
 namespace Ge {
 class RenderingEngine;
-class Time { public: float getDeltaTime() const { return 1.f/60.f; } };
+class Time { public: float delta=1.f/60.f; float getDeltaTime() const { return delta; } };
 }
 struct ptrClass {
     Ge::GraphiquePipelineManager* graphiquePipelineManager=nullptr;

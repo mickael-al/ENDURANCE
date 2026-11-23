@@ -40,6 +40,7 @@ public:
     bool enabled = true, particlesEnabled = true, screenEnabled = true;
     float passiveIntensity = 1.0f, screenIntensity = 1.0f, particleDensity = 1.0f;
     std::array<float, 2> wind{{3.0f, 1.0f}};
+    float windVariation = 0.65f, windPeriod = 24.0f;
     float teleportDistance = 128.0f;
 private:
     const std::uint64_t m_emptyShadowRevision = Ge::nextShadowCasterBoundsRevision();
