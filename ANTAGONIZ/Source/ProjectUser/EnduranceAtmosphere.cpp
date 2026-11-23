@@ -216,6 +216,7 @@ struct EnduranceAtmosphereComponent::Impl
     glm::vec2 lastSubmittedXZ{0.0f};
     glm::vec4 atlasOriginSize{0.0f};
     glm::dvec3 fogWindOffset{0.0};
+    EnduranceEnvironmentMediumState environmentMedium;
     std::uint32_t seed=1337;
     std::uint64_t terrainKey=0,revision=1,nextSequence=0,lastResultSequence=0;
     std::uint64_t submitted=0,completed=0,busyFrames=0,atlasUpdates=0;
@@ -341,6 +342,20 @@ struct EnduranceAtmosphereComponent::Impl
         glProgramUniform1ui(program,glGetUniformLocation(program,"uGameFogSeed"),seed);
         glProgramUniform3f(program,glGetUniformLocation(program,"uGameFogWindOffset"),
             float(fogWindOffset.x),float(fogWindOffset.y),float(fogWindOffset.z));
+        // Only the existing volume integration consumes these small uniforms.
+        // Changing weather never rebuilds the climate atlas or sky/IBL/LUTs.
+        std::array<glm::vec4,2> coefficients{},shapes{},winds{};
+        const float seaLevel=atmosphere ? atmosphere->settings().seaLevel : 0.0f;
+        for(std::size_t i=0;i<environmentMedium.layers.size();++i)
+        {
+            const auto& layer=environmentMedium.layers[i];
+            coefficients[i]=glm::vec4(layer.albedo*layer.extinction,layer.extinction);
+            shapes[i]=glm::vec4(layer.baseHeight,layer.heightScale,layer.noiseAmount,layer.noiseScale);
+            winds[i]=glm::vec4(layer.windOffset,seaLevel,0.0f);
+        }
+        glProgramUniform4fv(program,glGetUniformLocation(program,"uEnvironmentMedium[0]"),2,&coefficients[0].x);
+        glProgramUniform4fv(program,glGetUniformLocation(program,"uEnvironmentShape[0]"),2,&shapes[0].x);
+        glProgramUniform4fv(program,glGetUniformLocation(program,"uEnvironmentWind[0]"),2,&winds[0].x);
     }
 
     void collect()
@@ -417,6 +432,26 @@ EnduranceBiomeSample EnduranceAtmosphereComponent::currentBiomeSample()
     auto result=activeComponent->m->biomeSample;
     if(!activeComponent->m->hasBiomeSource) result.valid=false;
     return result;
+}
+
+void EnduranceAtmosphereComponent::setEnvironmentMedium(const EnduranceEnvironmentMediumState& state)
+{
+    if(!activeComponent || !activeComponent->m || !activeComponent->m->registered) return;
+    auto bounded=[](float value,float lo,float hi,float fallback)
+    { return ProceduralTerrain::finiteFieldValue(value) ? std::clamp(value,lo,hi) : fallback; };
+    auto& destination=activeComponent->m->environmentMedium;
+    for(std::size_t i=0;i<destination.layers.size();++i)
+    {
+        const auto& input=state.layers[i];
+        auto& layer=destination.layers[i];
+        layer.extinction=bounded(input.extinction,0.0f,0.05f,0.0f);
+        for(int axis=0;axis<3;++axis) layer.albedo[axis]=bounded(input.albedo[axis],0.0f,1.0f,1.0f);
+        layer.baseHeight=bounded(input.baseHeight,-100000.0f,100000.0f,0.0f);
+        layer.heightScale=bounded(input.heightScale,1.0f,100000.0f,150.0f);
+        layer.noiseAmount=bounded(input.noiseAmount,0.0f,1.0f,0.0f);
+        layer.noiseScale=bounded(input.noiseScale,0.000001f,0.1f,0.002f);
+        for(int axis=0;axis<2;++axis) layer.windOffset[axis]=bounded(input.windOffset[axis],-1.0e8f,1.0e8f,0.0f);
+    }
 }
 
 bool EnduranceAtmosphereComponent::loadPaletteFile()

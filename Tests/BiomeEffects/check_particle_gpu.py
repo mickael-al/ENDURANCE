@@ -59,7 +59,7 @@ class Fixture:
         self.transmission=gl.texture((1,1,1),target=TEXTURE_3D,internal=RGBA32F,value=(1,1,1,1))
         self.scattering=gl.texture((1,1,1),target=TEXTURE_3D,internal=RGBA32F,value=(0,0,0,1))
         gl._fn('glUniform2ui',None,C.c_int,C.c_uint,C.c_uint)
-    def render(self,program,*,data=None,depth=100.,sky=False,atmosphere=False,time=0.):
+    def render(self,program,*,data=None,depth=100.,sky=False,atmosphere=False,time=0.,particle_count=1,instance_count=1,blend=False):
         gl=self.gl
         if data is not None:gl.write(self.data,data)
         gl.bind(self.data,6);gl.bind(self.instances,7);gl.bind(self.camera,0)
@@ -68,10 +68,20 @@ class Fixture:
         self.depth=gl.texture(SIZE,internal=RG32F,value=(-depth,-2. if sky else 0.),linear=False)
         output=gl.texture(SIZE,internal=RGBA32F,value=(0,0,0,0))
         gl.sampler(0,self.depth);gl.sampler(12,self.scattering,TEXTURE_3D);gl.sampler(13,self.transmission,TEXTURE_3D)
-        gl.uniform(program,'u_count','2ui',1,0)
+        gl.uniform(program,'u_count','2ui',particle_count,0)
         gl.uniform(program,'uAtmosphereActive','1i',int(atmosphere))
         gl.uniform(program,'uEnvironmentInvResolution','2f',1/SIZE[0],1/SIZE[1])
         gl.fullscreen(program,*SIZE,[output])
+        if particle_count>1 or instance_count>1 or blend:
+            gl._fn('glDrawArraysInstanced',None,C.c_uint,C.c_int,C.c_int,C.c_int)
+            gl._fn('glClearColor',None,C.c_float,C.c_float,C.c_float,C.c_float)
+            gl._fn('glClear',None,C.c_uint);gl._fn('glEnable',None,C.c_uint)
+            gl._fn('glBlendFuncSeparate',None,C.c_uint,C.c_uint,C.c_uint,C.c_uint)
+            gl.glBindFramebuffer(0x8D40,gl.framebuffers[-1]);gl.glClearColor(0,0,0,0);gl.glClear(0x4000)
+            if blend:
+                gl.glEnable(0x0BE2);gl.glBlendFuncSeparate(0x0302,0x0303,1,0x0303)
+            gl.glDrawArraysInstanced(0x0004,0,particle_count*3,instance_count)
+            gl.glDisable(0x0BE2);gl.glBindFramebuffer(0x8D40,0)
         values=gl.texels(output,SIZE)
         assert all(math.isfinite(v) for v in values),'Non-finite particle output'
         return [values[i:i+4] for i in range(0,len(values),4)]
@@ -86,8 +96,8 @@ def check_rendering(gl,programs):
         assert max(p[3] for p in image)<=.701,'Alpha escaped prescribed opacity'
         assert all(p==(0.,0.,0.,0.) for p in fixture.render(program,data=payload(strength=0.))),family
         images.append(image)
-    assert len({tuple(round(p[3],5) for p in image) for image in images})==16,'Sprite families lost their distinct coverage'
-    print('PASS sixteen real procedural sprite kinds: distinct coverage, finite HDR, zero strength clips geometry',flush=True)
+    assert len({tuple(round(p[3],5) for p in image) for image in images})==18,'Sprite families lost their distinct coverage'
+    print('PASS eighteen real procedural sprite kinds: distinct coverage, finite HDR, zero strength clips geometry',flush=True)
     program=programs[0]
     full=fixture.render(program,data=payload())
     soft=fixture.render(program,depth=6.2)
@@ -159,23 +169,108 @@ def check_identity_motion(gl,programs):
     print('PASS local anchor and leading droplet/meteor heads',flush=True)
     print('PASS per-kind motion: snow/pollen/ash identity, ballistic stability, distinct flutter and subpixel coverage',flush=True)
 
+def check_card_edges(gl):
+    # Independent full-card interpolation samples exact UV boundaries, including
+    # a minified card with a large fwidth. The fragment shader is production code.
+    witness="""#version 450 core
+out VS_OUT { vec2 uv; vec4 color; vec3 worldPosition; float viewDepth;
+ flat float emission; flat float variation; flat float aspect; } vs_out;
+uniform vec2 uWitness;
+void main() {
+ const vec2 c[3]=vec2[3](vec2(-1,-1),vec2(3,-1),vec2(-1,3));
+ vec2 q=c[gl_VertexID];gl_Position=vec4(q,0,1);
+ vs_out.uv=(q*.5+.5)*uWitness.x+uWitness.y;
+ vs_out.color=vec4(1);vs_out.worldPosition=vec3(0,0,-6);vs_out.viewDepth=6;
+ vs_out.emission=0;vs_out.variation=.37;vs_out.aspect=2.5;
+}"""
+    global SIZE
+    original=SIZE
+    for width in (5,17,97):
+        SIZE=(width,width);fixture=Fixture(gl)
+        for kind in (0,4,5,9,13,16,17):
+            program=gl.compile([(0x8B31,witness),(0x8B30,shader_source(SHADERS/'particle.fs.glsl',
+                f'#define GE_BIOME_PARTICLE_KIND {kind}\n'))],f'card edge {kind}')
+            gl.uniform(program,'uWitness','2f',width/(width-1),-.5/(width-1))
+            result=fixture.render(program)
+            border=[p[3] for i,p in enumerate(result) if i%width in (0,width-1) or i//width in (0,width-1)]
+            assert max(border)<1e-5,('Visible opacity survives card edge',kind,width,max(border))
+    SIZE=original
+    print('PASS exact UV borders: dust/ash/leaflike/crystal/cloud/snowdrift across minification levels',flush=True)
+
+def cloud_field(gl,program,*,aspect=1.,time=0.):
+    fixture=Fixture(gl);count=128;groups=2;data=bytearray()
+    descriptors=[]
+    for group in range(groups):
+        sid=len(data)//4
+        settings=payload(aspect=aspect,scale=.15,turbulence=.1,color=(.65,.48,.27,.16))[:SETTINGS_WORDS*4]
+        data.extend(settings);descriptors.append((sid,SETTINGS_WORDS,len(data)//4))
+        for i in range(count):
+            depth=2.0+(i*37%181)*.11
+            position=(((i*73+group*31)%103/51.-1)*depth*.64,
+                      ((i*47+group*17)%97/48.-1)*depth*.51,-depth)
+            scale=.08+(i*17%61)*.004
+            # Include a large near-camera sprite and a card crossing the frustum.
+            if i==0:position=(.25,.08,-.65);scale=.32
+            if i==1:position=(1.2,.2,-2.);scale=.46
+            data.extend(payload(position=position,scale=scale,color=(.65,.48,.27,.16))[SETTINGS_WORDS*4:])
+    fixture.data=gl.buffer(bytes(data),6)
+    indices=[2,5,*descriptors[0],*descriptors[1]]
+    fixture.instances=gl.buffer(struct.pack('<8I',*indices),7)
+    first=fixture.render(program,particle_count=count,instance_count=2,blend=True,time=time)
+    second=fixture.render(program,particle_count=count,instance_count=2,blend=True,time=time)
+    assert first==second,'Paused cloud field is not stable'
+    assert max(p[3] for p in first)<.50,'Cloud detail turns into opaque cards'
+    assert sum(p[3]>.002 for p in first)>30,'Instanced cloud field disappeared'
+    one=fixture.render(program,particle_count=count,instance_count=1,blend=True,time=time)
+    assert sum(p[3] for p in first)>sum(p[3] for p in one)*1.15,'Second instanced group did not draw independently'
+    return first
+
+def check_cloud_fields(gl,programs,directory=None):
+    for aspect in (.3,1.,2.5,6.):
+        cloud_field(gl,programs[16],aspect=aspect)
+    print('PASS actual 2-group/256-sprite dust clouds: alpha blending, aspect .3..6, near-camera/frustum clipping, pause',flush=True)
+    if directory:
+        from PIL import Image,ImageDraw
+        global SIZE
+        original=SIZE;SIZE=(512,512)
+        output=Image.new('RGB',(1024,540));draw=ImageDraw.Draw(output)
+        for j,kind in enumerate((0,16)):
+            field=cloud_field(gl,programs[kind],aspect=2.5 if kind==0 else .65)
+            pixels=[]
+            for i,p in enumerate(field):
+                # The actual draw used alpha blending, hence its RGB is already
+                # premultiplied. A colored sky/ground witness exposes both dark
+                # and bright card boundaries instead of hiding them on black.
+                y=(i//SIZE[0])/SIZE[1]
+                background=(.10,.16,.24) if y>.42 else (.13,.105,.065)
+                c=[p[k]+background[k]*(1-p[3]) for k in range(3)]
+                pixels.append(tuple(int(255*(v/(1+v))**(1/2.2)) for v in c))
+            tile=Image.new('RGB',SIZE);tile.putdata(pixels)
+            output.paste(tile.transpose(Image.Transpose.FLIP_TOP_BOTTOM),(j*512,0))
+        draw.text((8,518),'Mineral micro-grains (not used for sandstorm)',fill='white')
+        draw.text((520,518),'DustCloud - instanced storm aspect .65, paused',fill='white')
+        directory.mkdir(parents=True,exist_ok=True)
+        output.save(directory/'dust_instanced.png');print(directory/'dust_instanced.png',flush=True)
+        SIZE=original
+
 def write_snapshots(gl,programs,directory):
     # Debug renders of the real shaders, not external artwork or runtime assets.
     from PIL import Image,ImageDraw
     global SIZE
     SIZE=(257,257)
     names=['Mineral dust','Snow dendrite','Rain','Leaf','Petal','Winged seed','Firefly','Vapour',
-           'Ember','Ice crystal','Droplet','Insect','Meteor','Ash shard','Pollen tuft','Spore']
+           'Ember','Ice crystal','Droplet','Insect','Meteor','Ash shard','Pollen tuft','Spore','Dust cloud','Snow drift']
     colors=[(.65,.48,.27),(.9,.95,1),(.58,.69,.76),(.35,.45,.16),(.85,.43,.48),(.64,.48,.24),
             (.4,.9,.2),(.60,.67,.7),(1,.18,.025),(.65,.85,1),(.6,.8,.88),(.12,.15,.08),
-            (1,.33,.05),(.18,.16,.15),(.84,.75,.39),(.23,.67,.63)]
+            (1,.33,.05),(.18,.16,.15),(.84,.75,.39),(.23,.67,.63),(.65,.48,.27),(.83,.91,.97)]
     fixture=Fixture(gl)
     directory.mkdir(parents=True,exist_ok=True)
     for time in (0.,2.7):
-        sheet=Image.new('RGB',(4*SIZE[0],4*(SIZE[1]+24)),(24,30,38));draw=ImageDraw.Draw(sheet)
+        sheet=Image.new('RGB',(4*SIZE[0],5*(SIZE[1]+24)),(24,30,38));draw=ImageDraw.Draw(sheet)
         for kind,program in enumerate(programs):
             rgba=fixture.render(program,data=payload(position=(0,0,-4),scale=1.35,
-                color=(*colors[kind],.9),turbulence=.28,rotate=True,
+                color=(*colors[kind],.9),turbulence=.28,rotate=kind not in (16,17),
+                aspect=.3 if kind==17 else (.65 if kind==16 else 1.),
                 emission=2.0 if kind in (6,8,12,15) else 0.),time=time)
             rgb=[]
             for i,p in enumerate(rgba):
@@ -219,12 +314,14 @@ def main():
     with AtmosphereGL() as gl:
         print(gl.version,gl.renderer,flush=True)
         programs=[]
-        for family in range(16):
+        for family in range(18):
             defines=f'#define GE_BIOME_PARTICLE_KIND {family}\n'
             programs.append(gl.compile([(0x8B31,shader_source(SHADERS/'particle.vs.glsl',defines)),
                                         (0x8B30,shader_source(SHADERS/'particle.fs.glsl',defines))],f'biome particle family {family}'))
         check_rendering(gl,programs)
         check_identity_motion(gl,programs)
+        check_card_edges(gl)
+        check_cloud_fields(gl,programs,args.snapshots)
         check_simulation(gl)
         if args.snapshots:write_snapshots(gl,programs,args.snapshots)
         gl.check('biome particle visual/simulation tests')

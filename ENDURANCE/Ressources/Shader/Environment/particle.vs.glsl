@@ -83,7 +83,7 @@ void main()
 #elif GE_BIOME_PARTICLE_KIND == 1
     // Snow: gentle independent lateral meander, barely any vertical flutter.
     detail=vec3(sin(t*.72+phase),.09*sin(t*.91-phase),cos(t*.49+phase))*.65;
-    turn=.22*sin(t*.8+phase); tilt=.72+.28*abs(cos(t*.54+phase));
+    turn=.38*sin(t*.8+phase); tilt=.42+.58*abs(cos(t*.83+phase));
 #elif GE_BIOME_PARTICLE_KIND == 2 || GE_BIOME_PARTICLE_KIND == 10 || GE_BIOME_PARTICLE_KIND == 12
     // Rain, sea droplets and meteors retain ballistic motion from simulation.
     // No generic sinusoid is added to a heavy/fast falling body.
@@ -128,6 +128,15 @@ void main()
     vec2 flow=eddy(position.xz*frequency,t*.32);
     detail=vec3(flow.x,.28*sin(t*.63+phase),flow.y);
     turn=.35*sin(t*.57+phase);
+#elif GE_BIOME_PARTICLE_KIND == 16
+    // Dust clouds roll gently while macro wind/advection remains in simulation.
+    vec2 flow=eddy(position.xz*frequency,t*.23);
+    detail=vec3(flow.x,.13*softWave(t*.14+seed),flow.y);
+    breathing=1.0+.10*sin(t*.47+phase); turn=.13*sin(t*.31+phase);
+#elif GE_BIOME_PARTICLE_KIND == 17
+    // Drifting snow skims the ground in broad sheared ribbons, not pollen orbits.
+    detail=vec3(sin(t*.62+phase),.035*sin(t*1.24+phase),cos(t*.37+phase)*.34);
+    breathing=1.0+.07*sin(t*.48+phase); turn=.04*sin(t*.31+phase);
 #else
     // Spores describe loose rising spirals; emission is an independent property.
     detail=vec3(sin(t*.39+phase),.14*cos(t*.78+phase),cos(t*.39+phase))*.5;
@@ -144,10 +153,12 @@ void main()
     vec3 oldRight=right;
     right=oldRight*axis.y-up*axis.x; up=oldRight*axis.x+up*axis.y;
 #else
-#if GE_BIOME_PARTICLE_KIND == 7
+#if GE_BIOME_PARTICLE_KIND == 7 || GE_BIOME_PARTICLE_KIND == 17
     // Low elongated haze sheets stay horizontal; a random roll would turn the
     // same recipe into vertical curtains. Tall fumes keep their authored aspect.
     float angle=turn*.3+(seed-.5)*.08;
+#elif GE_BIOME_PARTICLE_KIND == 16
+    float angle=turn+(seed-.5)*.55;
 #else
     float angle=phase+turn;
 #endif

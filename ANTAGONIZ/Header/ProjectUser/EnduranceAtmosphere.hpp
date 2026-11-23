@@ -2,6 +2,7 @@
 
 #include "Behaviour.hpp"
 #include "CustomRenderer.hpp"
+#include "EnduranceEnvironmentMedium.hpp"
 #include <array>
 #include <cstdint>
 #include <memory>
@@ -62,6 +63,9 @@ public:
     std::string serialize() override;
     void load(std::string data) override;
     static EnduranceBiomeSample currentBiomeSample();
+    // CPU-only render-thread input. Send {} when effects stop. Does not mutate
+    // scene atmosphere settings or invalidate LUTs, sky captures or fog atlases.
+    static void setEnvironmentMedium(const EnduranceEnvironmentMediumState& state);
 
     std::string paletteFile="../ENDURANCE/Ressources/Atmosphere/biome_palettes.json";
     // The model is preferred; an empty path explicitly selects the legacy atlas.

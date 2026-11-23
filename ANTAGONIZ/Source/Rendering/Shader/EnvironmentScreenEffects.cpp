@@ -28,148 +28,47 @@ namespace
             ? (std::clamp)(value, low, high) : fallback;
     }
 
-    // A deterministic dendrite bake, not a per-frame crystal simulation. Faceted
-    // side branches grow at approximately 60 degrees; their accumulated travel
-    // stores the arrival time, so growth reveals actual stems before their tips.
-    // RG8 + mips is 2.67 MiB; the runtime shader needs just one filtered lookup.
+    // Cache a periodic Voronoi displacement field once, in C++. RG8 stores the
+    // vector to each facet's source pixel, not a white frost overlay. Computing
+    // the 25 candidate sites here avoids any cellular search during rendering.
+    // 1024 squared RG8 + mips stays at 2.67 MiB, like the previous pattern cache.
     GLuint bakeFrostPattern()
     {
-        constexpr int side = 1024;
-        struct Pixel { float coverage = 0.0f, arrival = 1.0f; };
-        std::vector<Pixel> pixels(side * side);
-        std::uint32_t seed = 0x62f31a9du;
-        auto random = [&seed]() {
-            seed ^= seed << 13; seed ^= seed >> 17; seed ^= seed << 5;
-            return float(seed & 0xffffffu) * (1.0f / 16777216.0f);
+        constexpr int side = 1024, cells = 32;
+        constexpr float encodingRange = 3.0f; // signed +/-1.5 cells
+        auto hash = [](std::uint32_t value) {
+            value ^= value >> 16; value *= 0x7feb352du;
+            value ^= value >> 15; value *= 0x846ca68bu;
+            return value ^ (value >> 16);
         };
-        auto segment = [&](glm::vec2 a, glm::vec2 b, float widthA, float widthB,
-                           float arrivalA, float arrivalB) {
-            a *= float(side); b *= float(side);
-            const glm::vec2 ab = b - a;
-            const float length2 = glm::dot(ab, ab);
-            if (length2 < 0.0001f) return;
-            const float radius = (std::max)(widthA, widthB) + 1.0f;
-            const int x0 = (std::max)(0, int(std::floor((std::min)(a.x, b.x) - radius)));
-            const int x1 = (std::min)(side - 1, int(std::ceil((std::max)(a.x, b.x) + radius)));
-            const int y0 = (std::max)(0, int(std::floor((std::min)(a.y, b.y) - radius)));
-            const int y1 = (std::min)(side - 1, int(std::ceil((std::max)(a.y, b.y) + radius)));
-            for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x)
-            {
-                const glm::vec2 p(float(x) + .5f, float(y) + .5f);
-                const float t = std::clamp(glm::dot(p - a, ab) / length2, 0.0f, 1.0f);
-                const float width = glm::mix(widthA, widthB, t);
-                const float distance = glm::length(p - a - ab * t);
-                const float coverage = std::clamp(width + .8f - distance, 0.0f, 1.0f);
-                auto& pixel = pixels[y * side + x];
-                if (coverage > pixel.coverage)
-                {
-                    pixel.coverage = coverage;
-                    pixel.arrival = glm::mix(arrivalA, arrivalB, t);
-                }
-            }
-        };
-        auto plate = [&](glm::vec2 baseA, glm::vec2 baseB, glm::vec2 tip,
-                         float arrivalBase, float arrivalTip, float opacity) {
-            baseA *= float(side); baseB *= float(side); tip *= float(side);
-            const glm::vec2 e = baseB - baseA, f = tip - baseA;
-            const float determinant = e.x * f.y - e.y * f.x;
-            if (std::abs(determinant) < .001f) return;
-            const int x0 = (std::max)(0, int(std::floor((std::min)({baseA.x, baseB.x, tip.x}))));
-            const int x1 = (std::min)(side - 1, int(std::ceil((std::max)({baseA.x, baseB.x, tip.x}))));
-            const int y0 = (std::max)(0, int(std::floor((std::min)({baseA.y, baseB.y, tip.y}))));
-            const int y1 = (std::min)(side - 1, int(std::ceil((std::max)({baseA.y, baseB.y, tip.y}))));
-            for (int y = y0; y <= y1; ++y) for (int x = x0; x <= x1; ++x)
-            {
-                const glm::vec2 q = glm::vec2(float(x) + .5f, float(y) + .5f) - baseA;
-                const float v = (q.x * f.y - q.y * f.x) / determinant;
-                const float w = (e.x * q.y - e.y * q.x) / determinant;
-                const float u = 1.0f - v - w;
-                if (u < 0 || v < 0 || w < 0) continue;
-                // Faceted translucent tissue between the veins. The seam of
-                // the two triangular facets remains visible, like etched ice.
-                const float edge = std::clamp((std::min)({u, v, w}) * 18.0f, 0.0f, 1.0f);
-                const float facet = u > v ? .72f : 1.0f;
-                const float coverage = opacity * edge * facet;
-                auto& pixel = pixels[y * side + x];
-                if (coverage > pixel.coverage)
-                {
-                    pixel.coverage = coverage;
-                    pixel.arrival = glm::mix(arrivalBase, arrivalTip, w);
-                }
-            }
-        };
-        auto fern = [&](glm::vec2 origin, float angle, float length, float width, float delay) {
-            constexpr int steps = 20;
-            const float curve = (random() - .5f) * 1.2f;
-            const float branchScale = .65f + random() * .35f;
-            glm::vec2 a = origin;
-            for (int step = 0; step < steps; ++step)
-            {
-                const float t = float(step) / steps;
-                const float heading = angle + curve * t;
-                const glm::vec2 axis(std::cos(heading), std::sin(heading));
-                const glm::vec2 b = a + axis * (length / steps);
-                const float age = delay + t * length * 1.7f;
-                segment(a, b, width * (1.0f - t * .75f), width * (1.0f - (t + 1.0f / steps) * .75f),
-                    age, age + length * 1.7f / steps);
-                if (step > 0 && step < steps - 1)
-                    for (int sign : {-1, 1})
-                    {
-                        const float branchAngle = heading + float(sign) * (1.04719755f + (random() - .5f) * .12f);
-                        const glm::vec2 direction(std::cos(branchAngle), std::sin(branchAngle));
-                        const float branchLength = length * (.26f * (1.0f - t) + .045f) * branchScale * (.7f + random() * .6f);
-                        const glm::vec2 tip = b + direction * branchLength;
-                        const float branchAge = age + length * 1.7f / steps;
-                        // Small translucent blades grow between selected ribs;
-                        // their uneven lengths keep the perimeter feathery.
-                        if (step % 3 != 0)
-                            plate(b - axis * (length / steps) * .72f,
-                                b + axis * (length / steps) * .8f, tip,
-                                branchAge, branchAge + branchLength * 2.1f,
-                                (.18f + random() * .20f) * (1.0f - t * .35f));
-                        segment(b, tip, width * .6f, .22f, branchAge, branchAge + branchLength * 2.1f);
-                        // Small secondary teeth make a fern, rather than a set
-                        // of long disconnected lines or a moving sine pattern.
-                        for (int tooth = 1; tooth < 7; ++tooth)
-                        {
-                            const float u = (float(tooth) + (random() - .5f) * .35f) / 7.0f;
-                            const glm::vec2 start = glm::mix(b, tip, u);
-                            for (int branchSide : {-1, 1})
-                            {
-                                const float toothAngle = branchAngle + float(branchSide) * 1.04719755f;
-                                const glm::vec2 toothDir(std::cos(toothAngle), std::sin(toothAngle));
-                                const float toothLength = branchLength * (.22f + random() * .20f) * (1.0f - u);
-                                const float toothAge = branchAge + u * branchLength * 2.1f;
-                                segment(start, start + toothDir * toothLength, width * .3f, .12f,
-                                    toothAge, toothAge + toothLength * 2.5f);
-                            }
-                        }
-                    }
-                a = b;
-            }
-        };
-        for (int edge = 0; edge < 4; ++edge)
-            for (int i = 0; i < 45; ++i)
-            {
-                const float along = (float(i) + random()) / 45.0f;
-                const bool major = i % 4 == 0;
-                const float length = major ? .20f + random() * .22f : .035f + random() * .13f;
-                glm::vec2 origin;
-                float angle;
-                if (edge == 0) { origin = {along, -.006f}; angle = 1.5707963f; }
-                else if (edge == 1) { origin = {along, 1.006f}; angle = -1.5707963f; }
-                else if (edge == 2) { origin = {-.006f, along}; angle = 0.0f; }
-                else { origin = {1.006f, along}; angle = 3.1415927f; }
-                angle += (random() - .5f) * .85f;
-                fern(origin, angle, length, major ? 2.4f : 1.05f, random() * .10f);
-            }
-        std::vector<unsigned char> encoded(side * side * 2);
-        for (std::size_t i = 0; i < pixels.size(); ++i)
+        std::vector<glm::vec2> sites(cells * cells);
+        for (int y = 0; y < cells; ++y) for (int x = 0; x < cells; ++x)
         {
-            encoded[i * 2] = static_cast<unsigned char>(pixels[i].coverage * 255.0f + .5f);
-            // Premultiply the arrival channel so mip filtering cannot mix the
-            // empty background's arrival into a thin branch and delay its growth.
-            encoded[i * 2 + 1] = static_cast<unsigned char>(pixels[i].coverage * std::clamp(pixels[i].arrival, 0.0f, 1.0f) * 255.0f + .5f);
+            const auto h = hash(static_cast<std::uint32_t>(y * cells + x) ^ 0x62f31a9du);
+            const auto k = hash(h ^ 0x97b2148du);
+            sites[y * cells + x] = glm::vec2(.08f) + .84f * glm::vec2(
+                float(h & 0xffffffu), float(k & 0xffffffu)) * (1.0f / 16777216.0f);
+        }
+        std::vector<unsigned char> encoded(side * side * 2);
+        for (int y = 0; y < side; ++y) for (int x = 0; x < side; ++x)
+        {
+            const glm::vec2 q = (glm::vec2(x, y) + .5f) * (float(cells) / side);
+            const int cx = int(q.x), cy = int(q.y);
+            float nearest = 100.0f;
+            glm::vec2 offset(0.0f);
+            for (int dy = -2; dy <= 2; ++dy) for (int dx = -2; dx <= 2; ++dx)
+            {
+                const int sx = cx + dx, sy = cy + dy;
+                const glm::vec2 site = glm::vec2(sx, sy) + sites[
+                    ((sy + cells) % cells) * cells + (sx + cells) % cells];
+                const glm::vec2 delta = site - q;
+                const float distance = glm::dot(delta, delta);
+                if (distance < nearest) { nearest = distance; offset = delta; }
+            }
+            const glm::vec2 packed = glm::clamp(offset / encodingRange + .5f, 0.0f, 1.0f);
+            const auto index = static_cast<std::size_t>(y * side + x) * 2;
+            encoded[index] = static_cast<unsigned char>(packed.x * 255.0f + .5f);
+            encoded[index + 1] = static_cast<unsigned char>(packed.y * 255.0f + .5f);
         }
         GLuint texture = 0;
         glCreateTextures(GL_TEXTURE_2D, 1, &texture);
@@ -193,8 +92,8 @@ namespace
         glPixelStorei(GL_UNPACK_SKIP_PIXELS, unpackSkipPixels);
         glTextureParameteri(texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTextureParameteri(texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-        glTextureParameteri(texture, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTextureParameteri(texture, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTextureParameteri(texture, GL_TEXTURE_WRAP_S, GL_REPEAT);
+        glTextureParameteri(texture, GL_TEXTURE_WRAP_T, GL_REPEAT);
         glGenerateTextureMipmap(texture);
         return texture;
     }

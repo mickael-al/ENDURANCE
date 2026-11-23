@@ -406,7 +406,7 @@ void run() {
     std::cout<<"PASS native extended snowfall: near/far population, world40km precision, slow bounded fall, anchoring, recycling and rare rebase\n";
 
     strengths={};update();
-    strengths[std::size_t(EffectId::GroundMist)]=1;update();const auto firstMist=lastInit;
+    strengths[std::size_t(EffectId::SaltMist)]=1;update();const auto firstMist=lastInit;
     strengths[std::size_t(EffectId::Fumaroles)]=1;update();const auto secondMist=lastInit;
     require(firstMist.count==secondMist.count,"Grouped simulation fixture needs matching counts");
     const auto firstBefore=particles(firstMist),secondBefore=particles(secondMist);

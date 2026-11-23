@@ -4,6 +4,7 @@
 #include "EnduranceBiomeEffectsState.hpp"
 #include "EnduranceBiomeParticles.hpp"
 #include "EnduranceParticleWind.hpp"
+#include "EnduranceBiomeMedium.hpp"
 #include "Camera.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
@@ -12,7 +13,7 @@
 #include <cmath>
 #include <cstring>
 
-REGISTER(Behaviour, EnduranceBiomeEffectsComponent, enabled, particlesEnabled, screenEnabled,
+REGISTER(Behaviour, EnduranceBiomeEffectsComponent, enabled, particlesEnabled, screenEnabled, mediumEnabled,
          passiveIntensity, screenIntensity, particleDensity, wind, windVariation, windPeriod, teleportDistance);
 
 namespace
@@ -73,6 +74,7 @@ struct EnduranceBiomeEffectsComponent::Impl
     bool registered = false, hasPosition = false;
     glm::vec3 previousPosition{};
     glm::vec2 currentWind{};
+    glm::dvec2 mediumWindOffset{};
     double seconds = 0.0;
     float dominantWeight = 0.0f;
     int preview = 0;
@@ -98,6 +100,7 @@ void EnduranceBiomeEffectsComponent::start()
     m->pc->graphiquePipelineManager->addCustomRenderer(this);
     m->registered = true;
     activeEffects = this;
+    EnduranceAtmosphereComponent::setEnvironmentMedium({});
 }
 
 void EnduranceBiomeEffectsComponent::stop()
@@ -107,6 +110,7 @@ void EnduranceBiomeEffectsComponent::stop()
         m->pc->graphiquePipelineManager->removeCustomRenderer(this);
     if (activeEffects == this)
     {
+        EnduranceAtmosphereComponent::setEnvironmentMedium({});
         if (m->pc && m->pc->postProcess) m->pc->postProcess->clearEnvironmentEffects();
         activeEffects = nullptr;
     }
@@ -135,6 +139,7 @@ void EnduranceBiomeEffectsComponent::prepareRenderer()
         m->state.clear(); m->hasPosition = false; m->dominantWeight = 0.0f;
         m->particles.update({}, {}, {0, 0, -1}, {}, 0.0f, true);
         m->pc->postProcess->clearEnvironmentEffects();
+        EnduranceAtmosphereComponent::setEnvironmentMedium({});
         return;
     }
     const glm::vec3 position = camera->getPosition();
@@ -161,6 +166,12 @@ void EnduranceBiomeEffectsComponent::prepareRenderer()
     for (std::size_t i = 0; i < EffectCount; ++i)
         if (!definitions[i].activeEvent) strengths[i] *= passive;
     m->currentWind = particleWind({wind[0], wind[1]}, m->seconds, windVariation, windPeriod);
+    // Accumulate displacement, so changing wind direction does not teleport
+    // the weather noise. Its coordinate field stays independent of cloud wind.
+    m->mediumWindOffset += glm::dvec2(m->currentWind) * static_cast<double>(dt);
+    EnduranceAtmosphereComponent::setEnvironmentMedium(mediumEnabled
+        ? environmentMediumState(strengths, glm::vec2(m->mediumWindOffset))
+        : EnduranceEnvironmentMediumState{});
     m->particles.update(particlesEnabled ? strengths : std::array<float, EffectCount>{},
                         position, glm::vec3(0.0f), m->currentWind, dt, teleport,
                         finiteRange(particleDensity, 1.0f, 0.0f, 4.0f));
@@ -180,6 +191,7 @@ void EnduranceBiomeEffectsComponent::onGUI()
     ImGui::Checkbox("Enabled##biome_effects", &enabled);
     ImGui::Checkbox("Particles##biome_effects", &particlesEnabled);
     ImGui::SameLine(); ImGui::Checkbox("Screen effects##biome_effects", &screenEnabled);
+    ImGui::Checkbox("World fog effects##biome_effects", &mediumEnabled);
     const std::string densityLabel = std::to_string(particleDensity) + "x";
     if (ImGui::BeginCombo("Particle density", densityLabel.c_str()))
     {

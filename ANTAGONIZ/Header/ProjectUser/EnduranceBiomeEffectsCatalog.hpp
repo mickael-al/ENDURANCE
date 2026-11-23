@@ -38,7 +38,7 @@ namespace EnduranceEnvironment
     enum class ParticleShape : std::uint8_t
     {
         Dust, Flake, Streak, Leaf, Petal, Seed, Glow, Mist, Ember, Crystal,
-        Droplet, Insect, Meteor, Ash, Pollen, Spore, Count
+        Droplet, Insect, Meteor, Ash, Pollen, Spore, DustCloud, SnowDrift, Count
     };
 
     struct ParticlePreset
@@ -75,6 +75,21 @@ namespace EnduranceEnvironment
         }
     };
 
+    // Participating medium in the existing atmospheric integration, not a
+    // fullscreen veil or a particle sheet. Extinction is inverse metres.
+    struct MediumPreset
+    {
+        float extinction = 0.0f;
+        glm::vec3 albedo{0.78f, 0.83f, 0.88f};
+        // Ground layer: offset from the biome fog-atlas baseline. Suspended
+        // weather: offset from sea level. Neither follows camera altitude.
+        float baseHeight = 0.0f;
+        float heightScale = 150.0f;
+        float noiseAmount = 0.5f;
+        float noiseScale = 0.005f;
+        bool groundLayer = false;
+    };
+
     struct EffectDefinition
     {
         EffectId id = EffectId::HeatHaze;
@@ -83,6 +98,7 @@ namespace EnduranceEnvironment
         bool activeEvent = false;
         ParticlePreset particles;
         ScreenPreset screen;
+        MediumPreset medium;
         float fadeIn = 1.0f, fadeOut = 1.0f;
     };
     struct BiomeEffects

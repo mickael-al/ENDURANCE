@@ -2,6 +2,7 @@
 // random sampling, GL context or frame-time assumptions are needed here.
 #include "EnduranceBiomeEffectsState.hpp"
 #include "EnduranceBiomeParticles.hpp"
+#include "EnduranceEnvironmentMedium.hpp"
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -14,6 +15,8 @@
 
 namespace E = EnduranceEnvironment;
 glm::vec2 productionParticleWind(glm::vec2 base, double seconds, float variation, float period);
+EnduranceEnvironmentMediumState productionEnvironmentMedium(
+    const std::array<float, E::EffectCount>& strengths, glm::vec2 windOffset);
 namespace {
 void require(bool value, const std::string& message)
 {
@@ -71,7 +74,19 @@ void catalogue()
         require(E::findEffect(d.key) == &d, label + "Key lookup returns a different recipe");
         require(finite(d.fadeIn) && finite(d.fadeOut) && d.fadeIn >= .05f && d.fadeOut >= .05f,
                 label + "Invalid fade times");
-        require(p.count > 0 || s.features() != 0, label + "Effect has no visual implementation");
+        require(p.count > 0 || s.features() != 0 || d.medium.extinction > 0,
+                label + "Effect has no visual implementation");
+        const auto& medium = d.medium;
+        require(finite(medium.extinction) && medium.extinction >= 0,
+                label + "Invalid medium extinction");
+        finiteVector(medium.albedo, label + "Invalid medium albedo");
+        for (unsigned axis = 0; axis < 3; ++axis)
+            require(medium.albedo[axis] >= 0 && medium.albedo[axis] <= 1,
+                    label + "Scattering albedo must not create energy");
+        require(finite(medium.baseHeight) && finite(medium.heightScale) && medium.heightScale > 0
+                && finite(medium.noiseAmount) && medium.noiseAmount >= 0 && medium.noiseAmount <= 1
+                && finite(medium.noiseScale) && medium.noiseScale > 0,
+                label + "Invalid medium height/noise controls");
         if (d.activeEvent) { ++activeCount; activeIds |= E::effectBit(d.id); }
         else { ++passiveCount; passiveIds |= E::effectBit(d.id); }
         for (float value : {s.heat, s.frost, s.wet, s.condensation, s.dust, s.flash})
@@ -113,7 +128,9 @@ void catalogue()
             << p.turbulence << ',' << p.turbulenceScale << ',' << p.pulse << ',' << p.windScale << ','
             << g.lifeTimeMin << ',' << g.lifeTimeMax << ',' << g.velocityMin << ',' << g.velocityMax << ','
             << g.scaleStart << ',' << g.scaleEnd << ',' << g.flags << ','
-            << s.heat << ',' << s.frost << ',' << s.wet << ',' << s.condensation << ',' << s.dust << ',' << s.flash;
+            << s.heat << ',' << s.frost << ',' << s.wet << ',' << s.condensation << ',' << s.dust << ',' << s.flash
+            << ',' << medium.extinction << ',' << medium.baseHeight << ',' << medium.heightScale << ','
+            << medium.noiseAmount << ',' << medium.noiseScale << ',' << medium.groundLayer;
         for (unsigned c = 0; p.count && c < g.nbColor; ++c)
             for (unsigned a = 0; a < 4; ++a) signature << ',' << g.colorGradient[c][a];
         require(recipes.insert(signature.str()).second, label + "Another effect has the same visual/motion recipe");
@@ -152,28 +169,44 @@ void catalogue()
 
 void extendedArtRecipes()
 {
-    // Baseline capacities/reach before the requested tenfold expansion. This
-    // compares the authored result with the user's target, not a renderer copy.
-    constexpr std::array<unsigned, 40> previousCounts{{
-        0,1536,1152,384,72,1536,0,256,80,192,208,384,384,40,48,896,40,192,40,384,
-        128,384,64,96,12,0,0,0,3072,6144,6144,6144,4096,4608,2048,3584,32,1280,2048,960}};
-    constexpr std::array<float, 40> previousReach{{
-        0,23,22,18,16,23,0,18,28,22,19,22,17,28,23,23,28,21,22,18,
-        16,20,14,25,0,0,0,0,28,31,32,30,30,30,27,28,220,31,26,24}};
+    // These are the reviewed artwork requirements relative to revision
+    // 1d227f0. Population is deliberately NOT forced upward for every effect:
+    // wider leaves and lighter spores must remain cheaper than dense storms.
     const auto& definitions = E::effectDefinitions();
-    for (std::size_t i = 0; i < definitions.size(); ++i)
+    const auto& sand = definitions[index(E::EffectId::SandGust)].particles;
+    require(sand.count == 2 * 15360, "Sand gust must double population");
+    require(near(sand.group.scaleStart, .035f) && near(sand.group.scaleEnd, .14f),
+            "Sand gust changed sprite size instead of population");
+    require(near(sand.group.colorGradient[1].a, .32f * .75f),
+            "Sand gust opacity must fall by 25 percent");
+    struct ReachRequirement { E::EffectId id; unsigned count; float oldXZ; float oldY; };
+    for (const auto& expected : std::array<ReachRequirement, 3>{{
+        {E::EffectId::WindLeaves, 1920, 220, 7},
+        {E::EffectId::Petals, 2080, 190, 5},
+        {E::EffectId::DrySeeds, 3840, 220, 3}}})
     {
-        const auto& p = definitions[i].particles;
+        const auto& p = definitions[index(expected.id)].particles;
         const auto& g = p.group;
-        require(p.count >= previousCounts[i] * 10,
-                std::string(definitions[i].key) + " does not meet requested10x population");
-        if (previousReach[i] > 0)
-        {
-            const float reach = (std::min)(.5f * (g.emitScaleMax.x - g.emitScaleMin.x),
-                                           .5f * (g.emitScaleMax.z - g.emitScaleMin.z));
-            require(reach >= 10 * previousReach[i] - .001f,
-                    std::string(definitions[i].key) + " does not meet requested10x horizontal reach");
-        }
+        require(p.count == expected.count, "Widening leaf/petal/seed volumes increased population");
+        const glm::vec3 extent = .5f * (g.emitScaleMax - g.emitScaleMin);
+        require(extent.x > expected.oldXZ && extent.z > expected.oldXZ && extent.y >= expected.oldY,
+                "Leaf/petal/seed volume was not widened in world space");
+    }
+    const auto& bloom = definitions[index(E::EffectId::SporeBloom)].particles;
+    const auto& spores = definitions[index(E::EffectId::GlowingSpores)].particles;
+    require(bloom.count < 9600 && bloom.group.colorGradient[1].a < .65f
+        && bloom.group.colorGradient[2].a < .55f, "Spore bloom was not made sparser and more transparent");
+    require(spores.count < 1280 && spores.group.colorGradient[1].a < .70f,
+            "Passive glowing spores remain too dense/opaque");
+    const auto& mist = definitions[index(E::EffectId::GroundMist)];
+    require(mist.particles.count == 0 && mist.screen.features() == 0
+        && mist.medium.extinction > 0 && mist.medium.groundLayer,
+        "Ground mist must use only the existing volumetric ground medium");
+    for (auto id : {E::EffectId::Sandstorm, E::EffectId::Blizzard, E::EffectId::AshStorm})
+    {
+        const auto& storm = definitions[index(id)];
+        require(storm.medium.extinction > 0 && !storm.medium.groundLayer && storm.screen.dust == 0,
+                "Storm visibility must use real depth-dependent media without a second flat dust veil");
     }
     require(E::findEffect("cold_breath") == nullptr, "First-person breath remains in environment catalogue");
     const auto* haze = E::findEffect("ice_haze");
@@ -187,7 +220,7 @@ void extendedArtRecipes()
             "Snow lacks visible sprite rotation");
     require(snow.group.velocityMax <= 1.0f && snow.windScale < .5f,
             "Gentle snowfall is still driven like a windstorm");
-    std::cout << "PASS art requirements: tenfold populations/reach, environmental ice haze, distinct slow rotating snowfall\n";
+    std::cout << "PASS artwork: doubled softer sand, wider constant-budget leaves/seeds, sparser spores, real ground/storm media, rotating snow\n";
 }
 
 void independentParticleWind()
@@ -230,6 +263,84 @@ void independentParticleWind()
         require(finite(wind.x) && finite(wind.y), "Invalid wind setting escaped input sanitization");
     }
     std::cout << "PASS independent particle wind: smooth heading/gusts, bounded speed, zero/static controls, deterministic time and invalid inputs\n";
+}
+
+void environmentMediumLifecycle()
+{
+    const auto inactive = [](const EnduranceEnvironmentMediumState& medium) {
+        return medium.layers[0].extinction == 0 && medium.layers[1].extinction == 0;
+    };
+    std::array<float, E::EffectCount> strengths{};
+    require(inactive(productionEnvironmentMedium(strengths, {100, -80})),
+            "Zero effects retain an environmental medium");
+    const auto& definitions = E::effectDefinitions();
+    const glm::vec2 wind(75, -30);
+    for (const auto& effect : definitions)
+    {
+        strengths = {}; strengths[index(effect.id)] = .4f;
+        const auto actual = productionEnvironmentMedium(strengths, wind);
+        const auto& expected = effect.medium;
+        const unsigned selected = expected.groundLayer ? 0 : 1;
+        require(actual.layers[1-selected].extinction == 0,
+                "Medium leaked into the wrong height layer");
+        const auto& layer = actual.layers[selected];
+        require(near(layer.extinction, expected.extinction * .4f, 1e-7f),
+                "Medium opacity does not follow the same effect fade");
+        if (expected.extinction > 0)
+        {
+            require(glm::length(layer.albedo - expected.albedo) < 1e-5f,
+                    "Fading changed the medium's scattering albedo");
+            require(near(layer.baseHeight, expected.baseHeight) && near(layer.heightScale, expected.heightScale, .001f)
+                && layer.windOffset == wind, "Medium lost authored world height or particle-only wind transport");
+        }
+    }
+    // Independent physical coefficient oracle: two simultaneous events mix
+    // sigma_s and sigma_t, not their final screen colours or alpha overlays.
+    strengths = {};
+    strengths[index(E::EffectId::HeavyRain)] = .6f;
+    strengths[index(E::EffectId::Thunderstorm)] = .3f;
+    const auto mix = productionEnvironmentMedium(strengths, wind).layers[1];
+    const auto& rain = definitions[index(E::EffectId::HeavyRain)].medium;
+    const auto& thunder = definitions[index(E::EffectId::Thunderstorm)].medium;
+    const float expectedT = rain.extinction * .6f + thunder.extinction * .3f;
+    const glm::vec3 expectedS = rain.albedo * rain.extinction * .6f + thunder.albedo * thunder.extinction * .3f;
+    require(near(mix.extinction, expectedT, 1e-7f)
+        && glm::length(mix.albedo * mix.extinction - expectedS) < 1e-7f,
+        "Concurrent weather does not conserve summed scattering/extinction coefficients");
+    for (float invalid : {std::numeric_limits<float>::quiet_NaN(),
+                          std::numeric_limits<float>::infinity(), -1.0f})
+    {
+        strengths.fill(invalid);
+        require(inactive(productionEnvironmentMedium(strengths, wind)), "Invalid effect strength escaped medium sanitization");
+    }
+    strengths = {}; strengths[index(E::EffectId::Sandstorm)] = 2;
+    const auto bounded = productionEnvironmentMedium(strengths,
+        {std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()}).layers[1];
+    require(near(bounded.extinction, definitions[index(E::EffectId::Sandstorm)].medium.extinction)
+        && bounded.windOffset == glm::vec2(0), "Medium failed intensity/wind input bounds");
+
+    E::EffectsState state;
+    state.setBiome(4); settle(state);
+    require(productionEnvironmentMedium(state.strengths(), wind).layers[0].extinction > 0,
+            "Ground fog does not follow dominant-biome selection");
+    state.setBiome(-1); settle(state);
+    require(inactive(productionEnvironmentMedium(state.strengths(), wind)), "Leaving biome retains ground fog");
+    state.setBiome(15); settle(state);
+    require(inactive(productionEnvironmentMedium(state.strengths(), wind)), "Sandstorm started without an explicit event");
+    require(state.triggerEvent(E::EffectId::Sandstorm, 100), "Medium event fixture could not start");
+    state.update(.1f);
+    const float partial = productionEnvironmentMedium(state.strengths(), wind).layers[1].extinction;
+    require(partial > 0 && partial < definitions[index(E::EffectId::Sandstorm)].medium.extinction,
+            "Weather medium skips its entry fade");
+    settle(state, 8);
+    state.stopEvents(); settle(state);
+    require(inactive(productionEnvironmentMedium(state.strengths(), wind)), "Stopped weather leaves residual fog");
+    require(state.previewEffect(E::EffectId::GroundMist, 20), "Medium preview fixture failed");
+    settle(state, 8);
+    require(productionEnvironmentMedium(state.strengths(), wind).layers[0].extinction > 0, "Medium preview is invisible");
+    state.clear();
+    require(inactive(productionEnvironmentMedium(state.strengths(), wind)), "Reset retains preview medium");
+    std::cout << "PASS medium lifecycle: physical mixing, shared fades, no automatic storms, world heights, finite inputs and exact-zero cleanup\n";
 }
 
 void passiveSelection()
@@ -394,7 +505,7 @@ void timestep()
 
 int main()
 {
-    try { catalogue(); extendedArtRecipes(); independentParticleWind(); passiveSelection(); eventLifecycle(); previewsAndInputs(); timestep(); }
+    try { catalogue(); extendedArtRecipes(); independentParticleWind(); environmentMediumLifecycle(); passiveSelection(); eventLifecycle(); previewsAndInputs(); timestep(); }
     catch (const std::exception& error) { std::cerr << "FAIL " << error.what() << '\n'; return 1; }
     std::cout << "PASS biome effects production catalogue/state\n";
 }

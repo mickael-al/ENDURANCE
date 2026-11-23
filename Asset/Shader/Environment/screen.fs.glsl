@@ -9,7 +9,7 @@ layout(binding=1) uniform sampler2D uDepth;
 uniform vec4 uProjectionZ; // projection[2][2], [3][2], [2][3], [3][3]
 #endif
 #ifdef GE_ENV_FROST
-layout(binding=2) uniform sampler2D uFrostPattern; // coverage, premultiplied growth arrival
+layout(binding=2) uniform sampler2D uFrostPattern; // signed offset to a baked Voronoi facet centre
 #endif
 uniform vec4 uStrengths; // heat, frost, wet, condensation
 uniform vec2 uVeil; // dust, current lightning pulse (evaluated once on CPU)
@@ -61,9 +61,11 @@ void main()
     {
         // Two advected scales create rising thermal cells and smaller shimmers,
         // not a rigid translation or a color overlay. Both refract the scene UV.
-        vec2 q = p * vec2(9.0, 22.0) * uClock.y + vec2(.14, -.84) * t;
+        // Half the spatial frequency doubles each thermal cell's width/height.
+        // Advection is halved too, preserving its screen-space travel speed.
+        vec2 q = p * vec2(4.5, 11.0) * uClock.y + vec2(.07, -.42) * t;
         float broad = noise21(q);
-        float fine = noise21(q * 2.17 + vec2(27.4, 8.2) + vec2(-.31, -.44) * t);
+        float fine = noise21(q * 2.17 + vec2(27.4, 8.2) + vec2(-.155, -.22) * t);
         vec2 heatFlow = vec2(broad + .32 * fine - .66,
             fine - .5 + .22 * sin(q.y * 1.8 + broad * 4.0));
         float distant = smoothstep(4.0, 45.0, distance);
@@ -86,28 +88,6 @@ void main()
     }
 #endif
 
-    float frostCoverage = 0.0;
-    float frostHighlight = 0.0;
-#ifdef GE_ENV_FROST
-    float edgeDistance = min(min(uv.x, 1.0 - uv.x), min(uv.y, 1.0 - uv.y));
-    vec2 crystal = texture(uFrostPattern, uv).rg;
-    float arrival = crystal.y / max(crystal.x, 0.002);
-    float front = mix(.008, .40, sqrt(uStrengths.y));
-    float vignetteGrowth = 1.0 - smoothstep(front - .025, front + .025, edgeDistance);
-    // The fade is a growth front along each baked stem, rather than merely
-    // changing a vignette's opacity. The crystal topology never moves with time.
-    float grown = smoothstep(arrival - .025, arrival + .025, uStrengths.y * .95);
-    float centerClear = 1.0 - smoothstep(.28, .43, edgeDistance);
-    float crystalMask = crystal.x * grown * vignetteGrowth * centerClear;
-    vec2 facet = clamp(vec2(dFdx(crystal.x), dFdy(crystal.x)) * 2.2, -.8, .8);
-    displacement += facet * crystalMask * vec2(.002 / uClock.w, .002);
-    frostCoverage = crystalMask * .82;
-    frostHighlight = max(0.0, dot(facet, vec2(-.6, .8))) * crystalMask * .18;
-    // A thin etched film links the dendrites without replacing them with a
-    // white border. Intensity controls the film and successive inward growth.
-    frostCoverage += .10 * uStrengths.y * vignetteGrowth * centerClear;
-#endif
-
     float wetHighlight = 0.0;
 #ifdef GE_ENV_WET
     // Sparse, independently delayed beads slide down the lens; no scene geometry
@@ -127,6 +107,39 @@ void main()
     vec4 source = texture(uColor, sampleUV);
     vec3 color = source.rgb;
 
+#ifdef GE_ENV_FROST
+    // Frosted glass refracts the existing picture; crystallization groups it
+    // into irregular polygonal facets. No white branches or moving noise layer.
+    // Fixed coordinates intentionally ignore shared speed/scale parameters, so
+    // entering another biome cannot slide an already formed sheet of ice.
+    vec2 aspect = vec2(uClock.w, 1.0);
+    vec2 patternUV = (uv - .5) * aspect + .5;
+    vec2 facetOffset = (texture(uFrostPattern, patternUV).rg - .5) * (3.0 / 32.0) / aspect;
+    float edgeDistance = min(min(uv.x, 1.0 - uv.x) * uClock.w, min(uv.y, 1.0 - uv.y));
+    float arrival = edgeDistance + length(facetOffset * aspect) * .35;
+    float front = .005 + .44 * uStrengths.y;
+    float growth = (1.0 - smoothstep(front - .045, front + .025, arrival)) *
+        smoothstep(0.0, .06, uStrengths.y);
+    float centerClear = 1.0 - smoothstep(.30, .39, edgeDistance);
+    float frost = growth * centerClear;
+    // A broad coherent rejection avoids two scene reads in the clear centre.
+    // The mask tends continuously to zero at the rejection boundary.
+    if (frost > 0.0)
+    {
+        vec2 grain = (vec2(hash21(gl_FragCoord.xy), hash21(gl_FragCoord.yx + 73.1)) - .5) *
+            vec2(.006 / uClock.w, .006);
+        vec2 facetUV = sampleUV + facetOffset * .96;
+        // The postprocess color target has one level. Explicit LOD also avoids
+        // implicit derivatives across the edge of this spatial rejection.
+        vec3 glass = .5 * (
+            textureLod(uColor, clamp(facetUV + grain, pixel * .5, 1.0 - pixel * .5), 0.0).rgb +
+            textureLod(uColor, clamp(facetUV - grain, pixel * .5, 1.0 - pixel * .5), 0.0).rgb);
+        // Keep the original palette and luminance, including uniform sky. Grain
+        // disperses detail inside facets without painting an opaque white veil.
+        color = mix(color, glass, frost * .97);
+    }
+#endif
+
 #ifdef GE_ENV_CONDENSATION
     float edge = smoothstep(0.12, 0.62, length(p / vec2(uClock.w, 1.0)));
     float film = uStrengths.w * edge * (0.65 + 0.35 * noise21(p * 9.0 * uClock.y + vec2(0.015, 0.0) * t));
@@ -138,7 +151,7 @@ void main()
     color = mix(color, mix(blurred, vec3(0.72,0.78,0.80), 0.14), film * 0.7);
 #endif
 
-    color = mix(color, vec3(0.72, 0.84, 0.91), clamp(frostCoverage,0.0,.92)) + wetHighlight + frostHighlight;
+    color += wetHighlight;
     // Cheap compositing remains shared. These are screen veils, not replacement
     // atmospheric scattering; the world and its lighting have already rendered.
     float edgeDust = 0.18 + 0.28 * dot(p / vec2(uClock.w, 1.0), p / vec2(uClock.w, 1.0));

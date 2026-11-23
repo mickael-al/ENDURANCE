@@ -68,9 +68,11 @@ namespace EnduranceEnvironment
             heat.screen.speed = .85f;
             heat.fadeIn = heat.fadeOut = 2.0f;
 
+            // More dispersed grains without enlarging their projected footprint.
+            // The requested softer transparency uses 75% of the previous alpha.
             auto& sand = define(Id::SandGust, "sand_gust", "Bourrasques de sable");
-            sand.particles = particles(Shape::Dust, 1536, {23, 1.4f, 23}, {0, -0.8f, 0},
-                {1, 0.1f, 0.3f}, .8f, 2.6f, 9, 16, .035f, .14f, {.65f,.48f,.27f,.32f});
+            sand.particles = particles(Shape::DustCloud, 3072, {23, 1.4f, 23}, {0, -0.8f, 0},
+                {1, 0.1f, 0.3f}, .8f, 2.6f, 9, 16, .035f, .14f, {.65f,.48f,.27f,.24f});
 
             sand.particles.turbulence = .65f;
             sand.particles.turbulenceScale = .05f;
@@ -127,7 +129,7 @@ namespace EnduranceEnvironment
             snow.particles.turbulence = .28f;
             snow.particles.turbulenceScale = .09f;
             snow.particles.windScale = .18f;
-            snow.particles.group.rotateSprite = .65f;
+            snow.particles.group.rotateSprite = 1.3f;
             snow.particles.group.drag = .7f;
             snow.particles.group.spreadAngle = 9.f;
 
@@ -152,17 +154,19 @@ namespace EnduranceEnvironment
             crystals.particles.group.rotateSprite = .4f;
 
             auto& drift = define(Id::GroundSnowDrift, "ground_snow_drift", "Poudrerie au ras du sol");
-            drift.particles = particles(Shape::Mist, 80, {28, 0.65f, 28}, {0, -1.15f, 0},
-                {1, 0.02f, 0.2f}, .8f, 1.8f, 12, 20, .7f, 2.0f, {.80f,.89f,.95f,.045f});
+            drift.particles = particles(Shape::SnowDrift, 80, {28, 0.65f, 28}, {0, -1.15f, 0},
+                {1, 0.02f, 0.2f}, .8f, 1.8f, 12, 20, .7f, 2.0f, {.80f,.89f,.95f,.035f});
 
-            drift.particles.aspect = .18f;
+            drift.particles.aspect = .30f;
             drift.particles.turbulence = .25f;
             drift.particles.turbulenceScale = .045f;
             drift.particles.windScale = .95f;
             drift.particles.group.drag = .7f;
+            drift.medium = {.0007f, V3(.83f,.89f,.95f), 0.0f, 25.0f, .7f, .012f, true};
 
+            // Enlarge the volume rather than multiplying near-camera leaf counts.
             auto& leaves = define(Id::WindLeaves, "wind_leaves", "Feuilles emportées");
-            leaves.particles = particles(Shape::Leaf, 192, {22, 7, 22}, {0, 3, 0},
+            leaves.particles = particles(Shape::Leaf, 192, {44, 10.5f, 44}, {0, 3, 0},
                 {.12f,-1,.08f}, .25f, .7f, 18, 30, 0.07f, 0.18f, {0.35f, 0.40f, 0.16f, 0.80f});
             leaves.particles.aspect = 1.65f;
             leaves.particles.group.flags |= Ge::RotateSprite;
@@ -175,7 +179,7 @@ namespace EnduranceEnvironment
             leaves.particles.group.drag = .65f;
 
             auto& petals = define(Id::Petals, "petals", "Pétales flottants");
-            petals.particles = particles(Shape::Petal, 208, {19, 5, 19}, {0, 2, 0},
+            petals.particles = particles(Shape::Petal, 208, {38, 7.5f, 38}, {0, 2, 0},
                 {.08f,-1,.05f}, .12f, .32f, 20, 34, 0.045f, 0.12f, {0.82f, 0.43f, 0.47f, 0.72f});
             petals.particles.group.flags |= Ge::RotateSprite;
             petals.particles.turbulence = 0.55f;
@@ -188,7 +192,7 @@ namespace EnduranceEnvironment
             petals.particles.group.spreadAngle = 24.f;
 
             auto& seeds = define(Id::DrySeeds, "dry_seeds", "Graines et aigrettes sèches");
-            seeds.particles = particles(Shape::Seed, 384, {22, 3, 22}, {0, 0.5f, 0},
+            seeds.particles = particles(Shape::Seed, 384, {44, 4.5f, 44}, {0, 0.5f, 0},
                 {.12f,-.14f,.08f}, .08f, .3f, 16, 28, 0.045f, 0.10f, {0.62f, 0.57f, 0.38f, 0.60f});
             seeds.particles.aspect = 1.8f;
 
@@ -211,14 +215,11 @@ namespace EnduranceEnvironment
             motes.particles.group.spreadAngle = 160.f;
 
             auto& mist = define(Id::GroundMist, "ground_mist", "Nappes de brume basse");
-            mist.particles = particles(Shape::Mist, 40, {28, 0.55f, 28}, {0, -1.2f, 0},
-                {1, 0.01f, 0.1f}, .04f, .14f, 28, 46, 1.8f, 5.0f, {.52f,.61f,.64f,.035f});
-
-            mist.particles.aspect = .22f;
-            mist.particles.windScale = .12f;
-            mist.particles.turbulence = .12f;
-            mist.particles.turbulenceScale = .018f;
-            mist.particles.group.drag = .25f;
+            // The ground atmosphere already handles depth, extinction and
+            // scattering: do not add camera-facing mist rectangles on top.
+            mist.medium = {0.0020f, V3(.72f,.80f,.84f), 0.0f, 70.0f, .65f, .006f, true};
+            mist.fadeIn = 5.0f;
+            mist.fadeOut = 4.0f;
 
             auto& swamp = define(Id::SwampVapor, "swamp_vapor", "Vapeurs de marécage");
             swamp.particles = particles(Shape::Mist, 48, {23, 0.7f, 23}, {0, -1, 0},
@@ -283,8 +284,8 @@ namespace EnduranceEnvironment
             spores.particles.group.spreadAngle = 110.f;
 
             auto& glowing = define(Id::GlowingSpores, "glowing_spores", "Spores bioluminescentes");
-            glowing.particles = particles(Shape::Spore, 128, {16, 4, 16}, {0, 0.6f, 0},
-                {0.1f, 1, 0.2f}, 0.06f, 0.18f, 10, 18, 0.03f, 0.075f, {0.18f, 0.66f, 0.83f, 0.70f});
+            glowing.particles = particles(Shape::Spore, 48, {16, 4, 16}, {0, 0.6f, 0},
+                {0.1f, 1, 0.2f}, 0.06f, 0.18f, 10, 18, 0.03f, 0.075f, {0.18f, 0.66f, 0.83f, 0.42f});
             glowing.particles.emission = 2.3f;
             glowing.particles.pulse = 0.7f;
 
@@ -379,6 +380,7 @@ namespace EnduranceEnvironment
 
             heavy.particles.group.flags |= Ge::VelOrientation;
             heavy.screen.wet = 0.56f;
+            heavy.medium = {.0025f, V3(.72f,.78f,.84f), 0.0f, 3500.0f, .3f, .0018f, false};
             heavy.screen.condensation = 0.09f;
             heavy.screen.speed = 1.6f;
 
@@ -387,11 +389,12 @@ namespace EnduranceEnvironment
             heavy.particles.group.spreadAngle = 6.f;
 
             auto& storm = define(Id::Sandstorm, "sandstorm", "Tempête de sable", true);
-            storm.particles = particles(Shape::Dust, 6144, {32, 13, 32}, {0, 2, 0},
+            storm.particles = particles(Shape::DustCloud, 6144, {32, 13, 32}, {0, 2, 0},
                 {1, 0.08f, 0.25f}, 8, 15, 3.5f, 6, 0.1f, 0.32f, {0.53f, 0.34f, 0.16f, 0.43f});
-            storm.particles.aspect = 2.5f;
+            storm.particles.aspect = .65f;
             storm.particles.windScale = 3.5f;
-            storm.screen.dust = 0.65f;
+            storm.screen.dust = 0.0f;
+            storm.medium = {.018f, V3(.72f,.58f,.35f), 0.0f, 3000.0f, .65f, .003f, false};
             storm.screen.heat = 0.10f;
             storm.screen.tint = V3(0.57f, 0.36f, 0.16f);
             storm.screen.speed = 2.0f;
@@ -408,7 +411,8 @@ namespace EnduranceEnvironment
             blizzard.particles.group.flags |= Ge::RotateSprite;
             blizzard.particles.group.rotateSprite = 1.0f;
             blizzard.screen.frost = 0.55f;
-            blizzard.screen.dust = 0.30f;
+            blizzard.screen.dust = 0.0f;
+            blizzard.medium = {.012f, V3(.90f,.94f,.98f), 0.0f, 3000.0f, .6f, .004f, false};
             blizzard.screen.tint = V3(0.70f, 0.81f, 0.91f);
             blizzard.screen.speed = 1.7f;
             blizzard.fadeIn = 4.0f;
@@ -423,7 +427,8 @@ namespace EnduranceEnvironment
                 {.5f,-1,.14f}, 1.2f, 3.5f, 16, 26, 0.04f, 0.13f, {0.25f, 0.22f, 0.20f, 0.72f});
             ashStorm.particles.group.flags |= Ge::RotateSprite;
             ashStorm.particles.group.rotateSprite = 0.9f;
-            ashStorm.screen.dust = 0.50f;
+            ashStorm.screen.dust = 0.0f;
+            ashStorm.medium = {.014f, V3(.36f,.33f,.30f), 0.0f, 3000.0f, .55f, .0025f, false};
             ashStorm.screen.tint = V3(0.24f, 0.20f, 0.17f);
             ashStorm.screen.speed = 1.4f;
 
@@ -440,6 +445,7 @@ namespace EnduranceEnvironment
             thunder.particles.group.flags |= Ge::VelOrientation;
             thunder.screen.wet = 0.40f;
             thunder.screen.flash = 0.65f;
+            thunder.medium = {.004f, V3(.55f,.63f,.72f), 0.0f, 3500.0f, .45f, .002f, false};
             thunder.screen.speed = 1.1f;
 
             thunder.particles.windScale = .9f;
@@ -511,12 +517,12 @@ namespace EnduranceEnvironment
             pollenBurst.particles.group.spreadAngle = 85.f;
 
             auto& bloom = define(Id::SporeBloom, "spore_bloom", "Floraison de spores lumineuses", true);
-            bloom.particles = particles(Shape::Spore, 960, {24, 7, 24}, {0, 1, 0},
-                {0.1f, 1, 0.1f}, 0.15f, 0.45f, 10, 18, 0.035f, 0.11f, {0.27f, 0.72f, 0.59f, 0.68f});
+            bloom.particles = particles(Shape::Spore, 240, {24, 7, 24}, {0, 1, 0},
+                {0.1f, 1, 0.1f}, 0.15f, 0.45f, 10, 18, 0.035f, 0.11f, {0.27f, 0.72f, 0.59f, 0.40f});
             bloom.particles.group.nbColor = 4;
             bloom.particles.group.colorGradient[0] = V4(0.16f, 0.52f, 0.65f, 0.0f);
-            bloom.particles.group.colorGradient[1] = V4(0.24f, 0.68f, 0.50f, 0.65f);
-            bloom.particles.group.colorGradient[2] = V4(0.52f, 0.28f, 0.72f, 0.55f);
+            bloom.particles.group.colorGradient[1] = V4(0.24f, 0.68f, 0.50f, 0.38f);
+            bloom.particles.group.colorGradient[2] = V4(0.52f, 0.28f, 0.72f, 0.32f);
             bloom.particles.group.colorGradient[3] = V4(0.16f, 0.52f, 0.65f, 0.0f);
             bloom.particles.emission = 2.8f;
             bloom.particles.pulse = 0.9f;

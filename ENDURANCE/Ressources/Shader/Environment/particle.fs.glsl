@@ -32,7 +32,10 @@ float coverage(vec2 p,float aa)
     // Small irregular mineral grains, not luminous circular pollen discs.
     vec2 q=p*vec2(1.12,.86);
     float edge=max(abs(q.x)*.8+abs(q.y)*.56,abs(q.y)*.94- .12*q.x);
-    return (1.0-smoothstep(.55-aa,.9+aa,edge))*(.65+.35*clamp(.5+.5*p.y,0.0,1.0));
+    // A compact support is essential: the previous polygon still had nonzero
+    // opacity at UV.y=0/1, so the UV discard cut visible bars into large grains.
+    float support=max(0.0,1.0-r2);
+    return (1.0-smoothstep(.55-aa,.9+aa,edge))*(.65+.35*clamp(.5+.5*p.y,0.0,1.0))*support*support;
 #elif GE_BIOME_PARTICLE_KIND == 1
     // Fold into one of six sectors, then grow a trunk and two pairs of branches.
     // Actual open space between dendrites survives nearby views; minification
@@ -122,6 +125,23 @@ float coverage(vec2 p,float aa)
     float stem=stroke(segmentDistance(p,vec2(0,-.6),vec2(0,.2)),.025,aa);
     float grain=1.0-smoothstep(.04,.14,length((p-vec2(0,-.62))*vec2(1.0,1.6)));
     return max(max(hair*.63,stem*.65),grain);
+#elif GE_BIOME_PARTICLE_KIND == 16
+    // Compact, twice-smooth optical density. No hard polygon, UV border or
+    // opaque card survives at any sprite aspect, rotation or near-plane size.
+    float support=max(0.0,1.0-r2);
+    vec2 a=(p-vec2(-.18+.16*fs_in.variation,.08))*vec2(1.3,1.7);
+    vec2 b=(p+vec2(.23,-.13))*vec2(1.6,1.3);
+    float lobeA=max(0.0,1.0-dot(a,a)),lobeB=max(0.0,1.0-dot(b,b));
+    return support*support*support*(.38+.40*lobeA*lobeA+.22*lobeB*lobeB);
+#elif GE_BIOME_PARTICLE_KIND == 17
+    // A low, soft veil with a few fine streaks inside; all microstructure is
+    // multiplied by the compact envelope, so no card outline can emerge.
+    float support=max(0.0,1.0-r2);
+    float cross=max(0.0,1.0-p.y*p.y);
+    float fine=.5+.5*sin((p.y+p.x*.19+fs_in.variation)*43.0);
+    fine=fine*fine*fine;
+    float detail=mix(fine,.35,smoothstep(.025,.12,aa));
+    return support*support*cross*(.22+.32*detail);
 #else
     // A translucent spore shell with a small off-centre nucleus.
     float radius=length(p*vec2(1.0,.83));
@@ -136,7 +156,11 @@ void main()
     vec2 p=fs_in.uv*2.0-1.0;
     float aa=max(max(fwidth(p.x),fwidth(p.y))*.65,.002);
     if(any(lessThan(fs_in.uv,vec2(0))) || any(greaterThan(fs_in.uv,vec2(1)))) discard;
-    float alpha=fs_in.color.a*coverage(p,aa);
+    // Every analytic shape must reach zero before its billboard UV boundary.
+    // This also protects highly minified or very stretched cards where fwidth
+    // broadens a shape's own anti-aliasing beyond its authored support.
+    float cardFade=smoothstep(0.0,clamp(aa,.025,.15),1.0-max(abs(p.x),abs(p.y)));
+    float alpha=fs_in.color.a*coverage(p,aa)*cardFade;
     if(alpha<.0001) discard;
     ivec2 pixel=clamp(ivec2(gl_FragCoord.xy),ivec2(0),textureSize(uEnvironmentOpaqueDepth,0)-1);
     vec2 opaque=texelFetch(uEnvironmentOpaqueDepth,pixel,0).rg;

@@ -37,7 +37,7 @@ public:
     void stopEvent(EnduranceEnvironment::EffectId id);
     void stopEvents();
 
-    bool enabled = true, particlesEnabled = true, screenEnabled = true;
+    bool enabled = true, particlesEnabled = true, screenEnabled = true, mediumEnabled = true;
     float passiveIntensity = 1.0f, screenIntensity = 1.0f, particleDensity = 1.0f;
     std::array<float, 2> wind{{3.0f, 1.0f}};
     float windVariation = 0.65f, windPeriod = 24.0f;

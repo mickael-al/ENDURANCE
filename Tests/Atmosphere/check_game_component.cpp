@@ -57,6 +57,7 @@ namespace
     struct Frame
     {
         std::array<float,3> offset{};
+        std::array<std::array<float,4>,2> environmentMedium{},environmentShape{};
         GLuint mediumTexture=0,shapeTexture=0;
         std::vector<float> medium,shape,transmission;
     };
@@ -195,6 +196,16 @@ namespace
             require(offsetLocation>=0,"Real volume shader did not include ENDURANCE game_fog.glsl");
             Frame result;
             glGetUniformfv(program,offsetLocation,result.offset.data());
+            for(unsigned layer=0;layer<2;++layer)
+            {
+                const auto suffix="["+std::to_string(layer)+"]";
+                const auto mediumLocation=glGetUniformLocation(program,("uEnvironmentMedium"+suffix).c_str());
+                const auto shapeLocation=glGetUniformLocation(program,("uEnvironmentShape"+suffix).c_str());
+                require(mediumLocation>=0 && shapeLocation>=0,
+                        "Existing fog volume did not receive environmental medium uniforms");
+                glGetUniformfv(program,mediumLocation,result.environmentMedium[layer].data());
+                glGetUniformfv(program,shapeLocation,result.environmentShape[layer].data());
+            }
             result.mediumTexture=textureAt(6); result.shapeTexture=textureAt(7);
             result.medium=readTexture(result.mediumTexture); result.shape=readTexture(result.shapeTexture);
             glGetIntegeri_v(GL_IMAGE_BINDING_NAME,1,&transmission);
@@ -280,6 +291,57 @@ namespace
         require(difference(gameOnlyUpdate.transmission,cachedBaseline.transmission)>1e-5f,
                 "Unchanged engine parameters froze the actual game fog animation");
         std::cout<<"PASS game fog cache contract: animated caller medium reintegrates with unchanged engine parameters\n"<<std::flush;
+
+        // The live weather override belongs to the existing volume integration.
+        // It must not rewrite scene settings, rebuild the world atlas, recapture
+        // sky/IBL or allocate another render target while fading in/out.
+        component.fogWind={{0,0,0}};
+        for(int attempt=0;attempt<300 && atmosphere.stats().environmentCaptureActive;++attempt) prepare(0);
+        const auto dryWeather=frame(0);
+        const auto stableWeatherStats=atmosphere.stats();
+        const auto serializedBeforeWeather=component.serialize();
+        EnduranceEnvironmentMediumState weather;
+        weather.layers[0].extinction=.002f;
+        weather.layers[0].albedo={.7f,.8f,.9f};
+        weather.layers[0].heightScale=100;
+        weather.layers[1].extinction=.01f;
+        weather.layers[1].albedo={.4f,.55f,.7f};
+        weather.layers[1].baseHeight=10;
+        weather.layers[1].heightScale=1000;
+        EnduranceAtmosphereComponent::setEnvironmentMedium(weather);
+        require(atmosphere.stats().dispatches==stableWeatherStats.dispatches
+            && atmosphere.stats().gpuTextureBytes==stableWeatherStats.gpuTextureBytes,
+            "CPU weather setter performs GPU work");
+        const auto wetWeather=frame(0);
+        require(difference(dryWeather.transmission,wetWeather.transmission)>1e-5f,
+                "Active weather did not change actual volume transmission");
+        require(std::abs(wetWeather.environmentMedium[1][3]-.01f)<1e-7f
+            && std::abs(wetWeather.environmentMedium[1][0]-.004f)<1e-7f,
+            "Weather binder lost physical scattering/extinction coefficients");
+        const auto appliedStats=atmosphere.stats();
+        require(appliedStats.fogDispatches==stableWeatherStats.fogDispatches+1
+            && appliedStats.aerialDispatches==stableWeatherStats.aerialDispatches
+            && appliedStats.cloudVolumeDispatches==stableWeatherStats.cloudVolumeDispatches,
+            "Weather added a separate integration instead of reusing the existing fog dispatch");
+        require(appliedStats.environmentCapturesStarted==stableWeatherStats.environmentCapturesStarted
+            && appliedStats.environmentUpdates==stableWeatherStats.environmentUpdates
+            && appliedStats.skyUpdates==stableWeatherStats.skyUpdates
+            && appliedStats.transmittanceUpdates==stableWeatherStats.transmittanceUpdates
+            && appliedStats.multiscatterUpdates==stableWeatherStats.multiscatterUpdates
+            && appliedStats.gpuTextureBytes==stableWeatherStats.gpuTextureBytes,
+            "Weather updates rebuild sky/LUT/IBL resources");
+        require(wetWeather.mediumTexture==dryWeather.mediumTexture && wetWeather.shapeTexture==dryWeather.shapeTexture
+            && wetWeather.medium==dryWeather.medium && wetWeather.shape==dryWeather.shape,
+            "Weather overrides rewrite the climate atlas");
+        require(component.serialize()==serializedBeforeWeather,"Weather override mutated persisted scene settings");
+        const auto frozenWeather=frame(0);
+        require(frozenWeather.transmission==wetWeather.transmission,"Paused weather is not deterministic");
+        EnduranceAtmosphereComponent::setEnvironmentMedium({});
+        const auto clearedWeather=frame(0);
+        require(clearedWeather.environmentMedium[0][3]==0 && clearedWeather.environmentMedium[1][3]==0
+            && clearedWeather.transmission==dryWeather.transmission,
+            "Cleared weather did not return exactly to the previous medium");
+        std::cout<<"PASS native weather medium: live shader binding, one existing fog dispatch, no LUT/IBL/atlas/texture cost, persisted state unchanged and exact clear\n"<<std::flush;
 
         const auto bytesBeforeMoon=atmosphere.stats().gpuTextureBytes;
         const auto modelPath=component.moonModelFile;
