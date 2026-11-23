@@ -117,13 +117,16 @@ void main()
     // their displacement decoded at the same scale.
     vec2 patternUV = (uv - .5) * aspect * 2.0 + .5;
     vec2 facetOffset = (texture(uFrostPattern, patternUV).rg - .5) * (3.0 / 64.0) / aspect;
-    float edgeDistance = min(min(uv.x, 1.0 - uv.x) * uClock.w, min(uv.y, 1.0 - uv.y));
+    // A radial mask in normalized screen coordinates forms an ellipse on a
+    // widescreen viewport, instead of tracing its rectangular edges.
+    float edgeDistance = .5 - length(uv - .5);
     float arrival = edgeDistance + length(facetOffset * aspect) * .35;
-    float front = .005 + .44 * uStrengths.y;
-    float growth = (1.0 - smoothstep(front - .045, front + .025, arrival)) *
+    // Four times the former .07-wide transition. Limit the advancing front to
+    // keep the central view clear even at full strength, without a second mask
+    // that would introduce a narrower transition inside this broad fade.
+    float front = .005 + .22 * uStrengths.y;
+    float frost = (1.0 - smoothstep(front - .18, front + .10, arrival)) *
         smoothstep(0.0, .06, uStrengths.y);
-    float centerClear = 1.0 - smoothstep(.30, .39, edgeDistance);
-    float frost = growth * centerClear;
     // A broad coherent rejection avoids the extra scene read in the clear centre.
     // The mask tends continuously to zero at the rejection boundary.
     if (frost > 0.0)
