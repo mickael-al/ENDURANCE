@@ -108,13 +108,15 @@ void main()
     vec3 color = source.rgb;
 
 #ifdef GE_ENV_FROST
-    // Frosted glass refracts the existing picture; crystallization groups it
-    // into irregular polygonal facets. No white branches or moving noise layer.
+    // Crystallization groups the existing picture into irregular polygonal
+    // facets, without frosted-glass dispersion or an added white layer.
     // Fixed coordinates intentionally ignore shared speed/scale parameters, so
     // entering another biome cannot slide an already formed sheet of ice.
     vec2 aspect = vec2(uClock.w, 1.0);
-    vec2 patternUV = (uv - .5) * aspect + .5;
-    vec2 facetOffset = (texture(uFrostPattern, patternUV).rg - .5) * (3.0 / 32.0) / aspect;
+    // Reuse the 32-cell cache at twice its frequency: half-size facets, with
+    // their displacement decoded at the same scale.
+    vec2 patternUV = (uv - .5) * aspect * 2.0 + .5;
+    vec2 facetOffset = (texture(uFrostPattern, patternUV).rg - .5) * (3.0 / 64.0) / aspect;
     float edgeDistance = min(min(uv.x, 1.0 - uv.x) * uClock.w, min(uv.y, 1.0 - uv.y));
     float arrival = edgeDistance + length(facetOffset * aspect) * .35;
     float front = .005 + .44 * uStrengths.y;
@@ -122,21 +124,16 @@ void main()
         smoothstep(0.0, .06, uStrengths.y);
     float centerClear = 1.0 - smoothstep(.30, .39, edgeDistance);
     float frost = growth * centerClear;
-    // A broad coherent rejection avoids two scene reads in the clear centre.
+    // A broad coherent rejection avoids the extra scene read in the clear centre.
     // The mask tends continuously to zero at the rejection boundary.
     if (frost > 0.0)
     {
-        vec2 grain = (vec2(hash21(gl_FragCoord.xy), hash21(gl_FragCoord.yx + 73.1)) - .5) *
-            vec2(.006 / uClock.w, .006);
         vec2 facetUV = sampleUV + facetOffset * .96;
         // The postprocess color target has one level. Explicit LOD also avoids
         // implicit derivatives across the edge of this spatial rejection.
-        vec3 glass = .5 * (
-            textureLod(uColor, clamp(facetUV + grain, pixel * .5, 1.0 - pixel * .5), 0.0).rgb +
-            textureLod(uColor, clamp(facetUV - grain, pixel * .5, 1.0 - pixel * .5), 0.0).rgb);
-        // Keep the original palette and luminance, including uniform sky. Grain
-        // disperses detail inside facets without painting an opaque white veil.
-        color = mix(color, glass, frost * .97);
+        vec3 crystal = textureLod(uColor, clamp(facetUV, pixel * .5, 1.0 - pixel * .5), 0.0).rgb;
+        // Keep the original palette and luminance, including uniform sky.
+        color = mix(color, crystal, frost * .97);
     }
 #endif
 

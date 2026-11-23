@@ -177,7 +177,7 @@ def check(gl,runtime,preview_dir=None,preview_source=None):
             assert max(abs(a-b) for a,b in zip(values,split))<2e-5,'Heat leaks across foreground silhouette'
         gl.glDeleteQueries(1,C.byref(query))
     # Render actual refracted scene colors, not a white overlay on a constant
-    # background. Fixed detailed input exposes facet grouping and growing glass.
+    # background. Fixed detailed input exposes facet grouping and growing crystallization.
     width,height=1024,576;size=(width,height)
     image=[]
     for y in range(height):
@@ -203,15 +203,15 @@ def check(gl,runtime,preview_dir=None,preview_source=None):
     assert stages[2]==frost(.44,120.,scale=4.,speed=3.),'Frost facets move with time/shared biome scale'
     differences=[[abs(value-original) for value,original in zip(frame,image)] for frame in stages]
     populations=[sum(value>.02 for value in frame[0::4]) for frame in differences]
-    assert all(a<b for a,b in zip(populations,populations[1:])),('Glass does not progressively cover more of the image',populations)
+    assert all(a<b for a,b in zip(populations,populations[1:])),('Crystallization does not progressively cover more of the image',populations)
     for before,after in zip(differences,differences[1:]):
         assert all(b+2e-5>=a for a,b in zip(before,after)),'Established facets disappear during further growth'
-    assert populations[2]>width*height*.10,'Default0.44 glass does not noticeably refract the scene'
+    assert populations[2]>width*height*.10,'Default0.44 crystallization does not noticeably refract the scene'
     for frame in stages:
         for y in range(height*4//10,height*6//10):
             for x in range(width*4//10,width*6//10):
                 index=(y*width+x)*4
-                assert max(abs(frame[index+c]-image[index+c]) for c in range(4))<2e-5,'Glass obscures the central view'
+                assert max(abs(frame[index+c]-image[index+c]) for c in range(4))<2e-5,'Crystallization obscures the central view'
     almost=frost(.44001)
     assert max(abs(a-b) for a,b in zip(stages[2],almost))<.0003,'Tiny strength changes cause a popping facet boundary'
     weak=frost(.00001)
@@ -254,7 +254,7 @@ def check(gl,runtime,preview_dir=None,preview_source=None):
     frost(.45)
     gl.glActiveTexture(0x84C2)
     same=C.c_int();gl.glGetIntegerv(0x8069,C.byref(same));assert same.value==pattern.value
-    print('PASS frosted glass: image-derived facets, default0.44 visible, monotone inward coverage, clear center, continuous fade, stable cached coordinates; default heat refracts and animates',populations,flush=True)
+    print('PASS crystallization: image-derived facets, default0.44 visible, monotone inward coverage, clear center, continuous fade, stable cached coordinates; default heat refracts and animates',populations,flush=True)
     print(f'PASS environment screen: {frames} actual owner/shader renders, 16 fixed variants, zero-work disabled/invalid states, all six channels visible, sky/near-depth and bilinear-silhouette protection, odd/tiny resize and stable program count',flush=True)
     return pattern.value
 

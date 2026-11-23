@@ -36,7 +36,7 @@ Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 | 4 | `wind_pollen` | Passif | Aigrettes jaune pâle en suspension, microvolutes et dérive lente ; faible ascension propre. | 3 840 |
 | 5 | `fireflies` | Passif | Noyaux lumineux multicolores, petites boucles indépendantes et clignotements désynchronisés ; très faible sensibilité au vent. | 720 |
 | 6 | `light_snow` | Passif | Flocons à branches et agrégats, chute de 0,25–0,65 m/s, balancement et rotation renforcée (×2). | 15 360 |
-| 7 | `frost_rim` | Passif | Verre dépoli en facettes polygonales qui réfractent les couleurs de la scène ; progression depuis les bords, centre dégagé. | — |
+| 7 | `frost_rim` | Passif | Cristallisation en facettes polygonales qui réfractent les couleurs de la scène ; progression depuis les bords, centre dégagé. | — |
 | 8 | `ice_crystals` | Passif | Prismes anguleux en suspension, chute très lente et scintillement intermittent par rotation. | 2 560 |
 | 9 | `ground_snow_drift` | Passif | Voile bas grainé avec flocons rasants, contours doux ; complété par un léger milieu atmosphérique au sol. | 800 |
 | 10 | `wind_leaves` | Passif | Feuilles pointues, chute en feuille morte et autorotation ; excursions latérales plus fortes que les pétales. Même compte réparti dans un volume six fois plus grand. | 1 920 |
@@ -327,9 +327,11 @@ le son, la météo générale ou les lumières de la scène.
   (environ **2,67 Mio**), calculé une fois en C++. Les deux canaux stockent le
   déplacement vers le centre d'une facette de Voronoi ; aucun calcul cellulaire
   complexe n'est refait par pixel. Le shader effectue une lecture du motif, puis
-  deux lectures supplémentaires de la scène uniquement dans les bords givrés.
-  Une dispersion granuleuse statique donne le verre dépoli. La couleur de la
-  scène est conservée, sans couche blanche ajoutée. Le motif reste fixe même
+  une lecture supplémentaire de la scène uniquement dans les bords givrés.
+  Le cache de 32 cellules par axe est échantillonné à fréquence double, avec
+  un déplacement divisé par deux : les facettes sont deux fois plus petites
+  sur chaque axe, sans mémoire supplémentaire. La dispersion du verre dépoli
+  est supprimée. La couleur de la scène est conservée, sans couche blanche ajoutée. Le motif reste fixe même
   pendant les transitions ; le centre de l'image reste dégagé à intensité maximale.
 - Ni nouveau shadow caster, ni carte d'ombres, ni compilation de shader lors
   d'un simple changement de biome. Les ressources de groupes sont créées et
@@ -350,9 +352,9 @@ pour privilégier des mouvements tourbillonnants contrôlables plutôt que le m�
 vecteur pour tous. Les trajectoires sont des approximations artistiques peu
 coûteuses ; elles ne constituent pas une simulation complète de fluide ou de
 microphysique. Les collisions avec le relief et les abris restent hors périmètre.
-Le givre reprend le principe visuel des effets de
-[verre dépoli et cristallisation décrits par Paint.NET](https://paint.net/doc/latest/EffectsDistortMenu.html) :
-redistribution des pixels et regroupement polygonal, sans reproduire exactement
+Le givre reprend le principe visuel de la
+[cristallisation décrite par Paint.NET](https://paint.net/doc/latest/EffectsDistortMenu.html) :
+regroupement polygonal des pixels, sans reproduire exactement
 l'algorithme d'une version particulière du logiciel.
 
 ## Vérification
