@@ -20,11 +20,15 @@ manuel uniquement. Le chemin racine est modifiable dans l'inspecteur du
 composant. La casse et les espaces du nom des albums sont ignorés.
 Les autres dossiers audio ne sont pas intégrés à la sélection.
 
-Le chargeur existant accepte les **WAV PCM 8 ou 16 bits, mono ou stéréo**.
-Les fichiers OGG/MP3/FLAC et les WAV 24 bits/float sont signalés dans
-`Music catalog warnings`, pas envoyés à un décodeur incompatible. Utiliser les
-exports WAV 16 bits des packs. L'indexeur vérifie seulement les en-têtes WAV,
-sans charger leur contenu audio. Les dossiers absents ne font pas planter la
+Le chargeur accepte les **WAV PCM 8, 16 ou 24 bits, mono ou stéréo**.
+Les 33 fichiers Elderweald livrés en 24 bits sont convertis vers du PCM 16 bits
+avec dither au chargement, sur le worker audio. La fréquence, la durée et les
+canaux sont conservés ; les fichiers source ne sont pas modifiés. La conversion
+utilise un bloc d'entrée de 24 Kio et le tampon de sortie uniquement.
+Les fichiers OGG/MP3/FLAC et les WAV float/32 bits sont signalés dans
+`Music catalog warnings`, pas envoyés à un décodeur incompatible.
+L'indexeur vérifie seulement les en-têtes WAV, sans charger leur contenu audio.
+Les dossiers absents ne font pas planter la
 scène : l'inspecteur indique le problème et propose `Reload music catalog`.
 
 ## Familles et identité musicale
@@ -42,7 +46,14 @@ Les associations des **26 biomes** se trouvent dans `biomeFamilies()` dans
 `ANTAGONIZ/Source/ProjectUser/EnduranceMusicCatalog.cpp`. Plusieurs familles
 peuvent convenir à un même biome ; le tirage favorise les correspondances.
 
-Les mots des titres servent de première classification. Sans mot reconnu,
+Les **77 morceaux actuellement fournis** disposent d'affectations explicites
+dans le manifeste : 57 fichiers d'exploration, 8 de découverte et 12 lunaires.
+La [répartition détaillée](BIOME_MUSIC_CATALOG.md) donne les familles, les
+groupes de variantes et la matrice des 26 biomes. Il s'agit d'une direction
+artistique fondée sur les titres, à affiner à l'écoute.
+
+Pour de nouveaux morceaux sans entrée explicite, les mots des titres servent
+de première classification. Sans mot reconnu,
 Elderweald reçoit `Verdant | Mystery`, Otherworlds reçoit
 `Cold | Vast | Mystery | Ocean`. C'est un classement initial, à affiner à
 l'écoute. **Ancient Horrors reste exclusivement narratif/lunaire**, même si
@@ -51,8 +62,10 @@ simple présence de la lune ne déclenchent cet album.
 
 ## Ajustements par morceau
 
-`ENDURANCE/Ressources/Sound/music_catalog.json` contient les exceptions au
-classement automatique. La liste vide active l'import automatique.
+`ENDURANCE/Ressources/Sound/music_catalog.json` contient les affectations
+explicites qui remplacent le classement automatique. Les nouvelles musiques
+non renseignées restent importées automatiquement ; une liste vide utilise
+uniquement ce classement de secours.
 Exemple avec un nom fictif, à remplacer par le chemin affiché dans l'inspecteur :
 
 ```json
@@ -132,6 +145,9 @@ Pour un événement répétable, passer `once = false` ; son délai par défaut 
 pas lors de la mise en attente. Cet état n'est pas encore un système de
 sauvegarde des découvertes entre sessions.
 
+Les pistes dédiées aux découvertes sont `Oathstone`, `Opened Door`,
+`AriaOfAwakening`, `AwakenTheLight`, `Enshrinement`, `FinalSummon` et sa variante,
+ainsi que `Resolve`. Elles ne jouent pas en exploration ordinaire.
 Sans piste dédiée `discovery`, une découverte utilise une musique d'exploration
 de mystère/grandes étendues ou adaptée au biome. Un événement lunaire ne prend
 jamais cette solution de repli : il faut une piste `lunar` disponible.
@@ -159,6 +175,9 @@ bash Tests/run-music-catalog.sh
 bash Tests/run-music-director.sh
 bash Tests/run-audio-manager-lifecycle.sh
 bash Tests/run-music-playback.sh
+bash Tests/run-wav-loader.sh
+# Optionnel : décoder également les 77 fichiers du jeu, un à la fois.
+bash Tests/run-wav-loader.sh ENDURANCE/Ressources/Sound
 ```
 
 L'écoute des transitions et l'équilibrage artistique restent à valider dans le

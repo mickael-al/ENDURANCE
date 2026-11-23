@@ -76,7 +76,7 @@ namespace
         wav(root / "ELDER WEALD/Duplicate/01 Forest Dream.wav");
         wav(root / "Other Worlds/Dunes.wav");
         wav(root / "Publisher/Ancient Horrors/Broken Moon.wav");
-        wav(root / "Other Worlds/Unsupported24.wav", 24);
+        wav(root / "Other Worlds/Unsupported32.wav", 32);
         write(root / "Other Worlds/Truncated.wav", "RIFF1234WAVEfmt ");
         {
             std::ifstream file(root / "Other Worlds/Dunes.wav", std::ios::binary);
@@ -94,7 +94,7 @@ namespace
         require(find(catalog, "02 Snowfall (No Drums).wav").families == Cold, "Cold keyword classification failed");
         require(find(catalog, "Dunes.wav").families == Vast, "Vast keyword classification failed");
         require(find(catalog, "Broken Moon.wav").role == Role::Lunar, "Ancient Horrors leaked into exploration");
-        require(warningContains(catalog, "Unsupported24.wav") && warningContains(catalog, "Truncated.wav"), "Unsupported WAV must be diagnosed");
+        require(warningContains(catalog, "Unsupported32.wav") && warningContains(catalog, "Truncated.wav"), "Unsupported WAV must be diagnosed");
         require(warningContains(catalog, "DataBeforeFormat.wav"), "Indexer must obey decoder chunk-order requirements");
         require(warningContains(catalog, "PCM WAV"), "Compressed formats must report the required alternative");
 
@@ -151,7 +151,10 @@ namespace
         wav(root / "Otherworlds/The Long Night.wav");
         wav(root / "Otherworlds/The Long Night - No Choir.wav");
         wav(root / "Elderweald/Ancient Horrors/Hidden Prophecy.wav");
+        wav(root / "Elderweald/Frostbloom.wav", 24);
         const auto catalog = loadCatalog(root.string());
+        require(find(catalog, "Frostbloom.wav").role == Role::Exploration,
+            "The shipped 24-bit Elderweald pack must be indexed for playback");
         require(find(catalog, "The Long Road.wav").group == find(catalog, "The Long Road (Full Version 2).wav").group,
             "Full mix should share composition history");
         require(find(catalog, "The Long Night.wav").group == find(catalog, "The Long Night - No Choir.wav").group,

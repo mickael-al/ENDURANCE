@@ -212,7 +212,7 @@ namespace
                 const auto channels = u16(format + 2), bits = u16(format + 14);
                 blockAlign = u16(format + 12);
                 formatValid = u16(format) == 1 && (channels == 1 || channels == 2) &&
-                    (bits == 8 || bits == 16) && u32(format + 4) != 0 &&
+                    (bits == 8 || bits == 16 || bits == 24) && u32(format + 4) != 0 &&
                     blockAlign == channels * (bits / 8);
                 if (!formatValid) return false;
             }
@@ -382,7 +382,7 @@ Catalog loadCatalog(const std::string& root, const std::string& configFile)
     }
     if (ec) result.warnings.push_back("Music scan incomplete: " + ec.message());
     if (unsupportedCount)
-        result.warnings.push_back(std::to_string(unsupportedCount) + " compressed/unsupported music files skipped: AudioManager currently requires PCM WAV (8/16-bit mono/stereo)");
+        result.warnings.push_back(std::to_string(unsupportedCount) + " compressed/unsupported music files skipped: AudioManager currently requires PCM WAV (8/16/24-bit mono/stereo)");
     std::sort(files.begin(), files.end());
     std::set<std::string> duplicateIds;
     for (const auto& file : files)

@@ -1,5 +1,6 @@
 #include "SoundTypeLoader.hpp"
 
+#include <algorithm>
 #include <array>
 #include <climits>
 #include <cstdio>
@@ -38,6 +39,58 @@ namespace
             static_cast<std::uint64_t>(fileEnd - chunkStart) >= chunkSize;
         return std::fseek(file, chunkStart, SEEK_SET) == 0 && fits;
     }
+
+    std::int32_t signedPcm24(const unsigned char* bytes)
+    {
+        const auto value = static_cast<std::int32_t>(std::uint32_t(bytes[0]) |
+            (std::uint32_t(bytes[1]) << 8) | (std::uint32_t(bytes[2]) << 16));
+        return (value & 0x800000) != 0 ? value - 0x1000000 : value;
+    }
+
+    bool readPcm24(FILE* file, std::int8_t* output, std::uint32_t frameCount,
+                   std::uint32_t channels, bool forceMono)
+    {
+        // Convert on the loading worker, before taking the OpenAL mutex. Only
+        // the 16-bit output and this small input block coexist in memory.
+        std::array<unsigned char, 24 * 1024> block{};
+        const std::uint32_t stride = channels * 3;
+        const bool downmix = forceMono && channels == 2;
+        std::uint32_t random = 0xA341316Cu;
+        const auto uniformByte = [&random]()
+        {
+            random ^= random << 13;
+            random ^= random >> 17;
+            random ^= random << 5;
+            return static_cast<std::int32_t>(random >> 24);
+        };
+        const auto storeSample = [&](std::int32_t sample)
+        {
+            // TPDF dither avoids signal-correlated quantization in quiet music.
+            // Offset before division to round negatives portably in C++17.
+            const auto a = uniformByte(), b = uniformByte();
+            const auto quantized = (sample + (a - b) + 128 + 8388608) / 256 - 32768;
+            const auto pcm = static_cast<std::int16_t>(std::clamp(quantized, -32768, 32767));
+            std::memcpy(output, &pcm, sizeof(pcm));
+            output += sizeof(pcm);
+        };
+        while (frameCount != 0)
+        {
+            const auto count = (std::min)(frameCount,
+                static_cast<std::uint32_t>(block.size() / stride));
+            if (!readExact(file, block.data(), count * stride)) return false;
+            for (std::uint32_t frame = 0; frame < count; ++frame)
+            {
+                const auto* input = block.data() + frame * stride;
+                if (downmix)
+                    storeSample((signedPcm24(input) + signedPcm24(input + 3)) / 2);
+                else
+                    for (std::uint32_t channel = 0; channel < channels; ++channel)
+                        storeSample(signedPcm24(input + channel * 3));
+            }
+            frameCount -= count;
+        }
+        return true;
+    }
 }
 
 namespace Ge
@@ -49,7 +102,7 @@ namespace Ge
         std::int32_t channelCount)
     {
         if (sampleRate == 0 || channelCount <= 0 ||
-            (bitsPerSample != 8 && bitsPerSample != 16))
+            (bitsPerSample != 8 && bitsPerSample != 16 && bitsPerSample != 24))
         {
             return 0.0;
         }
@@ -184,7 +237,8 @@ namespace Ge
             static_cast<std::uint32_t>(waveFormat.numChannels) * bytesPerSample;
         if (waveFormat.audioFormat != 1 ||
             (waveFormat.numChannels != 1 && waveFormat.numChannels != 2) ||
-            (waveFormat.bitsPerSample != 8 && waveFormat.bitsPerSample != 16) ||
+            (waveFormat.bitsPerSample != 8 && waveFormat.bitsPerSample != 16 &&
+             waveFormat.bitsPerSample != 24) ||
             waveFormat.sampleRate == 0 || expectedBlockAlign == 0 ||
             waveFormat.blockAlign != expectedBlockAlign || dataSize == 0 ||
             dataSize > MaximumWaveDataSize ||
@@ -195,8 +249,14 @@ namespace Ge
             return nullptr;
         }
 
-        std::int8_t* buffer = new (std::nothrow) std::int8_t[dataSize];
-        if (buffer == nullptr || !readExact(wavFile, buffer, dataSize))
+        const bool convert24 = waveFormat.bitsPerSample == 24;
+        std::uint32_t outputChannels = forceMono ? 1u : waveFormat.numChannels;
+        const std::uint32_t frames = dataSize / expectedBlockAlign;
+        std::uint32_t outputSize = convert24 ? frames * outputChannels * 2u : dataSize;
+        std::int8_t* buffer = new (std::nothrow) std::int8_t[outputSize];
+        if (buffer == nullptr || !(convert24
+                ? readPcm24(wavFile, buffer, frames, waveFormat.numChannels, forceMono)
+                : readExact(wavFile, buffer, dataSize)))
         {
             delete[] buffer;
             Debug::Error("Unable to read WAV sample data: %s", filePath);
@@ -204,13 +264,10 @@ namespace Ge
             return nullptr;
         }
 
-        std::uint32_t outputChannels = waveFormat.numChannels;
-        std::uint32_t outputSize = dataSize;
-        if (forceMono && outputChannels == 2)
+        if (!convert24 && forceMono && waveFormat.numChannels == 2)
         {
             // Average in a wider integer type and compact in place. Preserve
             // frame count, sample rate and duration; no clipping or resampling.
-            const std::uint32_t frames = dataSize / expectedBlockAlign;
             for (std::uint32_t frame = 0; frame < frames; ++frame)
             {
                 if (waveFormat.bitsPerSample == 16)

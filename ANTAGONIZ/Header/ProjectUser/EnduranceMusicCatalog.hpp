@@ -42,7 +42,8 @@ namespace EnduranceMusic
 
     // Performs the only filesystem scan. No decoding or OpenAL allocation.
     // Pack names are recognized case/space-insensitively anywhere below root.
-    // The current engine supports RIFF PCM WAV (8/16-bit, mono/stereo) only.
+    // The engine supports RIFF PCM WAV (8/16/24-bit, mono/stereo) only.
+    // 24-bit sources are converted to dithered 16-bit PCM by the audio loader.
     // Missing files/invalid entries produce warnings and never block startup.
     Catalog loadCatalog(const std::string& root, const std::string& configFile = {});
 
