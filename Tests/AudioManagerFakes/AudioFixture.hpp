@@ -62,13 +62,13 @@ public:
 class SoundManager
 {
 public:
-    SoundBuffer* createBuffer(const char* path)
+    SoundBuffer* createBuffer(const char* path, bool = false, bool = false, float = 0.0f)
     {
         std::unique_lock<std::mutex> lock(mutex);
         ++loadCalls[path];
         changed.notify_all();
         changed.wait(lock, [&] { return blocked.count(path) == 0; });
-        if (std::string(path).find("missing") == 0) return nullptr;
+        if (std::string(path).find("missing") == 0 || failed.count(path)) return nullptr;
         auto* result = new SoundBuffer(path);
         buffers.insert(result);
         return result;
@@ -138,11 +138,29 @@ public:
         for (auto* source : sources) if (source->buffer->path == path) return source->playCount;
         return 0;
     }
+    bool looping(const std::string& path)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (auto* source : sources) if (source->buffer->path == path) return source->looping;
+        return false;
+    }
+    void finish(const std::string& path)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        for (auto* source : sources) if (source->buffer->path == path)
+        { source->offset = 30.0f; source->state = AL_STOPPED; }
+    }
+    void fail(const std::string& path)
+    {
+        std::lock_guard<std::mutex> lock(mutex);
+        failed.insert(path);
+    }
     std::atomic<bool> paused{ false };
 private:
     std::mutex mutex;
     std::condition_variable changed;
     std::unordered_set<std::string> blocked;
+    std::unordered_set<std::string> failed;
     std::unordered_map<std::string, unsigned> loadCalls;
     std::unordered_set<SoundBuffer*> buffers;
     std::unordered_set<AudioSource*> sources;

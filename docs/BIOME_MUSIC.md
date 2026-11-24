@@ -5,6 +5,11 @@ La scène `ENDURANCE/Scene/Terrain.scene` utilise maintenant
 à `AudioManager`, sur le bus musique de `SoundManager`. Aucune passe GPU ni
 nouvelle interrogation du climat n'est ajoutée.
 
+Le même composant pilote les ambiances du dossier `Ambiant`, avec un lecteur et
+des volumes indépendants. Elles continuent pendant les respirations musicales.
+Voir [BIOME_AMBIENCE.md](BIOME_AMBIENCE.md) pour la répartition, les transitions,
+la météo et les réglages sans interface.
+
 ## Installation des morceaux
 
 Par défaut, placer les trois dossiers sous `ENDURANCE/Ressources/Sound` :

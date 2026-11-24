@@ -29,7 +29,7 @@ void AudioManager::registerSound(const std::string& key, const std::vector<std::
     m_registry[key] = paths;
 }
 
-void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType sType, unsigned int nb_multi, float volume)
+void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType sType, unsigned int nb_multi, float volume, float loopBlendSeconds)
 {
     if (m_stopping.load())
     {
@@ -65,6 +65,8 @@ void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType s
             req.nb_multi = nb_multi;
             req.volume = std::clamp(volume, 0.0f, 1.0f);
             req.loadId = ++m_nextLoadId;
+            req.loopBlendSeconds = pType == AudioPlayType::LOOP && req.paths.size() == 1
+                ? std::clamp(loopBlendSeconds, 0.0f, 2.0f) : 0.0f;
             m_pendingLoads[key] = req.loadId;
             m_requests.push(req);
             return;
@@ -86,7 +88,7 @@ void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType s
             sound->sType = sType;
             sound->nb_multi = nb_multi;
             sound->source->stop();
-            sound->source->setLoop(false);
+            sound->source->setLoop(!sound->isTriple && pType == AudioPlayType::LOOP);
             sound->source->setGain(sound->localVolume * m_masterVolume);
             sound->source->setSoundBuffer(sound->first);
             sound->startPending = m_pc != nullptr && m_pc->soundManager != nullptr &&
@@ -438,7 +440,7 @@ void AudioManager::loadSound(const AudioRequest& request)
     const ptrClass* pc = m_pc;
     if (paths.size() == 1)
     {
-        sound->first = m_pc->soundManager->createBuffer(paths[0].c_str());
+        sound->first = m_pc->soundManager->createBuffer(paths[0].c_str(), false, false, request.loopBlendSeconds);
     }
     else
     {
@@ -584,6 +586,9 @@ void AudioManager::update()
             }
             sound->startPending = false;
             sound->source->setGain(sound->localVolume * m_masterVolume);
+            // Let OpenAL wrap the very first pass too. Restarting it in update()
+            // would insert a frame-sized silence at the first loop boundary.
+            sound->source->setLoop(!sound->isTriple && sound->pType == AudioPlayType::LOOP);
             sound->source->play();
             const auto volume = m_volumeConfigurations.find(key);
             if (volume != m_volumeConfigurations.end())

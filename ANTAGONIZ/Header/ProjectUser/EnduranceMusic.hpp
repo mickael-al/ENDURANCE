@@ -32,6 +32,13 @@ public:
     std::string musicRoot = "../ENDURANCE/Ressources/Sound";
     std::string catalogFile = "../ENDURANCE/Ressources/Sound/music_catalog.json";
     float volume = 0.65f;
+    // Serialized/API settings for a future options menu; deliberately no UI.
+    // Independent from music gain/silences, but follows the same biome sample.
+    bool ambienceEnabled = true;
+    float ambienceVolume = 0.55f;
+    float ambienceDetailVolume = 0.45f;
+    float weatherVolume = 0.85f;
+    float ambienceTransitionSeconds = 4.0f;
     float biomeHoldSeconds = 12.0f;
     float minimumPlaySeconds = 30.0f;
     float fadeInSeconds = 4.0f, fadeOutSeconds = 4.0f;

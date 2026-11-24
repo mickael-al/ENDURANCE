@@ -7,6 +7,13 @@
 
 namespace Ge
 {
+    // Overlap the end onto the beginning in place, then exclude the consumed
+    // tail from playback. Returns the new byte count; input storage is unchanged.
+    // For decoded little-endian PCM8/PCM16 mono/stereo; zero opts out.
+    std::uint64_t blendSoundLoopSeam(std::int8_t* data, std::uint64_t size,
+        std::uint32_t sampleRate, unsigned channels, unsigned bitsPerSample,
+        float seconds);
+
     // Optional analysis data, independent of the OpenAL playback buffer.
     // Mono signed PCM, at most 24 kHz: at most 2.88 MB per minute of music.
     // The source rate is divided by an integer, preserving its playback clock.

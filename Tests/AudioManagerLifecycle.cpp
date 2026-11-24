@@ -89,6 +89,7 @@ int main()
         audio.registerSound("loop", { "loop.wav" });
         audio.play("loop", AudioPlayType::LOOP);
         waitForPlaying(audio, "loop");
+        assert(sounds.looping("loop.wav")); // Native wrap starts on the first pass.
         if (mode == 0) audio.stop("loop");
         else audio.stopFade("loop", mode == 1 ? 0.0f : 0.5f);
         for (int i = 0; i < 30; ++i) audio.update();

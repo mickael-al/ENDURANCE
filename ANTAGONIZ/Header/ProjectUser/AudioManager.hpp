@@ -58,6 +58,7 @@ struct AudioRequest
     unsigned int nb_multi;
     float volume = 1.0f;
     std::uint64_t loadId = 0;
+    float loopBlendSeconds = 0.0f;
 };
 
 struct AudioTrack
@@ -92,7 +93,7 @@ public:
     AudioManager();
     ~AudioManager();    
     void registerSound(const std::string& key, const std::vector<std::string>& paths);
-    void play(const std::string& key, AudioPlayType pType = AudioPlayType::ONCE, SoundType sType = SoundType::MUSIC, unsigned int nb_multi = 0, float volume = 1.0f);
+    void play(const std::string& key, AudioPlayType pType = AudioPlayType::ONCE, SoundType sType = SoundType::MUSIC, unsigned int nb_multi = 0, float volume = 1.0f, float loopBlendSeconds = 0.0f);
     void stop(const std::string& key);
     void stopFade(const std::string& key, float duration);
     // Cancels any pending load and unregisters/releases the source and its PCM buffers.

@@ -1,6 +1,8 @@
 #include "EnduranceMusic.hpp"
 #define CLEAR_REGISTRY
 #include "EnduranceAtmosphere.hpp"
+#include "EnduranceAmbience.hpp"
+#include "EnduranceBiomeEffects.hpp"
 #include "EnduranceMusicCatalog.hpp"
 #include "EnduranceMusicDirector.hpp"
 #include "AudioManager.hpp"
@@ -16,7 +18,8 @@
 
 REGISTER(Behaviour, EnduranceMusicComponent, enabled, musicRoot, catalogFile, volume,
     biomeHoldSeconds, minimumPlaySeconds, fadeInSeconds, fadeOutSeconds,
-    silenceMinSeconds, silenceMaxSeconds, recentCompositions);
+    silenceMinSeconds, silenceMaxSeconds, recentCompositions,
+    ambienceEnabled, ambienceVolume, ambienceDetailVolume, weatherVolume, ambienceTransitionSeconds);
 
 namespace
 {
@@ -64,6 +67,7 @@ struct EnduranceMusicComponent::Impl
     // The director references catalog.tracks: destroy it before replacing the catalog.
     std::unique_ptr<EnduranceMusic::Director> director;
     std::unique_ptr<AudioManager> audio;
+    std::unique_ptr<EnduranceAmbience::Player> ambience;
     bool running = false, wasEnabled = false;
     float appliedVolume = -1.0f;
     int sampledBiome = -1;
@@ -126,6 +130,7 @@ void EnduranceMusicComponent::stop()
 {
     if (m->director) m->apply(m->director->stop());
     m->audio.reset(); // cancel / join loader before the scene's SoundManager is released
+    m->ambience.reset();
     m->director.reset();
     m->running = false;
     m->wasEnabled = false;
@@ -137,6 +142,10 @@ void EnduranceMusicComponent::stop()
 void EnduranceMusicComponent::reloadCatalog()
 {
     if (!m->running) return;
+    m->ambience.reset();
+    const auto seed = static_cast<std::uint32_t>(
+        std::chrono::steady_clock::now().time_since_epoch().count());
+    m->ambience = std::make_unique<EnduranceAmbience::Player>(musicRoot + "/Ambiant", seed);
     if (m->director) m->apply(m->director->stop());
     m->audio.reset();
     m->director.reset();
@@ -148,8 +157,6 @@ void EnduranceMusicComponent::reloadCatalog()
         m->error = "No playable music found. Check the root, WAV files and catalog warnings, then reload.";
         return;
     }
-    const auto seed = static_cast<std::uint32_t>(
-        std::chrono::steady_clock::now().time_since_epoch().count());
     m->director = std::make_unique<EnduranceMusic::Director>(m->catalog.tracks, seed);
     m->audio = std::make_unique<AudioManager>();
     m->appliedVolume = bounded(volume, 0.65f, 0.0f, 1.0f);
@@ -159,6 +166,10 @@ void EnduranceMusicComponent::reloadCatalog()
 void EnduranceMusicComponent::sanitizeSettings()
 {
     volume = bounded(volume, 0.65f, 0.0f, 1.0f);
+    ambienceVolume = bounded(ambienceVolume, 0.55f, 0.0f, 1.0f);
+    ambienceDetailVolume = bounded(ambienceDetailVolume, 0.45f, 0.0f, 1.0f);
+    weatherVolume = bounded(weatherVolume, 0.85f, 0.0f, 1.0f);
+    ambienceTransitionSeconds = bounded(ambienceTransitionSeconds, 4.0f, 0.05f, 30.0f);
     biomeHoldSeconds = bounded(biomeHoldSeconds, 12.0f, 0.0f, 120.0f);
     minimumPlaySeconds = bounded(minimumPlaySeconds, 30.0f, 0.0f, 600.0f);
     fadeInSeconds = bounded(fadeInSeconds, 4.0f, 0.0f, 30.0f);
@@ -170,8 +181,51 @@ void EnduranceMusicComponent::sanitizeSettings()
 
 void EnduranceMusicComponent::update()
 {
-    if (!m->running || !m->audio || !m->director) return;
+    if (!m->running) return;
     if (m->pc->soundManager->isPaused()) return;
+    sanitizeSettings();
+    // Share the sky's sample and validity check with both sound systems. Ambient
+    // beds keep playing through music silences, events and an empty music catalog.
+    m->sampledBiome = -1;
+    const auto sample = EnduranceAtmosphereComponent::currentBiomeSample();
+    auto* camera = m->pc->cameraManager ? m->pc->cameraManager->getCurrentCamera() : nullptr;
+    if (sample.valid && camera && sample.biome < ProceduralTerrain::BiomeNames.size())
+    {
+        const glm::vec3 position = camera->getPosition();
+        const float dx = position.x - sample.worldXZ.x, dz = position.z - sample.worldXZ.y;
+        if (finiteFloat(dx) && finiteFloat(dz) && std::abs(dx) <= 128.0f &&
+            std::abs(dz) <= 128.0f && dx * dx + dz * dz <= 128.0f * 128.0f)
+            m->sampledBiome = static_cast<int>(sample.biome);
+    }
+    const float dt = bounded(m->pc->time->getDeltaTime(), 0.0f, 0.0f, 0.1f);
+    if (m->ambience)
+    {
+        if (!ambienceEnabled) m->ambience->stop();
+        else
+        {
+            EnduranceAmbience::Weather weather;
+            if (const auto* effects = EnduranceBiomeEffectsComponent::active())
+            {
+                using EnduranceEnvironment::EffectId;
+                const auto strength = [&](EffectId id) { return effects->effectStrength(id); };
+                weather.rain = (std::max)({strength(EffectId::Rain), strength(EffectId::HeavyRain),
+                    strength(EffectId::Sleet), strength(EffectId::Hail)});
+                weather.thunder = strength(EffectId::Thunderstorm);
+                weather.sandstorm = strength(EffectId::Sandstorm);
+                weather.blizzard = strength(EffectId::Blizzard);
+                weather.ashStorm = strength(EffectId::AshStorm);
+                weather.lunar = (std::max)(strength(EffectId::LunarDustFall), strength(EffectId::MeteorShower));
+            }
+            EnduranceAmbience::Settings settings;
+            settings.volume = ambienceVolume;
+            settings.detailVolume = ambienceDetailVolume;
+            settings.weatherVolume = weatherVolume;
+            settings.biomeHoldSeconds = biomeHoldSeconds;
+            settings.transitionSeconds = ambienceTransitionSeconds;
+            m->ambience->update(dt, m->sampledBiome, weather, settings);
+        }
+    }
+    if (!m->audio || !m->director) return;
     if (!enabled)
     {
         if (m->wasEnabled) m->apply(m->director->stop());
@@ -179,7 +233,6 @@ void EnduranceMusicComponent::update()
         return;
     }
     m->wasEnabled = true;
-    sanitizeSettings();
     EnduranceMusic::Settings settings;
     settings.biomeHoldSeconds = biomeHoldSeconds;
     settings.minPlaySeconds = minimumPlaySeconds;
@@ -196,21 +249,7 @@ void EnduranceMusicComponent::update()
     }
     m->audio->update();
 
-    // Reuse the asynchronously read climate sample already used by sky/effects.
-    // A teleport or an unavailable sample must not select an unrelated new song.
-    m->sampledBiome = -1;
-    const auto sample = EnduranceAtmosphereComponent::currentBiomeSample();
-    auto* camera = m->pc->cameraManager ? m->pc->cameraManager->getCurrentCamera() : nullptr;
-    if (sample.valid && camera && sample.biome < ProceduralTerrain::BiomeNames.size())
-    {
-        const glm::vec3 position = camera->getPosition();
-        const float dx = position.x - sample.worldXZ.x, dz = position.z - sample.worldXZ.y;
-        if (finiteFloat(dx) && finiteFloat(dz) && std::abs(dx) <= 128.0f &&
-            std::abs(dz) <= 128.0f && dx * dx + dz * dz <= 128.0f * 128.0f)
-            m->sampledBiome = static_cast<int>(sample.biome);
-    }
     const auto status = m->audio->playbackStatus(AudioKey);
-    const float dt = bounded(m->pc->time->getDeltaTime(), 0.0f, 0.0f, 0.1f);
     m->apply(m->director->update(dt, m->sampledBiome, playbackInfo(status)));
 }
 

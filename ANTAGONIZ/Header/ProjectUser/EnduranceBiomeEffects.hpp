@@ -32,6 +32,8 @@ public:
     // Future weather/gameplay entry point. Only declared active events allowed by
     // the current dominant biome can start; nothing invokes this automatically.
     static EnduranceBiomeEffectsComponent* active();
+    // Read-only event envelope for audio; independent of particle/screen toggles.
+    float effectStrength(EnduranceEnvironment::EffectId id) const;
     bool triggerEvent(EnduranceEnvironment::EffectId id, float seconds, float intensity = 1.0f);
     bool triggerEvent(const char* key, float seconds, float intensity = 1.0f);
     void stopEvent(EnduranceEnvironment::EffectId id);

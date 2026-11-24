@@ -86,6 +86,12 @@ EnduranceBiomeEffectsComponent::EnduranceBiomeEffectsComponent() : m(std::make_u
 EnduranceBiomeEffectsComponent::~EnduranceBiomeEffectsComponent() { stop(); }
 EnduranceBiomeEffectsComponent* EnduranceBiomeEffectsComponent::active() { return activeEffects; }
 
+float EnduranceBiomeEffectsComponent::effectStrength(EffectId id) const
+{
+    const auto i = static_cast<std::size_t>(id);
+    return enabled && m->registered && i < EffectCount ? m->state.strengths()[i] : 0.0f;
+}
+
 void EnduranceBiomeEffectsComponent::start()
 {
     stop();
