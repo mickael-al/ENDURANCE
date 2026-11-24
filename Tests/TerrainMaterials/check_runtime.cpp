@@ -51,7 +51,7 @@ int main()
         glPixelStorei(GL_UNPACK_SKIP_PIXELS, 9);
         ProceduralGeneration terrain(scene, 1337);
         require(terrain.initialize(config), terrain.getLastError());
-        require(textures.size() == 2 && textureUploads == 2 && mipGenerations == 1,
+        require(textures.size() == 1 && textureUploads == 1 && mipGenerations == 1,
             "Stain cache not initialized once with a mip chain");
         require(activeTexture == GL_TEXTURE0+3 && unpackBuffer == 779
             && pixelStore[GL_UNPACK_ALIGNMENT] == 8 && pixelStore[GL_UNPACK_ROW_LENGTH] == 91
@@ -77,7 +77,7 @@ int main()
         require(activeTexture == GL_TEXTURE0+3 && textureBindings[0] == 777 && samplerBindings[0] == 778
             && textureBindings[1] == 780 && samplerBindings[1] == 781,
             "Terrain draw did not restore borrowed texture/sampler state");
-        require(textureUploads == 2 && mipGenerations == 1,
+        require(textureUploads == 1 && mipGenerations == 1,
             "Chunk generation/draw rebuilt the fine surface cache");
         require(uniform == 901 && uniformBindings[6].buffer == 900
             && uniformBindings[6].start == 256 && uniformBindings[6].size == 512,
@@ -221,7 +221,7 @@ int main()
             "Initially unbound UBO slot was not restored");
 
         require(terrain.initialize(config), terrain.getLastError());
-        require(textures.size() == 2, "Terrain restart leaked stain texture");
+        require(textures.size() == 1, "Terrain restart leaked stain texture");
         require(buffers.size() == 1 && pipelines.activePipelines == 2 && pipelines.registeredRenderers == 1,
             "Terrain restart leaked material storage or registration");
         terrain.shutdown();

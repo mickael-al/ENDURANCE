@@ -8,11 +8,6 @@ namespace ProceduralTerrain
     inline constexpr unsigned TerrainFineSurfaceSize = 512;
     inline constexpr unsigned TerrainFineSurfaceMipLevels = 10;
     using TerrainFineSurfacePixels = std::array<std::uint8_t, TerrainFineSurfaceSize * TerrainFineSurfaceSize>;
-    inline constexpr unsigned TerrainSparkleSize = 128;
-    // Facets fade out before minification; no unused mip chain is allocated.
-    inline constexpr unsigned TerrainSparkleMipLevels = 1;
-    using TerrainSparklePixels = std::array<std::uint8_t, TerrainSparkleSize * TerrainSparkleSize * 4>;
-
     namespace FineSurfaceBake
     {
         inline std::uint32_t hash(unsigned x, unsigned y, unsigned salt) noexcept
@@ -53,29 +48,6 @@ namespace ProceduralTerrain
             }
             return sum > 0.5f * normalization;
         }
-    }
-
-    inline const TerrainSparklePixels& terrainSparklePixels()
-    {
-        // Independent, sparse white noise: grain facets, NOT smooth relief FBM.
-        // RG encodes a zero-centred tilt premultiplied by coverage B. Bilinear
-        // filtering then reduces the perturbation across each facet boundary.
-        static const TerrainSparklePixels pixels = [] {
-            TerrainSparklePixels result{};
-            for (unsigned y = 0; y < TerrainSparkleSize; ++y)
-            for (unsigned x = 0; x < TerrainSparkleSize; ++x)
-            {
-                const unsigned i = (x + y*TerrainSparkleSize)*4;
-                const auto h = FineSurfaceBake::hash(x,y,0x372cb913u);
-                const bool occupied = (h >> 24) < 48u;
-                result[i] = occupied ? static_cast<std::uint8_t>(1u + h%255u) : 128;
-                result[i+1] = occupied ? static_cast<std::uint8_t>(1u + (h >> 8)%255u) : 128;
-                result[i+2] = occupied ? 255 : 0;
-                result[i+3] = 255;
-            }
-            return result;
-        }();
-        return pixels;
     }
 
     inline const TerrainFineSurfacePixels& terrainFineSurfacePixels()

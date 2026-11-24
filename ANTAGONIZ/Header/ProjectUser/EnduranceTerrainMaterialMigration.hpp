@@ -7,7 +7,7 @@
 namespace Endurance
 {
     // Scene data version, deliberately outside the renderer's std140 records.
-    constexpr std::uint32_t TerrainAppearanceRevision = 4;
+    constexpr std::uint32_t TerrainAppearanceRevision = 5;
 
     inline std::uint64_t terrainAppearanceLegacyFingerprint(
         const ProceduralTerrain::TerrainBiomeAppearance& biome) noexcept
@@ -94,7 +94,7 @@ namespace Endurance
         {
             auto& b = appearance.biomes[i];
             const auto& fresh = classified.biomes[i];
-            b.stainRouting = fresh.stainRouting;
+            if (revision < 4) b.stainRouting = fresh.stainRouting;
             ProceduralTerrain::TerrainMaterial* materials[] = {
                 &b.ground.base, &b.ground.accent, &b.wall.base, &b.wall.accent};
             const ProceduralTerrain::TerrainMaterial* replacements[] = {
@@ -116,8 +116,16 @@ namespace Endurance
                 bool unchanged = true;
                 for (unsigned c = 0; c < 4; ++c)
                     unchanged &= std::abs(materials[slot]->fineSurface[c]-old[c]) < 0.000001f;
-                if (revision < 3 || unchanged)
+                if (revision < 3 || (revision == 3 && unchanged))
                     materials[slot]->fineSurface = replacements[slot]->fineSurface;
+                // v5 explicitly removes stains from sand/snow, even where an
+                // earlier scene adjusted their strength. All other fine controls,
+                // artist palettes and the v4 routing stay untouched.
+                if (replacements[slot]->fineSurface[0] > 0.f)
+                {
+                    materials[slot]->fineSurface[2] = 0.f;
+                    materials[slot]->fineSurface[3] = 0.f;
+                }
             }
         }
         revision = TerrainAppearanceRevision;

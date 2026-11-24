@@ -3,7 +3,6 @@
 
 #if TERRAIN_FINE_SURFACE_ENABLED
 layout(binding=0) uniform sampler2D terrainFineSurfaceCache;
-layout(binding=1) uniform sampler2D terrainSparkleCache;
 uniform float terrainVegetationStainSize = 2.5;
 uniform float terrainOtherStainSize = 0.25;
 uniform float terrainSparkleGrainSize = 0.01;
@@ -44,18 +43,19 @@ void terrainApplySparkle(inout TerrainAppearanceSample material, TerrainPatternC
 {
     if (material.sparkle.x <= 0.0 || c.pixelFootprint >= terrainSparkleGrainSize) return;
     float resolved = 1.0-smoothstep(0.25,1.0,c.pixelFootprint/terrainSparkleGrainSize);
-    vec2 offset = vec2((worldSeed >> 16u)&127u,worldSeed&127u)/128.0;
-    vec3 facet = textureLod(terrainSparkleCache,
-        terrainFineProjection(c.position)/(128.0*terrainSparkleGrainSize)+offset,0.0).rgb;
-    float amount = material.sparkle.x*resolved;
+    // One independent value per world-space cell: nearest-equivalent white
+    // noise, with no interpolation, FBM, texture tile or normal perturbation.
+    vec3 cells = floor(c.position/terrainSparkleGrainSize);
+    if (any(greaterThanEqual(abs(cells),vec3(1.0e9)))) return;
+    float grain = terrainCornerValueSalt(ivec3(cells),0x372cb913u);
+    // Contrast the raw scalar, as the reference contrasts its specular mask.
+    // A bounded roughness modulation keeps real lights, shadows and IBL intact
+    // in the existing deferred path without another material channel or pass.
+    float glitter = grain*grain;
+    glitter *= glitter;
+    float amount = material.sparkle.x*resolved*glitter;
     float targetRoughness = material.sparkle.y/material.sparkle.x;
-    material.roughness = mix(material.roughness,min(material.roughness,targetRoughness),facet.b*amount);
-    // Accumulate small facet slopes before the shared tangent projection and
-    // final normal normalization, avoiding a second normal calculation.
-    // No emission: highlights use the existing PBR lighting.
-    vec2 tilt = (facet.rg*255.0-128.0)/127.0;
-    vec3 perturbation = vec3(tilt.x,0.6*tilt.x+0.8*tilt.y,tilt.y);
-    material.heightGradient += perturbation*(0.05*amount);
+    material.roughness = mix(material.roughness,min(material.roughness,targetRoughness),amount);
 }
 #endif
 #endif

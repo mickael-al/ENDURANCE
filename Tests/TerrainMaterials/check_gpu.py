@@ -16,13 +16,15 @@ import os
 from pathlib import Path
 import random
 import struct
+import subprocess
+import tempfile
 import sys
 
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "4.6")
 os.environ.setdefault("MESA_GLSL_VERSION_OVERRIDE", "460")
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-from check_cpu import export_table, export_appearance, export_stain, export_sparkle
+from check_cpu import export_table, export_appearance, export_stain
 sys.path.insert(0, str(ROOT / "Tests/Atmosphere"))
 from gl_support import AtmosphereGL, RGBA32F, RG32F, TEXTURE_2D, shader_source
 
@@ -78,6 +80,25 @@ def literal_table(colors=None, wall_colors=None, *, metallic=0., roughness=.6, a
     return struct.pack(f'<{len(floats)}f', *floats), colors, wall_colors
 
 
+def historical_sparkle_cache():
+    """Only historical shader comparisons need the removed RGBA grain cache.
+
+    Compile its exact old C++ bake, never approximate it in Python or depend on
+    the current renderer retaining an obsolete production texture/export API.
+    """
+    revision = '1ff2aecf8cc243df85c44676987f8bb77a3e8a3c'
+    name = 'ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp'
+    header = subprocess.check_output(['git','show',revision+':'+name],cwd=ROOT)
+    with tempfile.TemporaryDirectory(prefix='terrain-old-grain-cache-') as directory:
+        directory = Path(directory)
+        (directory/'cache.hpp').write_bytes(header)
+        (directory/'cache.cpp').write_text('#include "cache.hpp"\n#include <iostream>\nint main() {\n    const auto& p = ProceduralTerrain::terrainSparklePixels();\n    std::cout.write(reinterpret_cast<const char*>(p.data()),p.size());\n    return std::cout.good() ? 0 : 1;\n}\n')
+        binary = directory/'cache'
+        subprocess.run([os.environ.get('CXX','c++'),'-std=c++17','-O2',
+                        str(directory/'cache.cpp'),'-o',str(binary)],check=True)
+        return subprocess.check_output([str(binary)])
+
+
 class MaterialRig:
     def __init__(self, gl, table, size=(32, 24), fragment=None, formats=None):
         self.gl, self.size = gl, size
@@ -97,14 +118,16 @@ class MaterialRig:
             gl._fn('glGenerateMipmap',None,C.c_uint)
             gl.glGenerateMipmap(TEXTURE_2D)
             gl.check('production terrain stain cache')
-            payload = export_sparkle()
+        self.historical_sparkle = 'terrainSparkleCache' in self.fragment_source
+        if self.historical_sparkle and not hasattr(gl, 'terrain_sparkle'):
+            payload = historical_sparkle_cache()
             assert len(payload) == 128*128*4
             gl.terrain_sparkle = gl.texture((128,128),internal=0x8058,levels=1,value=0.)
             gl.sampler(1,gl.terrain_sparkle)
             gl.glTexImage2D(TEXTURE_2D,0,0x8058,128,128,0,0x1908,0x1401,C.c_char_p(payload))
             gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
             gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
-            gl.check('production terrain sparkle cache')
+            gl.check('historical terrain sparkle cache')
         self.table_size = len(table)
         self.matrix_values = tuple(range(25))
         self.table = gl.buffer(table)
@@ -209,7 +232,7 @@ class MaterialRig:
         gl.glBindVertexArray(self.vao)
         gl.glUseProgram(self.program)
         gl.sampler(0,gl.terrain_stain)
-        gl.sampler(1,gl.terrain_sparkle)
+        if self.historical_sparkle: gl.sampler(1,gl.terrain_sparkle)
         gl.glDrawArrays(0x0004, 0, 3)
         gl.glBindFramebuffer(0x8D40, 0)
 
@@ -395,14 +418,57 @@ def check_fine_surface(gl):
     assert sparkle[0] == baseline[0] and sparkle[2] == baseline[2], 'glints changed geometry/emission/albedo'
     assert sparkle[3][0::4] == baseline[3][0::4] and sparkle[3][2::4] == baseline[3][2::4]
     assert min(sparkle[3][1::4]) < .16 and max(sparkle[3][1::4]) > .79, 'missing sparse glossy grains'
-    # Count the glossy cores, not the weak tails of the texture filter.
+    # Upper tail of an independent uniform sample, shaped by a fourth power.
     coverage=sum(r < .5 for r in sparkle[3][1::4])/128**2
     assert .02 < coverage < .35, ('grain coverage',coverage)
-    assert max_difference(sparkle[1],baseline[1]) > .02, 'grain normals not perturbed'
+    assert sparkle[1] == baseline[1], 'white-noise sparkle introduced bump normals'
     for n in pixels(sparkle[1]): assert abs(sum(x*x for x in n[:3])-1.) < 3e-5
     rig.set(testLod=5,testViewOffset=(5.,2.,-10.))
     stable=rig.read()
     assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
+
+    # Recover the raw white-noise values from the roughness mapping. This
+    # checks a distribution, not a second copy of the implementation's hash.
+    raw=[max(0.,min(1.,(.8-r)/(.8-.12)))**.25 for r in sparkle[3][1::4]]
+    mean=sum(raw)/len(raw)
+    variance=sum((x-mean)**2 for x in raw)/len(raw)
+    assert abs(mean-.5)<.05 and abs(variance-1./12)<.02, ('white-noise moments',mean,variance)
+    bins=[sum(lo/10 <= x < (lo+1)/10 for x in raw)/len(raw) for lo in range(10)]
+    assert min(bins)>.045 and max(bins)<.16, ('white-noise histogram',bins)
+
+    # Point sampling must be exactly constant inside a world cell. Advancing
+    # to another cell (or by the old 128-cell tile) must not preserve its value.
+    rig.set(testOrigin=(.011,.011,.011),testAxisX=(.008,0.,0.),testAxisY=(0.,0.,.008))
+    cell=rig.read()
+    assert max(cell[3][1::4])-min(cell[3][1::4]) < 1e-6, 'grain samples interpolate within a cell'
+    rig.set(testOrigin=(.021,.011,.021)); within=rig.read()
+    assert max_difference(cell[3],within[3]) < 1e-6, 'grain sample depends on subcell location'
+    rig.set(testOrigin=(.051,.011,.011)); adjacent=rig.read()
+    assert max_difference(cell[3],adjacent[3])>.001, 'adjacent cells reuse the same white-noise value'
+    rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
+    first=rig.read()
+    rig.set(testOrigin=(-.37+128*.04,180.,.23)); shifted=rig.read()
+    assert max_difference(first[3],shifted[3])>.1, 'old 128-cell grain tiling remains'
+    rig.set(testOrigin=(-.37,180.,.23),worldSeed=7331); reseeded=rig.read()
+    assert max_difference(first[3],reseeded[3])>.1, 'grain ignores the world seed'
+    rig.set(worldSeed=1337)
+
+    # Saved v4 records can still contain stain controls. Granular materials
+    # must suppress those controls before blending, without changing albedo.
+    stale=edited_vec(grains,0,96,(1.,.12,.10,.06))
+    rig.upload(stale); clean=rig.read()
+    assert max_difference(clean[2],baseline[2])<2e-6, 'saved stains remain on sand/snow'
+    assert max_difference(clean[3],sparkle[3])<2e-6, 'saved stain roughness affects granular material'
+    # Old smooth microrelief is a separate source of ring-shaped highlights.
+    # It must remain on ordinary material, but not on the granular material.
+    noisy=edited_vec(table,0,48,(0.,1.,1.,.2))
+    rig.set(microDetailStrength=.3)
+    rig.upload(noisy); ordinary=rig.read()
+    assert max_difference(ordinary[1],baseline[1])>.001, 'microrelief regression setup is flat'
+    rig.upload(edited_vec(noisy,0,96,(1.,.12,.10,.06))); granular=rig.read()
+    assert max_difference(granular[1],baseline[1])<2e-6, 'coherent FBM bumps survive on sand/snow'
+    assert max_difference(granular[3],sparkle[3])<2e-6, 'coherent FBM roughness survives on sand/snow'
+    rig.set(microDetailStrength=0.)
 
     stains=edited_vec(table,0,96,(0.,.16,.10,.06))
     rig.upload(stains); stain=rig.read()
@@ -433,7 +499,7 @@ def check_fine_surface(gl):
     rig.upload(edited_vec(grains,0,560,(1.,.91,3.,.48))); second=rig.read()
     assert max_difference(first[1],second[1]) < 1e-6 and max_difference(first[3],second[3]) < 1e-6, 'sparkle still follows the relief FBM'
     rig.set(terrainSparkleGrainSize=.08); resized=rig.read()
-    assert max_difference(first[1],resized[1]) > .01, 'sparkle size control has no effect'
+    assert max_difference(first[3],resized[3]) > .01, 'sparkle size control has no effect'
     rig.set(terrainSparkleGrainSize=.04)
 
     # Accents/ceilings never inherit a neighbouring base's sparkle or stains.
@@ -460,7 +526,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: material-selected PBR grains, 10% stains, paired roughness, LOD/seed stability, mip coverage and compile-time disable',flush=True)
+    print('PASS fine surfaces: point-sampled non-tiling white grains, no granular FBM/bump leakage, 10% stains, independent scales, LOD/seed stability, mip coverage and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):
@@ -723,7 +789,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
         gl.glBindVertexArray(rig.vao)
         gl.glUseProgram(rig.program)
         gl.sampler(0,gl.terrain_stain)
-        gl.sampler(1,gl.terrain_sparkle)
+        if rig.historical_sparkle: gl.sampler(1,gl.terrain_sparkle)
         gl.glDrawArraysInstancedBaseInstance(0x0004,0,len(vertices)//3,1,0)
         gl.glBindFramebuffer(0x8D40,0)
         data=[gl.texels(t,size,channels=2 if i==0 else 4) for i,t in enumerate(rig.outputs)]

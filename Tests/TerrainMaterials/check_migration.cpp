@@ -115,7 +115,7 @@ int main(int argc, char** argv)
     Endurance::configureTerrainFineMaterials(classification);
     std::uint32_t revision = 3;
     Endurance::upgradeTerrainAppearance(v3,revision);
-    assert(revision == 4);
+    assert(revision == Endurance::TerrainAppearanceRevision);
     assert(v3.biomes[0].ground.base.fineSurface == defaults.biomes[0].ground.base.fineSurface);
     assert(v3.biomes[1].ground.base.fineSurface[0] == 0.f);
     assert(v3.biomes[1].ground.accent.fineSurface[0] > 0.f);
@@ -125,6 +125,53 @@ int main(int argc, char** argv)
     assert(v3.biomes[12].ground.base.colorMid[1] == .013f);
     assert(v3.biomes[12].stainRouting == classification.biomes[12].stainRouting);
     assert(v3.vegetationStainSize == 7.f);
+
+    // Revision 4 may have serialized stains on every material, including
+    // edited fine controls. Remove ONLY the sand/snow stain channels; do not
+    // reset palette, grain strength/roughness, routing or the global sizes.
+    auto v4 = defaults;
+    for (auto& b : v4.biomes)
+        for (auto* m : {&b.ground.base,&b.ground.accent,&b.wall.base,&b.wall.accent})
+        {
+            m->fineSurface[2] = .23f;
+            m->fineSurface[3] = .11f;
+        }
+    v4.biomes[21].ground.base.fineSurface[0] = .37f;
+    v4.biomes[21].ground.base.fineSurface[1] = .24f;
+    v4.biomes[0].ground.base.fineSurface[0] = 0.f; // Disabled sparkle is still snow.
+    v4.biomes[0].wall.base.colorLow[3] = .04f;
+    v4.biomes[12].stainRouting = {{.12f,.23f,.34f,.45f}};
+    v4.vegetationStainSize = 9.f;
+    v4.otherStainSize = .6f;
+    v4.sparkleGrainSize = .02f;
+    auto v4Expected = v4;
+    for (std::size_t i = 0; i < ProceduralTerrain::BiomeCount; ++i)
+    {
+        auto& b = v4Expected.biomes[i];
+        const auto& known = defaults.biomes[i];
+        ProceduralTerrain::TerrainMaterial* actual[] = {
+            &b.ground.base,&b.ground.accent,&b.wall.base,&b.wall.accent};
+        const ProceduralTerrain::TerrainMaterial* semantic[] = {
+            &known.ground.base,&known.ground.accent,&known.wall.base,&known.wall.accent};
+        for (unsigned slot = 0; slot < 4; ++slot)
+            if (semantic[slot]->fineSurface[0] > 0.f)
+            {
+                actual[slot]->fineSurface[2] = 0.f;
+                actual[slot]->fineSurface[3] = 0.f;
+            }
+    }
+    revision = 4;
+    Endurance::upgradeTerrainAppearance(v4,revision);
+    assert(revision == Endurance::TerrainAppearanceRevision);
+    assert(sameTable(v4,v4Expected));
+    assert(v4.vegetationStainSize == 9.f && v4.otherStainSize == .6f && v4.sparkleGrainSize == .02f);
+    assert(v4.biomes[0].ground.base.fineSurface[2] == 0.f);
+    assert(v4.biomes[1].ground.accent.fineSurface[2] == 0.f);
+    assert(v4.biomes[1].wall.accent.fineSurface[3] == 0.f);
+    assert(v4.biomes[21].ground.base.fineSurface[2] == 0.f);
+    assert(v4.biomes[21].ground.accent.fineSurface[2] == 0.f);
+    assert(v4.biomes[12].ground.base.fineSurface[2] == .23f);
+    assert(v4.biomes[20].ground.base.fineSurface[3] == .11f);
 
     // Pre-material scenes have neither appearance nor version metadata.
     SceneAppearance absent;

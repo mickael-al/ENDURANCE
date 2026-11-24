@@ -62,8 +62,12 @@ namespace
             changed |= boundedSlider("Taches : petite echelle / verdure", &vegetation, 0.0f, 1.0f);
             changed |= boundedSlider("Grains brillants", &m.fineSurface[0], 0.0f, 1.0f);
             changed |= boundedSlider("Rugosite des grains", &m.fineSurface[1], 0.04f, 1.0f);
+            ImGui::BeginDisabled(m.fineSurface[0] > 0.0f);
             changed |= boundedSlider("Assombrissement des taches", &m.fineSurface[2], 0.0f, 1.0f);
             changed |= boundedSlider("Baisse de rugosite des taches", &m.fineSurface[3], 0.0f, 1.0f);
+            ImGui::EndDisabled();
+            if (m.fineSurface[0] > 0.0f)
+                ImGui::TextDisabled("Mode granulaire : sans taches FBM ni microrelief lisse. Normale du maillage conservee.");
             ImGui::TextDisabled("0.10 = 10 %% plus sombre. Les grains reagissent aux lumieres et aux reflets.");
             ImGui::TreePop();
         }

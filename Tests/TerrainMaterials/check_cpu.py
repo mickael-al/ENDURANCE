@@ -39,11 +39,6 @@ def export_appearance():
                         terrainOtherStainSize=float(settings[4]),terrainSparkleGrainSize=float(settings[5]))
 
 
-def export_sparkle():
-    with tempfile.TemporaryDirectory(prefix="endurance-sparkle-") as directory:
-        return subprocess.check_output([str(compile_export(Path(directory))), "--sparkle"])
-
-
 def export_stain():
     with tempfile.TemporaryDirectory(prefix="endurance-stain-") as directory:
         return subprocess.check_output([str(compile_export(Path(directory))), "--stain"])

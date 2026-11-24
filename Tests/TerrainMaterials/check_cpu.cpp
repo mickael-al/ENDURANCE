@@ -50,7 +50,11 @@ void validate()
     assert(palettes.size() == 26);
     for (const auto& b : authored.biomes)
         for (const auto* m : {&b.ground.base,&b.ground.accent,&b.wall.base,&b.wall.accent})
-            assert(m->fineSurface[2] == .10f && m->fineSurface[3] == .06f);
+        {
+            const bool grains = m->fineSurface[0] > 0.f;
+            assert(m->fineSurface[2] == (grains ? 0.f : .10f));
+            assert(m->fineSurface[3] == (grains ? 0.f : .06f));
+        }
     // Snow in secondary layers and wall frost must no longer be omitted.
     assert(authored.biomes[1].ground.base.fineSurface[0] == 0.f);
     assert(authored.biomes[1].ground.accent.fineSurface[0] > 0.f);
@@ -168,12 +172,6 @@ void validate()
 int main(int argc, char** argv)
 {
     validate();
-    if (argc == 2 && std::string(argv[1]) == "--sparkle")
-    {
-        const auto& pixels = ProceduralTerrain::terrainSparklePixels();
-        std::cout.write(reinterpret_cast<const char*>(pixels.data()), pixels.size());
-        return std::cout.good() ? 0 : 1;
-    }
     if (argc == 2 && std::string(argv[1]) == "--stain")
     {
         const auto& pixels = ProceduralTerrain::terrainFineSurfacePixels();

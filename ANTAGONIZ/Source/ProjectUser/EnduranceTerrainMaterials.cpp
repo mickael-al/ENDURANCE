@@ -412,9 +412,11 @@ void configureTerrainFineMaterials(ProceduralTerrain::TerrainAppearance& appeara
             const bool sand = std::string(terrainMaterialLabel(id,slot >= 2,slot%2 != 0)).find("Sable") != std::string::npos;
             b.stainRouting[slot] = green ? 1.f : 0.f;
             // White/frost and sand may be primary OR secondary, ground OR wall.
-            // Every other material also gets the finer eight-octave detail.
+            // Snow/sand keep their granular response without discrete FBM spots.
+            // Other materials retain stains at their independently selected scale.
             m.fineSurface = {{snow ? 0.95f : sand ? 0.90f : 0.f,
-                snow ? 0.12f : sand ? 0.15f : 0.16f, 0.10f, 0.06f}};
+                snow ? 0.12f : sand ? 0.15f : 0.16f,
+                snow || sand ? 0.f : 0.10f, snow || sand ? 0.f : 0.06f}};
         }
     }
 }

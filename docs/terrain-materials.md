@@ -15,8 +15,8 @@ below are functions compiled into that program, not additional rendering passes.
 | `Asset/Shader/ProceduralTerrain/render.fs.glsl` | Fragment `main`: material evaluation, final normal and G-buffer writes |
 | `Asset/Shader/ProceduralTerrain/materials.glsl` | `terrainEvaluateAppearance` → biome → surface → material: climate, slope, palettes and PBR blending |
 | `Asset/Shader/ProceduralTerrain/patterns.glsl` | Shared noise/value gradients, grain spectrum and the eight procedural relief families |
-| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered stain masks and independent grain facets after material blending |
-| `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ bake of the eight-octave stain mask and sparse grain cache |
+| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered stain masks and unfiltered white-noise grains after material blending |
+| `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ bake of the eight-octave stain mask (grains need no texture) |
 | `Asset/Shader/ProceduralTerrain/render.vs.glsl` | Packed terrain vertex decoding, world position and climate varyings |
 | `ANTAGONIZ/Source/ProjectUser/EnduranceTerrainMaterials.cpp` | `makeTerrainAppearance`: authored ground/wall palettes and parameters for all 26 biomes |
 | `ANTAGONIZ/Source/Miscellaneous/ProceduralGeneration.cpp` | Program creation, appearance upload and the existing batched terrain draw |
@@ -164,7 +164,8 @@ The game classifies **each material**, including accents and walls, once in
 receive snow/frost grain; materials authored as sand receive sand grain. For
 example, FrozenTundra's secondary snow receives glints, its primary gray sediment
 does not. Green palette midpoints select the larger stain scale, including green
-wall patinas; all other materials get the finer scale. Classification uses linear
+wall patinas; other non-granular materials get the finer scale. Sand and snow
+receive no discrete FBM stains, even on accent/wall layers. Classification uses linear
 palette values, never the sunlit or tone-mapped screen color. These initial
 choices remain artist-editable; changing the palette live does not overwrite
 explicit effect controls.
@@ -178,21 +179,36 @@ exposes each weight. Global controls in **Materiaux proceduraux / palettes** are
 |---|---:|---|
 | `vegetationStainSize` / Taille taches de verdure | 2.5 m | Ten times the former 25 cm base feature size |
 | `otherStainSize` / Taille taches autres matieres | 0.25 m | Finer detail on remaining materials |
-| `sparkleGrainSize` / Taille grains brillants | 0.01 m | Independent reflective facet spacing |
+| `sparkleGrainSize` / Taille grains brillants | 0.01 m | Independent white-noise cell size |
 
 The sizes describe base features/spacing, not an exact diameter of irregular
 patches. These controls change uniforms without remeshing or rebaking anything.
 They are independent of the biome relief noise's period and octaves.
 
-Grains now use **independent sparse white noise**, not the smooth relief FBM.
-C++ builds a 128² RGBA8 cache with random facet tilts and about 18.75% occupied
-texels. One texture lookup after material blending supplies a small tangent-plane
-normal perturbation and local roughness reduction. Existing GGX lighting,
-shadows and IBL create the highlights; there is no emission, metallic boost,
-extra lighting pass or G-buffer channel. This is a cheap stylized approximation,
-not a dedicated glint BRDF. Facets fade as their spacing becomes subpixel; beyond
-that distance, the shader skips the lookup. Their world-space pattern is stable
-across chunk LODs, and changing relief FBM parameters does not move it.
+Grains now use **raw scalar white noise with no interpolation**. The existing
+integer cell hash evaluates one uniform value at `floor(worldPosition/grainSize)`.
+This is equivalent to nearest sampling a white-noise cell field, without a small
+repeating image, a texture fetch or random normal tilts. Raising the scalar to
+the fourth power creates contrast, then modulates roughness in the existing PBR
+path. The `Tribute Journey` code supplied by the user instead multiplies a
+specular/rim lobe by a powered white-noise scalar. Our deferred adaptation does
+not reproduce that shader exactly; it retains the engine's lights, shadows and
+IBL without emission, another lighting pass or a new G-buffer channel.
+
+The old bilinear grain islands and normal tilts are removed. Granular materials
+also skip their smooth procedural micro-normal and smooth grain roughness
+variation: these can produce broad circular specular contours around bumps.
+They retain the terrain mesh normal, geometry, palettes and authored roughness.
+Selection occurs before material blending, so adjacent non-granular rock/green
+layers retain their own detail. When both active layers are granular, the
+procedural surface-normal calculation is skipped entirely. The discrete stain
+controls are ignored for granular materials, and the inspector indicates this.
+
+The fixed world cell domain does not follow the camera or chunk LOD. There is no
+128-cell tile repetition. Grains fade smoothly once their cell size becomes
+subpixel; past that threshold the hash is skipped. This limits unresolved noise
+but is not a temporal antialiasing solution. Extremely large domains outside
+signed-integer-safe cell coordinates skip the effect rather than overflow.
 
 Stains retain eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
 0.5 **before** filtering. C++ builds a 512² R8 mask once per process, with four
@@ -209,23 +225,20 @@ The fixed rotated world projection uses X/Z plus a Y shear, so walls also have
 vertical detail. It is a cheap planar projection, not full triplanar mapping;
 some directional stretching is an intentional performance tradeoff.
 
-Both GPU caches total **415,061 bytes (about 0.396 MiB)** per terrain renderer:
-349,525 bytes for stains with mipmaps and 65,536 bytes for facets. The latter
-fade before minification, so no unused mip chain is allocated. The retained CPU
-bakes total 320 KiB and are reused across renderer restarts. Initialization uploads
-each texture once; chunk generation and palette edits do not regenerate them.
-Borrowed texture units 0/1, samplers and pixel-unpack state are restored. Shutdown
-and failed initialization release the allocations. The table adds only 416 bytes
-relative to revision 3 and remains below the minimum 16 KiB uniform-block limit.
+Only the stain GPU cache remains: **349,525 bytes (about 0.333 MiB)** including
+mipmaps, with a retained 256 KiB CPU bake shared across renderer restarts. The
+64 KiB grain texture, its upload, extra texture unit/sampler state and normal
+perturbation have been removed. Initialization uploads the stain cache once;
+chunk generation and material edits do not regenerate it. Borrowed texture unit
+0, sampler and pixel-unpack state are restored. The material UBO layout is
+unchanged at 15,392 bytes; no new draw or generation pass is added.
 
-Scene revision 4 migrates the previous default fine controls to the new material
-selection, using the loaded palettes. Explicitly edited fine controls and all
-saved palette/roughness settings are preserved. Old scenes get the new sizes;
-saving persists the controls. No binary terrain scene is replaced by this change.
-
-`TERRAIN_FINE_SURFACE_ENABLED=0` compiles out both effects for an A/B test; it does
-not reclaim their small cache allocation. Runtime branches skip zero material
-weights and unresolved lookups. No extra terrain draw or generation pass is added.
+Scene revision 5 removes saved discrete stain controls from sand and snow,
+including previously customized stain strengths, as explicitly requested. Other
+fine controls, palettes, roughness, global sizes and v4 routing are retained.
+The older migrations still apply to old scenes. No binary terrain scene is
+replaced. `TERRAIN_FINE_SURFACE_ENABLED=0` compiles out the fine effects for A/B
+comparisons and restores the ordinary procedural-normal path.
 
 ### Validation and timing
 
@@ -235,20 +248,37 @@ scale blending, unaffected geometry/PBR channels and distant filtering. These
 run on the available Mesa llvmpipe software renderer; they do not establish
 whole-game performance or the visual result on the target GTX 1660.
 
-The previous iteration's measurements remain in
-`docs/terrain-material-validation/fine-surfaces-llvmpipe-2026-11-24.json` as a
-historical baseline. Use `--baseline-ref 1a361d0` to compare this revision to the
-previous effects, rather than comparing it to flat colors.
+Additional checks verify constant values within each grain cell, uniform raw
+noise statistics, lack of the old 128-cell repetition, seed/LOD stability,
+unchanged grain normals, and rejection of stale stains on granular materials.
+The C++ integration syntax check covers the renderer, presets, scene component
+and inspector. It is not a full Windows build or an in-game visual validation.
 
-Final revision, 256x256 viewport, 15 alternating samples, three draws per sample,
-`LP_NUM_THREADS=1`, completed-draw wall clock. The paired median overhead relative
-to `1a361d0` is +15.2% for near sand, +18.0% for newly detailed volcanic rock,
-+2.3% for one organic biome, +5.4% for four biomes with a slope blend, +1.9% for
-far terrain and +6.9% for the coast fixture. Raw samples and source hashes are in
-[the revision's timing report](terrain-material-validation/revised-fine-surfaces-llvmpipe-2026-11-24.json).
-These are **software material-pass measurements**, not game frame times or GTX
-1660 timings. The extra coverage/lookups are measurable; no performance parity
-claim is made. Test on the target GPU before choosing the final quality budget.
+The November 25 comparison against published revision `1ff2aec` uses a 256²
+viewport, 15 alternating sample pairs, three draws per sample and one llvmpipe
+thread. Completed-draw wall-time paired median ratios (new/previous) are:
+
+| Scenario | Ratio |
+|---|---:|
+| Nearby sand grains | 0.778 |
+| Nearby rock stains | 1.031 |
+| Nearby, one biome | 1.009 |
+| Nearby, four biomes plus slope | 1.000 |
+| Distant, four biomes | 1.010 |
+| Coast with slope and marine blend | 0.995 |
+
+The grain case improves by about 22% in this software test after removing its
+texture fetch, stains and smooth micro-normal evaluation. Other cases range
+from -0.5% to +3.1%; no general or target-GPU speedup is claimed. Raw timings,
+quartiles, renderer configuration and source hashes are in
+[the comparison report](terrain-material-validation/white-noise-grains-llvmpipe-2026-11-25.json).
+Use `--baseline-ref 1ff2aec` to reproduce this comparison. Earlier reports in
+the same directory remain historical evidence for their own revisions.
+
+The earlier v4 results below remain a historical comparison only:
+`docs/terrain-material-validation/revised-fine-surfaces-llvmpipe-2026-11-24.json`.
+For this correction, compare against `--baseline-ref 1ff2aec`. Tests and software
+measurements do not establish target-GPU frame time or the final in-game look.
 
 ## Precomputation investigation
 

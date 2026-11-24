@@ -16,7 +16,7 @@ struct TerrainMaterial
     vec4 response; // metallic, AO, normal strength, grain roughness variation
     vec4 ramp;     // midpoint, softness, contrast, bias
     vec4 pattern;  // macro, patch, strata, ripple weights (normalized below)
-    vec4 fineSurface; // sparkle coverage/roughness, stain darkening/roughness drop
+    vec4 fineSurface; // sparkle strength/roughness, stain darkening/roughness drop
 };
 
 struct TerrainSurface
@@ -92,12 +92,20 @@ TerrainAppearanceSample terrainEvaluateMaterial(TerrainMaterial m,
     float midHigh = terrainFilteredStep((1.0+midpoint)*0.5,
         (1.0-midpoint)*0.5*softness,value,screenWidth);
     vec4 palette = mix(mix(m.colorLow,m.colorMid,lowMid),m.colorHigh,midHigh);
-    float roughness = palette.a + m.response.w * (c.grain.value*2.0-1.0);
-    vec3 heightGradient = p.normalGradient * m.response.z;
+    // Granular surfaces use raw white noise for reflections, never smooth
+    // noise bumps that turn the highlight into rings. Select before blending,
+    // so neighbouring rock/vegetation retain their own relief and stains.
+    float coherentDetail = 1.0;
+#if TERRAIN_FINE_SURFACE_ENABLED
+    coherentDetail = m.fineSurface.x > 0.0 ? 0.0 : 1.0;
+#endif
+    float roughness = palette.a + coherentDetail*m.response.w*(c.grain.value*2.0-1.0);
+    vec3 heightGradient = p.normalGradient*(m.response.z*coherentDetail);
+    vec2 stains = m.fineSurface.zw*coherentDetail;
     return TerrainAppearanceSample(palette.rgb,
         clamp(roughness,0.04,1.0),m.response.x,
         m.response.y,heightGradient,0.0,0.0,
-        vec4(m.fineSurface.zw*vegetation,m.fineSurface.zw*(1.0-vegetation)),
+        vec4(stains*vegetation,stains*(1.0-vegetation)),
         vec2(m.fineSurface.x,m.fineSurface.x*m.fineSurface.y));
 }
 
@@ -136,7 +144,11 @@ TerrainAppearanceSample terrainEvaluateSurface(uint id, bool wall, TerrainPatter
     }
     TerrainPatterns patterns = terrainSurfacePatterns(detail,activeWeights,c);
     vec4 normalControl = wall ? terrainBiomes[id].wall.normal : terrainBiomes[id].ground.normal;
-    patterns.normalGradient = terrainSurfaceNormal(normalControl,detail,c);
+    patterns.normalGradient = vec3(0.0);
+#if TERRAIN_FINE_SURFACE_ENABLED
+    if (base.fineSurface.x <= 0.0 || (partial && top.fineSurface.x <= 0.0))
+#endif
+        patterns.normalGradient = terrainSurfaceNormal(normalControl,detail,c);
     int route = wall ? 2 : 0;
     vec4 routing = terrainBiomes[id].stainRouting;
     TerrainAppearanceSample appearance = terrainEvaluateMaterial(base,patterns,c,

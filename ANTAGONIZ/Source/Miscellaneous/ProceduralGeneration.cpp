@@ -55,8 +55,7 @@ namespace
     struct TerrainMaterialStateGuard
     {
         GLint uniform = 0, material = 0;
-        GLint activeTexture = 0;
-        GLint fineTextures[2]{}, fineSamplers[2]{};
+        GLint activeTexture = 0, fineTexture = 0, fineSampler = 0;
         GLint64 start = 0, size = 0;
         TerrainMaterialStateGuard()
         {
@@ -65,12 +64,9 @@ namespace
             glGetInteger64i_v(GL_UNIFORM_BUFFER_START, 6, &start);
             glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, 6, &size);
             glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
-            for (unsigned unit = 0; unit < 2; ++unit)
-            {
-                glActiveTexture(GL_TEXTURE0 + unit);
-                glGetIntegerv(GL_TEXTURE_BINDING_2D, &fineTextures[unit]);
-                glGetIntegeri_v(GL_SAMPLER_BINDING, unit, &fineSamplers[unit]);
-            }
+            glActiveTexture(GL_TEXTURE0);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &fineTexture);
+            glGetIntegeri_v(GL_SAMPLER_BINDING, 0, &fineSampler);
             glActiveTexture(activeTexture);
         }
         ~TerrainMaterialStateGuard()
@@ -80,12 +76,9 @@ namespace
             else glBindBufferBase(GL_UNIFORM_BUFFER, 6, material);
             glBindBuffer(GL_UNIFORM_BUFFER, uniform);
             // Restore only the borrowed target, preserving cube/array bindings.
-            for (unsigned unit = 0; unit < 2; ++unit)
-            {
-                glActiveTexture(GL_TEXTURE0 + unit);
-                glBindTexture(GL_TEXTURE_2D, fineTextures[unit]);
-                glBindSampler(unit, fineSamplers[unit]);
-            }
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, fineTexture);
+            glBindSampler(0, fineSampler);
             glActiveTexture(activeTexture);
         }
     };
@@ -244,7 +237,7 @@ struct ProceduralGeneration::Impl
     bool planned = false, active = false, converged = false, blocked = false;
     bool collisionDirty = true, collisionUpdated = false;
     GLint shadowIndex = -1;
-    GLuint materialBuffer = 0, fineTexture = 0, sparkleTexture = 0;
+    GLuint materialBuffer = 0, fineTexture = 0;
     struct MaterialUniforms
     {
         GLint macroPeriod = -1, patchPeriod = -1;
@@ -389,7 +382,6 @@ struct ProceduralGeneration::Impl
         gpu.shutdown();
         if (materialBuffer) glDeleteBuffers(1, &materialBuffer);
         if (fineTexture) glDeleteTextures(1, &fineTexture);
-        if (sparkleTexture) glDeleteTextures(1, &sparkleTexture);
         const auto liveObjects = Ge::GObject::GetGObjects();
         for (const auto& range : cameraRanges)
         {
@@ -513,13 +505,6 @@ bool ProceduralGeneration::initialize(const Config& config)
     if (!impl->fineTexture)
     {
         m_lastError = "Terrain fine-surface texture allocation failed.";
-        return false;
-    }
-    impl->sparkleTexture = createTerrainFineTexture(TerrainSparkleSize,
-        TerrainSparkleMipLevels, GL_RGBA8, GL_RGBA, terrainSparklePixels().data());
-    if (!impl->sparkleTexture)
-    {
-        m_lastError = "Terrain sparkle texture allocation failed.";
         return false;
     }
     impl->shadowIndex = glGetUniformLocation(impl->shadow->getProgram(), "offsetShadow");
@@ -1027,8 +1012,6 @@ void ProceduralGeneration::drawRenderer()
     glBindBufferBase(GL_UNIFORM_BUFFER, 6, s.materialBuffer);
     glBindTextureUnit(0, s.fineTexture);
     glBindSampler(0, 0);
-    glBindTextureUnit(1, s.sparkleTexture);
-    glBindSampler(1, 0);
     s.gpu.drawMany(s.cameraMeshes, 0);
     const auto gpuStats = s.gpu.stats();
     m_stats.drawListUploads = gpuStats.drawListUploads;
