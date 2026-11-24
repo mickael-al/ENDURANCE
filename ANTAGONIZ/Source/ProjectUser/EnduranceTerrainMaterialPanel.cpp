@@ -133,7 +133,7 @@ bool Endurance::drawTerrainMaterialEditor(ProceduralTerrain::TerrainAppearance& 
     changed |= boundedDrag("Taille taches autres matieres (m)", &appearance.otherStainSize,
         0.005f, 0.005f, 1000.0f, "%.3f");
     changed |= boundedDrag("Taille grains brillants (m)", &appearance.sparkleGrainSize,
-        0.001f, 0.002f, 1.0f, "%.3f");
+        0.0001f, 0.001f, 1.0f, "%.4f");
     changed |= boundedSlider("Force globale du relief", &microDetailStrength, 0.0f, 2.0f);
     float grainFrequencyMultiplier = microDetailScale * 0.5f;
     if (boundedDrag("Multiplicateur frequence du grain", &grainFrequencyMultiplier,

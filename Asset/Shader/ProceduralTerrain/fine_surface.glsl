@@ -5,7 +5,7 @@
 layout(binding=0) uniform sampler2D terrainFineSurfaceCache;
 uniform float terrainVegetationStainSize = 2.5;
 uniform float terrainOtherStainSize = 0.25;
-uniform float terrainSparkleGrainSize = 0.01;
+uniform float terrainSparkleGrainSize = 0.001;
 
 // Fixed world projection: stable through material/LOD transitions and one
 // lookup per scale. The Y projection also advances at unit rate along walls.
@@ -41,8 +41,11 @@ void terrainApplyFineStains(inout TerrainAppearanceSample material, TerrainPatte
 
 void terrainApplySparkle(inout TerrainAppearanceSample material, TerrainPatternContext c)
 {
-    if (material.sparkle.x <= 0.0 || c.pixelFootprint >= terrainSparkleGrainSize) return;
-    float resolved = 1.0-smoothstep(0.25,1.0,c.pixelFootprint/terrainSparkleGrainSize);
+    // Keep at least the former 1 cm visibility footprint when shrinking the
+    // grain. This artistic extension can shimmer below a pixel; it is not AA.
+    float visibilityFootprint = max(terrainSparkleGrainSize,0.01);
+    if (material.sparkle.x <= 0.0 || c.pixelFootprint >= visibilityFootprint) return;
+    float resolved = 1.0-smoothstep(0.25,1.0,c.pixelFootprint/visibilityFootprint);
     // One independent value per world-space cell: nearest-equivalent white
     // noise, with no interpolation, FBM, texture tile or normal perturbation.
     vec3 cells = floor(c.position/terrainSparkleGrainSize);

@@ -71,7 +71,7 @@ namespace ProceduralTerrain
         float patchPeriod = 32.0f;
         float vegetationStainSize = 2.5f;
         float otherStainSize = 0.25f;
-        float sparkleGrainSize = 0.01f;
+        float sparkleGrainSize = 0.001f;
         int debugView = 0;
     };
 
@@ -183,7 +183,7 @@ namespace ProceduralTerrain
             && terrainMaterialRange(appearance.patchPeriod, 0.1f, 100000.0f)
             && terrainMaterialRange(appearance.vegetationStainSize, 0.005f, 1000.0f)
             && terrainMaterialRange(appearance.otherStainSize, 0.005f, 1000.0f)
-            && terrainMaterialRange(appearance.sparkleGrainSize, 0.002f, 1.0f)
+            && terrainMaterialRange(appearance.sparkleGrainSize, 0.001f, 1.0f)
             && appearance.debugView >= 0 && appearance.debugView <= 6;
     }
 }

@@ -7,7 +7,7 @@
 namespace Endurance
 {
     // Scene data version, deliberately outside the renderer's std140 records.
-    constexpr std::uint32_t TerrainAppearanceRevision = 5;
+    constexpr std::uint32_t TerrainAppearanceRevision = 6;
 
     inline std::uint64_t terrainAppearanceLegacyFingerprint(
         const ProceduralTerrain::TerrainBiomeAppearance& biome) noexcept
@@ -53,6 +53,16 @@ namespace Endurance
     {
         if (revision >= TerrainAppearanceRevision
             || !ProceduralTerrain::validTerrainAppearance(appearance)) return 0;
+
+        // v6 refines the former factory grain from 1 cm to 1 mm. Saved
+        // custom sizes and every palette/effect setting remain unchanged.
+        if (std::abs(appearance.sparkleGrainSize - 0.01f) < 0.000001f)
+            appearance.sparkleGrainSize = 0.001f;
+        if (revision >= 5)
+        {
+            revision = TerrainAppearanceRevision;
+            return 0;
+        }
 
         // Original authored presets from 426d806, in biome-ID order. Keeping
         // compact fingerprints avoids a second, obsolete material table.
