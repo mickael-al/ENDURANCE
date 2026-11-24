@@ -23,8 +23,8 @@ void validate()
     assert(validTerrainMaterialTable(authored.biomes));
     assert(sizeof(TerrainMaterial) == 112);
     assert(sizeof(TerrainSurface) == 272);
-    assert(sizeof(TerrainBiomeAppearance) == 576);
-    assert(sizeof(TerrainMaterialTable) == 14976);
+    assert(sizeof(TerrainBiomeAppearance) == 592);
+    assert(sizeof(TerrainMaterialTable) == 15392);
 
     // Distinct authored palettes, not 26 copies of a generic fallback. Each
     // biome must also distinguish its surface base from its accent and walls.
@@ -48,12 +48,15 @@ void validate()
         }
     }
     assert(palettes.size() == 26);
-    for (unsigned id = 0; id < BiomeCount; ++id)
-    {
-        const auto& b = authored.biomes[id];
-        assert(b.ground.accent.fineSurface[0] == 0.f);
-        assert(b.wall.base.fineSurface[0] == 0.f && b.wall.accent.fineSurface[0] == 0.f);
-    }
+    for (const auto& b : authored.biomes)
+        for (const auto* m : {&b.ground.base,&b.ground.accent,&b.wall.base,&b.wall.accent})
+            assert(m->fineSurface[2] == .10f && m->fineSurface[3] == .06f);
+    // Snow in secondary layers and wall frost must no longer be omitted.
+    assert(authored.biomes[1].ground.base.fineSurface[0] == 0.f);
+    assert(authored.biomes[1].ground.accent.fineSurface[0] > 0.f);
+    assert(authored.biomes[1].wall.accent.fineSurface[0] > 0.f);
+    assert(authored.biomes[12].stainRouting[0] == 1.f);
+    assert(authored.biomes[20].stainRouting[0] == 0.f);
     assert(authored.biomes[0].ground.base.fineSurface[0] > 0.f);
     assert(authored.biomes[21].ground.base.fineSurface[0] > 0.f);
     assert(authored.biomes[12].ground.base.fineSurface[2] == 0.10f);
@@ -92,6 +95,10 @@ void validate()
     reject([](auto& a) { a.biomes[0].spectrum[3] = 0.6f; });
     reject([](auto& a) { a.biomes[0].slope[1] = a.biomes[0].slope[0]; });
     reject([](auto& a) { a.macroPeriod = 0.0f; });
+    reject([](auto& a) { a.vegetationStainSize = 0.f; });
+    reject([](auto& a) { a.otherStainSize = -1.f; });
+    reject([](auto& a) { a.sparkleGrainSize = 2.f; });
+    reject([](auto& a) { a.biomes[0].stainRouting[2] = 1.1f; });
     reject([](auto& a) { a.patchPeriod = -1.0f; });
     reject([](auto& a) { a.debugView = -1; });
     reject([](auto& a) { a.debugView = 100; });
@@ -122,6 +129,10 @@ void validate()
     edited.macroPeriod = 631.5f;
     edited.patchPeriod = 17.25f;
     edited.debugView = 3;
+    edited.vegetationStainSize = 3.25f;
+    edited.otherStainSize = .375f;
+    edited.sparkleGrainSize = .06f;
+    edited.biomes[13].stainRouting[2] = .75f;
     edited.biomes[25].wall.accent.colorHigh = {{.123f,.456f,.789f,.321f}};
     edited.biomes[13].ground.base.pattern = {{.15f,.27f,.42f,.16f}};
     edited.biomes[13].ground.normal = {{7.0f, 1.75f, 0.63f, 0.27f}};
@@ -140,6 +151,9 @@ void validate()
     assert(decoded.macroPeriod == edited.macroPeriod);
     assert(decoded.patchPeriod == edited.patchPeriod);
     assert(decoded.debugView == edited.debugView);
+    assert(decoded.vegetationStainSize == edited.vegetationStainSize);
+    assert(decoded.otherStainSize == edited.otherStainSize);
+    assert(decoded.sparkleGrainSize == edited.sparkleGrainSize);
     TerrainAppearance oldScene;
     const auto original = oldScene;
     JS::ParseContext legacy("{\"obsoleteLegacySetting\":12}");
@@ -154,6 +168,12 @@ void validate()
 int main(int argc, char** argv)
 {
     validate();
+    if (argc == 2 && std::string(argv[1]) == "--sparkle")
+    {
+        const auto& pixels = ProceduralTerrain::terrainSparklePixels();
+        std::cout.write(reinterpret_cast<const char*>(pixels.data()), pixels.size());
+        return std::cout.good() ? 0 : 1;
+    }
     if (argc == 2 && std::string(argv[1]) == "--stain")
     {
         const auto& pixels = ProceduralTerrain::terrainFineSurfacePixels();
@@ -171,7 +191,8 @@ int main(int argc, char** argv)
     {
         const auto appearance = Endurance::makeTerrainAppearance();
         std::cout << appearance.macroPeriod << ' ' << appearance.patchPeriod
-                  << ' ' << appearance.debugView << '\n';
+                  << ' ' << appearance.debugView << ' ' << appearance.vegetationStainSize
+                  << ' ' << appearance.otherStainSize << ' ' << appearance.sparkleGrainSize << '\n';
         return 0;
     }
     std::cout << "PASS material std140 ABI, 26 authored palettes, dielectric defaults, "

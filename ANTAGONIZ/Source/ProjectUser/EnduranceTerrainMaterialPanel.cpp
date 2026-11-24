@@ -35,7 +35,7 @@ namespace
         return changed;
     }
 
-    bool materialEditor(const char* label, ProceduralTerrain::TerrainMaterial& m)
+    bool materialEditor(const char* label, ProceduralTerrain::TerrainMaterial& m, float& vegetation)
     {
         if (!ImGui::TreeNode(label)) return false;
         bool changed = paletteStop("Couleur basse", m.colorLow);
@@ -59,6 +59,7 @@ namespace
         changed |= boundedSlider("Rides", &m.pattern[3], 0.0f, 4.0f);
         if (ImGui::TreeNode("Details fins"))
         {
+            changed |= boundedSlider("Taches : petite echelle / verdure", &vegetation, 0.0f, 1.0f);
             changed |= boundedSlider("Grains brillants", &m.fineSurface[0], 0.0f, 1.0f);
             changed |= boundedSlider("Rugosite des grains", &m.fineSurface[1], 0.04f, 1.0f);
             changed |= boundedSlider("Assombrissement des taches", &m.fineSurface[2], 0.0f, 1.0f);
@@ -71,13 +72,13 @@ namespace
     }
 
     bool surfaceEditor(const char* label, ProceduralTerrain::TerrainSurface& s,
-        std::size_t biome, bool wall)
+        std::size_t biome, bool wall, ProceduralTerrain::TerrainMaterialVector& routing)
     {
         if (!ImGui::TreeNode(label)) return false;
         ImGui::TextWrapped("Principal : %s", Endurance::terrainMaterialLabel(biome, wall, false));
         ImGui::TextWrapped("Secondaire : %s", Endurance::terrainMaterialLabel(biome, wall, true));
-        bool changed = materialEditor("Materiau principal", s.base);
-        changed |= materialEditor("Materiau secondaire", s.accent);
+        bool changed = materialEditor("Materiau principal", s.base, routing[wall ? 2 : 0]);
+        changed |= materialEditor("Materiau secondaire", s.accent, routing[wall ? 3 : 1]);
         changed |= boundedSlider("Seuil du materiau secondaire", &s.blend[0], 0.0f, 1.0f);
         changed |= boundedSlider("Transition du masque", &s.blend[1], 0.0f, 1.0f);
         changed |= boundedSlider("Masque grandes variations", &s.blend[2], 0.0f, 4.0f);
@@ -123,6 +124,12 @@ bool Endurance::drawTerrainMaterialEditor(ProceduralTerrain::TerrainAppearance& 
         4.0f, 1.0f, 100000.0f, "%.1f");
     changed |= boundedDrag("Echelle des plaques (m)", &appearance.patchPeriod,
         0.5f, 0.1f, 100000.0f, "%.1f");
+    changed |= boundedDrag("Taille taches de verdure (m)", &appearance.vegetationStainSize,
+        0.05f, 0.005f, 1000.0f, "%.3f");
+    changed |= boundedDrag("Taille taches autres matieres (m)", &appearance.otherStainSize,
+        0.005f, 0.005f, 1000.0f, "%.3f");
+    changed |= boundedDrag("Taille grains brillants (m)", &appearance.sparkleGrainSize,
+        0.001f, 0.002f, 1.0f, "%.3f");
     changed |= boundedSlider("Force globale du relief", &microDetailStrength, 0.0f, 2.0f);
     float grainFrequencyMultiplier = microDetailScale * 0.5f;
     if (boundedDrag("Multiplicateur frequence du grain", &grainFrequencyMultiplier,
@@ -167,8 +174,8 @@ bool Endurance::drawTerrainMaterialEditor(ProceduralTerrain::TerrainAppearance& 
     changed |= boundedSlider("Octaves du grain", &biome.spectrum[2], 1.0f, 3.0f);
     changed |= boundedSlider("Gain des octaves", &biome.spectrum[3], 0.0f, 0.5f);
     ImGui::TextDisabled("Les octaves trop fines pour un pixel sont filtrees automatiquement.");
-    changed |= surfaceEditor("Sol", biome.ground, selectedBiome, false);
-    changed |= surfaceEditor("Parois et plafonds", biome.wall, selectedBiome, true);
+    changed |= surfaceEditor("Sol", biome.ground, selectedBiome, false, biome.stainRouting);
+    changed |= surfaceEditor("Parois et plafonds", biome.wall, selectedBiome, true, biome.stainRouting);
     changed |= boundedSlider("Debut transition sol / paroi", &biome.slope[0], 0.0f,
         (std::max)(0.0f, biome.slope[1] - 0.001f));
     changed |= boundedSlider("Fin transition sol / paroi", &biome.slope[1],

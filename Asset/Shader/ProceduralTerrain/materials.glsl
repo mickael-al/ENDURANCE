@@ -2,7 +2,7 @@
 #define ENDURANCE_TERRAIN_MATERIALS_GLSL
 #include "render_options.glsl"
 
-// std140 ABI: Material112, Surface272, Biome576 bytes; table26 = 14,976 bytes.
+// std140 ABI: Material112, Surface272, Biome592 bytes; table26 = 15,392 bytes.
 // The CPU rejects invalid appearance records before upload; material controls
 // below already satisfy validTerrainAppearance's ranges. Computed values still
 // keep their filtering/normalization guards and roughness noise clamp.
@@ -34,6 +34,7 @@ struct TerrainBiomeAppearance
     TerrainSurface wall;
     vec4 slope; // wall blend start/end, patch distortion, normal multiplier
     vec4 spectrum; // patch period scale, detail metres, detail octaves, detail gain
+    vec4 stainRouting; // vegetation weight: ground base/accent, wall base/accent
 };
 
 layout(std140,binding=6) uniform TerrainMaterialTable
@@ -51,7 +52,8 @@ struct TerrainAppearanceSample
     vec3 heightGradient;
     float wallMask;
     float accentMask;
-    vec2 stains; // darkening and roughness reduction, blended across materials
+    vec4 stains; // large darkening/roughness drop, then fine darkening/roughness drop
+    vec2 sparkle; // strength, strength * target roughness (premultiplied)
 };
 
 TerrainAppearanceSample terrainMixAppearance(TerrainAppearanceSample a,
@@ -61,7 +63,7 @@ TerrainAppearanceSample terrainMixAppearance(TerrainAppearanceSample a,
         mix(a.roughness,b.roughness,t),mix(a.metallic,b.metallic,t),
         mix(a.ao,b.ao,t),mix(a.heightGradient,b.heightGradient,t),
         mix(a.wallMask,b.wallMask,t),mix(a.accentMask,b.accentMask,t),
-        mix(a.stains,b.stains,t));
+        mix(a.stains,b.stains,t),mix(a.sparkle,b.sparkle,t));
 }
 
 float terrainFilteredStep(float threshold, float halfWidth, float value,
@@ -72,7 +74,7 @@ float terrainFilteredStep(float threshold, float halfWidth, float value,
 }
 
 TerrainAppearanceSample terrainEvaluateMaterial(TerrainMaterial m,
-    TerrainPatterns p, TerrainPatternContext c)
+    TerrainPatterns p, TerrainPatternContext c, float vegetation)
 {
     vec4 weights = m.pattern;
     float weightSum = dot(weights,vec4(1.0));
@@ -92,22 +94,11 @@ TerrainAppearanceSample terrainEvaluateMaterial(TerrainMaterial m,
     vec4 palette = mix(mix(m.colorLow,m.colorMid,lowMid),m.colorHigh,midHigh);
     float roughness = palette.a + m.response.w * (c.grain.value*2.0-1.0);
     vec3 heightGradient = p.normalGradient * m.response.z;
-#if TERRAIN_FINE_SURFACE_ENABLED
-    if (m.fineSurface.x > 0.0)
-    {
-        // Reuse the biome's ALREADY evaluated, footprint-filtered grain field.
-        // No extra noise, texture fetch or light pass. Apply before base/accent
-        // blending so the glints belong exclusively to their own material.
-        float resolved = 1.0-smoothstep(0.18,0.55,c.pixelFootprint/c.grainPeriod);
-        float grain = smoothstep(0.62,0.70,c.grain.value)*resolved*m.fineSurface.x;
-        roughness = mix(roughness,min(roughness,m.fineSurface.y),grain);
-        heightGradient += c.grain.gradient*(c.grainPeriod*0.30*grain);
-    }
-#endif
     return TerrainAppearanceSample(palette.rgb,
         clamp(roughness,0.04,1.0),m.response.x,
         m.response.y,heightGradient,0.0,0.0,
-        m.fineSurface.zw);
+        vec4(m.fineSurface.zw*vegetation,m.fineSurface.zw*(1.0-vegetation)),
+        vec2(m.fineSurface.x,m.fineSurface.x*m.fineSurface.y));
 }
 
 TerrainMaterial terrainLoadMaterial(uint id, bool wall, bool accent)
@@ -146,9 +137,13 @@ TerrainAppearanceSample terrainEvaluateSurface(uint id, bool wall, TerrainPatter
     TerrainPatterns patterns = terrainSurfacePatterns(detail,activeWeights,c);
     vec4 normalControl = wall ? terrainBiomes[id].wall.normal : terrainBiomes[id].ground.normal;
     patterns.normalGradient = terrainSurfaceNormal(normalControl,detail,c);
-    TerrainAppearanceSample appearance = terrainEvaluateMaterial(base,patterns,c);
+    int route = wall ? 2 : 0;
+    vec4 routing = terrainBiomes[id].stainRouting;
+    TerrainAppearanceSample appearance = terrainEvaluateMaterial(base,patterns,c,
+        routing[route + (accent >= 1.0 ? 1 : 0)]);
     if (partial)
-        appearance = terrainMixAppearance(appearance,terrainEvaluateMaterial(top,patterns,c),accent);
+        appearance = terrainMixAppearance(appearance,
+            terrainEvaluateMaterial(top,patterns,c,routing[route+1]),accent);
     appearance.accentMask = accent;
     return appearance;
 }
@@ -207,7 +202,7 @@ TerrainAppearanceSample terrainEvaluateAppearance(vec3 baseNormal,
     vec4 weights = vec4((1.0-f.x)*(1.0-f.y),f.x*(1.0-f.y),(1.0-f.x)*f.y,f.x*f.y);
     // Preserve all four weights. Only EXACT zero skips work, never top-two IDs.
     TerrainAppearanceSample appearance = TerrainAppearanceSample(vec3(0.0),
-        0.0,0.0,0.0,vec3(0.0),0.0,0.0,vec2(0.0));
+        0.0,0.0,0.0,vec3(0.0),0.0,0.0,vec4(0.0),vec2(0.0));
     for (int corner=0; corner<4; ++corner)
     {
         if (weights[corner] <= 0.0) continue;
@@ -221,6 +216,7 @@ TerrainAppearanceSample terrainEvaluateAppearance(vec3 baseNormal,
         appearance.wallMask += cornerAppearance.wallMask*weight;
         appearance.accentMask += cornerAppearance.accentMask*weight;
         appearance.stains += cornerAppearance.stains*weight;
+        appearance.sparkle += cornerAppearance.sparkle*weight;
     }
     if (coast < 1.0)
         appearance = terrainMixAppearance(terrainEvaluateBiome(25u,baseNormal,c),appearance,coast);

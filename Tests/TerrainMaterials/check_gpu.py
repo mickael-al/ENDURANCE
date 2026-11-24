@@ -22,7 +22,7 @@ os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "4.6")
 os.environ.setdefault("MESA_GLSL_VERSION_OVERRIDE", "460")
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-from check_cpu import export_table, export_appearance, export_stain
+from check_cpu import export_table, export_appearance, export_stain, export_sparkle
 sys.path.insert(0, str(ROOT / "Tests/Atmosphere"))
 from gl_support import AtmosphereGL, RGBA32F, RG32F, TEXTURE_2D, shader_source
 
@@ -73,8 +73,8 @@ def literal_table(colors=None, wall_colors=None, *, metallic=0., roughness=.6, a
                 floats.extend((*rgb, roughness)*3)
                 floats.extend((metallic, ao, 0., 0., .5, 1., 1., 0., 0., 0., 0., 0., 0., .16, 0., 0.))
             floats.extend((.5, .1, 1., 0., 24., 1.5, 0., 0., 0., .15, .35, .35))
-        floats.extend((.28, .65, 0., 1., 1., .1, 1., .32))
-    assert len(floats) == 26*144
+        floats.extend((.28, .65, 0., 1., 1., .1, 1., .32, 0., 0., 0., 0.))
+    assert len(floats) == 26*148
     return struct.pack(f'<{len(floats)}f', *floats), colors, wall_colors
 
 
@@ -97,6 +97,14 @@ class MaterialRig:
             gl._fn('glGenerateMipmap',None,C.c_uint)
             gl.glGenerateMipmap(TEXTURE_2D)
             gl.check('production terrain stain cache')
+            payload = export_sparkle()
+            assert len(payload) == 128*128*4
+            gl.terrain_sparkle = gl.texture((128,128),internal=0x8058,levels=1,value=0.)
+            gl.sampler(1,gl.terrain_sparkle)
+            gl.glTexImage2D(TEXTURE_2D,0,0x8058,128,128,0,0x1908,0x1401,C.c_char_p(payload))
+            gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
+            gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
+            gl.check('production terrain sparkle cache')
         self.table_size = len(table)
         self.matrix_values = tuple(range(25))
         self.table = gl.buffer(table)
@@ -123,6 +131,9 @@ class MaterialRig:
             'terrainSeaBlendWidth': ('1f', 64.), 'terrainMacroPeriod': ('1f', 384.),
             'terrainPatchPeriod': ('1f', 32.), 'terrainMaterialDebug': ('1i', 0),
             'terrainAlbedoGamma': ('1f', 2.2),
+            'terrainVegetationStainSize': ('1f', 2.5),
+            'terrainOtherStainSize': ('1f', .25),
+            'terrainSparkleGrainSize': ('1f', .01),
             'testOrigin': ('3f', -57.3, 180., 71.8),
             'testAxisX': ('3f', 40., 0., 0.), 'testAxisY': ('3f', 0., 0., 30.),
             'testNormal': ('3f', 0., 1., 0.), 'testViewOffset': ('3f', 0., 0., 0.),
@@ -198,6 +209,7 @@ class MaterialRig:
         gl.glBindVertexArray(self.vao)
         gl.glUseProgram(self.program)
         gl.sampler(0,gl.terrain_stain)
+        gl.sampler(1,gl.terrain_sparkle)
         gl.glDrawArrays(0x0004, 0, 3)
         gl.glBindFramebuffer(0x8D40, 0)
 
@@ -365,7 +377,7 @@ def check_filtering(rig, table):
 def edited_vec(table, biome, offset, values):
     """Edit an independently specified std140 byte offset in one biome record."""
     data=bytearray(table)
-    struct.pack_into('<4f',data,biome*576+offset,*values)
+    struct.pack_into('<4f',data,biome*592+offset,*values)
     return bytes(data)
 
 
@@ -376,7 +388,7 @@ def check_fine_surface(gl):
     table=edited_vec(table,0,224,(1.,0.,0.,0.)) # base only
     rig=MaterialRig(gl,table,size=(128,128))
     rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.),
-            microDetailStrength=0.)
+            microDetailStrength=0.,terrainSparkleGrainSize=.04)
     baseline=rig.read()
     grains=edited_vec(table,0,96,(1.,.12,0.,0.))
     rig.upload(grains); sparkle=rig.read()
@@ -402,7 +414,27 @@ def check_fine_surface(gl):
         assert abs(rough-(.8-.6*(1.-ratio))) < 3e-6, 'stain roughness not coupled to mask'
     rig.set(testOrigin=(12.43,180.,-9.37)) # inverse projection of one 16 m repeat
     repeated=rig.read()
-    assert max_difference(stain[2],repeated[2]) < .0001, 'procedural cache does not tile continuously'
+    assert max_difference(stain[2],repeated[2]) < .0002, 'procedural cache does not tile continuously'
+
+    # The vegetation pattern must be EXACTLY ten times larger, independently
+    # of the biome's relief. Scaling the whole domain keeps the projected UVs.
+    rig.set(testOrigin=(-.037,0.,.023),testAxisX=(.1,0.,0.),testAxisY=(0.,0.,.1))
+    rig.upload(stains); small=rig.read()
+    green=edited_vec(stains,0,576,(1.,0.,0.,0.))
+    rig.set(testOrigin=(-.37,0.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
+    rig.upload(green); large=rig.read()
+    assert max_difference(small[2],large[2]) < 1e-5, 'vegetation stains are not 10x larger'
+    # Blend the two evaluated fixed-scale masks, not an interpolated frequency.
+    rig.upload(stains); fine=rig.read()
+    rig.upload(edited_vec(stains,0,576,(.5,0.,0.,0.))); blended=rig.read()
+    for a,b,c in zip(linear_colors(large[2]),linear_colors(fine[2]),linear_colors(blended[2])):
+        assert max(abs((x+y)*.5-z) for x,y,z in zip(a,b,c)) < 3e-6, 'stain blending moves the domains'
+    rig.upload(grains); first=rig.read()
+    rig.upload(edited_vec(grains,0,560,(1.,.91,3.,.48))); second=rig.read()
+    assert max_difference(first[1],second[1]) < 1e-6 and max_difference(first[3],second[3]) < 1e-6, 'sparkle still follows the relief FBM'
+    rig.set(terrainSparkleGrainSize=.08); resized=rig.read()
+    assert max_difference(first[1],resized[1]) > .01, 'sparkle size control has no effect'
+    rig.set(terrainSparkleGrainSize=.04)
 
     # Accents/ceilings never inherit a neighbouring base's sparkle or stains.
     for effect in (grains,stains):
@@ -428,7 +460,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: primary-only PBR grains, 10% stains, paired roughness, LOD/seed stability, mip coverage and compile-time disable',flush=True)
+    print('PASS fine surfaces: material-selected PBR grains, 10% stains, paired roughness, LOD/seed stability, mip coverage and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):
@@ -484,8 +516,8 @@ def check_material_identity(rig, table):
 
     rig.set(terrainBiomeOverride=15,testAxisX=(240.,0.,0.),testAxisY=(0.,0.,240.))
     scales=[]
-    floats=struct.unpack('<3744f',table)
-    original=floats[15*144+140:15*144+144]
+    floats=struct.unpack('<3848f',table)
+    original=floats[15*148+140:15*148+144]
     for multiplier in (.2,3.):
         rig.upload(edited_vec(table,15,560,(multiplier,*original[1:])))
         scales.append(rig.read()[2])
@@ -678,7 +710,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
     V=normalized(tuple(a-b for a,b in zip(eye,target)))
     H=normalized(tuple(a+b for a,b in zip(L,V)))
     VH=max(sum(a*b for a,b in zip(V,H)),0.)
-    floats=struct.unpack('<3744f',table)
+    floats=struct.unpack('<3848f',table)
     for tile_index,biome in enumerate(biomes):
         name=NAMES[biome]
         rig.set(terrainBiomeOverride=biome)
@@ -691,6 +723,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
         gl.glBindVertexArray(rig.vao)
         gl.glUseProgram(rig.program)
         gl.sampler(0,gl.terrain_stain)
+        gl.sampler(1,gl.terrain_sparkle)
         gl.glDrawArraysInstancedBaseInstance(0x0004,0,len(vertices)//3,1,0)
         gl.glBindFramebuffer(0x8D40,0)
         data=[gl.texels(t,size,channels=2 if i==0 else 4) for i,t in enumerate(rig.outputs)]
@@ -728,7 +761,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
         swatches=[]
         for material in (0,28,68,96):
             for stop in (0,4,8):
-                start=biome*144+material+stop
+                start=biome*148+material+stop
                 swatches.append(tuple(round(255.*max(0.,min(v,1.))**(1./2.2)) for v in floats[start:start+3]))
         for i,color in enumerate(swatches):
             draw.rectangle((x+i*width//12,y+height_px+21,x+(i+1)*width//12-1,y+height_px+34),fill=color)

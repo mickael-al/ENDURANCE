@@ -55,7 +55,8 @@ namespace
     struct TerrainMaterialStateGuard
     {
         GLint uniform = 0, material = 0;
-        GLint activeTexture = 0, fineTexture = 0, fineSampler = 0;
+        GLint activeTexture = 0;
+        GLint fineTextures[2]{}, fineSamplers[2]{};
         GLint64 start = 0, size = 0;
         TerrainMaterialStateGuard()
         {
@@ -64,9 +65,12 @@ namespace
             glGetInteger64i_v(GL_UNIFORM_BUFFER_START, 6, &start);
             glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, 6, &size);
             glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
-            glActiveTexture(GL_TEXTURE0);
-            glGetIntegerv(GL_TEXTURE_BINDING_2D, &fineTexture);
-            glGetIntegeri_v(GL_SAMPLER_BINDING, 0, &fineSampler);
+            for (unsigned unit = 0; unit < 2; ++unit)
+            {
+                glActiveTexture(GL_TEXTURE0 + unit);
+                glGetIntegerv(GL_TEXTURE_BINDING_2D, &fineTextures[unit]);
+                glGetIntegeri_v(GL_SAMPLER_BINDING, unit, &fineSamplers[unit]);
+            }
             glActiveTexture(activeTexture);
         }
         ~TerrainMaterialStateGuard()
@@ -76,14 +80,18 @@ namespace
             else glBindBufferBase(GL_UNIFORM_BUFFER, 6, material);
             glBindBuffer(GL_UNIFORM_BUFFER, uniform);
             // Restore only the borrowed target, preserving cube/array bindings.
-            glActiveTexture(GL_TEXTURE0);
-            glBindTexture(GL_TEXTURE_2D, fineTexture);
-            glBindSampler(0, fineSampler);
+            for (unsigned unit = 0; unit < 2; ++unit)
+            {
+                glActiveTexture(GL_TEXTURE0 + unit);
+                glBindTexture(GL_TEXTURE_2D, fineTextures[unit]);
+                glBindSampler(unit, fineSamplers[unit]);
+            }
             glActiveTexture(activeTexture);
         }
     };
 
-    GLuint createTerrainFineSurfaceTexture()
+    GLuint createTerrainFineTexture(unsigned size, unsigned levels, GLenum internalFormat,
+        GLenum format, const std::uint8_t* pixels)
     {
         // DSA does not protect pixel-unpack state. An enclosing asset upload
         // may have a PBO or a sub-image layout selected; borrow and restore it.
@@ -99,15 +107,14 @@ namespace
         }
         GLuint texture = 0;
         glCreateTextures(GL_TEXTURE_2D, 1, &texture);
-        glTextureStorage2D(texture, TerrainFineSurfaceMipLevels, GL_R8, TerrainFineSurfaceSize, TerrainFineSurfaceSize);
+        glTextureStorage2D(texture, levels, internalFormat, size, size);
         GLint width = 0;
         glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_WIDTH, &width);
-        if (width == static_cast<GLint>(TerrainFineSurfaceSize))
+        if (width == static_cast<GLint>(size))
         {
-            glTextureSubImage2D(texture, 0, 0, 0, TerrainFineSurfaceSize, TerrainFineSurfaceSize,
-                GL_RED, GL_UNSIGNED_BYTE, terrainFineSurfacePixels().data());
-            glGenerateTextureMipmap(texture);
-            glTextureParameteri(texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTextureSubImage2D(texture, 0, 0, 0, size, size, format, GL_UNSIGNED_BYTE, pixels);
+            if (levels > 1) glGenerateTextureMipmap(texture);
+            glTextureParameteri(texture, GL_TEXTURE_MIN_FILTER, levels > 1 ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR);
             glTextureParameteri(texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
             glTextureParameteri(texture, GL_TEXTURE_WRAP_S, GL_REPEAT);
             glTextureParameteri(texture, GL_TEXTURE_WRAP_T, GL_REPEAT);
@@ -237,10 +244,11 @@ struct ProceduralGeneration::Impl
     bool planned = false, active = false, converged = false, blocked = false;
     bool collisionDirty = true, collisionUpdated = false;
     GLint shadowIndex = -1;
-    GLuint materialBuffer = 0, fineTexture = 0;
+    GLuint materialBuffer = 0, fineTexture = 0, sparkleTexture = 0;
     struct MaterialUniforms
     {
         GLint macroPeriod = -1, patchPeriod = -1;
+        GLint vegetationStainSize = -1, otherStainSize = -1, sparkleGrainSize = -1;
         GLint detailStrength = -1, detailScale = -1;
         GLint albedoGamma = -1;
     } materialUniforms;
@@ -308,6 +316,9 @@ struct ProceduralGeneration::Impl
             auto& u = candidate.uniforms;
             u.macroPeriod = glGetUniformLocation(program, "terrainMacroPeriod");
             u.patchPeriod = glGetUniformLocation(program, "terrainPatchPeriod");
+            u.vegetationStainSize = glGetUniformLocation(program, "terrainVegetationStainSize");
+            u.otherStainSize = glGetUniformLocation(program, "terrainOtherStainSize");
+            u.sparkleGrainSize = glGetUniformLocation(program, "terrainSparkleGrainSize");
             u.detailStrength = glGetUniformLocation(program, "microDetailStrength");
             u.detailScale = glGetUniformLocation(program, "microDetailScale");
             u.albedoGamma = glGetUniformLocation(program, "terrainAlbedoGamma");
@@ -340,6 +351,9 @@ struct ProceduralGeneration::Impl
         // Restore all controls, not only the field changed by this UI action.
         glProgramUniform1f(program, materialUniforms.macroPeriod, config.appearance.macroPeriod);
         glProgramUniform1f(program, materialUniforms.patchPeriod, config.appearance.patchPeriod);
+        glProgramUniform1f(program, materialUniforms.vegetationStainSize, config.appearance.vegetationStainSize);
+        glProgramUniform1f(program, materialUniforms.otherStainSize, config.appearance.otherStainSize);
+        glProgramUniform1f(program, materialUniforms.sparkleGrainSize, config.appearance.sparkleGrainSize);
         glProgramUniform1f(program, materialUniforms.detailStrength, config.microDetailStrength);
         glProgramUniform1f(program, materialUniforms.detailScale, config.microDetailScale);
         materialAlbedoGamma = -1.0f;
@@ -375,6 +389,7 @@ struct ProceduralGeneration::Impl
         gpu.shutdown();
         if (materialBuffer) glDeleteBuffers(1, &materialBuffer);
         if (fineTexture) glDeleteTextures(1, &fineTexture);
+        if (sparkleTexture) glDeleteTextures(1, &sparkleTexture);
         const auto liveObjects = Ge::GObject::GetGObjects();
         for (const auto& range : cameraRanges)
         {
@@ -493,10 +508,18 @@ bool ProceduralGeneration::initialize(const Config& config)
         m_lastError = "Terrain material GPU table allocation failed.";
         return false;
     }
-    impl->fineTexture = createTerrainFineSurfaceTexture();
+    impl->fineTexture = createTerrainFineTexture(TerrainFineSurfaceSize,
+        TerrainFineSurfaceMipLevels, GL_R8, GL_RED, terrainFineSurfacePixels().data());
     if (!impl->fineTexture)
     {
         m_lastError = "Terrain fine-surface texture allocation failed.";
+        return false;
+    }
+    impl->sparkleTexture = createTerrainFineTexture(TerrainSparkleSize,
+        TerrainSparkleMipLevels, GL_RGBA8, GL_RGBA, terrainSparklePixels().data());
+    if (!impl->sparkleTexture)
+    {
+        m_lastError = "Terrain sparkle texture allocation failed.";
         return false;
     }
     impl->shadowIndex = glGetUniformLocation(impl->shadow->getProgram(), "offsetShadow");
@@ -599,6 +622,12 @@ bool ProceduralGeneration::applyTerrainAppearance(const TerrainAppearance& appea
             glProgramUniform1f(program, s.materialUniforms.macroPeriod, appearance.macroPeriod);
         if (previous.patchPeriod != appearance.patchPeriod)
             glProgramUniform1f(program, s.materialUniforms.patchPeriod, appearance.patchPeriod);
+        if (previous.vegetationStainSize != appearance.vegetationStainSize)
+            glProgramUniform1f(program, s.materialUniforms.vegetationStainSize, appearance.vegetationStainSize);
+        if (previous.otherStainSize != appearance.otherStainSize)
+            glProgramUniform1f(program, s.materialUniforms.otherStainSize, appearance.otherStainSize);
+        if (previous.sparkleGrainSize != appearance.sparkleGrainSize)
+            glProgramUniform1f(program, s.materialUniforms.sparkleGrainSize, appearance.sparkleGrainSize);
         if (m_config.microDetailStrength != strength)
             glProgramUniform1f(program, s.materialUniforms.detailStrength, strength);
         if (m_config.microDetailScale != scale)
@@ -998,6 +1027,8 @@ void ProceduralGeneration::drawRenderer()
     glBindBufferBase(GL_UNIFORM_BUFFER, 6, s.materialBuffer);
     glBindTextureUnit(0, s.fineTexture);
     glBindSampler(0, 0);
+    glBindTextureUnit(1, s.sparkleTexture);
+    glBindSampler(1, 0);
     s.gpu.drawMany(s.cameraMeshes, 0);
     const auto gpuStats = s.gpu.stats();
     m_stats.drawListUploads = gpuStats.drawListUploads;

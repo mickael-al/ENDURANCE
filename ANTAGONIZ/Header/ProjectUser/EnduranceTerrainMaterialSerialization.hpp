@@ -11,5 +11,6 @@
 JS_OBJ_EXT(ProceduralTerrain::TerrainMaterial,
     colorLow, colorMid, colorHigh, response, ramp, pattern, fineSurface);
 JS_OBJ_EXT(ProceduralTerrain::TerrainSurface, base, accent, blend, detail, normal);
-JS_OBJ_EXT(ProceduralTerrain::TerrainBiomeAppearance, ground, wall, slope, spectrum);
-JS_OBJ_EXT(ProceduralTerrain::TerrainAppearance, biomes, macroPeriod, patchPeriod, debugView);
+JS_OBJ_EXT(ProceduralTerrain::TerrainBiomeAppearance, ground, wall, slope, spectrum, stainRouting);
+JS_OBJ_EXT(ProceduralTerrain::TerrainAppearance, biomes, macroPeriod, patchPeriod,
+    vegetationStainSize, otherStainSize, sparkleGrainSize, debugView);

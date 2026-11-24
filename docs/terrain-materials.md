@@ -15,8 +15,8 @@ below are functions compiled into that program, not additional rendering passes.
 | `Asset/Shader/ProceduralTerrain/render.fs.glsl` | Fragment `main`: material evaluation, final normal and G-buffer writes |
 | `Asset/Shader/ProceduralTerrain/materials.glsl` | `terrainEvaluateAppearance` → biome → surface → material: climate, slope, palettes and PBR blending |
 | `Asset/Shader/ProceduralTerrain/patterns.glsl` | Shared noise/value gradients, grain spectrum and the eight procedural relief families |
-| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered soil stains, evaluated once after biome blending |
-| `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ bake of the eight-octave thresholded stain mask |
+| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered stain masks and independent grain facets after material blending |
+| `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ bake of the eight-octave stain mask and sparse grain cache |
 | `Asset/Shader/ProceduralTerrain/render.vs.glsl` | Packed terrain vertex decoding, world position and climate varyings |
 | `ANTAGONIZ/Source/ProjectUser/EnduranceTerrainMaterials.cpp` | `makeTerrainAppearance`: authored ground/wall palettes and parameters for all 26 biomes |
 | `ANTAGONIZ/Source/Miscellaneous/ProceduralGeneration.cpp` | Program creation, appearance upload and the existing batched terrain draw |
@@ -102,8 +102,8 @@ size and offset assertions. The GLSL table uses std140 at UBO binding 6:
 |---|---:|
 | TerrainMaterial | 112 bytes |
 | TerrainSurface, two materials and mask/pattern/normal settings | 272 bytes |
-| TerrainBiomeAppearance, ground/wall, slope and spectrum settings | 576 bytes |
-| All 26 biomes | 14,976 bytes |
+| TerrainBiomeAppearance, ground/wall, slope, spectrum and stain routing | 592 bytes |
+| All 26 biomes | 15,392 bytes |
 
 The complete table fits the minimum OpenGL uniform block size. It is uploaded
 only when edited; changing global controls only updates their uniforms. The
@@ -147,78 +147,108 @@ normal before microdetail, and retain its sign: cave ceilings are walls, not
 snow-covered upward-facing ground. The independent geometric-normal metadata
 used for shadow bias is preserved.
 
-## Fine grains and soil stains
+## Fine grains and surface stains
 
 `TerrainMaterial::fineSurface` is a serialized vec4, editable under the material's
-**Details fins** section. Its components are:
+**Details fins** section:
 
 | Component | Meaning | Typical value |
 |---|---|---:|
-| x | Strength of sparse glossy grains; zero disables them | 0.85 on red sand |
-| y | Grain roughness | 0.17 on red sand |
+| x | Strength of sparse glossy grains; zero disables them | 0.95 snow, 0.90 sand |
+| y | Grain roughness | 0.12 snow, 0.15 sand |
 | z | Fractional linear albedo darkening in stains | 0.10, i.e. 10% |
 | w | Absolute roughness reduction in stains | 0.06 |
 
-The primary ground materials of PolarIce, FrozenTundra, RockDesert, RedDesert and
-Marine receive glints. Secondary materials and walls keep them disabled. Organic
-grounds (tundra, forests, bogs, meadows, savannas and jungles) receive stains on
-both ground materials. Presets are assigned at the end of `makeTerrainAppearance`;
-the three existing palette stops and their roughness values are preserved.
-Loading a v2 scene inherits missing fine controls from these defaults and preserves
-all saved palette edits. Saving the scene writes revision 3 and the new controls.
+The game classifies **each material**, including accents and walls, once in
+`configureTerrainFineMaterials`. Pale neutral materials in the ten cold biomes
+receive snow/frost grain; materials authored as sand receive sand grain. For
+example, FrozenTundra's secondary snow receives glints, its primary gray sediment
+does not. Green palette midpoints select the larger stain scale, including green
+wall patinas; all other materials get the finer scale. Classification uses linear
+palette values, never the sunlit or tone-mapped screen color. These initial
+choices remain artist-editable; changing the palette live does not overwrite
+explicit effect controls.
 
-Grains perturb only normal and roughness. The existing GGX lighting, shadowing and
-IBL create highlights: this is a cheap stylized approximation, not a separate
-microfacet/glint BRDF. It does not emit light, change metallic or add a render
-pass/G-buffer channel. `terrainEvaluateMaterial` reuses the grain value and
-analytic gradient already calculated by `terrainBiomePatterns`; no additional
-noise or texture lookup is needed for sparkles. A smooth 0.62–0.70 threshold
-isolates small glossy areas. Their scale follows the biome's existing grain
-period. Their contrast fades when a pixel covers 18–55% of that period, avoiding
-unresolved sparkle noise. Application before base/accent mixing confines the
-response to the primary material and preserves climate transitions.
+`TerrainBiomeAppearance::stainRouting` contains four vegetation weights: ground
+base/accent and wall base/accent. Zero selects fine stains, one selects large
+vegetation stains. The editor's **Taches : petite echelle / verdure** slider
+exposes each weight. Global controls in **Materiaux proceduraux / palettes** are:
 
-Soil stains use eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
+| Setting | Default | Effect |
+|---|---:|---|
+| `vegetationStainSize` / Taille taches de verdure | 2.5 m | Ten times the former 25 cm base feature size |
+| `otherStainSize` / Taille taches autres matieres | 0.25 m | Finer detail on remaining materials |
+| `sparkleGrainSize` / Taille grains brillants | 0.01 m | Independent reflective facet spacing |
+
+The sizes describe base features/spacing, not an exact diameter of irregular
+patches. These controls change uniforms without remeshing or rebaking anything.
+They are independent of the biome relief noise's period and octaves.
+
+Grains now use **independent sparse white noise**, not the smooth relief FBM.
+C++ builds a 128² RGBA8 cache with random facet tilts and about 18.75% occupied
+texels. One texture lookup after material blending supplies a small tangent-plane
+normal perturbation and local roughness reduction. Existing GGX lighting,
+shadows and IBL create the highlights; there is no emission, metallic boost,
+extra lighting pass or G-buffer channel. This is a cheap stylized approximation,
+not a dedicated glint BRDF. Facets fade as their spacing becomes subpixel; beyond
+that distance, the shader skips the lookup. Their world-space pattern is stable
+across chunk LODs, and changing relief FBM parameters does not move it.
+
+Stains retain eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
 0.5 **before** filtering. C++ builds a 512² R8 mask once per process, with four
-coverage samples per texel. The GPU texture and mipmaps cost 349,525 bytes, about
-0.33 MiB per terrain renderer; the retained CPU bake costs 256 KiB. The shader
-samples this cache once for an affected fragment, rather than running eight
-noise octaves per material. Its 16 m repeat contains about 25 cm base features;
-the seed offsets the world-space projection. Isotropic mip selection uses the
-existing world footprint. Between 25 cm and 1 m per pixel, stains converge to
-their expected 50% coverage; beyond that, the texture lookup is skipped entirely.
-The CPU bake is reused across full scene restarts. Each renderer initialization
-uploads its GPU texture once; streaming chunks and palette edits do not rebuild
-or upload it. Texture/sampler and pixel-unpack state are restored, and shutdown
-releases the GPU texture.
+coverage samples per texel. Each repeat contains 64 base features. The shader
+samples the two fixed scales only when their blended weights are nonzero: at
+most two stain lookups per fragment, after all biome/ground/wall blending, not
+per material. It blends mask contributions rather than interpolating frequencies,
+so stains do not slide at biome boundaries. Mip selection uses the world-space
+footprint captured before branching. Unresolved masks converge to 50% coverage,
+then skip their lookup beyond four times the feature size. Maximum local albedo
+reduction is 10%; the distant average is 5%.
 
-The new fields add 1,664 bytes to the complete UBO, which still fits the minimum
-16 KiB uniform block. `TERRAIN_FINE_SURFACE_ENABLED=0` compiles out the effects for
-an A/B test; it does not reclaim the small cache allocation. Runtime branches
-only skip material effects whose blended weights are zero; diagnostics remain
-compile-time variants. No GPU timing on the target GTX 1660 is claimed here.
+The fixed rotated world projection uses X/Z plus a Y shear, so walls also have
+vertical detail. It is a cheap planar projection, not full triplanar mapping;
+some directional stretching is an intentional performance tradeoff.
 
-### Fine-surface budget check, November 24
+Both GPU caches total **415,061 bytes (about 0.396 MiB)** per terrain renderer:
+349,525 bytes for stains with mipmaps and 65,536 bytes for facets. The latter
+fade before minification, so no unused mip chain is allocated. The retained CPU
+bakes total 320 KiB and are reused across renderer restarts. Initialization uploads
+each texture once; chunk generation and palette edits do not regenerate them.
+Borrowed texture units 0/1, samplers and pixel-unpack state are restored. Shutdown
+and failed initialization release the allocations. The table adds only 416 bytes
+relative to revision 3 and remains below the minimum 16 KiB uniform-block limit.
 
-Compared with `a5ee696`, using llvmpipe, one software-renderer thread, 256² pixels,
-15 alternating samples and three draws per sample. This measures the **terrain
-material pass**, not a whole frame and not the GTX 1660. Raw samples, quartiles
-and source/data hashes are in the [measurement report](terrain-material-validation/fine-surfaces-llvmpipe-2026-11-24.json).
+Scene revision 4 migrates the previous default fine controls to the new material
+selection, using the loaded palettes. Explicitly edited fine controls and all
+saved palette/roughness settings are preserved. Old scenes get the new sizes;
+saving persists the controls. No binary terrain scene is replaced by this change.
 
-| Case | Before (ms) | After (ms) | Paired median change |
-|---|---:|---:|---:|
-| near, glossy sand grains | 5.240 | 5.277 | +0.7% |
-| near, unaffected volcanic rock | 5.460 | 5.334 | -2.7% |
-| near, one biome | 4.715 | 5.353 | +12.6% |
-| near, four biomes + slope blend | 34.643 | 36.750 | +7.0% |
-| far, four biomes | 15.153 | 16.217 | +7.4% |
-| coast, four biomes + marine + slope | 34.654 | 36.275 | +5.1% |
+`TERRAIN_FINE_SURFACE_ENABLED=0` compiles out both effects for an A/B test; it does
+not reclaim their small cache allocation. Runtime branches skip zero material
+weights and unresolved lookups. No extra terrain draw or generation pass is added.
 
-Grain reuse adds little in this fixture; the new stains still have a measurable
-cost. The unaffected case's apparent decrease is not claimed as an optimization.
-These software timings cannot establish hardware-GPU performance parity. Re-run
-`Tests/TerrainMaterials/benchmark_materials.py --baseline-ref a5ee696` on the target
-GPU and profile the complete game before committing to a frame-time budget.
+### Validation and timing
+
+The material checks cover C++/GLSL layout, saved-scene migration, live-edit state
+restoration, independent grain size, vegetation stains enlarged tenfold, stable
+scale blending, unaffected geometry/PBR channels and distant filtering. These
+run on the available Mesa llvmpipe software renderer; they do not establish
+whole-game performance or the visual result on the target GTX 1660.
+
+The previous iteration's measurements remain in
+`docs/terrain-material-validation/fine-surfaces-llvmpipe-2026-11-24.json` as a
+historical baseline. Use `--baseline-ref 1a361d0` to compare this revision to the
+previous effects, rather than comparing it to flat colors.
+
+Final revision, 256x256 viewport, 15 alternating samples, three draws per sample,
+`LP_NUM_THREADS=1`, completed-draw wall clock. The paired median overhead relative
+to `1a361d0` is +15.2% for near sand, +18.0% for newly detailed volcanic rock,
++2.3% for one organic biome, +5.4% for four biomes with a slope blend, +1.9% for
+far terrain and +6.9% for the coast fixture. Raw samples and source hashes are in
+[the revision's timing report](terrain-material-validation/revised-fine-surfaces-llvmpipe-2026-11-24.json).
+These are **software material-pass measurements**, not game frame times or GTX
+1660 timings. The extra coverage/lookups are measurable; no performance parity
+claim is made. Test on the target GPU before choosing the final quality budget.
 
 ## Precomputation investigation
 

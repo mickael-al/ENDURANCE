@@ -43,14 +43,15 @@ void main()
     float normalWidth = abs(dFdx(baseNormal.y)) + abs(dFdy(baseNormal.y));
     TerrainPatternContext patterns = terrainMakePatternContext(worldPosition,dx,dy,normalWidth);
     TerrainAppearanceSample appearance = terrainEvaluateAppearance(baseNormal,patterns);
+#if TERRAIN_FINE_SURFACE_ENABLED
+    terrainApplyFineStains(appearance,patterns);
+    terrainApplySparkle(appearance,patterns);
+#endif
 
     // Blend height gradients first, project tangentially and normalize once.
     vec3 gradient = appearance.heightGradient;
     gradient -= baseNormal * dot(baseNormal,gradient);
     vec3 normal = normalize(baseNormal-gradient);
-#if TERRAIN_FINE_SURFACE_ENABLED
-    terrainApplyFineStains(appearance,patterns);
-#endif
     vec3 color = appearance.color;
 #if DEBUG_TERRAIN_MATERIAL == 2
     color = vec3(appearance.wallMask);

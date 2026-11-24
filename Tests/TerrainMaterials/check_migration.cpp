@@ -65,7 +65,8 @@ int main(int argc, char** argv)
     customized.appearance.macroPeriod = 687.0f;
     customized.appearance.patchPeriod = 71.0f;
     customized.appearance.debugView = 2;
-    const auto before = customized.appearance;
+    auto before = customized.appearance;
+    Endurance::configureTerrainFineMaterials(before);
     assert(Endurance::upgradeTerrainAppearance(customized.appearance,
         customized.terrainAppearanceRevision) == ProceduralTerrain::BiomeCount - 2);
     for (std::size_t i = 0; i < ProceduralTerrain::BiomeCount; ++i)
@@ -82,7 +83,8 @@ int main(int argc, char** argv)
     auto current = decodeLegacy();
     current.terrainAppearanceRevision = 2;
     current.appearance.biomes[0].wall.base.colorLow[3] = 0.04f;
-    const auto v2Before = current.appearance;
+    auto v2Before = current.appearance;
+    Endurance::configureTerrainFineMaterials(v2Before);
     assert(Endurance::upgradeTerrainAppearance(current.appearance,
         current.terrainAppearanceRevision) == 0);
     assert(sameTable(current.appearance, v2Before));
@@ -96,6 +98,33 @@ int main(int argc, char** argv)
     assert(Endurance::upgradeTerrainAppearance(current.appearance,
         current.terrainAppearanceRevision) == 0);
     assert(sameTable(current.appearance, currentBefore));
+
+    // A real v3 saved scene contains the OLD fine controls. Replace untouched
+    // values but preserve user changes, blue-ice roughness and global scales.
+    auto v3 = defaults;
+    v3.biomes[0].ground.base.fineSurface = {{.90f,.15f,0.f,0.f}};
+    v3.biomes[1].ground.base.fineSurface = {{.55f,.18f,0.f,0.f}};
+    v3.biomes[1].ground.accent.fineSurface = {{0.f,.16f,0.f,0.f}};
+    v3.biomes[1].wall.accent.fineSurface = {{0.f,.16f,0.f,0.f}};
+    v3.biomes[0].wall.base.colorLow[3] = .04f;
+    v3.biomes[12].ground.base.fineSurface[2] = .23f;
+    v3.biomes[12].ground.base.colorMid[1] = .013f;
+    v3.biomes[12].stainRouting = {{0.f,0.f,0.f,0.f}};
+    v3.vegetationStainSize = 7.f;
+    auto classification = v3;
+    Endurance::configureTerrainFineMaterials(classification);
+    std::uint32_t revision = 3;
+    Endurance::upgradeTerrainAppearance(v3,revision);
+    assert(revision == 4);
+    assert(v3.biomes[0].ground.base.fineSurface == defaults.biomes[0].ground.base.fineSurface);
+    assert(v3.biomes[1].ground.base.fineSurface[0] == 0.f);
+    assert(v3.biomes[1].ground.accent.fineSurface[0] > 0.f);
+    assert(v3.biomes[1].wall.accent.fineSurface[0] > 0.f);
+    assert(v3.biomes[0].wall.base.colorLow[3] == .04f);
+    assert(v3.biomes[12].ground.base.fineSurface[2] == .23f);
+    assert(v3.biomes[12].ground.base.colorMid[1] == .013f);
+    assert(v3.biomes[12].stainRouting == classification.biomes[12].stainRouting);
+    assert(v3.vegetationStainSize == 7.f);
 
     // Pre-material scenes have neither appearance nor version metadata.
     SceneAppearance absent;

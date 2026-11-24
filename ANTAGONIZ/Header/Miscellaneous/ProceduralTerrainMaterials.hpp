@@ -57,6 +57,9 @@ namespace ProceduralTerrain
         // Patch-period multiplier, grain period (m), grain octaves, octave gain.
         // Each biome uses its own stable world-space domain before climate blending.
         TerrainMaterialVector spectrum{{1.0f, 0.10f, 1.0f, 0.32f}};
+        // Large vegetation-stain weights: ground base/accent, wall base/accent.
+        // Zero selects fine stains. Blend masks, never their spatial frequencies.
+        TerrainMaterialVector stainRouting{{0.f, 0.f, 0.f, 0.f}};
     };
 
     using TerrainMaterialTable = std::array<TerrainBiomeAppearance, BiomeCount>;
@@ -66,6 +69,9 @@ namespace ProceduralTerrain
         TerrainMaterialTable biomes{};
         float macroPeriod = 384.0f;
         float patchPeriod = 32.0f;
+        float vegetationStainSize = 2.5f;
+        float otherStainSize = 0.25f;
+        float sparkleGrainSize = 0.01f;
         int debugView = 0;
     };
 
@@ -85,11 +91,12 @@ namespace ProceduralTerrain
         && offsetof(TerrainSurface, blend) == 224
         && offsetof(TerrainSurface, detail) == 240
         && offsetof(TerrainSurface, normal) == 256, "TerrainSurface std140 offsets");
-    static_assert(sizeof(TerrainBiomeAppearance) == 576
+    static_assert(sizeof(TerrainBiomeAppearance) == 592
         && offsetof(TerrainBiomeAppearance, wall) == 272
         && offsetof(TerrainBiomeAppearance, slope) == 544
-        && offsetof(TerrainBiomeAppearance, spectrum) == 560, "TerrainBiomeAppearance std140 offsets");
-    static_assert(sizeof(TerrainMaterialTable) == 14976
+        && offsetof(TerrainBiomeAppearance, spectrum) == 560
+        && offsetof(TerrainBiomeAppearance, stainRouting) == 576, "TerrainBiomeAppearance std140 offsets");
+    static_assert(sizeof(TerrainMaterialTable) == 15392
         && sizeof(TerrainMaterialTable) <= 16384, "Terrain table fits the minimum OpenGL UBO size");
 
     // Bit classification remains correct under a caller's -ffast-math build.
@@ -153,6 +160,8 @@ namespace ProceduralTerrain
     {
         for (const auto& b : table)
         {
+            for (float weight : b.stainRouting)
+                if (!terrainMaterialRange(weight, 0.f, 1.f)) return false;
             if (!validTerrainSurface(b.ground) || !validTerrainSurface(b.wall)
                 || !terrainMaterialRange(b.slope[0], 0.0f, 1.0f)
                 || !terrainMaterialRange(b.slope[1], 0.0f, 1.0f)
@@ -172,6 +181,9 @@ namespace ProceduralTerrain
         return validTerrainMaterialTable(appearance.biomes)
             && terrainMaterialRange(appearance.macroPeriod, 1.0f, 100000.0f)
             && terrainMaterialRange(appearance.patchPeriod, 0.1f, 100000.0f)
+            && terrainMaterialRange(appearance.vegetationStainSize, 0.005f, 1000.0f)
+            && terrainMaterialRange(appearance.otherStainSize, 0.005f, 1000.0f)
+            && terrainMaterialRange(appearance.sparkleGrainSize, 0.002f, 1.0f)
             && appearance.debugView >= 0 && appearance.debugView <= 6;
     }
 }

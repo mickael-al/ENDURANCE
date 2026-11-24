@@ -1,4 +1,6 @@
 #include "EnduranceTerrainMaterials.hpp"
+#include <algorithm>
+#include <string>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -386,21 +388,35 @@ ProceduralTerrain::TerrainAppearance makeTerrainAppearance()
         appearance.biomes[i].wall.normal = profiles[i].wallNormal;
         appearance.biomes[i].spectrum = profiles[i].spectrum;
     }
-    // Fine glints belong to the main ground material only. Accents (exposed
-    // ice, coloured sediment) and cliffs keep their original PBR response.
-    appearance.biomes[0].ground.base.fineSurface = {{0.90f, 0.15f, 0.f, 0.f}};
-    appearance.biomes[1].ground.base.fineSurface = {{0.55f, 0.18f, 0.f, 0.f}};
-    appearance.biomes[15].ground.base.fineSurface = {{0.60f, 0.20f, 0.f, 0.f}};
-    appearance.biomes[21].ground.base.fineSurface = {{0.85f, 0.17f, 0.f, 0.f}};
-    appearance.biomes[25].ground.base.fineSurface = {{0.65f, 0.18f, 0.f, 0.f}};
-    // Soil/vegetation: eight-octave, thresholded FBM baked once by the engine.
-    // 0.10 means ten percent darker, with a modest absolute roughness change.
-    for (const unsigned id : {2u,3u,4u,7u,8u,9u,11u,12u,13u,14u,16u,17u,18u,19u,23u,24u})
-    {
-        appearance.biomes[id].ground.base.fineSurface = {{0.f, 0.16f, 0.10f, 0.06f}};
-        appearance.biomes[id].ground.accent.fineSurface = {{0.f, 0.16f, 0.10f, 0.06f}};
-    }
+    configureTerrainFineMaterials(appearance);
     return appearance;
+}
+
+void configureTerrainFineMaterials(ProceduralTerrain::TerrainAppearance& appearance)
+{
+    for (std::size_t id = 0; id < appearance.biomes.size(); ++id)
+    {
+        auto& b = appearance.biomes[id];
+        ProceduralTerrain::TerrainMaterial* materials[] = {&b.ground.base, &b.ground.accent, &b.wall.base, &b.wall.accent};
+        for (unsigned slot = 0; slot < 4; ++slot)
+        {
+            auto& m = *materials[slot];
+            // Palette values are linear reflectance, independent of the sun,
+            // exposure or fog. Resolve the default classification on the CPU.
+            const float r = m.colorMid[0], g = m.colorMid[1], blue = m.colorMid[2];
+            const float high = (std::max)(r, (std::max)(g, blue));
+            const float low = (std::min)(r, (std::min)(g, blue));
+            const bool pale = high >= 0.55f && low >= high * 0.68f;
+            const bool green = !pale && g > r*1.035f && g > blue*0.98f;
+            const bool snow = id < 10 && pale;
+            const bool sand = std::string(terrainMaterialLabel(id,slot >= 2,slot%2 != 0)).find("Sable") != std::string::npos;
+            b.stainRouting[slot] = green ? 1.f : 0.f;
+            // White/frost and sand may be primary OR secondary, ground OR wall.
+            // Every other material also gets the finer eight-octave detail.
+            m.fineSurface = {{snow ? 0.95f : sand ? 0.90f : 0.f,
+                snow ? 0.12f : sand ? 0.15f : 0.16f, 0.10f, 0.06f}};
+        }
+    }
 }
 
 const char* terrainMaterialIntent(std::size_t biome) noexcept

@@ -127,7 +127,7 @@ def run(size=(256,256),samples=17,baseline_ref=None,batch_draws=1,warmup_draws=8
         cases=(
             ('glints','near, glossy sand grains',dict(terrainBiomeOverride=21,testOrigin=(-50.,180.,20.),
                 testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.),testNormal=(0.,1.,0.))),
-            ('plain','near, unaffected volcanic rock',dict(terrainBiomeOverride=20,testOrigin=(-50.,180.,20.),
+            ('plain','near, fine stains on volcanic rock',dict(terrainBiomeOverride=20,testOrigin=(-50.,180.,20.),
                 testAxisX=(8.,0.,0.),testAxisY=(0.,0.,8.),testNormal=(0.,1.,0.))),
             ('near1','near, one biome',dict(terrainBiomeOverride=16,testOrigin=(-50.,180.,20.),
                 testAxisX=(8.,0.,0.),testAxisY=(0.,0.,8.),testNormal=(0.,1.,0.))),
