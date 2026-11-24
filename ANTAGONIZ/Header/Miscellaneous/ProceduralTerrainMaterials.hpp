@@ -71,7 +71,7 @@ namespace ProceduralTerrain
         float patchPeriod = 32.0f;
         float vegetationStainSize = 2.5f;
         float otherStainSize = 0.25f;
-        float sparkleGrainSize = 0.001f;
+        float sparkleGrainSize = 0.002f;
         int debugView = 0;
     };
 

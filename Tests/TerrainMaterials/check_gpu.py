@@ -517,7 +517,8 @@ def check_fine_surface(gl):
     # A pixel spans more than the complete 16 m cache: its last mip is uniform.
     rig.set(testAxisX=(4096.,0.,0.),testAxisY=(0.,0.,4096.))
     rig.upload(grains); far=rig.read()
-    assert max_difference(far[1],baseline[1]) < 2e-6 and max_difference(far[3],baseline[3]) < 2e-6
+    assert max_difference(far[1],baseline[1]) < 2e-6, 'distant grains changed normals'
+    assert max_difference(far[3],baseline[3]) > .1, 'white grains must remain active at large pixel footprints'
     rig.upload(stains); far=rig.read()
     far_ratios=[c[0]/.3 for c in linear_colors(far[2])]
     assert .94 < min(far_ratios) <= max(far_ratios) < .96, 'mips must preserve average stain coverage'

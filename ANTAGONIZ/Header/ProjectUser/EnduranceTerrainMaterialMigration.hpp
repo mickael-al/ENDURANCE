@@ -7,7 +7,7 @@
 namespace Endurance
 {
     // Scene data version, deliberately outside the renderer's std140 records.
-    constexpr std::uint32_t TerrainAppearanceRevision = 6;
+    constexpr std::uint32_t TerrainAppearanceRevision = 7;
 
     inline std::uint64_t terrainAppearanceLegacyFingerprint(
         const ProceduralTerrain::TerrainBiomeAppearance& biome) noexcept
@@ -54,10 +54,12 @@ namespace Endurance
         if (revision >= TerrainAppearanceRevision
             || !ProceduralTerrain::validTerrainAppearance(appearance)) return 0;
 
-        // v6 refines the former factory grain from 1 cm to 1 mm. Saved
-        // custom sizes and every palette/effect setting remain unchanged.
-        if (std::abs(appearance.sparkleGrainSize - 0.01f) < 0.000001f)
+        // v6 refined the former factory grain from 1 cm to 1 mm; v7 doubles
+        // it to 2 mm. Preserve other saved sizes and palette/effect settings.
+        if (revision < 6 && std::abs(appearance.sparkleGrainSize - 0.01f) < 0.000001f)
             appearance.sparkleGrainSize = 0.001f;
+        if (std::abs(appearance.sparkleGrainSize - 0.001f) < 0.000001f)
+            appearance.sparkleGrainSize = 0.002f;
         if (revision >= 5)
         {
             revision = TerrainAppearanceRevision;

@@ -179,7 +179,7 @@ exposes each weight. Global controls in **Materiaux proceduraux / palettes** are
 |---|---:|---|
 | `vegetationStainSize` / Taille taches de verdure | 2.5 m | Ten times the former 25 cm base feature size |
 | `otherStainSize` / Taille taches autres matieres | 0.25 m | Finer detail on remaining materials |
-| `sparkleGrainSize` / Taille grains brillants | 0.001 m | Independent white-noise cell size; ten times finer than v5 |
+| `sparkleGrainSize` / Taille grains brillants | 0.002 m | Independent white-noise cell size; twice the v6 size |
 
 The sizes describe base features/spacing, not an exact diameter of irregular
 patches. These controls change uniforms without remeshing or rebaking anything.
@@ -205,12 +205,12 @@ procedural surface-normal calculation is skipped entirely. The discrete stain
 controls are ignored for granular materials, and the inspector indicates this.
 
 The fixed world cell domain does not follow the camera or chunk LOD. There is no
-128-cell tile repetition. The visibility footprint is `max(grainSize, 0.01)`
-metres: shrinking the grain to 1 mm retains the former 1 cm visibility threshold.
-The effect fades between one quarter and all of that footprint; beyond it the
-hash is skipped. This artistic extension allows subpixel grains and may shimmer;
-it is not antialiasing. Extremely large domains outside signed-integer-safe cell
-coordinates skip the effect rather than overflow.
+128-cell tile repetition. White grains have no distance or pixel-footprint fade:
+the hash and roughness modulation stay active even when the grains are subpixel,
+as explicitly requested. This can shimmer and adds grain work to distant sand
+and snow; the earlier footprint-based early exit is removed. Extremely large
+domains outside signed-integer-safe cell coordinates still skip the effect to
+avoid undefined integer conversion; this is numerical protection, not filtering.
 
 Stains retain eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
 0.5 **before** filtering. C++ builds a 512² R8 mask once per process, with four
@@ -240,14 +240,17 @@ including previously customized stain strengths, as explicitly requested. Other
 fine controls, palettes, roughness, global sizes and v4 routing are retained.
 Revision 6 changes saved factory grain sizes of 0.01 m to 0.001 m, while keeping
 custom sizes. Already-v5 palettes and effect controls are not reclassified.
+Revision 7 doubles the 0.001 m factory size to 0.002 m in saved scenes. Older
+factory settings migrate through both steps; other custom sizes remain intact.
 The older migrations still apply to old scenes. No binary terrain scene is
 replaced. `TERRAIN_FINE_SURFACE_ENABLED=0` compiles out the fine effects for A/B
 comparisons and restores the ordinary procedural-normal path.
 
 ### Validation and timing
 
-The revision-6 grain-size/visibility adjustment was not compiled, tested or
-benchmarked, as requested. The validation and timings below describe v5.
+The revision-6 and revision-7 grain-size/visibility adjustments were not compiled,
+tested or benchmarked, as requested. The validation and timings below describe v5;
+the existing distant-grain assertion now expects the unfiltered v7 behavior.
 
 The material checks cover C++/GLSL layout, saved-scene migration, live-edit state
 restoration, independent grain size, vegetation stains enlarged tenfold, stable
