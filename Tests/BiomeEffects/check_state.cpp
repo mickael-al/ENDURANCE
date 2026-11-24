@@ -94,7 +94,7 @@ void catalogue()
         finiteVector(s.tint, label + "Invalid screen tint");
         require(finite(s.scale) && s.scale > 0 && finite(s.speed) && s.speed >= 0, label + "Invalid screen motion");
         require(static_cast<unsigned>(p.shape) < static_cast<unsigned>(E::ParticleShape::Count), label + "Invalid sprite shape");
-        require(p.count <= 65536, label + "Unbounded single-effect base particle pool");
+        require(p.count <= 131072, label + "Unbounded single-effect base particle pool");
         if (p.count)
         {
             require(finite(g.lifeTimeMin) && finite(g.lifeTimeMax) && g.lifeTimeMin > 0
@@ -152,7 +152,7 @@ void catalogue()
         unsigned particles = 0;
         for (auto id : maskIds(m.passive)) particles += definitions[index(id)].particles.count;
         maxParticles = (std::max)(particles, maxParticles);
-        require(particles <= 65536, "Biome passive particles exceed ambient budget");
+        require(particles <= 131072, "Biome passive particles exceed ambient budget");
         std::vector<unsigned> eventCounts;
         for (auto id : maskIds(m.active)) eventCounts.push_back(definitions[index(id)].particles.count);
         std::sort(eventCounts.rbegin(), eventCounts.rend());
@@ -174,9 +174,9 @@ void extendedArtRecipes()
     // wider leaves and lighter spores must remain cheaper than dense storms.
     const auto& definitions = E::effectDefinitions();
     const auto& sand = definitions[index(E::EffectId::SandGust)].particles;
-    require(sand.count == 2 * 15360, "Sand gust must double population");
-    require(near(sand.group.scaleStart, .035f) && near(sand.group.scaleEnd, .14f),
-            "Sand gust changed sprite size instead of population");
+    require(sand.count == 2 * 30720, "Sand gust must double the previous population");
+    require(near(sand.group.scaleStart, .0035f) && near(sand.group.scaleEnd, .014f),
+            "Sand gust sprite dimensions must be ten times smaller");
     require(near(sand.group.colorGradient[1].a, .32f * .75f),
             "Sand gust opacity must fall by 25 percent");
     struct ReachRequirement { E::EffectId id; unsigned count; float oldXZ; float oldY; };

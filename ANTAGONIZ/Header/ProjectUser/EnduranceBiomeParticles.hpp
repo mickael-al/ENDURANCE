@@ -23,7 +23,9 @@ public:
     std::size_t liveParticleCount() const;
     std::size_t groupCount() const;
     const std::string& error() const;
-    static constexpr std::size_t MaxLiveParticles = 524288;
+    // Fits the doubled sand recipes plus two legal events at density 4x.
+    // This is an admission ceiling; buffers are allocated only for live groups.
+    static constexpr std::size_t MaxLiveParticles = 1048576;
     static constexpr std::size_t MaxLiveGroups = 8;
 private:
     struct Impl;

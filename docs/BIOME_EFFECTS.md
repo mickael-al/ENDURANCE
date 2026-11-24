@@ -31,7 +31,7 @@ Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 | N° | Identifiant | Type | Aspect et mouvement | Particules |
 | ---: | --- | --- | --- | ---: |
 | 1 | `heat_haze` | Passif | Réfraction animée de l'image : vagues deux fois plus larges et hautes, vitesse apparente conservée, protégées par la profondeur. | — |
-| 2 | `sand_gust` | Passif | Grains ocre deux fois plus nombreux, alpha réduit de 25 %, taille conservée ; contours de nuages doux sans barres. | 30 720 |
+| 2 | `sand_gust` | Passif | Grains ocre deux fois plus nombreux et dix fois plus petits que la passe précédente ; alpha et portée conservés. | 61 440 |
 | 3 | `volcanic_ash` | Passif | Éclats de cendre irréguliers, chute lente, vrilles et basculements ; silhouette distincte de la neige. | 11 520 |
 | 4 | `wind_pollen` | Passif | Aigrettes jaune pâle en suspension, microvolutes et dérive lente ; faible ascension propre. | 3 840 |
 | 5 | `fireflies` | Passif | Noyaux lumineux multicolores, petites boucles indépendantes et clignotements désynchronisés ; très faible sensibilité au vent. | 720 |
@@ -60,7 +60,7 @@ Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 | 28 | `sand_veil` | Passif | Voile d'écran chaud associé aux poussières, brun rouge ; distinct des milieux 3D des tempêtes. | — |
 | 29 | `rain` | Actif | Pluie à longue traînée, descente rapide dominante, faible divergence et réponse amortie au vent. | 30 720 |
 | 30 | `heavy_rain` | Actif | Pluie dense avec légère brume volumétrique de pluie, gouttes et buée sur l'écran. | 61 440 |
-| 31 | `sandstorm` | Actif | Nuages de grains à bords doux et vrai milieu de poussière éclairé ; visibilité réduite avec la distance. | 61 440 |
+| 31 | `sandstorm` | Actif | Grains deux fois plus nombreux et dix fois plus petits ; vrai milieu de poussière éclairé et visibilité atmosphérique conservés. | 122 880 |
 | 32 | `blizzard` | Actif | Flocons tournoyants, givre et diffusion volumétrique froide ; pas de voile opaque uniforme sur l'image. | 61 440 |
 | 33 | `ash_storm` | Actif | Fragments sombres et milieu de cendres absorbant/diffusant ; profondeur lisible par extinction progressive. | 40 960 |
 | 34 | `thunderstorm` | Actif | Pluie, milieu humide sombre éclairé par la scène, flash bref d'écran et rémanence humide. | 46 080 |
@@ -132,17 +132,17 @@ par effet. La neige et la pluie occupent des couches hautes ; les voiles de glac
 conservent une couche mince. Ces hauteurs définissent la **naissance**, pas une
 cage qui empêcherait fumées et braises de monter pendant leur vie.
 
-- Maximum passif : **35 520 particules**, dans `AridPlateau`, à 1x.
-- Neige légère : **15 360** ; cendres : **11 520** ; sable : **30 720** ;
+- Maximum passif : **66 240 particules**, dans `AridPlateau`, à 1x.
+- Neige légère : **15 360** ; cendres : **11 520** ; sable : **61 440** ;
   embruns : **8 960**.
-- Forte pluie, tempête de sable et blizzard : **61 440** chacun à 1x.
+- Forte pluie et blizzard : **61 440** chacun ; tempête de sable : **122 880** à 1x.
 - Les nappes transparentes ont **400–800** instances avec une opacité et une
   forme adaptées aux couches. Leur aspect horizontal est défini par un ratio
   hauteur/largeur inférieur à 1 ; les fumerolles conservent des panaches verticaux.
-- Budget total : **524 288 particules, 8 groupes**, transitions comprises.
+- Budget total : **1 048 576 particules, 8 groupes**, transitions comprises.
   Toutes les combinaisons autorisées d'un biome et deux événements tiennent
   dans ce budget même à 4x ; les transitions peuvent temporairement le saturer.
-- Le flux reste à **32 octets par particule** : 16 Mio pour 524 288 particules,
+- Le flux reste à **32 octets par particule** : 32 Mio pour 1 048 576 particules,
   hors métadonnées et capacité/réserves de l'allocateur. Ce plafond n'est pas une
   allocation systématique pour chaque biome.
 
@@ -153,11 +153,20 @@ ne crée aucune particule tant qu'elle n'est pas activée.
 
 ## Réglages de lisibilité
 
+Le réglage du 25 novembre réduit les deux dimensions des sprites de sable par
+10 et double leurs capacités à densité identique : bourrasques 30 720 → 61 440
+(échelle 0,035–0,14 → 0,0035–0,014), tempête 61 440 → 122 880
+(0,10–0,32 → 0,01–0,032). Le vent, les durées de vie, la portée et les opacités
+restent identiques. Les voiles d'écran et la diffusion volumétrique ne sont pas
+des particules et conservent leurs réglages. Le plafond d'admission est relevé
+pour éviter de tronquer les combinaisons autorisées à densité 4x ; il n'est pas
+préalloué. Aucun test ni mesure de performance n'a été relancé pour ce réglage.
+
 Les valeurs ci-dessous comparent le catalogue actuel à la révision `1d227f0`.
 
 | Effet | Changement |
 | --- | --- |
-| Bourrasques de sable | 15 360 → 30 720 particules ; alpha maximal 0,32 → 0,24 ; tailles et portée inchangées. « Réduire la transparence » est interprété ici comme adoucir la présence visuelle, donc réduire l'alpha. |
+| Bourrasques de sable | 15 360 → 61 440 particules ; alpha maximal 0,32 → 0,24 ; tailles divisées par 10, portée inchangée. « Réduire la transparence » est interprété ici comme adoucir la présence visuelle, donc réduire l'alpha. |
 | Feuilles | Demi-portée XZ 220 → 440 m, demi-hauteur 7 → 10,5 m ; toujours 1 920 particules. |
 | Pétales | Demi-portée XZ 190 → 380 m, demi-hauteur 5 → 7,5 m ; toujours 2 080 particules. |
 | Graines | Demi-portée XZ 220 → 440 m, demi-hauteur 3 → 4,5 m ; toujours 3 840 particules. |
@@ -309,7 +318,7 @@ le son, la météo générale ou les lumières de la scène.
   chaque particule. Fumerolles et embruns sont donc des ambiances
   autour du joueur, sans ancrage précis au sol, à la côte ou à un volcan. Un
   système de volumes abrités pourra les masquer plus tard en intérieur.
-- Au plus **8 groupes et 524 288 particules** sont admis, transitions comprises.
+- Au plus **8 groupes et 1 048 576 particules** sont admis, transitions comprises.
   Au-delà du budget, l'admission attend qu'un groupe se libère ; un groupe peut
   être admis partiellement lorsque seule une fraction de sa capacité rentre.
   Le catalogue seul ne crée aucun groupe. Quand tous les effets de particules sont à zéro,

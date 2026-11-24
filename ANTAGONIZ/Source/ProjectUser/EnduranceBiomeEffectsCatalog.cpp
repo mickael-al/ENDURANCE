@@ -68,11 +68,11 @@ namespace EnduranceEnvironment
             heat.screen.speed = .85f;
             heat.fadeIn = heat.fadeOut = 2.0f;
 
-            // More dispersed grains without enlarging their projected footprint.
-            // The requested softer transparency uses 75% of the previous alpha.
+            // Twice the previous population, with ten times smaller grains.
+            // Retain the softer alpha and the existing spatial distribution.
             auto& sand = define(Id::SandGust, "sand_gust", "Bourrasques de sable");
-            sand.particles = particles(Shape::DustCloud, 3072, {23, 1.4f, 23}, {0, -0.8f, 0},
-                {1, 0.1f, 0.3f}, .8f, 2.6f, 9, 16, .035f, .14f, {.65f,.48f,.27f,.24f});
+            sand.particles = particles(Shape::DustCloud, 6144, {23, 1.4f, 23}, {0, -0.8f, 0},
+                {1, 0.1f, 0.3f}, .8f, 2.6f, 9, 16, .0035f, .014f, {.65f,.48f,.27f,.24f});
 
             sand.particles.turbulence = .65f;
             sand.particles.turbulenceScale = .05f;
@@ -389,8 +389,8 @@ namespace EnduranceEnvironment
             heavy.particles.group.spreadAngle = 6.f;
 
             auto& storm = define(Id::Sandstorm, "sandstorm", "Tempête de sable", true);
-            storm.particles = particles(Shape::DustCloud, 6144, {32, 13, 32}, {0, 2, 0},
-                {1, 0.08f, 0.25f}, 8, 15, 3.5f, 6, 0.1f, 0.32f, {0.53f, 0.34f, 0.16f, 0.43f});
+            storm.particles = particles(Shape::DustCloud, 12288, {32, 13, 32}, {0, 2, 0},
+                {1, 0.08f, 0.25f}, 8, 15, 3.5f, 6, 0.01f, 0.032f, {0.53f, 0.34f, 0.16f, 0.43f});
             storm.particles.aspect = .65f;
             storm.particles.windScale = 3.5f;
             storm.screen.dust = 0.0f;
