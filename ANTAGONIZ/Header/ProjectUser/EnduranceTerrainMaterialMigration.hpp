@@ -7,7 +7,7 @@
 namespace Endurance
 {
     // Scene data version, deliberately outside the renderer's std140 records.
-    constexpr std::uint32_t TerrainAppearanceRevision = 2;
+    constexpr std::uint32_t TerrainAppearanceRevision = 3;
 
     inline std::uint64_t terrainAppearanceLegacyFingerprint(
         const ProceduralTerrain::TerrainBiomeAppearance& biome) noexcept
@@ -75,7 +75,9 @@ namespace Endurance
             "Every v1 biome needs its original fingerprint");
         const auto defaults = makeTerrainAppearance();
         std::size_t upgraded = 0;
-        for (std::size_t i = 0; i < ProceduralTerrain::BiomeCount; ++i)
+        // v2 scenes already inherit fineSurface from current defaults before
+        // parsing. Preserve their palettes, including artist-edited blue ice.
+        for (std::size_t i = 0; revision < 2 && i < ProceduralTerrain::BiomeCount; ++i)
         {
             if (terrainAppearanceLegacyFingerprint(appearance.biomes[i]) == legacy[i])
             {

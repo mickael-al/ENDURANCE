@@ -15,6 +15,8 @@ below are functions compiled into that program, not additional rendering passes.
 | `Asset/Shader/ProceduralTerrain/render.fs.glsl` | Fragment `main`: material evaluation, final normal and G-buffer writes |
 | `Asset/Shader/ProceduralTerrain/materials.glsl` | `terrainEvaluateAppearance` → biome → surface → material: climate, slope, palettes and PBR blending |
 | `Asset/Shader/ProceduralTerrain/patterns.glsl` | Shared noise/value gradients, grain spectrum and the eight procedural relief families |
+| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered soil stains, evaluated once after biome blending |
+| `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ bake of the eight-octave thresholded stain mask |
 | `Asset/Shader/ProceduralTerrain/render.vs.glsl` | Packed terrain vertex decoding, world position and climate varyings |
 | `ANTAGONIZ/Source/ProjectUser/EnduranceTerrainMaterials.cpp` | `makeTerrainAppearance`: authored ground/wall palettes and parameters for all 26 biomes |
 | `ANTAGONIZ/Source/Miscellaneous/ProceduralGeneration.cpp` | Program creation, appearance upload and the existing batched terrain draw |
@@ -98,10 +100,10 @@ size and offset assertions. The GLSL table uses std140 at UBO binding 6:
 
 | Record | Size |
 |---|---:|
-| TerrainMaterial | 96 bytes |
-| TerrainSurface, two materials and mask/pattern/normal settings | 240 bytes |
-| TerrainBiomeAppearance, ground/wall, slope and spectrum settings | 512 bytes |
-| All 26 biomes | 13,312 bytes |
+| TerrainMaterial | 112 bytes |
+| TerrainSurface, two materials and mask/pattern/normal settings | 272 bytes |
+| TerrainBiomeAppearance, ground/wall, slope and spectrum settings | 576 bytes |
+| All 26 biomes | 14,976 bytes |
 
 The complete table fits the minimum OpenGL uniform block size. It is uploaded
 only when edited; changing global controls only updates their uniforms. The
@@ -145,6 +147,79 @@ normal before microdetail, and retain its sign: cave ceilings are walls, not
 snow-covered upward-facing ground. The independent geometric-normal metadata
 used for shadow bias is preserved.
 
+## Fine grains and soil stains
+
+`TerrainMaterial::fineSurface` is a serialized vec4, editable under the material's
+**Details fins** section. Its components are:
+
+| Component | Meaning | Typical value |
+|---|---|---:|
+| x | Strength of sparse glossy grains; zero disables them | 0.85 on red sand |
+| y | Grain roughness | 0.17 on red sand |
+| z | Fractional linear albedo darkening in stains | 0.10, i.e. 10% |
+| w | Absolute roughness reduction in stains | 0.06 |
+
+The primary ground materials of PolarIce, FrozenTundra, RockDesert, RedDesert and
+Marine receive glints. Secondary materials and walls keep them disabled. Organic
+grounds (tundra, forests, bogs, meadows, savannas and jungles) receive stains on
+both ground materials. Presets are assigned at the end of `makeTerrainAppearance`;
+the three existing palette stops and their roughness values are preserved.
+Loading a v2 scene inherits missing fine controls from these defaults and preserves
+all saved palette edits. Saving the scene writes revision 3 and the new controls.
+
+Grains perturb only normal and roughness. The existing GGX lighting, shadowing and
+IBL create highlights: this is a cheap stylized approximation, not a separate
+microfacet/glint BRDF. It does not emit light, change metallic or add a render
+pass/G-buffer channel. `terrainEvaluateMaterial` reuses the grain value and
+analytic gradient already calculated by `terrainBiomePatterns`; no additional
+noise or texture lookup is needed for sparkles. A smooth 0.62–0.70 threshold
+isolates small glossy areas. Their scale follows the biome's existing grain
+period. Their contrast fades when a pixel covers 18–55% of that period, avoiding
+unresolved sparkle noise. Application before base/accent mixing confines the
+response to the primary material and preserves climate transitions.
+
+Soil stains use eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
+0.5 **before** filtering. C++ builds a 512² R8 mask once per process, with four
+coverage samples per texel. The GPU texture and mipmaps cost 349,525 bytes, about
+0.33 MiB per terrain renderer; the retained CPU bake costs 256 KiB. The shader
+samples this cache once for an affected fragment, rather than running eight
+noise octaves per material. Its 16 m repeat contains about 25 cm base features;
+the seed offsets the world-space projection. Isotropic mip selection uses the
+existing world footprint. Between 25 cm and 1 m per pixel, stains converge to
+their expected 50% coverage; beyond that, the texture lookup is skipped entirely.
+The CPU bake is reused across full scene restarts. Each renderer initialization
+uploads its GPU texture once; streaming chunks and palette edits do not rebuild
+or upload it. Texture/sampler and pixel-unpack state are restored, and shutdown
+releases the GPU texture.
+
+The new fields add 1,664 bytes to the complete UBO, which still fits the minimum
+16 KiB uniform block. `TERRAIN_FINE_SURFACE_ENABLED=0` compiles out the effects for
+an A/B test; it does not reclaim the small cache allocation. Runtime branches
+only skip material effects whose blended weights are zero; diagnostics remain
+compile-time variants. No GPU timing on the target GTX 1660 is claimed here.
+
+### Fine-surface budget check, November 24
+
+Compared with `a5ee696`, using llvmpipe, one software-renderer thread, 256² pixels,
+15 alternating samples and three draws per sample. This measures the **terrain
+material pass**, not a whole frame and not the GTX 1660. Raw samples, quartiles
+and source/data hashes are in the [measurement report](terrain-material-validation/fine-surfaces-llvmpipe-2026-11-24.json).
+
+| Case | Before (ms) | After (ms) | Paired median change |
+|---|---:|---:|---:|
+| near, glossy sand grains | 5.240 | 5.277 | +0.7% |
+| near, unaffected volcanic rock | 5.460 | 5.334 | -2.7% |
+| near, one biome | 4.715 | 5.353 | +12.6% |
+| near, four biomes + slope blend | 34.643 | 36.750 | +7.0% |
+| far, four biomes | 15.153 | 16.217 | +7.4% |
+| coast, four biomes + marine + slope | 34.654 | 36.275 | +5.1% |
+
+Grain reuse adds little in this fixture; the new stains still have a measurable
+cost. The unaffected case's apparent decrease is not claimed as an optimization.
+These software timings cannot establish hardware-GPU performance parity. Re-run
+`Tests/TerrainMaterials/benchmark_materials.py --baseline-ref a5ee696` on the target
+GPU and profile the complete game before committing to a frame-time budget.
+
 ## Precomputation investigation
 
 A generated RGBA16F 3D noise volume, storing value and gradient with mipmaps, was
@@ -156,7 +231,8 @@ See [noise measurements and primary references](terrain-material-noise.md).
 These measurements are not hardware GPU frame-time claims. Procedural materials
 do more work than the previous flat colors; their complete material pass should
 also be profiled on the target GPU. The benchmark is retained for reproducing
-that comparison without adding a production cache or extra resource lifecycle.
+that comparison. The separate R8 fine-surface cache above serves a different
+purpose: it replaces eight new FBM octaves, not the existing analytic normals.
 
 ## Reproducible performance measurements
 

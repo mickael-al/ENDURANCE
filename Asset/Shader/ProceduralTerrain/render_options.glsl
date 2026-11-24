@@ -13,6 +13,9 @@
 #ifndef TERRAIN_MICRODETAIL_ENABLED
 #define TERRAIN_MICRODETAIL_ENABLED 1
 #endif
+#ifndef TERRAIN_FINE_SURFACE_ENABLED
+#define TERRAIN_FINE_SURFACE_ENABLED 1
+#endif
 
 #if DEBUG_TERRAIN_MATERIAL < 0 || DEBUG_TERRAIN_MATERIAL > 6
 #error Invalid terrain material inspection variant

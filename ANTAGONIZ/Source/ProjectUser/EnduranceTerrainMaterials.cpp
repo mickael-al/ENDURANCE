@@ -386,6 +386,20 @@ ProceduralTerrain::TerrainAppearance makeTerrainAppearance()
         appearance.biomes[i].wall.normal = profiles[i].wallNormal;
         appearance.biomes[i].spectrum = profiles[i].spectrum;
     }
+    // Fine glints belong to the main ground material only. Accents (exposed
+    // ice, coloured sediment) and cliffs keep their original PBR response.
+    appearance.biomes[0].ground.base.fineSurface = {{0.90f, 0.15f, 0.f, 0.f}};
+    appearance.biomes[1].ground.base.fineSurface = {{0.55f, 0.18f, 0.f, 0.f}};
+    appearance.biomes[15].ground.base.fineSurface = {{0.60f, 0.20f, 0.f, 0.f}};
+    appearance.biomes[21].ground.base.fineSurface = {{0.85f, 0.17f, 0.f, 0.f}};
+    appearance.biomes[25].ground.base.fineSurface = {{0.65f, 0.18f, 0.f, 0.f}};
+    // Soil/vegetation: eight-octave, thresholded FBM baked once by the engine.
+    // 0.10 means ten percent darker, with a modest absolute roughness change.
+    for (const unsigned id : {2u,3u,4u,7u,8u,9u,11u,12u,13u,14u,16u,17u,18u,19u,23u,24u})
+    {
+        appearance.biomes[id].ground.base.fineSurface = {{0.f, 0.16f, 0.10f, 0.06f}};
+        appearance.biomes[id].ground.accent.fineSurface = {{0.f, 0.16f, 0.10f, 0.06f}};
+    }
     return appearance;
 }
 

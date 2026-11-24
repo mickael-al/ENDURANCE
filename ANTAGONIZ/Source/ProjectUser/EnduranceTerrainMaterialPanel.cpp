@@ -57,6 +57,15 @@ namespace
         changed |= boundedSlider("Plaques", &m.pattern[1], 0.0f, 4.0f);
         changed |= boundedSlider("Strates", &m.pattern[2], 0.0f, 4.0f);
         changed |= boundedSlider("Rides", &m.pattern[3], 0.0f, 4.0f);
+        if (ImGui::TreeNode("Details fins"))
+        {
+            changed |= boundedSlider("Grains brillants", &m.fineSurface[0], 0.0f, 1.0f);
+            changed |= boundedSlider("Rugosite des grains", &m.fineSurface[1], 0.04f, 1.0f);
+            changed |= boundedSlider("Assombrissement des taches", &m.fineSurface[2], 0.0f, 1.0f);
+            changed |= boundedSlider("Baisse de rugosite des taches", &m.fineSurface[3], 0.0f, 1.0f);
+            ImGui::TextDisabled("0.10 = 10 %% plus sombre. Les grains reagissent aux lumieres et aux reflets.");
+            ImGui::TreePop();
+        }
         ImGui::TreePop();
         return changed;
     }

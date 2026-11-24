@@ -9,6 +9,7 @@
 #include "ProceduralTerrainShadowVisibility.hpp"
 #include "ProceduralTerrainCollision.hpp"
 #include "ProceduralTerrainBiomes.hpp"
+#include "ProceduralTerrainFineSurface.hpp"
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
 #include "Camera.hpp"
@@ -54,6 +55,7 @@ namespace
     struct TerrainMaterialStateGuard
     {
         GLint uniform = 0, material = 0;
+        GLint activeTexture = 0, fineTexture = 0, fineSampler = 0;
         GLint64 start = 0, size = 0;
         TerrainMaterialStateGuard()
         {
@@ -61,6 +63,11 @@ namespace
             glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING, 6, &material);
             glGetInteger64i_v(GL_UNIFORM_BUFFER_START, 6, &start);
             glGetInteger64i_v(GL_UNIFORM_BUFFER_SIZE, 6, &size);
+            glGetIntegerv(GL_ACTIVE_TEXTURE, &activeTexture);
+            glActiveTexture(GL_TEXTURE0);
+            glGetIntegerv(GL_TEXTURE_BINDING_2D, &fineTexture);
+            glGetIntegeri_v(GL_SAMPLER_BINDING, 0, &fineSampler);
+            glActiveTexture(activeTexture);
         }
         ~TerrainMaterialStateGuard()
         {
@@ -68,8 +75,52 @@ namespace
                 glBindBufferRange(GL_UNIFORM_BUFFER, 6, material, start, size);
             else glBindBufferBase(GL_UNIFORM_BUFFER, 6, material);
             glBindBuffer(GL_UNIFORM_BUFFER, uniform);
+            // Restore only the borrowed target, preserving cube/array bindings.
+            glActiveTexture(GL_TEXTURE0);
+            glBindTexture(GL_TEXTURE_2D, fineTexture);
+            glBindSampler(0, fineSampler);
+            glActiveTexture(activeTexture);
         }
     };
+
+    GLuint createTerrainFineSurfaceTexture()
+    {
+        // DSA does not protect pixel-unpack state. An enclosing asset upload
+        // may have a PBO or a sub-image layout selected; borrow and restore it.
+        constexpr GLenum states[] = {GL_UNPACK_ALIGNMENT, GL_UNPACK_ROW_LENGTH,
+            GL_UNPACK_SKIP_ROWS, GL_UNPACK_SKIP_PIXELS};
+        GLint old[4]{}, unpackBuffer = 0;
+        glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING, &unpackBuffer);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 0);
+        for (unsigned i = 0; i < 4; ++i)
+        {
+            glGetIntegerv(states[i], &old[i]);
+            glPixelStorei(states[i], i == 0 ? 1 : 0);
+        }
+        GLuint texture = 0;
+        glCreateTextures(GL_TEXTURE_2D, 1, &texture);
+        glTextureStorage2D(texture, TerrainFineSurfaceMipLevels, GL_R8, TerrainFineSurfaceSize, TerrainFineSurfaceSize);
+        GLint width = 0;
+        glGetTextureLevelParameteriv(texture, 0, GL_TEXTURE_WIDTH, &width);
+        if (width == static_cast<GLint>(TerrainFineSurfaceSize))
+        {
+            glTextureSubImage2D(texture, 0, 0, 0, TerrainFineSurfaceSize, TerrainFineSurfaceSize,
+                GL_RED, GL_UNSIGNED_BYTE, terrainFineSurfacePixels().data());
+            glGenerateTextureMipmap(texture);
+            glTextureParameteri(texture, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+            glTextureParameteri(texture, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            glTextureParameteri(texture, GL_TEXTURE_WRAP_S, GL_REPEAT);
+            glTextureParameteri(texture, GL_TEXTURE_WRAP_T, GL_REPEAT);
+        }
+        else
+        {
+            glDeleteTextures(1, &texture);
+            texture = 0;
+        }
+        for (unsigned i = 0; i < 4; ++i) glPixelStorei(states[i], old[i]);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, unpackBuffer);
+        return texture;
+    }
 
     // Custom renderers must leave the enclosing material/shadow pass intact.
     struct TerrainRenderStateGuard
@@ -186,7 +237,7 @@ struct ProceduralGeneration::Impl
     bool planned = false, active = false, converged = false, blocked = false;
     bool collisionDirty = true, collisionUpdated = false;
     GLint shadowIndex = -1;
-    GLuint materialBuffer = 0;
+    GLuint materialBuffer = 0, fineTexture = 0;
     struct MaterialUniforms
     {
         GLint macroPeriod = -1, patchPeriod = -1;
@@ -323,6 +374,7 @@ struct ProceduralGeneration::Impl
         collision.shutdown();
         gpu.shutdown();
         if (materialBuffer) glDeleteBuffers(1, &materialBuffer);
+        if (fineTexture) glDeleteTextures(1, &fineTexture);
         const auto liveObjects = Ge::GObject::GetGObjects();
         for (const auto& range : cameraRanges)
         {
@@ -439,6 +491,12 @@ bool ProceduralGeneration::initialize(const Config& config)
     if (allocatedMaterialBytes != static_cast<GLint64>(sizeof(TerrainMaterialTable)))
     {
         m_lastError = "Terrain material GPU table allocation failed.";
+        return false;
+    }
+    impl->fineTexture = createTerrainFineSurfaceTexture();
+    if (!impl->fineTexture)
+    {
+        m_lastError = "Terrain fine-surface texture allocation failed.";
         return false;
     }
     impl->shadowIndex = glGetUniformLocation(impl->shadow->getProgram(), "offsetShadow");
@@ -938,6 +996,8 @@ void ProceduralGeneration::drawRenderer()
     s.refreshAlbedoGamma();
     glUseProgram(s.render->getProgram());
     glBindBufferBase(GL_UNIFORM_BUFFER, 6, s.materialBuffer);
+    glBindTextureUnit(0, s.fineTexture);
+    glBindSampler(0, 0);
     s.gpu.drawMany(s.cameraMeshes, 0);
     const auto gpuStats = s.gpu.stats();
     m_stats.drawListUploads = gpuStats.drawListUploads;

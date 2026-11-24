@@ -30,6 +30,7 @@ uniform float terrainAlbedoGamma = 2.2;
 
 #include "patterns.glsl"
 #include "materials.glsl"
+#include "fine_surface.glsl"
 
 void main()
 {
@@ -47,6 +48,9 @@ void main()
     vec3 gradient = appearance.heightGradient;
     gradient -= baseNormal * dot(baseNormal,gradient);
     vec3 normal = normalize(baseNormal-gradient);
+#if TERRAIN_FINE_SURFACE_ENABLED
+    terrainApplyFineStains(appearance,patterns);
+#endif
     vec3 color = appearance.color;
 #if DEBUG_TERRAIN_MATERIAL == 2
     color = vec3(appearance.wallMask);

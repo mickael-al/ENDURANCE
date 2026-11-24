@@ -39,8 +39,22 @@ int main()
         // selected generic binding, as happens between atmosphere/material work.
         glBindBufferRange(GL_UNIFORM_BUFFER, 6, 900, 256, 512);
         glBindBuffer(GL_UNIFORM_BUFFER, 901);
+        glActiveTexture(GL_TEXTURE0+3);
+        glBindTextureUnit(0, 777);
+        glBindSampler(0, 778);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 779);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 91);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS, 7);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 9);
         ProceduralGeneration terrain(scene, 1337);
         require(terrain.initialize(config), terrain.getLastError());
+        require(textures.size() == 1 && textureUploads == 1 && mipGenerations == 1,
+            "Stain cache not initialized once with a mip chain");
+        require(activeTexture == GL_TEXTURE0+3 && unpackBuffer == 779
+            && pixelStore[GL_UNPACK_ALIGNMENT] == 8 && pixelStore[GL_UNPACK_ROW_LENGTH] == 91
+            && pixelStore[GL_UNPACK_SKIP_ROWS] == 7 && pixelStore[GL_UNPACK_SKIP_PIXELS] == 9,
+            "Stain initialization corrupted enclosing texture/PBO state");
         require(uniform == 901 && uniformBindings[6].buffer == 900,
             "DSA material initialization changed enclosing UBO state");
         require(pipelines.registeredRenderers == 1 && pipelines.activePipelines == 2,
@@ -58,6 +72,10 @@ int main()
 
         settle(terrain, camera);
         require(terrain.getStats().cameraDrawChunks > 0, "Runtime fixture did not exercise terrain draw");
+        require(activeTexture == GL_TEXTURE0+3 && textureBindings[0] == 777 && samplerBindings[0] == 778,
+            "Terrain draw did not restore borrowed texture/sampler state");
+        require(textureUploads == 1 && mipGenerations == 1,
+            "Chunk generation/draw rebuilt the fine surface cache");
         require(uniform == 901 && uniformBindings[6].buffer == 900
             && uniformBindings[6].start == 256 && uniformBindings[6].size == 512,
             "Terrain draw did not restore UBO range and generic binding");
@@ -194,9 +212,16 @@ int main()
             "Initially unbound UBO slot was not restored");
 
         require(terrain.initialize(config), terrain.getLastError());
+        require(textures.size() == 1, "Terrain restart leaked stain texture");
         require(buffers.size() == 1 && pipelines.activePipelines == 2 && pipelines.registeredRenderers == 1,
             "Terrain restart leaked material storage or registration");
         terrain.shutdown();
+        require(textures.empty(), "Terrain shutdown leaked stain texture");
+        textureAllocationFailure = true;
+        require(!terrain.initialize(config), "Stain allocation failure was accepted");
+        textureAllocationFailure = false;
+        require(textures.empty() && buffers.empty() && pipelines.activePipelines == 0,
+            "Failed stain allocation leaked resources");
         require(buffers.empty() && pipelines.activePipelines == 0 && pipelines.registeredRenderers == 0,
             "Terrain shutdown retained GPU storage or renderer registration");
         allocationFailure = true;

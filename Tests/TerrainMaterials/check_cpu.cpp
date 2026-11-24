@@ -1,4 +1,5 @@
 #include "ProceduralTerrainMaterials.hpp"
+#include "ProceduralTerrainFineSurface.hpp"
 #include "EnduranceTerrainMaterials.hpp"
 #include "EnduranceTerrainMaterialSerialization.hpp"
 #include <cassert>
@@ -20,10 +21,10 @@ void validate()
     const auto authored = Endurance::makeTerrainAppearance();
     assert(validTerrainAppearance(authored));
     assert(validTerrainMaterialTable(authored.biomes));
-    assert(sizeof(TerrainMaterial) == 96);
-    assert(sizeof(TerrainSurface) == 240);
-    assert(sizeof(TerrainBiomeAppearance) == 512);
-    assert(sizeof(TerrainMaterialTable) == 13312);
+    assert(sizeof(TerrainMaterial) == 112);
+    assert(sizeof(TerrainSurface) == 272);
+    assert(sizeof(TerrainBiomeAppearance) == 576);
+    assert(sizeof(TerrainMaterialTable) == 14976);
 
     // Distinct authored palettes, not 26 copies of a generic fallback. Each
     // biome must also distinguish its surface base from its accent and walls.
@@ -47,6 +48,16 @@ void validate()
         }
     }
     assert(palettes.size() == 26);
+    for (unsigned id = 0; id < BiomeCount; ++id)
+    {
+        const auto& b = authored.biomes[id];
+        assert(b.ground.accent.fineSurface[0] == 0.f);
+        assert(b.wall.base.fineSurface[0] == 0.f && b.wall.accent.fineSurface[0] == 0.f);
+    }
+    assert(authored.biomes[0].ground.base.fineSurface[0] > 0.f);
+    assert(authored.biomes[21].ground.base.fineSurface[0] > 0.f);
+    assert(authored.biomes[12].ground.base.fineSurface[2] == 0.10f);
+    assert(authored.biomes[20].ground.base.fineSurface[0] == 0.f);
     const auto again = Endurance::makeTerrainAppearance();
     assert(std::memcmp(authored.biomes.data(), again.biomes.data(),
                        sizeof(TerrainMaterialTable)) == 0);
@@ -60,6 +71,11 @@ void validate()
         assert(validTerrainAppearance(authored));
     };
     reject([](auto& a) { a.biomes[0].ground.base.colorLow[0] = -0.1f; });
+    reject([](auto& a) { a.biomes[0].ground.base.fineSurface[0] = -0.1f; });
+    reject([](auto& a) { a.biomes[0].ground.base.fineSurface[1] = 0.0f; });
+    reject([](auto& a) { a.biomes[12].ground.base.fineSurface[2] = 1.1f; });
+    reject([](auto& a) { a.biomes[12].ground.base.fineSurface[3] =
+        (std::numeric_limits<float>::quiet_NaN)(); });
     reject([](auto& a) { a.biomes[0].ground.base.colorMid[3] = 2.0f; });
     reject([](auto& a) { a.biomes[0].wall.accent.response[0] = -1.0f; });
     reject([](auto& a) { a.biomes[0].wall.accent.response[1] = 2.0f; });
@@ -110,6 +126,7 @@ void validate()
     edited.biomes[13].ground.base.pattern = {{.15f,.27f,.42f,.16f}};
     edited.biomes[13].ground.normal = {{7.0f, 1.75f, 0.63f, 0.27f}};
     edited.biomes[25].spectrum = {{1.3f, 0.11f, 3.0f, 0.42f}};
+    edited.biomes[12].ground.accent.fineSurface = {{0.12f, 0.09f, 0.20f, 0.08f}};
     const std::string json = JS::serializeStruct(edited);
     TerrainAppearance decoded;
     JS::ParseContext roundtrip(json);
@@ -137,6 +154,12 @@ void validate()
 int main(int argc, char** argv)
 {
     validate();
+    if (argc == 2 && std::string(argv[1]) == "--stain")
+    {
+        const auto& pixels = ProceduralTerrain::terrainFineSurfacePixels();
+        std::cout.write(reinterpret_cast<const char*>(pixels.data()), pixels.size());
+        return std::cout.good() ? 0 : 1;
+    }
     if (argc == 2 && std::string(argv[1]) == "--dump")
     {
         const auto appearance = Endurance::makeTerrainAppearance();

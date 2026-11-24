@@ -44,6 +44,8 @@ int main(int argc, char** argv)
             assert(scene.appearance.biomes[i].spectrum == defaults.biomes[i].spectrum);
             assert(scene.appearance.biomes[i].ground.normal == defaults.biomes[i].ground.normal);
             assert(scene.appearance.biomes[i].wall.normal == defaults.biomes[i].wall.normal);
+            assert(scene.appearance.biomes[i].ground.base.fineSurface == defaults.biomes[i].ground.base.fineSurface);
+            assert(scene.appearance.biomes[i].ground.accent.fineSurface == defaults.biomes[i].ground.accent.fineSurface);
         }
         return scene;
     };
@@ -78,6 +80,13 @@ int main(int argc, char** argv)
     // Saved v2 scenes never get remigrated, even if a user deliberately uses
     // an old palette. Future revisions also remain untouched.
     auto current = decodeLegacy();
+    current.terrainAppearanceRevision = 2;
+    current.appearance.biomes[0].wall.base.colorLow[3] = 0.04f;
+    const auto v2Before = current.appearance;
+    assert(Endurance::upgradeTerrainAppearance(current.appearance,
+        current.terrainAppearanceRevision) == 0);
+    assert(sameTable(current.appearance, v2Before));
+    assert(current.terrainAppearanceRevision == Endurance::TerrainAppearanceRevision);
     current.terrainAppearanceRevision = Endurance::TerrainAppearanceRevision;
     const auto currentBefore = current.appearance;
     assert(Endurance::upgradeTerrainAppearance(current.appearance,
