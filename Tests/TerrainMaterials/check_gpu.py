@@ -121,7 +121,7 @@ class MaterialRig:
             gl.check('production terrain stain cache')
         self.grain_texture = 'terrainGrainTexture' in self.fragment_source
         if self.grain_texture and not hasattr(gl, 'terrain_grain'):
-            payload = export_grain() # Exact production decode + channel packing.
+            payload = export_grain() # Archived PNG decode for historical comparisons only.
             gl.terrain_grain = gl.texture((1024,1024),internal=0x8058,levels=1,value=0.)
             gl.sampler(1,gl.terrain_grain)
             gl.glTexImage2D(TEXTURE_2D,0,0x8058,1024,1024,0,0x1908,0x1401,C.c_char_p(payload))
@@ -129,7 +129,7 @@ class MaterialRig:
             gl.glTexParameteri(TEXTURE_2D,0x2800,0x2601)
             gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
             gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
-            gl.check('production packed terrain grain texture')
+            gl.check('historical packed terrain grain texture')
         self.historical_sparkle = 'terrainSparkleCache' in self.fragment_source
         if self.historical_sparkle and not hasattr(gl, 'terrain_sparkle'):
             payload = historical_sparkle_cache()
@@ -457,58 +457,30 @@ def check_fine_surface(gl):
     stable=rig.read()
     assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
 
-    # Check real source pixels: matching normal/noise UVs, unsigned blue decode,
-    # and hardware bilinear filtering (including the texture repeat boundary).
-    from PIL import Image
-    folder=ROOT/'ENDURANCE/Ressources/Texture/Terrain'
-    normals=Image.open(folder/'NormalMap.png').convert('RGB')
-    noise=Image.open(folder/'grain.png').convert('L')
-    def source_pixel(x,y):
-        return (*[v/255. for v in normals.getpixel((x%1024,y%1024))],
-                noise.getpixel((x%1024,y%1024))/255.)
-    def probe(u,v,expected_facet):
-        u*=.04; v*=.04
-        position=(.8*u+.6*v,0.,-.6*u+.8*v)
-        # A nearly vertical view/light puts H on the selected facet. This tests
-        # actual image filtering/decoding rather than relying on arbitrary hits.
-        rig.set(worldSeed=0,testOrigin=position,testAxisX=(0.,0.,0.),testAxisY=(0.,0.,0.),
-                terrainGrainLightDirection=expected_facet,
-                terrainGrainCameraPosition=tuple(p+1000*n for p,n in zip(position,expected_facet)))
-        result=rig.read()
-        return (*result[1][:3],result[3][1])
-    def smooth(a,b,x):
-        t=max(0.,min(1.,(x-a)/(b-a)))
-        return t*t*(3.-2.*t)
-    matched=0
-    for x,y,fx,fy in ((31,61,0.,0.),(31,61,.25,.75),(1023,1023,.5,.5),(23,49,.5,.5),(11,12,.5,.5)):
-        samples=[source_pixel(x+dx,y+dy) for dy in (0,1) for dx in (0,1)]
-        weights=((1-fx)*(1-fy),fx*(1-fy),(1-fx)*fy,fx*fy)
-        red,green,blue,gray=[sum(w*c[i] for w,c in zip(weights,samples)) for i in range(4)]
-        nx,ny,nz=red*2.-1.,green*2.-1.,blue
-        length=math.sqrt(nx*nx+ny*ny+nz*nz)
-        nx*=.35/length; ny*=.35/length; nz=.65+.35*nz/length
-        world=(.8*nx+.6*ny,nz,-.6*nx+.8*ny)
-        length=math.sqrt(sum(v*v for v in world)); facet=tuple(v/length for v in world)
-        weight=smooth(.45,.80,gray)*smooth(.8,.98,facet[1])
-        n=(weight*facet[0],1-weight+weight*facet[1],weight*facet[2])
-        length=math.sqrt(sum(v*v for v in n))
-        expected=(*(v/length for v in n),.8+weight*(.12-.8))
-        actual=probe(x+.5+fx,y+.5+fy,facet)
-        assert max_difference(actual,expected)<.015, ('PNG channels/UVs/filter/decode mismatch',x,y,fx,fy,actual,expected)
-        matched+=weight>.05
-    assert matched>0, 'filter oracle only tested rejected facets'
-    up=(0.,1.,0.)
-    left=probe(1024.-1e-5,63.37,up); right=probe(1e-5,63.37,up)
-    assert max_difference(left,right)<.002, 'grain texture repeat seam is discontinuous'
-    rig.set(terrainGrainLightDirection=up,terrainGrainCameraPosition=(0.,1000180.,0.))
-    rig.set(worldSeed=1337,testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
+    # Hashes identify WORLD cells: changing the seed changes the population,
+    # whereas re-rendering or changing only chunk/view-origin metadata must not.
     first=rig.read()
-    period=1024*.04
-    rig.set(testOrigin=(-.37+.8*period,180.,.23-.6*period)); repeated_grain=rig.read()
-    assert max_difference(first[1],repeated_grain[1])<.004, ('metres-per-texel scale is incorrect', max_difference(first[1],repeated_grain[1]))
-    rig.set(testOrigin=(-.37,180.,.23),worldSeed=7331); reseeded=rig.read()
+    rig.set(worldSeed=7331); reseeded=rig.read()
     assert max_difference(first[3],reseeded[3])>.1, 'grain ignores the world seed'
     rig.set(worldSeed=1337)
+
+    # Shift the sampled plane by exactly one pixel. The same world points must
+    # retain the same response on the adjacent pixels, independently of any
+    # reference implementation of the hash, grid, or coverage kernel.
+    rig.set(testOrigin=(0.,180.,0.),testAxisX=(.5,0.,0.),testAxisY=(0.,0.,.5))
+    anchored=rig.read()
+    rig.set(testOrigin=(.5/128,180.,0.))
+    shifted=rig.read()
+    for attachment in (1,3):
+        pairs=[(anchored[attachment][4*(y*128+x+1)+c], shifted[attachment][4*(y*128+x)+c])
+               for y in range(128) for x in range(127) for c in range(3)]
+        assert max(abs(a-b) for a,b in pairs)<.002, 'grain population follows screen coordinates'
+    # Degenerate projection can occur on edge-on geometry: no NaN/Inf may enter
+    # the G-buffer even when the local footprint has no invertible mapping.
+    rig.set(testAxisX=(0.,0.,0.),testAxisY=(0.,0.,0.))
+    collapsed=rig.read()
+    assert all(math.isfinite(v) for a in collapsed for v in a), 'degenerate footprint creates nonfinite material'
+    rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
 
     # Saved v4 records can still contain stain controls. Granular materials
     # must suppress those controls before blending, without changing albedo.
@@ -555,7 +527,7 @@ def check_fine_surface(gl):
     rig.upload(grains); first=rig.read()
     rig.upload(edited_vec(grains,0,560,(1.,.91,3.,.48))); second=rig.read()
     assert max_difference(first[1],second[1]) < 1e-6 and max_difference(first[3],second[3]) < 1e-6, 'sparkle still follows the relief FBM'
-    rig.set(terrainSparkleGrainSize=.08); resized=rig.read()
+    rig.set(terrainSparkleGrainSize=.32); resized=rig.read()
     assert max_difference(first[3],resized[3]) > .01, 'sparkle size control has no effect'
     rig.set(terrainSparkleGrainSize=.04)
 
@@ -574,8 +546,10 @@ def check_fine_surface(gl):
     # A pixel spans more than the complete 16 m cache: its last mip is uniform.
     rig.set(testAxisX=(4096.,0.,0.),testAxisY=(0.,0.,4096.))
     rig.upload(grains); far=rig.read()
-    assert max_difference(far[1],baseline[1]) > .02, 'distant facet orientations disappeared'
-    assert max_difference(far[3],baseline[3]) > .1, 'white grains must remain active at large pixel footprints'
+    assert all(math.isfinite(v) for a in far for v in a), 'distant footprint creates nonfinite material'
+    far_coverage=sum(r<.79 for r in far[3][1::4])/(128*128)
+    assert .001<far_coverage<.15, ('distant sparkle density is not sparse',far_coverage)
+    assert max_difference(far[3],baseline[3]) > .1, 'procedural grains must remain active at large pixel footprints'
     rig.upload(stains); far=rig.read()
     far_ratios=[c[0]/.3 for c in linear_colors(far[2])]
     assert .94 < min(far_ratios) <= max(far_ratios) < .96, 'mips must preserve average stain coverage'
@@ -584,7 +558,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: original PNG normals/noise, bilinear repeat/UV/encoding, bounded normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
+    print('PASS fine surfaces: sparse procedural points, world-anchored sampling, finite/normalized normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):

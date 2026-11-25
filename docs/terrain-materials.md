@@ -1,9 +1,10 @@
 # Procedural terrain materials
 
 ENDURANCE's terrain uses authored palettes and procedural surface patterns. Sand
-and snow additionally use a shared noise/normal PNG pair. Material attributes
-are written into the existing deferred G-buffer, so they use the same direct lights, shadow maps, atmosphere,
-SSAO and environment reflections as other PBR objects.
+and snow additionally use sparse, procedural screen-sized sparkles. Material
+attributes are written into the existing deferred G-buffer, so they use the same
+direct lights, shadow maps, atmosphere, SSAO and environment reflections as other
+PBR objects.
 
 ## Rendering source map
 
@@ -15,10 +16,10 @@ below are functions compiled into that program, not additional rendering passes.
 | `Asset/Shader/ProceduralTerrain/render.fs.glsl` | Fragment `main`: material evaluation, final normal and G-buffer writes |
 | `Asset/Shader/ProceduralTerrain/materials.glsl` | `terrainEvaluateAppearance` → biome → surface → material: climate, slope, palettes and PBR blending |
 | `Asset/Shader/ProceduralTerrain/patterns.glsl` | Shared noise/value gradients, grain spectrum and the eight procedural relief families |
-| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered stain masks and shared sand/snow normal/noise texture after material blending |
-| `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ stain bake and the packed grain image data contract |
+| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered stain masks, world projection and sparkle uniforms after material blending |
+| `Asset/Shader/ProceduralTerrain/sparkle.glsl` | Fixed jittered sparkle centers, screen coverage, grid transitions and the normal/roughness adapter |
+| `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ stain-mask bake |
 | `Asset/Shader/ProceduralTerrain/render.vs.glsl` | Packed terrain vertex decoding, world position and climate varyings |
-| `ANTAGONIZ/Source/ProjectUser/EnduranceTerrainGrain.cpp` | Decode/cache the two original PNGs and pack RGB normals + A noise once |
 | `ANTAGONIZ/Source/ProjectUser/EnduranceTerrainMaterials.cpp` | `makeTerrainAppearance`: authored ground/wall palettes and parameters for all 26 biomes |
 | `ANTAGONIZ/Source/Miscellaneous/ProceduralGeneration.cpp` | Program creation, appearance upload and the existing batched terrain draw |
 
@@ -180,38 +181,65 @@ exposes each weight. Global controls in **Materiaux proceduraux / palettes** are
 |---|---:|---|
 | `vegetationStainSize` / Taille taches de verdure | 2.5 m | Ten times the former 25 cm base feature size |
 | `otherStainSize` / Taille taches autres matieres | 0.25 m | Finer detail on remaining materials |
-| `sparkleGrainSize` / Taille grains brillants | 0.01 m | Metres per source texel; a 1024-pixel tile repeats every 10.24 m |
+| `sparkleGrainSize` / Espacement minimal des eclats | 0.01 m | Minimum world-grid spacing; the actual spacing grows with the projected pixel footprint |
 
 The sizes describe base features/spacing, not an exact diameter of irregular
 patches. These controls change uniforms without remeshing or rebaking anything.
 They are independent of the biome relief noise's period and octaves.
 
-The sand/snow path now uses the **two supplied 1024² PNGs**, without regenerating
-normals or random facets:
+The sand/snow path is a **procedural adaptation of Wang and Bowles' sparkle
+method**, implemented in `sparkle.glsl`. The PNG pair, its C++ loader, packed CPU
+image and GPU texture have been removed. This is an artistic point effect, not a
+physical simulation of individual sand grains or a reproduction of the paper's
+lighting integration.
 
-- `ENDURANCE/Ressources/Texture/Terrain/grain.png`: the original white noise.
-- `ENDURANCE/Ressources/Texture/Terrain/NormalMap.png`: the matching normal map.
+The shader retains the paper's useful distinctions between fixed centers,
+compact shapes, adaptive spacing and grazing-angle coverage. It deliberately
+omits their view-vector grid displacement: moving the camera never offsets a
+sparkle center. Unlike the paper's stepped-only grid, this version crossfades two
+stationary dyadic grids to soften scale transitions.
 
-`EnduranceTerrainGrain.cpp` decodes the pair once per process. It preserves all
-source bytes, packs the normal RGB and noise into alpha, and supplies that shared
-CPU image to the renderer. The renderer uploads one linear **RGBA8** texture, not
-an sRGB/color texture. No new `STB_IMAGE_IMPLEMENTATION` is added to the engine;
-its existing implementation remains in `TextureManager.cpp`.
+- Projected world coordinates identify a cell at each of two grid levels. One
+  integer hash per level, salted with the world seed and level, chooses a center
+  in the range **0.36–0.64** of each cell axis. Chunk IDs and frame numbers do not
+  enter this calculation. Changing levels changes the visible population
+  gradually; it does not continuously slide either grid over the terrain.
+- A separable cubic B-spline provides compact coverage around each center. The
+  kernel has support of +/-2 in each axis and shares its contribution smoothly
+  between adjacent pixels as the camera moves. It does not average an entire
+  noise texture into a uniform normal or create contours by thresholding an
+  interpolated normal map.
+- The full **2x2 world-to-screen metric** uses derivatives captured in
+  `render.fs.glsl` before divergent material/reflection branches. It controls
+  apparent shape at grazing angles. Degenerate projections are rejected before
+  matrix inversion; this numerical guard is not a view-distance cutoff.
+- Grid spacing is a power-of-two multiple of `sparkleGrainSize`. This setting is
+  the true minimum spacing at the finest level, not a texel size or a pixel
+  diameter. Screen footprint selects the level, so distant points remain sparse
+  rather than accumulating into a solid band. The two levels are blended with
+  `smoothstep` across the fractional level.
+- The center margin and spacing bound contain the entire compact kernel within
+  its cell. Thus there are **two cell hashes and no neighbor search**, rather
+  than an unbounded search over all microscopic grains under a pixel.
+- A per-cell random facet direction gives a broad angular brightness response
+  (`smoothstep(0.86, 0.995, dot(facet, H))`). It changes participation, not the
+  center or compact shape. Random amplitude, material strength and the broad
+  reflection envelope keep the surface from becoming uniformly glossy.
 
-`terrainApplyGranularSurface` makes **one bilinear, repeating texture lookup**
-after material blending. Both maps always share UVs. The world projection and a
-seeded offset are independent of chunk origin, LOD, camera and frame number.
-`terrainSparkleGrainSize` describes one source texel, not the whole image. The
-finite noise tile is intentional; no anti-tiling cost is added.
+Two constants in `sparkle.glsl` control the screen appearance:
 
-**Asset normal encoding matters:** RG store XY remapped to [0,1], but B stores
-positive Z directly. This particular normal map must be decoded as
-`vec3(sample.rg*2-1, sample.b)`, then normalized after filtering. Decoding all three
-channels with `*2-1` would point most of these normals into the surface. The
-shader maps the perturbation along the same projection axes as the images and
-projects it onto the terrain tangent plane. The authored strength of this very
-steep source is moderated by `normalStrength = 0.35` in `fine_surface.glsl`.
-The orientation is fixed in world space; selection strength is blended through ground/accent/biome transitions.
+| Constant | Default | Meaning |
+|---|---:|---|
+| `TERRAIN_SPARKLE_WIDTH` | 1.0 | Kernel screen scale; about 1.4 pixels full width at half maximum for its unlit coverage profile |
+| `TERRAIN_SPARKLE_SPACING` | 8.0 | Lower-grid spacing bound relative to width and the full pixel footprint; larger values make points sparser |
+
+The width is an approximate coverage target, not a guarantee that each final
+lit component occupies exactly one pixel. Tone mapping, exposure, bloom and the
+PBR adapter affect perceived size. The spacing bound is also a correctness
+condition: do not lower it below 8 without revisiting kernel containment or
+adding neighbor evaluation. Increasing width also increases the safe grid
+spacing. Material `fineSurface.x` and `.y` continue to control strength and
+selected-facet roughness independently of these shader constants.
 
 The terrain draw receives the current camera position and the normalized sun
 vector from `Atmosphere::primarySpecularDirection()` (CPU state only). Outside
@@ -220,34 +248,35 @@ with an active atmosphere, it returns zero: the existing lunar IBL is preserved.
 Neither forward shader is changed.
 
 Before writing the G-buffer, the terrain evaluates the light/view half vector.
-An angular envelope limits fine highlights to the reflected-sun region
-(`smoothstep(0.80, 0.98, dot(normal, H))`), and skips the texture lookup elsewhere.
-The image's facet normal then selects individual reflections
-(`smoothstep(0.990, 0.9995, dot(facetNormal, H))`). The white-noise image controls
-participation. Only these selected grains receive the normal perturbation and
-lower roughness (`fineSurface.y`); the remaining substrate keeps its authored
-normal/roughness. `fineSurface.x` blends this response through material transitions.
+The existing angular envelope limits the effect to the reflected-sun region
+(`smoothstep(0.80, 0.98, dot(normal, H))`) and skips both grid evaluations outside
+it. Light/view visibility, material strength and the filtered point coverage
+form the selection weight.
 
-This is a deliberate material-side approximation: it cannot introduce an
-independent BRDF lobe in the unchanged deferred shader. IBL and other lights also
-see the selected G-buffer normal/roughness; exact per-light isolation would
-require modifying the lighting shader. No illumination is baked into albedo,
-and the existing sun shadow/cloud transmission paths still shade the facets.
-The selection is evaluated each terrain draw, because moving the camera or the
-sun changes which static grains reflect towards the viewer. Textures are never
-rebaked, reuploaded or resized on camera/light movement.
+The selected G-buffer normal approaches **H**, with a short smooth edge ramp.
+Roughness blends approximate GGX peak powers, proportional to **1/r^4**, before
+conversion back to roughness; a direct linear roughness blend would sharpen the
+filtered coverage into narrow peaks again. The effective target roughness has a
+0.10 floor, and cannot exceed the substrate roughness. The broad random-facet
+response chooses participation; it is not written directly as the final normal.
+
+This adapter is a deliberate material-side approximation: it cannot introduce
+an independent BRDF lobe in the unchanged deferred shader. Diffuse lighting,
+IBL and other lights still see the selected G-buffer normal/roughness. The
+power blend approximates peak behavior, not an exact integral of final lighting
+or an energy-conserving blend of two complete materials. Its visual stability
+must therefore be checked through the actual lighting shader. Sun shadow/cloud
+transmission paths continue to shade the facets, and no light is painted into
+albedo or emission.
 
 Only the ordinary G-buffer normal and roughness change. **Forward/deferred
 lighting shaders, G-buffer formats/tags, passes and light/shadow calculations
-remain unchanged.** Nothing is painted into albedo or emission. Granular layers
-still skip generic smooth micro-normal/roughness noise and FBM stains, including
-saved stain controls. Other materials, macro color/ripple masks, geometry and
-the separate geometric-normal tag for shadow bias are preserved.
-
-There is **no distance or pixel-footprint cutoff**. The texture uses GL_LINEAR,
-GL_REPEAT and level 0 only, as requested. Bilinear filtering alone does not
-resolve subpixel minification: distant grain can still shimmer in motion without
-temporal antialiasing. No fade or view-distance limit is hidden in this path.
+remain unchanged.** Granular layers still skip generic smooth micro-normal/
+roughness noise and FBM stains, including saved stain controls. Other materials,
+macro color/ripple masks, geometry and the separate geometric-normal tag for
+shadow bias are preserved. There is no distance cutoff and no grain texture or
+mipmap chain. The screen footprint adapts grid spacing and shape instead of
+fading all grains out at a chosen distance.
 
 Stains retain eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
 0.5 **before** filtering. C++ builds a 512² R8 mask once per process, with four
@@ -264,16 +293,17 @@ The fixed rotated world projection uses X/Z plus a Y shear, so walls also have
 vertical detail. It is a cheap planar projection, not full triplanar mapping;
 some directional stretching is an intentional performance tradeoff.
 
-GPU memory for fine detail is **4 MiB** for the packed 1024² RGBA8 grain pair,
-plus **349,525 bytes** (about 0.333 MiB) for the stain cache including mipmaps.
-The game retains one shared 4 MiB packed CPU image across renderer restarts; the
-original decoded PNG arrays are freed after packing. The stain CPU bake retains
-256 KiB. Neither chunk generation nor material edits decode/upload these images.
-Initialization validates dimensions and data lengths; shutdown/failure frees
-both GPU textures. Borrowed texture units 0/1, samplers, UBO range and pixel-unpack
-state are restored. No new draw/generation pass or G-buffer attachment is added;
-the material UBO stays at 15,392 bytes. Texture-free engine callers use a neutral
-1x1 fallback and do not depend on game asset paths.
+Fine-detail GPU memory is now **349,525 bytes** (about 0.333 MiB) for the
+512² R8 stain cache including mipmaps. Removing the packed 1024² RGBA8 grain
+texture saves **4 MiB of GPU memory** and the shared 4 MiB packed CPU image.
+There is no grain texture allocation, PNG decode, upload or texture sampling.
+The stain CPU bake retains 256 KiB. Material edits and chunk generation do not
+rebake this cache. Shutdown/failure cleanup frees the stain texture; borrowed
+texture unit 0, sampler, UBO range and pixel-unpack state are restored. Texture
+unit 1 is no longer borrowed. No extra draw/generation pass or G-buffer
+attachment is added; the material UBO stays at 15,392 bytes. These resource
+savings do not by themselves establish a runtime speedup over the former single
+bilinear texture fetch.
 
 Scene revision 5 removes saved discrete stain controls from sand and snow,
 including previously customized stain strengths, as explicitly requested. Other
@@ -286,35 +316,76 @@ The older migrations still apply to old scenes. No binary terrain scene is
 replaced. `TERRAIN_FINE_SURFACE_ENABLED=0` compiles out the fine effects for A/B
 comparisons and restores the ordinary procedural-normal path.
 
-Revision 8 enlarges the previously configured grain scale **fivefold**, including
-artist values, capped at the existing 1 m/texel validation bound. It runs once
-on scene load; new scenes default to 0.01 m and saved v8 scenes are unchanged.
-Palettes, geometry and stain sizes are not changed by this migration.
+Revision 8 historically enlarged the PNG grain scale **fivefold**, including
+artist values, capped at the existing 1 m validation bound. It still runs once
+when loading pre-v8 scenes. New scenes default to 0.01 m and saved v8 values
+remain unchanged. The procedural replacement reuses this serialized setting as
+minimum grid spacing; it does not introduce a further scene migration. Palettes,
+geometry and stain sizes are not changed by this adaptation.
 
 ### Validation and timing
 
-`Tests/TerrainMaterials/check_grain_assets.py` compiles the actual game PNG
-loader, checks its process cache, and compares every packed byte to an independent
-PNG decode. `check_gpu.py` feeds those same production bytes into actual OpenGL
-shaders on Mesa llvmpipe (software rendering). It checks source-pixel normal
-encoding/UV alignment, bilinear filtering/repeat boundaries, normalized directions,
-seed/LOD stability, large-footprint visibility, unaffected albedo/geometry/AO/
-metallic, stain isolation and static disable. Generic smooth-relief minification
-is checked separately because granular normals intentionally stay active at range.
-`check_runtime.py` checks dimension/data validation, uploads, state restoration,
-live edits without remeshing, restart and failure cleanup.
+`Tests/TerrainMaterials/check_gpu.py` exercises the production procedural
+shader: sparse coverage, world/seed anchoring, normalized directions, unchanged
+albedo/geometry/AO/metallic, material boundaries, stain isolation, distant
+coverage and static disable. Generic smooth-relief minification is checked
+separately. `check_runtime.py` covers the single stain texture, state restoration,
+live edits and camera/light updates without remeshing, restart and failure
+cleanup. `check_grain_assets.py` now reconstructs the removed PNG fixture from
+Git history only when a historical rendering comparison requests it; it is not
+a production asset loader or a validation of current sparkle shapes.
 
 `Tests/TerrainMaterials/check_granular_render.py` sends production terrain
 fragment output through the **unchanged** production deferred shader, using a
 perspective plane and the engine's RG32F/RGB16F/RGBA16F/RGB8 formats. It checks
 HDR highlights, their response to sun direction, real shadow-map blocking,
-absence of emission and the shared snow/sand path with IBL. Its optional preview
-compares against an earlier commit under identical controlled lighting; it is
-not an in-game capture or a target-GPU performance measurement.
+absence of emission and the shared snow/sand path with IBL.
 
-GTX 1660 frame cost and the result under actual game exposure still need in-game
-validation. The timings below predate this PNG-based replacement and must **not**
-be used as its performance estimate.
+`Tests/TerrainMaterials/check_grain_motion.py` is a separate diagnostic for
+close-up lateral motion, distant lateral motion and approaching the surface.
+It compares actual deferred output to a finite 4x4 spatial sampling reference,
+retaining the target-resolution footprint/grid scale in the reference. It
+reprojects sampling errors through the world plane and normalizes temporal
+residuals by reference glint RMS, while also reporting brightness, coverage
+and bright-component shape. This avoids interpreting simple dimming as a
+stability improvement. It is not a proof of zero aliasing or a game capture.
+
+```sh
+python3 Tests/TerrainMaterials/run_all.py
+python3 Tests/TerrainMaterials/check_grain_motion.py --compare-ref ee47948
+```
+
+The November 25 diagnostic against `ee47948` uses eight frames per scenario,
+a 160x100 target and a 4x4 HDR reference. Normalized temporal residuals are:
+
+| Scenario | Procedural | Previous PNG path |
+|---|---:|---:|
+| Close-up lateral motion | 0.216 | 0.239 |
+| Distant lateral motion | 0.236 | 1.931 |
+| Approach | 0.279 | 1.765 |
+
+These are errors against the finite reference, not percentages of visible
+flicker removed from the game. New bright components are fewer and more compact
+(median four pixels above the diagnostic HDR threshold), with brighter
+individual spots and comparable bright area. The material appearance deliberately
+changes; this is not a pixel-identical replacement. The reference glint RMS is
+not reduced. Full metrics, shader hash and settings are in
+[the motion report](terrain-material-validation/procedural-sparkle-motion-2026-11-25.json).
+
+The same-day budget comparison against `ee47948` uses a 256x256 target,
+15 alternating sample pairs, three draws per sample and one llvmpipe thread.
+Completed-draw paired median ratios (new/old) are **1.098** for sand sparkles,
+**1.018** for ordinary stains and **1.023** for distant four-biome terrain.
+The sparkle ratio interquartile range is 1.002–1.166. This is software-renderer
+material-pass cost, not whole-frame cost or GTX 1660 performance. Removing the
+texture saves memory but does not establish a speedup. Raw samples and source
+hashes are in [the budget report](terrain-material-validation/procedural-sparkle-budget-2026-11-25.json).
+
+The motion diagnostic and optional timing experiments are separate from the
+normal validation runner. GTX 1660 frame cost and the result under actual game
+exposure still need in-game validation. No runtime improvement is inferred from
+the removal of textures. All timings below are **historical** and must not be
+used as the procedural sparkle adaptation's performance estimate.
 
 The November 25 comparison against published revision `1ff2aec` uses a 256²
 viewport, 15 alternating sample pairs, three draws per sample and one llvmpipe
@@ -329,8 +400,8 @@ thread. Completed-draw wall-time paired median ratios (new/previous) are:
 | Distant, four biomes | 1.010 |
 | Coast with slope and marine blend | 0.995 |
 
-The grain case improves by about 22% in this software test after removing its
-texture fetch, stains and smooth micro-normal evaluation. Other cases range
+That historical grain case improved by about 22% in its software test after
+removing its texture fetch, stains and smooth micro-normal evaluation. Other cases range
 from -0.5% to +3.1%; no general or target-GPU speedup is claimed. Raw timings,
 quartiles, renderer configuration and source hashes are in
 [the comparison report](terrain-material-validation/white-noise-grains-llvmpipe-2026-11-25.json).
@@ -339,8 +410,9 @@ the same directory remain historical evidence for their own revisions.
 
 The earlier v4 results below remain a historical comparison only:
 `docs/terrain-material-validation/revised-fine-surfaces-llvmpipe-2026-11-24.json`.
-For this correction, compare against `--baseline-ref 1ff2aec`. Tests and software
-measurements do not establish target-GPU frame time or the final in-game look.
+The procedural sparkle replacement should be compared with the preceding PNG implementation
+`ee47948`. Tests and software measurements do not establish target-GPU frame
+time or the final in-game look.
 
 ## Precomputation investigation
 
@@ -456,6 +528,8 @@ visual assessment in the Windows game under its actual lighting.
 
 Sources informing the implementation:
 
+- [Beibei Wang and Huw Bowles, A Robust and Flexible Real-Time Sparkle Effect, EGSR 2016](https://doi.org/10.2312/sre.20161209), especially sections 3.1, 3.2 and 3.5.
+- [Wang and Bowles, sparkle presentation and original shader example, SIGGRAPH 2015](https://advances.realtimerendering.com/s2015/).
 - [John Edwards, Journey sand rendering, SIGGRAPH 2012](https://advances.realtimerendering.com/s2012/).
 - [Ken Perlin, improved noise and smooth bump derivatives](https://developer.nvidia.com/gpugems/gpugems/part-i-natural-effects/chapter-5-implementing-improved-perlin-noise).
 - [Simon Green, storage versus computation for procedural noise](https://developer.nvidia.com/gpugems/gpugems2/part-iii-high-quality-rendering/chapter-26-implementing-improved-perlin-noise).

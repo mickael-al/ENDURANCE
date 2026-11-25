@@ -2,7 +2,6 @@
 #define CLEAR_REGISTRY
 #include "ProceduralGeneration.hpp"
 #include "EnduranceTerrainMaterials.hpp"
-#include "EnduranceTerrainGrain.hpp"
 #include "EnduranceSea.hpp"
 #include "EnduranceObjectPlacement.hpp"
 #include "EnduranceTreeRenderer.hpp"
@@ -91,7 +90,6 @@ void ProceduralTerrainComponent::start()
         config.objects.enabled=false; // Catalogue failure must not disable terrain.
     try
     {
-        config.grainImage = Endurance::terrainGrainImage();
         m_generator = std::make_unique<ProceduralGeneration>(*scene, seed);
         if (!m_generator->initialize(config))
         {

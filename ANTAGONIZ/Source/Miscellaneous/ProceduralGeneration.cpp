@@ -58,7 +58,7 @@ namespace
     {
         GLint uniform = 0, material = 0;
         GLint activeTexture = 0;
-        std::array<GLint, 2> textures{}, samplers{};
+        std::array<GLint, 1> textures{}, samplers{};
         GLint64 start = 0, size = 0;
         TerrainMaterialStateGuard()
         {
@@ -246,7 +246,7 @@ struct ProceduralGeneration::Impl
     bool planned = false, active = false, converged = false, blocked = false;
     bool collisionDirty = true, collisionUpdated = false;
     GLint shadowIndex = -1;
-    GLuint materialBuffer = 0, fineTexture = 0, grainTexture = 0;
+    GLuint materialBuffer = 0, fineTexture = 0;
     struct MaterialUniforms
     {
         GLint macroPeriod = -1, patchPeriod = -1;
@@ -393,7 +393,6 @@ struct ProceduralGeneration::Impl
         gpu.shutdown();
         if (materialBuffer) glDeleteBuffers(1, &materialBuffer);
         if (fineTexture) glDeleteTextures(1, &fineTexture);
-        if (grainTexture) glDeleteTextures(1, &grainTexture);
         const auto liveObjects = Ge::GObject::GetGObjects();
         for (const auto& range : cameraRanges)
         {
@@ -463,7 +462,6 @@ bool ProceduralGeneration::initialize(const Config& config)
         || !finite(config.microDetailStrength) || config.microDetailStrength < 0.0f || config.microDetailStrength > 16.0f
         || !finite(config.microDetailScale) || config.microDetailScale <= 0.0f || config.microDetailScale > 1000000.0f
         || !validTerrainAppearance(config.appearance)
-        || (config.grainImage && !validTerrainGrainImage(*config.grainImage))
         || !validFieldParameters(config.field))
     {
         m_lastError = "Invalid terrain configuration (finite values, positive sizes and bounded budgets required).";
@@ -515,13 +513,7 @@ bool ProceduralGeneration::initialize(const Config& config)
     }
     impl->fineTexture = createTerrainFineTexture(TerrainFineSurfaceSize, TerrainFineSurfaceSize,
         TerrainFineSurfaceMipLevels, GL_R8, GL_RED, terrainFineSurfacePixels().data());
-    // The engine accepts game-owned image data; it contains no project path.
-    // A neutral fallback also permits texture-free terrain tools/fixtures.
-    static constexpr std::uint8_t neutralGrain[] = {128, 128, 255, 255};
-    const auto* grain = config.grainImage.get();
-    impl->grainTexture = createTerrainFineTexture(grain ? grain->width : 1u, grain ? grain->height : 1u,
-        1, GL_RGBA8, GL_RGBA, grain ? grain->rgba.data() : neutralGrain);
-    if (!impl->fineTexture || !impl->grainTexture)
+    if (!impl->fineTexture)
     {
         m_lastError = "Terrain fine-surface texture allocation failed.";
         return false;
@@ -1038,8 +1030,6 @@ void ProceduralGeneration::drawRenderer()
     glBindBufferBase(GL_UNIFORM_BUFFER, 6, s.materialBuffer);
     glBindTextureUnit(0, s.fineTexture);
     glBindSampler(0, 0);
-    glBindTextureUnit(1, s.grainTexture);
-    glBindSampler(1, 0);
     s.gpu.drawMany(s.cameraMeshes, 0);
     const auto gpuStats = s.gpu.stats();
     m_stats.drawListUploads = gpuStats.drawListUploads;

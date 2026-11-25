@@ -71,6 +71,7 @@ namespace ProceduralTerrain
         float patchPeriod = 32.0f;
         float vegetationStainSize = 2.5f;
         float otherStainSize = 0.25f;
+        // Serialized name retained: minimum procedural sparkle spacing in metres.
         float sparkleGrainSize = 0.01f;
         int debugView = 0;
     };

@@ -132,8 +132,10 @@ bool Endurance::drawTerrainMaterialEditor(ProceduralTerrain::TerrainAppearance& 
         0.05f, 0.005f, 1000.0f, "%.3f");
     changed |= boundedDrag("Taille taches autres matieres (m)", &appearance.otherStainSize,
         0.005f, 0.005f, 1000.0f, "%.3f");
-    changed |= boundedDrag("Taille grains brillants (m)", &appearance.sparkleGrainSize,
+    changed |= boundedDrag("Espacement minimal des eclats (m)", &appearance.sparkleGrainSize,
         0.0001f, 0.001f, 1.0f, "%.4f");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Points proceduraux proches d'un pixel. L'espacement augmente progressivement au loin pour conserver des eclats distincts.");
     changed |= boundedSlider("Force globale du relief", &microDetailStrength, 0.0f, 2.0f);
     float grainFrequencyMultiplier = microDetailScale * 0.5f;
     if (boundedDrag("Multiplicateur frequence du grain", &grainFrequencyMultiplier,

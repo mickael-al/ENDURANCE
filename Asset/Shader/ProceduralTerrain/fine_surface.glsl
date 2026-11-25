@@ -3,8 +3,6 @@
 
 #if TERRAIN_FINE_SURFACE_ENABLED
 layout(binding=0) uniform sampler2D terrainFineSurfaceCache;
-// RGB = supplied normal map, A = supplied white noise, packed once on load.
-layout(binding=1) uniform sampler2D terrainGrainTexture;
 uniform float terrainVegetationStainSize = 2.5;
 uniform float terrainOtherStainSize = 0.25;
 uniform float terrainSparkleGrainSize = 0.01;
@@ -44,56 +42,6 @@ void terrainApplyFineStains(inout TerrainAppearanceSample material, TerrainPatte
     material.roughness = max(0.04,material.roughness-correction.y);
 }
 
-void terrainApplyGranularSurface(inout vec3 normal, inout float roughness,
-    TerrainAppearanceSample material, TerrainPatternContext c)
-{
-    if (material.sparkle.x <= 0.0 || dot(terrainGrainLightDirection,terrainGrainLightDirection) < 0.5) return;
-    vec3 L = terrainGrainLightDirection; // Normalized once on the CPU, per draw.
-    vec3 viewDelta = terrainGrainCameraPosition-c.position;
-    vec3 V = viewDelta*inversesqrt(max(dot(viewDelta,viewDelta),1.0e-8));
-    float nDotL = dot(normal,L), nDotV = dot(normal,V);
-    if (nDotL <= 0.0 || nDotV <= 0.0) return;
-    vec3 halfVector = L+V;
-    vec3 H = halfVector*inversesqrt(max(dot(halfVector,halfVector),1.0e-8));
-
-    // Keep the glitter in the broad reflected-sun region. This inexpensive
-    // angular test also skips the image lookup elsewhere; it is not a distance
-    // or pixel-footprint limit. The normal map still chooses the individual hits.
-    float reflectionRegion = smoothstep(0.80,0.98,dot(normal,H));
-    if (reflectionRegion <= 0.0) return;
-
-    // Metres per source texel, not per entire image. The 1024px repeat now
-    // spans 10.24m at the 1cm default (five times the previous 2.048m).
-    vec2 texels = terrainFineProjection(c.position)/terrainSparkleGrainSize;
-    vec2 offset = vec2(worldSeed & 1023u, (worldSeed >> 10u) & 1023u);
-    vec2 uv = (texels+offset)/vec2(textureSize(terrainGrainTexture,0));
-    vec4 grain = textureLod(terrainGrainTexture,uv,0.0); // One bilinear fetch.
-
-    // The supplied normal encodes signed XY in RG, positive Z directly in B.
-    vec3 detailNormal = vec3(grain.rg*2.0-1.0,grain.b);
-    detailNormal *= inversesqrt(max(dot(detailNormal,detailNormal),1.0e-8));
-    detailNormal = mix(vec3(0.0,0.0,1.0),detailNormal,0.35);
-    vec3 perturbation = detailNormal.x*vec3(0.8,0.0,-0.6)
-                      + detailNormal.y*vec3(0.6,1.0,0.8);
-    perturbation -= normal*dot(normal,perturbation);
-    vec3 facetNormal = normalize(normal*detailNormal.z+perturbation);
-
-    // Only facets oriented towards this light/view reflection become smooth.
-    // Everywhere else retains the authored matte substrate: no field of glossy
-    // normals, diffuse speckling or global roughness drop. Noise controls grain
-    // participation; it never brightens the albedo or writes emission.
-    float alignment = smoothstep(0.990,0.9995,dot(facetNormal,H));
-    float population = smoothstep(0.45,0.80,grain.a);
-    float visibility = smoothstep(0.0,0.08,min(nDotL,nDotV));
-    float weight = clamp(material.sparkle.x,0.0,1.0)*alignment*population*visibility*reflectionRegion;
-    float facetRoughness = clamp(material.sparkle.y/material.sparkle.x,0.06,1.0);
-    normal = normalize(mix(normal,facetNormal,weight));
-    roughness = mix(roughness,min(roughness,facetRoughness),weight);
-    // This is a material-side approximation of directional glints, evaluated
-    // each draw because H changes with camera/sun motion. The existing PBR still
-    // applies all lighting, shadow maps, cloud shadows and aerial perspective.
-    // No forward shader change, extra pass, light baked into color, or distance
-    // cutoff. As with any G-buffer normal, IBL sees the selected facets too.
-}
+#include "sparkle.glsl"
 #endif
 #endif

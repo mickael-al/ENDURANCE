@@ -51,18 +51,10 @@ int main()
         glPixelStorei(GL_UNPACK_ROW_LENGTH, 91);
         glPixelStorei(GL_UNPACK_SKIP_ROWS, 7);
         glPixelStorei(GL_UNPACK_SKIP_PIXELS, 9);
-        auto grain = std::make_shared<ProceduralTerrain::TerrainGrainImage>();
-        grain->width = 2; grain->height = 2;
-        grain->rgba = {128,128,255,255, 180,128,230,80,
-                       128,180,230,60, 100,128,250,190};
-        config.grainImage = grain;
         ProceduralGeneration terrain(scene, 1337);
-        grain->rgba.pop_back();
-        require(!terrain.initialize(config) && textures.empty(), "Truncated grain image accepted");
-        grain->rgba.push_back(190);
         require(terrain.initialize(config), terrain.getLastError());
-        require(textures.size() == 2 && textureUploads == 2 && mipGenerations == 1,
-            "Fine textures not uploaded once (mips only for the stain cache)");
+        require(textures.size() == 1 && textureUploads == 1 && mipGenerations == 1,
+            "Stain cache not uploaded exactly once");
         require(activeTexture == GL_TEXTURE0+3 && unpackBuffer == 779
             && pixelStore[GL_UNPACK_ALIGNMENT] == 8 && pixelStore[GL_UNPACK_ROW_LENGTH] == 91
             && pixelStore[GL_UNPACK_SKIP_ROWS] == 7 && pixelStore[GL_UNPACK_SKIP_PIXELS] == 9,
@@ -87,7 +79,7 @@ int main()
         require(activeTexture == GL_TEXTURE0+3 && textureBindings[0] == 777 && samplerBindings[0] == 778
             && textureBindings[1] == 780 && samplerBindings[1] == 781,
             "Terrain draw did not restore borrowed texture/sampler state");
-        require(textureUploads == 2 && mipGenerations == 1,
+        require(textureUploads == 1 && mipGenerations == 1,
             "Chunk generation/draw rebuilt the fine surface cache");
         require(uniform == 901 && uniformBindings[6].buffer == 900
             && uniformBindings[6].start == 256 && uniformBindings[6].size == 512,
@@ -109,8 +101,8 @@ int main()
         terrain.drawRenderer();
         require(vec3Uniforms.at(locations.at("terrainGrainLightDirection")) == std::array<float,3>{0,0,0},
             "Night/no sun left stale shiny facets");
-        require(textureUploads == 2 && mipGenerations == 1,
-            "Light motion regenerated the grain textures");
+        require(textureUploads == 1 && mipGenerations == 1,
+            "Light motion regenerated the stain cache");
         const auto geometry = identities(published(terrain));
         const auto shadowRevision = terrain.shadowContentRevision();
         const auto oldSubmissions = submissions;
@@ -250,7 +242,7 @@ int main()
             "Initially unbound UBO slot was not restored");
 
         require(terrain.initialize(config), terrain.getLastError());
-        require(textures.size() == 2, "Terrain restart leaked fine-surface textures");
+        require(textures.size() == 1, "Terrain restart leaked fine-surface textures");
         require(buffers.size() == 1 && pipelines.activePipelines == 2 && pipelines.registeredRenderers == 1,
             "Terrain restart leaked material storage or registration");
         terrain.shutdown();
