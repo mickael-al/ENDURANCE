@@ -127,6 +127,8 @@ def run(size=(256,256),samples=17,baseline_ref=None,batch_draws=1,warmup_draws=8
         cases=(
             ('glints','near, glossy sand grains',dict(terrainBiomeOverride=21,testOrigin=(-50.,180.,20.),
                 testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.),testNormal=(0.,1.,0.))),
+            ('glints_minified','minified sand grains, 4:1 footprint',dict(terrainBiomeOverride=21,testOrigin=(-50.,180.,20.),
+                testAxisX=(128.,0.,0.),testAxisY=(0.,0.,512.),testNormal=(0.,1.,0.))),
             ('plain','near, fine stains on volcanic rock',dict(terrainBiomeOverride=20,testOrigin=(-50.,180.,20.),
                 testAxisX=(8.,0.,0.),testAxisY=(0.,0.,8.),testNormal=(0.,1.,0.))),
             ('near1','near, one biome',dict(terrainBiomeOverride=16,testOrigin=(-50.,180.,20.),
@@ -222,8 +224,8 @@ def main():
     candidate.add_argument('--current-ref',help='Measure a historical candidate without changing the working tree')
     candidate.add_argument('--current-fragment',type=Path,
                            help='Measure an expanded fragment prototype with the current authored table')
-    parser.add_argument('--case',action='append',choices=('glints','plain','near1','near4','far4','coast'),
-                        help='Select screening cases; omit to measure all four cases')
+    parser.add_argument('--case',action='append',choices=('glints','glints_minified','plain','near1','near4','far4','coast'),
+                        help='Select screening cases; omit to measure all cases')
     args=parser.parse_args()
     if args.lp_threads is not None: os.environ['LP_NUM_THREADS']=str(args.lp_threads)
     results=run((args.size,args.size),args.samples,args.baseline_ref,args.batch_draws,

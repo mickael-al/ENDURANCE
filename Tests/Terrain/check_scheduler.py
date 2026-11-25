@@ -26,6 +26,7 @@ GL_STUB = r'''
 #include <string>
 #include <vector>
 #include "ProceduralTerrainMaterials.hpp"
+using GLfloat=float;
 using GLenum=unsigned;using GLint=int;using GLuint=unsigned;using GLint64=std::int64_t;using GLsizei=int;
 using GLsizeiptr=std::int64_t;
 constexpr unsigned GL_CURRENT_PROGRAM=1,GL_VERTEX_ARRAY_BINDING=2,
@@ -41,6 +42,8 @@ constexpr unsigned GL_ACTIVE_TEXTURE=18,GL_TEXTURE_BINDING_2D=19,GL_SAMPLER_BIND
  GL_RGBA8=37,GL_RGBA=38,GL_PIXEL_UNPACK_BUFFER=26,GL_R8=27,GL_TEXTURE_WIDTH=28,GL_RED=29,GL_UNSIGNED_BYTE=30,
  GL_TEXTURE_MIN_FILTER=31,GL_LINEAR_MIPMAP_LINEAR=32,GL_TEXTURE_MAG_FILTER=33,
  GL_LINEAR=34,GL_TEXTURE_WRAP_S=35,GL_TEXTURE_WRAP_T=36,GL_REPEAT=37;
+constexpr bool GLEW_VERSION_4_6=true, GLEW_ARB_texture_filter_anisotropic=true, GLEW_EXT_texture_filter_anisotropic=true;
+constexpr unsigned GL_TEXTURE_MAX_ANISOTROPY=39, GL_MAX_TEXTURE_MAX_ANISOTROPY=40;
 namespace TerrainFixtureGL {
 struct Binding {unsigned buffer=0;GLint64 start=0,size=0;};
 inline unsigned next=1,uniform=0,program=0,uploads=0,uniformWrites=0;
@@ -48,6 +51,8 @@ inline int blockBytes=sizeof(ProceduralTerrain::TerrainMaterialTable);
 inline bool allocationFailure=false,textureAllocationFailure=false;
 inline unsigned activeTexture=GL_TEXTURE0,unpackBuffer=0,textureUploads=0,mipGenerations=0;
 inline std::map<unsigned,unsigned> textureBindings,samplerBindings;
+inline std::map<unsigned,int> textureLevels;
+inline std::map<std::pair<unsigned,unsigned>,float> textureParameters;
 inline std::map<unsigned,int> textures,pixelStore={{GL_UNPACK_ALIGNMENT,4}};
 inline std::map<unsigned,std::vector<unsigned char>> buffers;
 inline std::map<unsigned,Binding> uniformBindings;
@@ -107,12 +112,14 @@ inline void glPixelStorei(unsigned field,int value){TerrainFixtureGL::pixelStore
 inline void glCreateTextures(unsigned,int count,unsigned* names){
  while(count--){*names=TerrainFixtureGL::next++;TerrainFixtureGL::textures[*names++]=0;}}
 inline void glDeleteTextures(int count,const unsigned* names){while(count--)TerrainFixtureGL::textures.erase(*names++);}
-inline void glTextureStorage2D(unsigned texture,int,unsigned,int width,int){
- if(!TerrainFixtureGL::textureAllocationFailure)TerrainFixtureGL::textures[texture]=width;}
+inline void glTextureStorage2D(unsigned texture,int levels,unsigned,int width,int){
+ if(!TerrainFixtureGL::textureAllocationFailure){TerrainFixtureGL::textures[texture]=width;TerrainFixtureGL::textureLevels[texture]=levels;}}
 inline void glGetTextureLevelParameteriv(unsigned texture,int,unsigned,int* width){*width=TerrainFixtureGL::textures[texture];}
 inline void glTextureSubImage2D(unsigned,int,int,int,int,int,unsigned,unsigned,const void*){++TerrainFixtureGL::textureUploads;}
 inline void glGenerateTextureMipmap(unsigned){++TerrainFixtureGL::mipGenerations;}
-inline void glTextureParameteri(unsigned,unsigned,int){}
+inline void glTextureParameteri(unsigned texture,unsigned field,int value){TerrainFixtureGL::textureParameters[{texture,field}]=float(value);}
+inline void glGetFloatv(unsigned,float* value){*value=16.f;}
+inline void glTextureParameterf(unsigned texture,unsigned field,float value){TerrainFixtureGL::textureParameters[{texture,field}]=value;}
 '''
 
 ENGINE_STUB = r'''

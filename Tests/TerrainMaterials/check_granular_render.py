@@ -128,7 +128,7 @@ def main():
             import numpy as np
             from PIL import Image,ImageDraw
             rig.upload(grains)
-            panels=[('Nouveau : PNG bruit + normales / forward inchange',draw(gl,rig,fixture,shader))]
+            panels=[('Nouveau : grains compacts + mipmaps / forward inchange',draw(gl,rig,fixture,shader))]
             if args.compare_ref:
                 old=make_rig(gl,grains,fixture,snapshot_source(TERRAIN/'render.fs.glsl',args.compare_ref))
                 panels.insert(0,(f'Avant : {args.compare_ref}',draw(gl,old,fixture,shader)))

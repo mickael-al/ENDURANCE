@@ -6,9 +6,10 @@
 
 namespace ProceduralTerrain
 {
-    // Game-provided linear data, shared across renderer restarts. RGB contains
-    // a normal (XY encoded in [0,1], positive Z stored directly), A the grain
-    // noise. Packing the two source images keeps the material to one fetch.
+    // Game-provided linear slope moments, shared across renderer restarts.
+    // RG = 128 + 127 * mean(slope)/0.6, B = 255 * mean(dot(slope,slope))/0.36,
+    // A = 255 * coverage. Mips must average these channels WITHOUT normalizing.
+    // The uncovered substrate has zero slope. One RGBA8 texture/fetch suffices.
     struct TerrainGrainImage
     {
         unsigned width = 0, height = 0;
@@ -20,6 +21,13 @@ namespace ProceduralTerrain
         return image.width > 0 && image.height > 0
             && image.width <= 4096 && image.height <= 4096
             && image.rgba.size() == std::size_t(image.width) * image.height * 4;
+    }
+
+    inline unsigned terrainGrainMipLevels(unsigned width, unsigned height) noexcept
+    {
+        unsigned levels = 1;
+        for (unsigned size = width > height ? width : height; size > 1; size >>= 1) ++levels;
+        return levels;
     }
 
     inline constexpr unsigned TerrainFineSurfaceSize = 512;
