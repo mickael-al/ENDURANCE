@@ -99,8 +99,13 @@ def main():
         dark=draw(gl,rig,fixture,shader)
         assert max(max(p) for p in dark)<1e-6, 'grains emit light without a source'
         illumination(gl,fixture,direction=(0,.27,-1),shadow=True)
+        # Cover the WHOLE perspective plane. The foliage fixture's +/-100 m
+        # projection leaves distant top-row pixels outside its shadow map.
+        matrix=(.001,0,0,0, 0,.001,0,0, 0,0,.001,0, 0,0,0,1)
+        gl.buffer(b''.join(struct.pack('<20f',*matrix,0,0,0,split)
+                           for split in (-100.,-500.,-1000.,-10000.)),3)
         shadowed=draw(gl,rig,fixture,shader)
-        assert mean(shadowed)<mean(image)*.01, ('shadow ignored',mean(shadowed),mean(image))
+        assert max(max(p) for p in shadowed)<1e-6, 'grain escaped a fully covering shadow map'
         illumination(gl,fixture,direction=(0,.27,1))
         away=draw(gl,rig,fixture,shader)
         # Turning the sun away must change WHICH grains are bright.

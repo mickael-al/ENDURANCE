@@ -15,7 +15,7 @@ below are functions compiled into that program, not additional rendering passes.
 | `Asset/Shader/ProceduralTerrain/render.fs.glsl` | Fragment `main`: material evaluation, final normal and G-buffer writes |
 | `Asset/Shader/ProceduralTerrain/materials.glsl` | `terrainEvaluateAppearance` → biome → surface → material: climate, slope, palettes and PBR blending |
 | `Asset/Shader/ProceduralTerrain/patterns.glsl` | Shared noise/value gradients, grain spectrum and the eight procedural relief families |
-| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered stain masks and unfiltered white-noise grains after material blending |
+| `Asset/Shader/ProceduralTerrain/fine_surface.glsl` | Filtered stain masks and bilinear white-noise facets after material blending |
 | `ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp` | One-time C++ bake of the eight-octave stain mask (grains need no texture) |
 | `Asset/Shader/ProceduralTerrain/render.vs.glsl` | Packed terrain vertex decoding, world position and climate varyings |
 | `ANTAGONIZ/Source/ProjectUser/EnduranceTerrainMaterials.cpp` | `makeTerrainAppearance`: authored ground/wall palettes and parameters for all 26 biomes |
@@ -185,21 +185,27 @@ The sizes describe base features/spacing, not an exact diameter of irregular
 patches. These controls change uniforms without remeshing or rebaking anything.
 They are independent of the biome relief noise's period and octaves.
 
-The sand/snow path uses **point-sampled white-noise mineral facets**. The old
-fourth-power random-roughness approach is removed: it made many pixels glossy
-with an identical normal and produced a large speckled reflection patch.
-`terrainApplyGranularSurface` now keeps about 78% of cells at the authored
-substrate roughness and normal. The remaining 22% receive independently oriented
-facets, with the authored grain roughness. Facet slopes use an isotropic,
-truncated GGX distribution (spread 0.28, maximum tilt about 34 degrees).
+The sand/snow path uses **bilinearly filtered white-noise mineral facets**.
+The underlying integer hash supplies independent 8/12/12-bit fields for coverage,
+azimuth and radial slope. About 22% of lattice samples contain a facet; the
+others contain the matte substrate. The original facet distribution remains
+isotropic truncated GGX (spread 0.28, maximum tilt about 34 degrees).
 
-One existing integer hash at `floor(worldPosition/grainSize)` supplies disjoint
-8/12/12-bit fields for coverage, azimuth and radial slope. There is no grain
-texture, interpolation, FBM, repeated small tile or per-frame randomization.
-The facet calculation runs only for selected cells after all material blends.
-`fineSurface.x` blends the facet normal and roughness continuously with the
-substrate; `fineSurface.y` sets the facet roughness. The two local constants
-`facetCoverage` and `slopeSpread` in `fine_surface.glsl` tune density and spread.
+`terrainApplyGranularSurface` now evaluates the four neighbouring samples in
+`terrainFineProjection(worldPosition)/grainSize` and linearly interpolates their
+coverage and coverage-weighted slopes. This is procedural bilinear reconstruction,
+not a sampler toggle: the grain source is a hash, not a texture. Filtering slope
+vectors instead of azimuth avoids the 0/2pi wrap discontinuity; filtered coverage
+is never re-thresholded. Roughness and normal therefore transition continuously
+across cell boundaries. The fixed world projection preserves the ground's grain
+spacing and also advances vertically along walls.
+
+No grain texture, additional GPU allocation, FBM, small repeated tile or
+per-frame randomization is introduced. The cost is four cell hashes instead of
+one, plus the orientation calculation for active samples. `fineSurface.x` scales
+the filtered normal/roughness contribution, and `fineSurface.y` sets facet
+roughness. `facetCoverage` and `slopeSpread` in `fine_surface.glsl` tune the source
+samples. The existing grain size and density controls are retained.
 
 Only the ordinary G-buffer normal and roughness are changed. **The forward /
 deferred lighting shaders, G-buffer formats/tags, lighting model, passes and
@@ -213,8 +219,9 @@ and discrete FBM stains, including saved stain controls. Adjacent rock/vegetatio
 layers retain their own detail. Macro color/ripple masks, terrain mesh geometry
 and the separate geometric-normal tag for shadow bias are retained.
 
-There is **no distance or pixel-footprint fade**. The fixed world cell domain
-stays active even for subpixel grains, as requested. Subpixel facets can shimmer
+There is **no distance or pixel-footprint fade**. The fixed world domain
+stays active even for subpixel grains, as requested. Bilinear filtering alone
+is not footprint-aware minification and cannot eliminate distant aliasing. Subpixel facets can shimmer
 in motion without temporal antialiasing; this change does not claim to solve that
 sampling problem. Only coordinates outside signed-integer-safe cell bounds skip
 the effect, to avoid undefined conversion (not a view-distance restriction).
@@ -259,7 +266,7 @@ comparisons and restores the ordinary procedural-normal path.
 The redesigned granular path is checked with actual OpenGL shaders on Mesa
 llvmpipe (software rendering). `Tests/TerrainMaterials/check_gpu.py` verifies
 sparse coverage, bounded normalized facet directions, a stable matte substrate,
-constant samples within each world cell, seed/LOD stability, large-footprint
+bilinear interpolation and cell-boundary continuity, seed/LOD stability, large-footprint
 visibility, unaffected albedo/geometry/AO/metallic, stain isolation and static
 disable. There is no C++ layout or serialized parameter change.
 
@@ -272,7 +279,7 @@ compares against an earlier commit under identical controlled lighting; it is
 not an in-game capture or a target-GPU performance measurement.
 
 No extra texture, allocation, generation work or lighting pass is introduced.
-The new orientations require some extra arithmetic on selected terrain pixels;
+Bilinear reconstruction adds neighbouring hash/orientation evaluations;
 GTX 1660 frame cost and the result under actual game exposure still need in-game
 validation. The timings below predate this facet redesign and must **not** be
 used as its performance estimate.

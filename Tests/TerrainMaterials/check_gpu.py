@@ -419,13 +419,13 @@ def check_fine_surface(gl):
     assert sparkle[3][0::4] == baseline[3][0::4] and sparkle[3][2::4] == baseline[3][2::4]
     assert min(sparkle[3][1::4]) < .16 and max(sparkle[3][1::4]) > .79, 'missing sparse glossy grains'
     # Sparse independent mineral facets over an otherwise unchanged substrate.
-    coverage=sum(r < .5 for r in sparkle[3][1::4])/128**2
+    coverage=sum((.8-r)/(.8-.12) for r in sparkle[3][1::4])/128**2
     assert .17 < coverage < .28, ('grain coverage',coverage)
     facets=[]
     for n,rough in zip(pixels(sparkle[1]),sparkle[3][1::4]):
         assert abs(sum(x*x for x in n[:3])-1.) < 3e-5
         assert n[1]>.82, 'facet slope exceeded the bounded hemisphere'
-        if rough > .79: assert max_difference(n[:3],(0.,1.,0.))<1e-6
+        if abs(rough-.8)<1e-7: assert max_difference(n[:3],(0.,1.,0.))<1e-6
         else: facets.append(n)
     assert max(n[0] for n in facets)-min(n[0] for n in facets)>.5
     assert abs(sum(n[0] for n in facets)/len(facets))<.05
@@ -434,16 +434,23 @@ def check_fine_surface(gl):
     stable=rig.read()
     assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
 
-    # Point sampling must be exactly constant inside a world cell. Advancing
-    # to another cell (or by the old 128-cell tile) must not preserve its value.
-    rig.set(testOrigin=(.011,.011,.011),testAxisX=(.008,0.,0.),testAxisY=(0.,0.,.008))
-    cell=rig.read()
-    assert max(cell[3][1::4])-min(cell[3][1::4]) < 1e-6, 'grain samples interpolate within a cell'
-    for channel in range(3):
-        assert max(cell[1][channel::4])-min(cell[1][channel::4]) < 1e-6
-    rig.set(testOrigin=(.021,.011,.021)); within=rig.read()
-    assert max_difference(cell[3],within[3]) < 1e-6, 'grain sample depends on subcell location'
-    assert max_difference(cell[1],within[1]) < 1e-6, 'facet normal interpolates within a cell'
+    # Independently check bilinear reconstruction, including normals. The
+    # unnormalized slope N.xz/N.y must interpolate, not angular coordinates.
+    def probe(u,v):
+        u*=.04; v*=.04
+        rig.set(testOrigin=(.8*u+.6*v,0.,-.6*u+.8*v),
+                testAxisX=(0.,0.,0.),testAxisY=(0.,0.,0.))
+        result=rig.read(); n=result[1][:3]
+        return (n[0]/n[1],n[2]/n[1],result[3][1])
+    for x in range(8):
+        corners=[probe(x+dx,dy) for dy in (0,1) for dx in (0,1)]
+        if max(c[2] for c in corners)-min(c[2] for c in corners)>.05: break
+    else: raise AssertionError('bilinear fixture contains no grain boundary')
+    weights=(.1875,.0625,.5625,.1875) # local UV=(.25,.75)
+    expected=tuple(sum(w*c[i] for w,c in zip(weights,corners)) for i in range(3))
+    assert max_difference(probe(x+.25,.75),expected)<3e-5, 'grain field is not bilinear'
+    left=probe(x+1.-1e-5,.37); right=probe(x+1.+1e-5,.37)
+    assert max_difference(left,right)<5e-5, 'grain field jumps at a cell boundary'
     rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
     first=rig.read()
     rig.set(testOrigin=(-.37+128*.04,180.,.23)); shifted=rig.read()
@@ -526,7 +533,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: sparse point-sampled facets, bounded isotropic normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
+    print('PASS fine surfaces: bilinear facet slopes/coverage, continuous cell boundaries, bounded normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):
