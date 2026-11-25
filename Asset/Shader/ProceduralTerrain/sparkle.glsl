@@ -6,9 +6,10 @@
 // Unlike their example, no view/time offset moves the grid. Two stationary
 // levels crossfade; no normal-map mip averages away the discrete highlights.
 // Controls are independent: screen width, screen spacing, material strength.
-const float TERRAIN_SPARKLE_WIDTH = 0.1; // half-size kernel, filtered over each pixel
+const float TERRAIN_SPARKLE_WIDTH = 0.1; // kernel screen scale, filtered over each pixel
 const float TERRAIN_SPARKLE_SPACING = 2.0; // minimum grid width in pixels
-const float TERRAIN_SPARKLE_JITTER = 0.64; // center range 0.28..0.72 of a cell
+const float TERRAIN_SPARKLE_JITTER = 0.64; // center range 0.18..0.82 of a cell
+const float TERRAIN_SPARKLE_SUN_EXPONENT = 4.0; // higher values concentrate sparkles near the horizon
 
 float terrainSparkleIntegral(float x)
 {
@@ -65,6 +66,10 @@ void terrainApplyGranularSurface(inout vec3 normal, inout float roughness,
 {
     if (material.sparkle.x <= 0.0 || dot(terrainGrainLightDirection,terrainGrainLightDirection) < 0.5) return;
     vec3 L = terrainGrainLightDirection;
+    // World-space sun height: full strength at the horizon, zero at zenith.
+    // Fade the material contribution without changing either fixed point grid.
+    float sunStrength = pow(1.0-clamp(L.y,0.0,1.0),TERRAIN_SPARKLE_SUN_EXPONENT);
+    if (sunStrength <= 0.0) return;
     vec3 viewDelta = terrainGrainCameraPosition-c.position;
     vec3 V = viewDelta*inversesqrt(max(dot(viewDelta,viewDelta),1.0e-8));
     float nDotL = dot(normal,L), nDotV = dot(normal,V);
@@ -96,7 +101,7 @@ void terrainApplyGranularSurface(inout vec3 normal, inout float roughness,
     float second = terrainSparkleLevel(p,screenFromWorld,2.0*spacing,int(lower)+1,normal,H);
     float coverage = mix(first,second,smoothstep(0.0,1.0,fract(level)));
     float visibility = smoothstep(0.0,0.08,min(nDotL,nDotV));
-    float weight = clamp(material.sparkle.x,0.0,1.0)*coverage*visibility*reflectionRegion;
+    float weight = clamp(material.sparkle.x,0.0,1.0)*coverage*visibility*reflectionRegion*sunStrength;
     if (weight <= 0.0) return;
 
     // Material-side adapter for the UNCHANGED engine PBR. Aim selected normals

@@ -435,7 +435,14 @@ def check_fine_surface(gl):
             microDetailStrength=0.,terrainSparkleGrainSize=.04)
     baseline=rig.read()
     grains=edited_vec(table,0,96,(1.,.12,0.,0.))
-    rig.upload(grains); sparkle=rig.read()
+    rig.upload(grains)
+    # An overhead sun and camera maximize the reflection envelope. The new
+    # zenith fade must still leave the substrate exactly unchanged.
+    assert rig.read()[1:] == baseline[1:], 'zenith sun still produces grain facets'
+    low_sun=(0.,.25,-math.sqrt(1.-.25**2))
+    rig.set(terrainGrainLightDirection=low_sun,
+            terrainGrainCameraPosition=(0.,180.+low_sun[1]*1e6,-low_sun[2]*1e6))
+    sparkle=rig.read()
     assert sparkle[0] == baseline[0] and sparkle[2] == baseline[2], 'glints changed geometry/emission/albedo'
     assert sparkle[3][0::4] == baseline[3][0::4] and sparkle[3][2::4] == baseline[3][2::4]
     roughness = sparkle[3][1::4]
@@ -452,7 +459,7 @@ def check_fine_surface(gl):
     assert rig.read()[1:] == baseline[1:], 'no-source path perturbs IBL/diffuse material'
     rig.set(terrainGrainLightDirection=(1.,0.,0.))
     assert rig.read()[1:] == baseline[1:], 'unlit surface has grain facets'
-    rig.set(terrainGrainLightDirection=(0.,1.,0.))
+    rig.set(terrainGrainLightDirection=low_sun)
     rig.set(testLod=5,testViewOffset=(5.,2.,-10.))
     stable=rig.read()
     assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
@@ -558,7 +565,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: sparse procedural points, world-anchored sampling, finite/normalized normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
+    print('PASS fine surfaces: zero facets at zenith, sparse low-sun points, world-anchored sampling, finite/normalized normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):

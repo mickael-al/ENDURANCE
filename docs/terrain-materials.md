@@ -201,13 +201,13 @@ stationary dyadic grids to soften scale transitions.
 
 - Projected world coordinates identify a cell at each of two grid levels. One
   integer hash per level, salted with the world seed and level, chooses a center
-  in the range **0.28–0.72** of each cell axis. Chunk IDs and frame numbers do not
+  in the range **0.18–0.82** of each cell axis. Chunk IDs and frame numbers do not
   enter this calculation. Changing levels changes the visible population
   gradually; it does not continuously slide either grid over the terrain.
 - A separable cubic B-spline provides compact coverage around each center. Its
   analytic integral over each pixel preserves subpixel coverage when a small
-  point moves between pixel centers. At the default scale of 0.5, the filtered
-  support is +/-1.5 screen pixels in each axis. It does not average an entire
+  point moves between pixel centers. At the default scale of 0.1, the filtered
+  support is +/-0.7 screen pixels in each axis. It does not average an entire
   noise texture into a uniform normal or create contours by thresholding an
   interpolated normal map.
 - The full **2x2 world-to-screen metric** uses derivatives captured in
@@ -227,23 +227,24 @@ stationary dyadic grids to soften scale transitions.
   center or compact shape. Random amplitude, material strength and the broad
   reflection envelope keep the surface from becoming uniformly glossy.
 
-Three constants in `sparkle.glsl` control the screen appearance:
+Four constants in `sparkle.glsl` control the screen appearance:
 
 | Constant | Default | Meaning |
 |---|---:|---|
-| `TERRAIN_SPARKLE_WIDTH` | 0.5 | Base kernel screen scale, halved from the initial procedural version; pixel integration limits aliasing of the smaller points |
-| `TERRAIN_SPARKLE_SPACING` | 8.0 | Minimum lower-grid spacing relative to the full pixel footprint; larger values make points sparser |
-| `TERRAIN_SPARKLE_JITTER` | 0.44 | Center displacement range within a cell, increased from 0.28; centers now span 0.28–0.72 on each axis |
+| `TERRAIN_SPARKLE_WIDTH` | 0.1 | Base kernel screen scale; pixel integration limits aliasing of the smaller points |
+| `TERRAIN_SPARKLE_SPACING` | 2.0 | Minimum lower-grid spacing relative to the full pixel footprint; larger values make points sparser |
+| `TERRAIN_SPARKLE_JITTER` | 0.64 | Center displacement range within a cell; centers span 0.18–0.82 on each axis |
+| `TERRAIN_SPARKLE_SUN_EXPONENT` | 4.0 | Positive exponent of the sun-height fade; larger values concentrate the effect closer to the horizon |
 
 The width is an approximate coverage target, not a guarantee that each final
 lit component occupies exactly one pixel. Tone mapping, exposure, bloom and the
 PBR adapter affect perceived size. Halving the base kernel width does not halve
-every final lit diameter after pixel integration. Spacing is independent of
-width at the defaults, preserving the previous grid population. To contain the
-kernel without neighbor evaluation, the effective spacing factor is clamped to
+every final lit diameter after pixel integration. To contain the kernel without
+neighbor evaluation, the effective spacing factor is clamped to
 `max(SPACING, sqrt(2) * (2 * WIDTH + 0.5) / margin)`, where
 `margin = (1 - JITTER) / 2`. Keep `WIDTH > 0` and `0 <= JITTER < 1`.
-Larger width or jitter can therefore increase the required grid spacing.
+At the current settings this gives about 5.50 despite the requested spacing of
+2.0. Larger width or jitter can therefore increase the required grid spacing.
 Material `fineSurface.x` and `.y` continue to control strength and selected-facet
 roughness independently of these shader constants.
 
@@ -253,11 +254,21 @@ an active atmosphere this selects the first active directional light. At night,
 with an active atmosphere, it returns zero: the existing lunar IBL is preserved.
 Neither forward shader is changed.
 
+The material contribution is multiplied by
+`pow(1 - clamp(L.y, 0, 1), TERRAIN_SPARKLE_SUN_EXPONENT)`, using world up and the
+normalized direction toward the sun. With exponent 4, strength is 100% at the
+horizon, 31.64% at height 0.25, 6.25% at 0.5, 0.39% at 0.75 and exactly zero at
+zenith. A zero strength returns before sampling the point grids, preserving the
+original material. Center positions and grid selection are unaffected by this
+factor. These percentages scale the material selection weight, not final HDR
+brightness; reflection, surface visibility and the existing lighting still
+apply. The absence-of-sun path remains responsible for disabling night sparkles.
+
 Before writing the G-buffer, the terrain evaluates the light/view half vector.
 The existing angular envelope limits the effect to the reflected-sun region
 (`smoothstep(0.80, 0.98, dot(normal, H))`) and skips both grid evaluations outside
-it. Light/view visibility, material strength and the filtered point coverage
-form the selection weight.
+it. Light/view visibility, material strength, the filtered point coverage and
+the sun-height factor form the selection weight.
 
 The selected G-buffer normal approaches **H**, with a short smooth edge ramp.
 Roughness blends approximate GGX peak powers, proportional to **1/r^4**, before
