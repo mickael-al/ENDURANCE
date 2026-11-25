@@ -175,8 +175,8 @@ void extendedArtRecipes()
     const auto& definitions = E::effectDefinitions();
     const auto& sand = definitions[index(E::EffectId::SandGust)].particles;
     require(sand.count == 2 * 30720, "Sand gust must double the previous population");
-    require(near(sand.group.scaleStart, .0035f) && near(sand.group.scaleEnd, .014f),
-            "Sand gust sprite dimensions must be ten times smaller");
+    require(near(sand.group.scaleStart, .007f) && near(sand.group.scaleEnd, .028f),
+            "Sand gust sprite dimensions must retain the doubled visibility setting");
     require(near(sand.group.colorGradient[1].a, .32f * .75f),
             "Sand gust opacity must fall by 25 percent");
     struct ReachRequirement { E::EffectId id; unsigned count; float oldXZ; float oldY; };
