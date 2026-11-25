@@ -25,6 +25,7 @@ os.environ.setdefault("MESA_GLSL_VERSION_OVERRIDE", "460")
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
 from check_cpu import export_table, export_appearance, export_stain
+from check_grain_assets import export_grain
 sys.path.insert(0, str(ROOT / "Tests/Atmosphere"))
 from gl_support import AtmosphereGL, RGBA32F, RG32F, TEXTURE_2D, shader_source
 
@@ -118,6 +119,17 @@ class MaterialRig:
             gl._fn('glGenerateMipmap',None,C.c_uint)
             gl.glGenerateMipmap(TEXTURE_2D)
             gl.check('production terrain stain cache')
+        self.grain_texture = 'terrainGrainTexture' in self.fragment_source
+        if self.grain_texture and not hasattr(gl, 'terrain_grain'):
+            payload = export_grain() # Exact production decode + channel packing.
+            gl.terrain_grain = gl.texture((1024,1024),internal=0x8058,levels=1,value=0.)
+            gl.sampler(1,gl.terrain_grain)
+            gl.glTexImage2D(TEXTURE_2D,0,0x8058,1024,1024,0,0x1908,0x1401,C.c_char_p(payload))
+            gl.glTexParameteri(TEXTURE_2D,0x2801,0x2601) # GL_LINEAR, no mipmaps
+            gl.glTexParameteri(TEXTURE_2D,0x2800,0x2601)
+            gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
+            gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
+            gl.check('production packed terrain grain texture')
         self.historical_sparkle = 'terrainSparkleCache' in self.fragment_source
         if self.historical_sparkle and not hasattr(gl, 'terrain_sparkle'):
             payload = historical_sparkle_cache()
@@ -233,6 +245,7 @@ class MaterialRig:
         gl.glUseProgram(self.program)
         gl.sampler(0,gl.terrain_stain)
         if self.historical_sparkle: gl.sampler(1,gl.terrain_sparkle)
+        if self.grain_texture: gl.sampler(1,gl.terrain_grain)
         gl.glDrawArrays(0x0004, 0, 3)
         gl.glBindFramebuffer(0x8D40, 0)
 
@@ -382,7 +395,12 @@ def check_continuity(rig, table):
 
 
 def check_filtering(rig, table):
-    rig.upload(table)
+    # This check concerns the generic smooth relief. Granular layers explicitly
+    # keep their normal texture at range, verified separately below.
+    smooth=table
+    for offset in (0,112,272,384):
+        smooth=edited_vec(smooth,15,offset+96,(0.,.16,0.,0.))
+    rig.upload(smooth)
     rig.set(terrainBiomeOverride=15,microDetailStrength=1.,microDetailScale=2.,
             testOrigin=(-2.3,180.,1.8),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
     close=rig.read()
@@ -394,6 +412,7 @@ def check_filtering(rig, table):
     assert max(deviations) < .001, ('subpixel normal detail did not fade',max(deviations))
     rig.set(microDetailStrength=.15,testOrigin=(-57.3,180.,71.8),
             testAxisX=(40.,0.,0.),testAxisY=(0.,0.,30.))
+    rig.upload(table)
     print('PASS near-field microrelief and derivative-based subpixel normal suppression',flush=True)
 
 
@@ -417,46 +436,56 @@ def check_fine_surface(gl):
     rig.upload(grains); sparkle=rig.read()
     assert sparkle[0] == baseline[0] and sparkle[2] == baseline[2], 'glints changed geometry/emission/albedo'
     assert sparkle[3][0::4] == baseline[3][0::4] and sparkle[3][2::4] == baseline[3][2::4]
-    assert min(sparkle[3][1::4]) < .16 and max(sparkle[3][1::4]) > .79, 'missing sparse glossy grains'
-    # Sparse independent mineral facets over an otherwise unchanged substrate.
-    coverage=sum((.8-r)/(.8-.12) for r in sparkle[3][1::4])/128**2
-    assert .17 < coverage < .28, ('grain coverage',coverage)
-    facets=[]
-    for n,rough in zip(pixels(sparkle[1]),sparkle[3][1::4]):
+    assert .119 < min(sparkle[3][1::4]) < .16
+    assert .16 < max(sparkle[3][1::4]) < .241, 'noise-driven microroughness missing'
+    facets=list(pixels(sparkle[1]))
+    for n in facets:
         assert abs(sum(x*x for x in n[:3])-1.) < 3e-5
-        assert n[1]>.82, 'facet slope exceeded the bounded hemisphere'
-        if abs(rough-.8)<1e-7: assert max_difference(n[:3],(0.,1.,0.))<1e-6
-        else: facets.append(n)
+        assert n[1]>.6, 'decoded normal left the terrain hemisphere'
     assert max(n[0] for n in facets)-min(n[0] for n in facets)>.5
-    assert abs(sum(n[0] for n in facets)/len(facets))<.05
-    assert abs(sum(n[2] for n in facets)/len(facets))<.05
+    assert abs(sum(n[0] for n in facets)/len(facets))<.08
+    assert abs(sum(n[2] for n in facets)/len(facets))<.08
     rig.set(testLod=5,testViewOffset=(5.,2.,-10.))
     stable=rig.read()
     assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
 
-    # Independently check bilinear reconstruction, including normals. The
-    # unnormalized slope N.xz/N.y must interpolate, not angular coordinates.
+    # Check real source pixels: matching normal/noise UVs, unsigned blue decode,
+    # and hardware bilinear filtering (including the texture repeat boundary).
+    from PIL import Image
+    folder=ROOT/'ENDURANCE/Ressources/Texture/Terrain'
+    normals=Image.open(folder/'NormalMap.png').convert('RGB')
+    noise=Image.open(folder/'grain.png').convert('L')
+    def source_pixel(x,y):
+        return (*[v/255. for v in normals.getpixel((x%1024,y%1024))],
+                noise.getpixel((x%1024,y%1024))/255.)
     def probe(u,v):
         u*=.04; v*=.04
-        rig.set(testOrigin=(.8*u+.6*v,0.,-.6*u+.8*v),
+        rig.set(worldSeed=0,testOrigin=(.8*u+.6*v,0.,-.6*u+.8*v),
                 testAxisX=(0.,0.,0.),testAxisY=(0.,0.,0.))
-        result=rig.read(); n=result[1][:3]
-        return (n[0]/n[1],n[2]/n[1],result[3][1])
-    for x in range(8):
-        corners=[probe(x+dx,dy) for dy in (0,1) for dx in (0,1)]
-        if max(c[2] for c in corners)-min(c[2] for c in corners)>.05: break
-    else: raise AssertionError('bilinear fixture contains no grain boundary')
-    weights=(.1875,.0625,.5625,.1875) # local UV=(.25,.75)
-    expected=tuple(sum(w*c[i] for w,c in zip(weights,corners)) for i in range(3))
-    assert max_difference(probe(x+.25,.75),expected)<3e-5, 'grain field is not bilinear'
-    left=probe(x+1.-1e-5,.37); right=probe(x+1.+1e-5,.37)
-    assert max_difference(left,right)<5e-5, 'grain field jumps at a cell boundary'
-    rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
+        result=rig.read()
+        return (*result[1][:3],result[3][1])
+    for x,y,fx,fy in ((31,61,0.,0.),(31,61,.25,.75),(1023,1023,.5,.5)):
+        samples=[source_pixel(x+dx,y+dy) for dy in (0,1) for dx in (0,1)]
+        weights=((1-fx)*(1-fy),fx*(1-fy),(1-fx)*fy,fx*fy)
+        red,green,blue,gray=[sum(w*c[i] for w,c in zip(weights,samples)) for i in range(4)]
+        nx,ny,nz=red*2.-1.,green*2.-1.,blue
+        length=math.sqrt(nx*nx+ny*ny+nz*nz)
+        nx*=.55/length; ny*=.55/length; nz=.45+.55*nz/length
+        world=(.8*nx+.6*ny,nz,-.6*nx+.8*ny)
+        length=math.sqrt(sum(v*v for v in world))
+        expected=(*(v/length for v in world),.12+(1-gray)*.12)
+        actual=probe(x+.5+fx,y+.5+fy)
+        # RGBA8 hardware bilerp can round intermediate channels to 8 bits.
+        assert max_difference(actual,expected)<.008, ('PNG channels/UVs/filter/decode mismatch',x,y,fx,fy,actual,expected)
+    left=probe(1024.-1e-5,63.37); right=probe(1e-5,63.37)
+    assert max_difference(left,right)<.002, 'grain texture repeat seam is discontinuous'
+    rig.set(worldSeed=1337,testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
     first=rig.read()
-    rig.set(testOrigin=(-.37+128*.04,180.,.23)); shifted=rig.read()
-    assert max_difference(first[3],shifted[3])>.1, 'old 128-cell grain tiling remains'
+    period=1024*.04
+    rig.set(testOrigin=(-.37+.8*period,180.,.23-.6*period)); repeated_grain=rig.read()
+    assert max_difference(first[1],repeated_grain[1])<.004, ('metres-per-texel scale is incorrect', max_difference(first[1],repeated_grain[1]))
     rig.set(testOrigin=(-.37,180.,.23),worldSeed=7331); reseeded=rig.read()
-    assert max_difference(first[3],reseeded[3])>.1, 'grain ignores the world seed'
+    assert max_difference(first[1],reseeded[1])>.1, 'grain ignores the world seed'
     rig.set(worldSeed=1337)
 
     # Saved v4 records can still contain stain controls. Granular materials
@@ -533,7 +562,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: bilinear facet slopes/coverage, continuous cell boundaries, bounded normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
+    print('PASS fine surfaces: original PNG normals/noise, bilinear repeat/UV/encoding, bounded normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):

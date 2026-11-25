@@ -125,10 +125,10 @@ def main():
             import numpy as np
             from PIL import Image,ImageDraw
             rig.upload(grains)
-            panels=[('Nouveau : facettes / forward inchange',draw(gl,rig,fixture,shader))]
+            panels=[('Nouveau : PNG bruit + normales / forward inchange',draw(gl,rig,fixture,shader))]
             if args.compare_ref:
                 old=make_rig(gl,grains,fixture,snapshot_source(TERRAIN/'render.fs.glsl',args.compare_ref))
-                panels.insert(0,('Avant : bruit de rugosite',draw(gl,old,fixture,shader)))
+                panels.insert(0,(f'Avant : {args.compare_ref}',draw(gl,old,fixture,shader)))
             panels.append(('Neige : meme chemin de rendu',snow_image))
             canvas=Image.new('RGB',(size[0]*len(panels),size[1]+40),(24,26,30))
             labels=ImageDraw.Draw(canvas)

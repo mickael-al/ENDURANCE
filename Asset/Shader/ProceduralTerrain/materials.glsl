@@ -92,8 +92,8 @@ TerrainAppearanceSample terrainEvaluateMaterial(TerrainMaterial m,
     float midHigh = terrainFilteredStep((1.0+midpoint)*0.5,
         (1.0-midpoint)*0.5*softness,value,screenWidth);
     vec4 palette = mix(mix(m.colorLow,m.colorMid,lowMid),m.colorHigh,midHigh);
-    // Granular surfaces use raw white noise for reflections, never smooth
-    // noise bumps that turn the highlight into rings. Select before blending,
+    // Granular surfaces use their shared noise/normal image pair, never
+    // the generic smooth FBM relief. Select before blending,
     // so neighbouring rock/vegetation retain their own relief and stains.
     float coherentDetail = 1.0;
 #if TERRAIN_FINE_SURFACE_ENABLED

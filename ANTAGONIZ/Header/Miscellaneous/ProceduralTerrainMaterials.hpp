@@ -27,7 +27,7 @@ namespace ProceduralTerrain
         // Nonnegative macro/patch/strata/ripple weights, normalized in GLSL.
         // All zero is legal and selects the center of the palette.
         TerrainMaterialVector pattern{{0.65f, 0.35f, 0.0f, 0.0f}};
-        // Sparkle strength, grain roughness, stain darkening, stain roughness
+        // Grain normal/roughness influence, grain roughness, stain darkening, stain roughness
         // reduction. Per material, disabled in the generic engine defaults.
         // Darkening is a fraction of LINEAR albedo, not a display-space offset.
         TerrainMaterialVector fineSurface{{0.0f, 0.16f, 0.0f, 0.0f}};

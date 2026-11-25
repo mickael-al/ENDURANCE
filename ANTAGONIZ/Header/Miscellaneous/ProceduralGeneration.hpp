@@ -6,6 +6,7 @@
 #include "ProceduralTerrainGpu.hpp"
 #include "ProceduralTerrainLod.hpp"
 #include "ProceduralTerrainMaterials.hpp"
+#include "ProceduralTerrainFineSurface.hpp"
 #include "ProceduralTerrainSea.hpp"
 #include <glm/vec3.hpp>
 #include <cstdint>
@@ -37,6 +38,7 @@ public:
         float microDetailScale = 2.0f;
         // Game-owned recipes; the renderer only owns their GPU representation.
         ProceduralTerrain::TerrainAppearance appearance;
+        std::shared_ptr<const ProceduralTerrain::TerrainGrainImage> grainImage;
         bool debugLod = false;
         bool collisionEnabled = true;
         float collisionRadius = 128.0f;

@@ -3,6 +3,8 @@
 
 #if TERRAIN_FINE_SURFACE_ENABLED
 layout(binding=0) uniform sampler2D terrainFineSurfaceCache;
+// RGB = supplied normal map, A = supplied white noise, packed once on load.
+layout(binding=1) uniform sampler2D terrainGrainTexture;
 uniform float terrainVegetationStainSize = 2.5;
 uniform float terrainOtherStainSize = 0.25;
 uniform float terrainSparkleGrainSize = 0.002;
@@ -11,7 +13,8 @@ uniform float terrainSparkleGrainSize = 0.002;
 // lookup per scale. The Y projection also advances at unit rate along walls.
 vec2 terrainFineProjection(vec3 p)
 {
-    return mat2(0.8,0.6,-0.6,0.8) * (p.xz + p.y*vec2(0.6,0.8));
+    // Expanded rotation/shear avoids cancelling two large height terms in U.
+    return vec2(0.8*p.x-0.6*p.z,0.6*p.x+0.8*p.z+p.y);
 }
 
 float terrainStainCoverage(vec2 p, float footprint, float featureSize)
@@ -39,59 +42,41 @@ void terrainApplyFineStains(inout TerrainAppearanceSample material, TerrainPatte
     material.roughness = max(0.04,material.roughness-correction.y);
 }
 
-// XY is the facet slope premultiplied by coverage; Z is coverage. Interpolate
-// this material field, not azimuth angles or a thresholded interpolated hash:
-// both the 0/2pi seam and hard glossy/matte borders would otherwise survive.
-vec3 terrainGranularCell(ivec2 cell)
-{
-    // Disjoint bits of one avalanche hash: 8 for coverage, 12+12 for the
-    // orientation. No extra noise calls or texture fetches per facet.
-    uint random = terrainHashCellSalt(ivec3(cell.x,0,cell.y),0x372cb913u);
-    const float facetCoverage = 0.22;
-    if ((random>>24u) >= uint(facetCoverage*256.0)) return vec3(0.0);
-
-    // Only sparse mineral facets are glossy; the remaining surface retains its
-    // authored matte response. Each selected cell has its own orientation, so
-    // grains catch the light at DIFFERENT viewing angles instead of exposing
-    // one noisy mirror patch with the same normal everywhere.
-    float azimuth = (6.28318530718/4096.0)*float(random & 4095u);
-    float sampleRadius = float((random>>12u) & 4095u)*(1.0/4096.0);
-    const float slopeSpread = 0.28;
-    // Truncated isotropic GGX slope distribution. Limit tilts to about 34 deg
-    // to retain the terrain's silhouette and prevent near-horizontal facets.
-    float u = sampleRadius*0.85;
-    float slope = slopeSpread*sqrt(u/(1.0-u));
-    return vec3(slope*vec2(cos(azimuth),sin(azimuth)),1.0);
-}
-
 void terrainApplyGranularSurface(inout vec3 normal, inout float roughness,
     TerrainAppearanceSample material, TerrainPatternContext c)
 {
     if (material.sparkle.x <= 0.0) return;
-    // Bilinear reconstruction in the fixed world projection. Four procedural
-    // neighbours act like four point texels under GL_LINEAR, without a texture
-    // tile or a new resource. World scale/seed stay independent of camera/LOD.
-    vec2 p = terrainFineProjection(c.position)/terrainSparkleGrainSize;
-    if (any(greaterThanEqual(abs(p),vec2(1.0e9)))) return;
-    ivec2 cell = ivec2(floor(p));
-    vec2 f = fract(p);
-    vec3 grains = mix(
-        mix(terrainGranularCell(cell),terrainGranularCell(cell+ivec2(1,0)),f.x),
-        mix(terrainGranularCell(cell+ivec2(0,1)),terrainGranularCell(cell+ivec2(1,1)),f.x),f.y);
-    if (grains.z <= 0.0) return;
-    // Do not re-threshold filtered coverage: keep the transition continuous.
-    // There is still no distance or footprint fade, even for subpixel grains.
-    vec3 reference = abs(normal.y)<0.999 ? vec3(0.0,1.0,0.0) : vec3(0.0,0.0,1.0);
-    vec3 tangent = normalize(cross(reference,normal));
-    vec3 bitangent = cross(normal,tangent);
-    vec3 facetSlope = grains.x*tangent+grains.y*bitangent;
+    // grainSize is metres per source texel, NOT metres per whole image. Both
+    // maps use identical UVs, fixed in world space across chunks and LODs.
+    vec2 texels = terrainFineProjection(c.position)/terrainSparkleGrainSize;
+    vec2 offset = vec2(worldSeed & 1023u, (worldSeed >> 10u) & 1023u);
+    vec2 uv = (texels+offset)/vec2(textureSize(terrainGrainTexture,0));
+    vec4 grain = textureLod(terrainGrainTexture,uv,0.0); // GL_LINEAR + GL_REPEAT
+
+    // This asset stores signed XY in RG, but positive Z DIRECTLY in B.
+    // Mapping B through *2-1 would turn most normals inside the terrain.
+    vec3 detailNormal = vec3(grain.rg*2.0-1.0,grain.b);
+    detailNormal *= inversesqrt(max(dot(detailNormal,detailNormal),1.0e-8));
     float amount = clamp(material.sparkle.x,0.0,1.0);
-    normal = normalize(normal+facetSlope*amount);
-    float facetRoughness = material.sparkle.y/material.sparkle.x;
-    roughness = mix(roughness,min(roughness,facetRoughness),amount*grains.z);
+    const float normalStrength = 0.55;
+    detailNormal = mix(vec3(0.0,0.0,1.0),detailNormal,amount*normalStrength);
+    // Derivatives of the SAME world projection as the textures. Project onto
+    // the terrain tangent plane so slopes/cliffs retain their underlying shape.
+    vec3 perturbation = detailNormal.x*vec3(0.8,0.0,-0.6)
+                      + detailNormal.y*vec3(0.6,1.0,0.8);
+    perturbation -= normal*dot(normal,perturbation);
+    normal = normalize(normal*detailNormal.z+perturbation);
+
+    // A continuous grain material, not glossy islands on a flat substrate.
+    // The matching noise varies microroughness; it never paints white pixels
+    // into the artist's palette. No independent random coverage/mask remains.
+    float grainRoughness = material.sparkle.y/material.sparkle.x;
+    float texturedRoughness = grainRoughness + (1.0-grain.a)*0.12;
+    roughness = mix(roughness,min(roughness,texturedRoughness),amount);
     // Ordinary G-buffer normal/roughness only. The existing, unmodified PBR
     // shader supplies light direction, Fresnel, shadows and IBL, with no glow
     // baked into albedo and no special material tag or extra render pass.
+    // No distance/footprint cut-off: the same bilinear sample applies at range.
 }
 #endif
 #endif

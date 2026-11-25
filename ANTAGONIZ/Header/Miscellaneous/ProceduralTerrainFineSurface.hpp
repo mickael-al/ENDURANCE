@@ -2,9 +2,26 @@
 
 #include <array>
 #include <cstdint>
+#include <vector>
 
 namespace ProceduralTerrain
 {
+    // Game-provided linear data, shared across renderer restarts. RGB contains
+    // a normal (XY encoded in [0,1], positive Z stored directly), A the grain
+    // noise. Packing the two source images keeps the material to one fetch.
+    struct TerrainGrainImage
+    {
+        unsigned width = 0, height = 0;
+        std::vector<std::uint8_t> rgba;
+    };
+
+    inline bool validTerrainGrainImage(const TerrainGrainImage& image) noexcept
+    {
+        return image.width > 0 && image.height > 0
+            && image.width <= 4096 && image.height <= 4096
+            && image.rgba.size() == std::size_t(image.width) * image.height * 4;
+    }
+
     inline constexpr unsigned TerrainFineSurfaceSize = 512;
     inline constexpr unsigned TerrainFineSurfaceMipLevels = 10;
     using TerrainFineSurfacePixels = std::array<std::uint8_t, TerrainFineSurfaceSize * TerrainFineSurfaceSize>;
