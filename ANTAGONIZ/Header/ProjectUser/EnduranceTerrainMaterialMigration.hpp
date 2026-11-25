@@ -1,13 +1,14 @@
 #pragma once
 
 #include "EnduranceTerrainMaterials.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
 namespace Endurance
 {
     // Scene data version, deliberately outside the renderer's std140 records.
-    constexpr std::uint32_t TerrainAppearanceRevision = 7;
+    constexpr std::uint32_t TerrainAppearanceRevision = 8;
 
     inline std::uint64_t terrainAppearanceLegacyFingerprint(
         const ProceduralTerrain::TerrainBiomeAppearance& biome) noexcept
@@ -58,8 +59,11 @@ namespace Endurance
         // it to 2 mm. Preserve other saved sizes and palette/effect settings.
         if (revision < 6 && std::abs(appearance.sparkleGrainSize - 0.01f) < 0.000001f)
             appearance.sparkleGrainSize = 0.001f;
-        if (std::abs(appearance.sparkleGrainSize - 0.001f) < 0.000001f)
+        if (revision < 7 && std::abs(appearance.sparkleGrainSize - 0.001f) < 0.000001f)
             appearance.sparkleGrainSize = 0.002f;
+        // v8 enlarges the texture footprint fivefold, including authored scales.
+        // Versioning makes this a one-time change on load, never on each draw.
+        appearance.sparkleGrainSize = (std::min)(1.0f, appearance.sparkleGrainSize * 5.0f);
         if (revision >= 5)
         {
             revision = TerrainAppearanceRevision;

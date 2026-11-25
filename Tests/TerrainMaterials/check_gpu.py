@@ -169,6 +169,8 @@ class MaterialRig:
             'terrainVegetationStainSize': ('1f', 2.5),
             'terrainOtherStainSize': ('1f', .25),
             'terrainSparkleGrainSize': ('1f', .01),
+            'terrainGrainLightDirection': ('3f', 0., 1., 0.),
+            'terrainGrainCameraPosition': ('3f', 0., 1000180., 0.),
             'testOrigin': ('3f', -57.3, 180., 71.8),
             'testAxisX': ('3f', 40., 0., 0.), 'testAxisY': ('3f', 0., 0., 30.),
             'testNormal': ('3f', 0., 1., 0.), 'testViewOffset': ('3f', 0., 0., 0.),
@@ -436,15 +438,21 @@ def check_fine_surface(gl):
     rig.upload(grains); sparkle=rig.read()
     assert sparkle[0] == baseline[0] and sparkle[2] == baseline[2], 'glints changed geometry/emission/albedo'
     assert sparkle[3][0::4] == baseline[3][0::4] and sparkle[3][2::4] == baseline[3][2::4]
-    assert .119 < min(sparkle[3][1::4]) < .16
-    assert .16 < max(sparkle[3][1::4]) < .241, 'noise-driven microroughness missing'
+    roughness = sparkle[3][1::4]
+    assert min(roughness) < .3 and max(roughness) > .799, ('missing isolated smooth facets',min(roughness),max(roughness))
+    coverage = sum(r < .79 for r in roughness)/len(roughness)
+    assert 0.001 < coverage < .15, ('substrate became globally glossy',coverage)
     facets=list(pixels(sparkle[1]))
     for n in facets:
         assert abs(sum(x*x for x in n[:3])-1.) < 3e-5
         assert n[1]>.6, 'decoded normal left the terrain hemisphere'
-    assert max(n[0] for n in facets)-min(n[0] for n in facets)>.5
-    assert abs(sum(n[0] for n in facets)/len(facets))<.08
-    assert abs(sum(n[2] for n in facets)/len(facets))<.08
+    # No sun and wrong reflection direction must leave the entire substrate
+    # unchanged, not just multiply its final color by zero.
+    rig.set(terrainGrainLightDirection=(0.,0.,0.))
+    assert rig.read()[1:] == baseline[1:], 'no-source path perturbs IBL/diffuse material'
+    rig.set(terrainGrainLightDirection=(1.,0.,0.))
+    assert rig.read()[1:] == baseline[1:], 'unlit surface has grain facets'
+    rig.set(terrainGrainLightDirection=(0.,1.,0.))
     rig.set(testLod=5,testViewOffset=(5.,2.,-10.))
     stable=rig.read()
     assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
@@ -458,34 +466,48 @@ def check_fine_surface(gl):
     def source_pixel(x,y):
         return (*[v/255. for v in normals.getpixel((x%1024,y%1024))],
                 noise.getpixel((x%1024,y%1024))/255.)
-    def probe(u,v):
+    def probe(u,v,expected_facet):
         u*=.04; v*=.04
-        rig.set(worldSeed=0,testOrigin=(.8*u+.6*v,0.,-.6*u+.8*v),
-                testAxisX=(0.,0.,0.),testAxisY=(0.,0.,0.))
+        position=(.8*u+.6*v,0.,-.6*u+.8*v)
+        # A nearly vertical view/light puts H on the selected facet. This tests
+        # actual image filtering/decoding rather than relying on arbitrary hits.
+        rig.set(worldSeed=0,testOrigin=position,testAxisX=(0.,0.,0.),testAxisY=(0.,0.,0.),
+                terrainGrainLightDirection=expected_facet,
+                terrainGrainCameraPosition=tuple(p+1000*n for p,n in zip(position,expected_facet)))
         result=rig.read()
         return (*result[1][:3],result[3][1])
-    for x,y,fx,fy in ((31,61,0.,0.),(31,61,.25,.75),(1023,1023,.5,.5)):
+    def smooth(a,b,x):
+        t=max(0.,min(1.,(x-a)/(b-a)))
+        return t*t*(3.-2.*t)
+    matched=0
+    for x,y,fx,fy in ((31,61,0.,0.),(31,61,.25,.75),(1023,1023,.5,.5),(23,49,.5,.5),(11,12,.5,.5)):
         samples=[source_pixel(x+dx,y+dy) for dy in (0,1) for dx in (0,1)]
         weights=((1-fx)*(1-fy),fx*(1-fy),(1-fx)*fy,fx*fy)
         red,green,blue,gray=[sum(w*c[i] for w,c in zip(weights,samples)) for i in range(4)]
         nx,ny,nz=red*2.-1.,green*2.-1.,blue
         length=math.sqrt(nx*nx+ny*ny+nz*nz)
-        nx*=.55/length; ny*=.55/length; nz=.45+.55*nz/length
+        nx*=.35/length; ny*=.35/length; nz=.65+.35*nz/length
         world=(.8*nx+.6*ny,nz,-.6*nx+.8*ny)
-        length=math.sqrt(sum(v*v for v in world))
-        expected=(*(v/length for v in world),.12+(1-gray)*.12)
-        actual=probe(x+.5+fx,y+.5+fy)
-        # RGBA8 hardware bilerp can round intermediate channels to 8 bits.
-        assert max_difference(actual,expected)<.008, ('PNG channels/UVs/filter/decode mismatch',x,y,fx,fy,actual,expected)
-    left=probe(1024.-1e-5,63.37); right=probe(1e-5,63.37)
+        length=math.sqrt(sum(v*v for v in world)); facet=tuple(v/length for v in world)
+        weight=smooth(.45,.80,gray)*smooth(.8,.98,facet[1])
+        n=(weight*facet[0],1-weight+weight*facet[1],weight*facet[2])
+        length=math.sqrt(sum(v*v for v in n))
+        expected=(*(v/length for v in n),.8+weight*(.12-.8))
+        actual=probe(x+.5+fx,y+.5+fy,facet)
+        assert max_difference(actual,expected)<.015, ('PNG channels/UVs/filter/decode mismatch',x,y,fx,fy,actual,expected)
+        matched+=weight>.05
+    assert matched>0, 'filter oracle only tested rejected facets'
+    up=(0.,1.,0.)
+    left=probe(1024.-1e-5,63.37,up); right=probe(1e-5,63.37,up)
     assert max_difference(left,right)<.002, 'grain texture repeat seam is discontinuous'
+    rig.set(terrainGrainLightDirection=up,terrainGrainCameraPosition=(0.,1000180.,0.))
     rig.set(worldSeed=1337,testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
     first=rig.read()
     period=1024*.04
     rig.set(testOrigin=(-.37+.8*period,180.,.23-.6*period)); repeated_grain=rig.read()
     assert max_difference(first[1],repeated_grain[1])<.004, ('metres-per-texel scale is incorrect', max_difference(first[1],repeated_grain[1]))
     rig.set(testOrigin=(-.37,180.,.23),worldSeed=7331); reseeded=rig.read()
-    assert max_difference(first[1],reseeded[1])>.1, 'grain ignores the world seed'
+    assert max_difference(first[3],reseeded[3])>.1, 'grain ignores the world seed'
     rig.set(worldSeed=1337)
 
     # Saved v4 records can still contain stain controls. Granular materials
@@ -552,7 +574,7 @@ def check_fine_surface(gl):
     # A pixel spans more than the complete 16 m cache: its last mip is uniform.
     rig.set(testAxisX=(4096.,0.,0.),testAxisY=(0.,0.,4096.))
     rig.upload(grains); far=rig.read()
-    assert max_difference(far[1],baseline[1]) > .1, 'distant facet orientations disappeared'
+    assert max_difference(far[1],baseline[1]) > .02, 'distant facet orientations disappeared'
     assert max_difference(far[3],baseline[3]) > .1, 'white grains must remain active at large pixel footprints'
     rig.upload(stains); far=rig.read()
     far_ratios=[c[0]/.3 for c in linear_colors(far[2])]

@@ -48,7 +48,8 @@ def make_rig(gl, table, fixture, fragment=None):
     # RG32F depth/tag, RGB16F normal, RGBA16F albedo, RGB8 material: same as engine.
     rig=MaterialRig(gl,table,fixture.size,fragment=fragment,formats=(RG32F,0x881B,0x881A,0x8051))
     rig.set_vertex(PLANE)
-    rig.set(terrainSparkleGrainSize=.002,terrainAlbedoGamma=1.,microDetailStrength=0.)
+    rig.set(terrainSparkleGrainSize=.01,terrainAlbedoGamma=1.,microDetailStrength=0.,terrainGrainCameraPosition=(0.,3.,0.),
+            terrainGrainLightDirection=(0.,.27/math.sqrt(1+.27**2),-1/math.sqrt(1+.27**2)))
     return rig
 
 
@@ -107,6 +108,7 @@ def main():
         shadowed=draw(gl,rig,fixture,shader)
         assert max(max(p) for p in shadowed)<1e-6, 'grain escaped a fully covering shadow map'
         illumination(gl,fixture,direction=(0,.27,1))
+        rig.set(terrainGrainLightDirection=(0.,.27/math.sqrt(1+.27**2),1/math.sqrt(1+.27**2)))
         away=draw(gl,rig,fixture,shader)
         # Turning the sun away must change WHICH grains are bright.
         original={i for i,p in enumerate(image) if max(p)>.5}
@@ -117,6 +119,7 @@ def main():
         snow=edited_vec(grains,0,0,(.72,.77,.8,.88))
         snow=edited_vec(snow,0,16,(.72,.77,.8,.88))
         snow=edited_vec(snow,0,32,(.72,.77,.8,.88))
+        rig.set(terrainGrainLightDirection=(0.,.27/math.sqrt(1+.27**2),-1/math.sqrt(1+.27**2)))
         rig.upload(snow)
         snow_image=draw(gl,rig,fixture,shader)
         assert all(math.isfinite(c) and c>=0 for pixel in snow_image for c in pixel)

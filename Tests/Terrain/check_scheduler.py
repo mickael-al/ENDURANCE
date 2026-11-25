@@ -53,6 +53,7 @@ inline std::map<unsigned,std::vector<unsigned char>> buffers;
 inline std::map<unsigned,Binding> uniformBindings;
 inline std::map<std::string,int> locations;
 inline std::map<int,float> floatUniforms;
+inline std::map<int,std::array<float,3>> vec3Uniforms;
 inline std::map<std::pair<unsigned,int>,float> programFloatUniforms;
 inline std::map<std::pair<unsigned,int>,unsigned> programUIntUniforms;
 inline std::map<std::pair<unsigned,int>,std::vector<unsigned>> programUIntArrays;
@@ -83,6 +84,7 @@ inline GLint glGetUniformLocation(unsigned,const char* name){
 inline void glProgramUniform1f(unsigned program,int where,float value){
  TerrainFixtureGL::programFloatUniforms[{program,where}]=value;
  TerrainFixtureGL::floatUniforms[where]=value;++TerrainFixtureGL::uniformWrites;}
+inline void glProgramUniform3f(unsigned,int where,float x,float y,float z){TerrainFixtureGL::vec3Uniforms[where]={x,y,z};}
 inline void glProgramUniform1ui(unsigned program,int where,unsigned value){
  TerrainFixtureGL::programUIntUniforms[{program,where}]=value;}
 inline void glProgramUniform1uiv(unsigned program,int where,int count,const unsigned* values){
@@ -137,6 +139,8 @@ public:
 };
 class CameraManager {public:Camera camera;Camera* getCurrentCamera(){return &camera;}};
 class LightManager {public:bool getShadowMatrix(unsigned,glm::mat4& matrix){matrix=glm::mat4(1);return true;}};
+class Atmosphere {public:glm::vec3 direction{0,1,0};glm::vec3 primarySpecularDirection()const{return direction;}};
+class RenderingEngine {public:Atmosphere atmosphere;Atmosphere* getAtmosphere(){return &atmosphere;}};
 class PhysicsWraper {};
 class SettingManager {public:float gamma=2.2f;float getGamma()const{return gamma;}};
 class ShaderPair {};
@@ -166,6 +170,7 @@ public:
 struct ptrClass {
  Ge::GraphiquePipelineManager* graphiquePipelineManager=nullptr;
  Ge::CameraManager* cameraManager=nullptr;Ge::LightManager* lightManager=nullptr;
+ Ge::RenderingEngine* renderingEngine=nullptr;
  Ge::PhysicsWraper* physicsEngine=nullptr;
  Ge::SettingManager* settingManager=nullptr;
 };
@@ -178,7 +183,7 @@ def build_and_run(source_root, temporary, label, baseline=False, instant_gpu=Fal
     stub.mkdir(exist_ok=True)
     (stub / 'glcore.hpp').write_text(GL_STUB)
     (stub / 'scheduler_engine.hpp').write_text(ENGINE_STUB)
-    for name in ('Engine', 'PointeurClass', 'Camera', 'GraphiquePipeline', 'ShaderPair'):
+    for name in ('Engine', 'PointeurClass', 'Camera', 'GraphiquePipeline', 'ShaderPair', 'RenderingEngine', 'Atmosphere'):
         (stub / (name + '.hpp')).write_text('#include "scheduler_engine.hpp"\n')
     binary = temporary / ('check_scheduler_' + label)
     flags = [os.environ.get('CXX', 'c++'), '-std=c++17', '-O3', '-ffast-math', '-pthread']

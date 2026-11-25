@@ -164,7 +164,7 @@ int main(int argc, char** argv)
     Endurance::upgradeTerrainAppearance(v4,revision);
     assert(revision == Endurance::TerrainAppearanceRevision);
     assert(sameTable(v4,v4Expected));
-    assert(v4.vegetationStainSize == 9.f && v4.otherStainSize == .6f && v4.sparkleGrainSize == .02f);
+    assert(v4.vegetationStainSize == 9.f && v4.otherStainSize == .6f && std::abs(v4.sparkleGrainSize - .1f) < 1e-7f);
     assert(v4.biomes[0].ground.base.fineSurface[2] == 0.f);
     assert(v4.biomes[1].ground.accent.fineSurface[2] == 0.f);
     assert(v4.biomes[1].wall.accent.fineSurface[3] == 0.f);
@@ -172,6 +172,21 @@ int main(int argc, char** argv)
     assert(v4.biomes[21].ground.accent.fineSurface[2] == 0.f);
     assert(v4.biomes[12].ground.base.fineSurface[2] == .23f);
     assert(v4.biomes[20].ground.base.fineSurface[3] == .11f);
+
+    // Enlarge the existing scale exactly once, including artist edits. A fresh
+    // scene uses the same 1cm default and a saved v8 scene never grows again.
+    assert(defaults.sparkleGrainSize == .01f);
+    for (float size : {.001f, .002f, .037f, .8f})
+    {
+        auto savedScale = defaults;
+        savedScale.sparkleGrainSize = size;
+        revision = 7;
+        Endurance::upgradeTerrainAppearance(savedScale, revision);
+        const float expected = (std::min)(size * 5.f, 1.f);
+        assert(std::abs(savedScale.sparkleGrainSize - expected) < 1e-7f);
+        Endurance::upgradeTerrainAppearance(savedScale, revision);
+        assert(savedScale.sparkleGrainSize == expected && sameTable(savedScale, defaults));
+    }
 
     // Pre-material scenes have neither appearance nor version metadata.
     SceneAppearance absent;

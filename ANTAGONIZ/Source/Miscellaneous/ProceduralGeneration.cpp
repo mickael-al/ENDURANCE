@@ -13,6 +13,8 @@
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
 #include "Camera.hpp"
+#include "RenderingEngine.hpp"
+#include "Atmosphere.hpp"
 #include "GraphiquePipeline.hpp"
 #include "ShaderPair.hpp"
 #include <glm/mat4x4.hpp>
@@ -250,7 +252,7 @@ struct ProceduralGeneration::Impl
         GLint macroPeriod = -1, patchPeriod = -1;
         GLint vegetationStainSize = -1, otherStainSize = -1, sparkleGrainSize = -1;
         GLint detailStrength = -1, detailScale = -1;
-        GLint albedoGamma = -1;
+        GLint albedoGamma = -1, grainLightDirection = -1, grainCameraPosition = -1;
     } materialUniforms;
     float materialAlbedoGamma = -1.0f;
     struct RenderVariant
@@ -322,6 +324,8 @@ struct ProceduralGeneration::Impl
             u.detailStrength = glGetUniformLocation(program, "microDetailStrength");
             u.detailScale = glGetUniformLocation(program, "microDetailScale");
             u.albedoGamma = glGetUniformLocation(program, "terrainAlbedoGamma");
+            u.grainLightDirection = glGetUniformLocation(program, "terrainGrainLightDirection");
+            u.grainCameraPosition = glGetUniformLocation(program, "terrainGrainCameraPosition");
             glProgramUniform1uiv(program, glGetUniformLocation(program, "terrainBiomeMatrix[0]"),
                 static_cast<GLsizei>(BiomeMatrix2D.size()), BiomeMatrix2D.data());
             glProgramUniform1ui(program, glGetUniformLocation(program, "worldSeed"), seed);
@@ -1023,6 +1027,13 @@ void ProceduralGeneration::drawRenderer()
     TerrainRenderStateGuard state;
     TerrainMaterialStateGuard materialState;
     s.refreshAlbedoGamma();
+    const auto* atmosphere = s.engine->renderingEngine ? s.engine->renderingEngine->getAtmosphere() : nullptr;
+    const glm::vec3 lightDirection = atmosphere ? atmosphere->primarySpecularDirection() : glm::vec3(0);
+    const glm::vec3 cameraPosition = camera->getPosition();
+    glProgramUniform3f(s.render->getProgram(), s.materialUniforms.grainLightDirection,
+        lightDirection.x, lightDirection.y, lightDirection.z);
+    glProgramUniform3f(s.render->getProgram(), s.materialUniforms.grainCameraPosition,
+        cameraPosition.x, cameraPosition.y, cameraPosition.z);
     glUseProgram(s.render->getProgram());
     glBindBufferBase(GL_UNIFORM_BUFFER, 6, s.materialBuffer);
     glBindTextureUnit(0, s.fineTexture);

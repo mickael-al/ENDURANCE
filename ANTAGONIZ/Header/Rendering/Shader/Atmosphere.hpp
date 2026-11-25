@@ -138,6 +138,10 @@ namespace Ge
         const AtmosphereStats& stats() const;
         const std::string& error() const;
         bool active() const;
+        // Direction towards the visible sun for material-side specular detail.
+        // Zero at night/no source; first active directional when atmosphere is off.
+        // CPU state only: no texture bindings, GL readback or extra lighting pass.
+        glm::vec3 primarySpecularDirection() const;
         void setPaletteTarget(const AtmospherePalette& palette, bool force=false);
         const AtmospherePalette& displayedPalette() const;
         void invalidate();

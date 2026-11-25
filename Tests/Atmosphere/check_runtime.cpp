@@ -202,6 +202,21 @@ namespace
             return atmosphere.stats();
         };
         auto previous=frame();
+        require(glm::length(atmosphere.primarySpecularDirection()+sun.direction)<1e-5f,
+            "Material highlight direction differs from the active sun");
+        const auto sunDirection = sun.direction;
+        sun.direction.y = -sun.direction.y;
+        frame();
+        require(atmosphere.primarySpecularDirection()==glm::vec3(0),
+            "Sun below horizon still enables material glints");
+        sun.direction = sunDirection; frame();
+        config.enabled=false;
+        require(glm::length(atmosphere.primarySpecularDirection()+sun.direction)<1e-5f,
+            "Disabled atmosphere lost the ordinary directional source");
+        sun.active=false;
+        require(atmosphere.primarySpecularDirection()==glm::vec3(0),
+            "Disabled light remains the material source");
+        sun.active=true; config.enabled=true; frame();
         require(previous.programVariantBuilds==15 && previous.residentProgramVariants==15,
                 "Startup compiled speculative atmosphere combinations instead of only active stages");
         camera.position.x+=1; config.fogDensity*=2; sun.colors*=.9f;

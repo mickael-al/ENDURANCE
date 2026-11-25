@@ -68,7 +68,7 @@ namespace
             ImGui::EndDisabled();
             if (m.fineSurface[0] > 0.0f)
                 ImGui::TextDisabled("Mode granulaire : bruit + normal map, sans taches FBM ni microrelief lisse.");
-            ImGui::TextDisabled("0.10 = 10 %% plus sombre. Les grains reagissent aux lumieres et aux reflets.");
+            ImGui::TextDisabled("0.10 = 10 %% plus sombre. Les grains brillent dans le reflet du soleil.");
             ImGui::TreePop();
         }
         ImGui::TreePop();

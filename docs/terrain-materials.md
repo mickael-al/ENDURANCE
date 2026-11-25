@@ -155,7 +155,7 @@ used for shadow bias is preserved.
 
 | Component | Meaning | Typical value |
 |---|---|---:|
-| x | Influence of the granular normal/roughness; zero disables it | 0.95 snow, 0.90 sand |
+| x | Strength of the selected directional facets; zero disables it | 0.95 snow, 0.90 sand |
 | y | Grain roughness | 0.12 snow, 0.15 sand |
 | z | Fractional linear albedo darkening in stains | 0.10, i.e. 10% |
 | w | Absolute roughness reduction in stains | 0.06 |
@@ -180,7 +180,7 @@ exposes each weight. Global controls in **Materiaux proceduraux / palettes** are
 |---|---:|---|
 | `vegetationStainSize` / Taille taches de verdure | 2.5 m | Ten times the former 25 cm base feature size |
 | `otherStainSize` / Taille taches autres matieres | 0.25 m | Finer detail on remaining materials |
-| `sparkleGrainSize` / Taille grains brillants | 0.002 m | Metres per source texel; a 1024-pixel tile repeats every 2.048 m |
+| `sparkleGrainSize` / Taille grains brillants | 0.01 m | Metres per source texel; a 1024-pixel tile repeats every 10.24 m |
 
 The sizes describe base features/spacing, not an exact diameter of irregular
 patches. These controls change uniforms without remeshing or rebaking anything.
@@ -210,15 +210,32 @@ positive Z directly. This particular normal map must be decoded as
 channels with `*2-1` would point most of these normals into the surface. The
 shader maps the perturbation along the same projection axes as the images and
 projects it onto the terrain tangent plane. The authored strength of this very
-steep source is moderated by `normalStrength = 0.55` in `fine_surface.glsl`.
-`fineSurface.x` scales that influence through ground/accent/biome transitions.
+steep source is moderated by `normalStrength = 0.35` in `fine_surface.glsl`.
+The orientation is fixed in world space; selection strength is blended through ground/accent/biome transitions.
 
-The noise varies the grain roughness from `fineSurface.y` to that value + 0.12;
-the white parts are smoother. This response is blended with the authored
-roughness by `fineSurface.x`, without exceeding the original roughness. The old
-22% random coverage, four cell hashes, GGX orientation generation and glossy
-islands on a flat substrate are removed. The supplied normal/noise pair covers
-the granular layer continuously instead.
+The terrain draw receives the current camera position and the normalized sun
+vector from `Atmosphere::primarySpecularDirection()` (CPU state only). Outside
+an active atmosphere this selects the first active directional light. At night,
+with an active atmosphere, it returns zero: the existing lunar IBL is preserved.
+Neither forward shader is changed.
+
+Before writing the G-buffer, the terrain evaluates the light/view half vector.
+An angular envelope limits fine highlights to the reflected-sun region
+(`smoothstep(0.80, 0.98, dot(normal, H))`), and skips the texture lookup elsewhere.
+The image's facet normal then selects individual reflections
+(`smoothstep(0.990, 0.9995, dot(facetNormal, H))`). The white-noise image controls
+participation. Only these selected grains receive the normal perturbation and
+lower roughness (`fineSurface.y`); the remaining substrate keeps its authored
+normal/roughness. `fineSurface.x` blends this response through material transitions.
+
+This is a deliberate material-side approximation: it cannot introduce an
+independent BRDF lobe in the unchanged deferred shader. IBL and other lights also
+see the selected G-buffer normal/roughness; exact per-light isolation would
+require modifying the lighting shader. No illumination is baked into albedo,
+and the existing sun shadow/cloud transmission paths still shade the facets.
+The selection is evaluated each terrain draw, because moving the camera or the
+sun changes which static grains reflect towards the viewer. Textures are never
+rebaked, reuploaded or resized on camera/light movement.
 
 Only the ordinary G-buffer normal and roughness change. **Forward/deferred
 lighting shaders, G-buffer formats/tags, passes and light/shadow calculations
@@ -268,6 +285,11 @@ factory settings migrate through both steps; other custom sizes remain intact.
 The older migrations still apply to old scenes. No binary terrain scene is
 replaced. `TERRAIN_FINE_SURFACE_ENABLED=0` compiles out the fine effects for A/B
 comparisons and restores the ordinary procedural-normal path.
+
+Revision 8 enlarges the previously configured grain scale **fivefold**, including
+artist values, capped at the existing 1 m/texel validation bound. It runs once
+on scene load; new scenes default to 0.01 m and saved v8 scenes are unchanged.
+Palettes, geometry and stain sizes are not changed by this migration.
 
 ### Validation and timing
 

@@ -16,11 +16,13 @@ int main()
         Ge::GraphiquePipelineManager pipelines;
         Ge::CameraManager cameras;
         Ge::LightManager lights;
+        Ge::RenderingEngine renderer;
         Ge::SettingManager settings;
         auto* engine = Ge::Engine::getPtrClassAddr();
         engine->graphiquePipelineManager = &pipelines;
         engine->cameraManager = &cameras;
         engine->lightManager = &lights;
+        engine->renderingEngine = &renderer;
         engine->settingManager = &settings;
         auto& camera = cameras.camera;
         camera.setPosition({1, 18, 3});
@@ -90,6 +92,25 @@ int main()
         require(uniform == 901 && uniformBindings[6].buffer == 900
             && uniformBindings[6].start == 256 && uniformBindings[6].size == 512,
             "Terrain draw did not restore UBO range and generic binding");
+        require(vec3Uniforms.at(locations.at("terrainGrainCameraPosition")) == std::array<float,3>{1,18,3},
+            "Grain selection did not receive the current camera");
+        require(vec3Uniforms.at(locations.at("terrainGrainLightDirection")) == std::array<float,3>{0,1,0},
+            "Grain selection did not receive the current sun");
+        camera.setPosition({2,19,4});
+        terrain.drawRenderer();
+        require(vec3Uniforms.at(locations.at("terrainGrainCameraPosition")) == std::array<float,3>{2,19,4},
+            "Moving camera left a stale grain selection");
+        camera.setPosition({1,18,3});
+        renderer.atmosphere.direction = {0,.6f,.8f};
+        terrain.drawRenderer();
+        require(vec3Uniforms.at(locations.at("terrainGrainLightDirection")) == std::array<float,3>{0,.6f,.8f},
+            "Rotating sun left a stale grain selection");
+        renderer.atmosphere.direction = {0,0,0};
+        terrain.drawRenderer();
+        require(vec3Uniforms.at(locations.at("terrainGrainLightDirection")) == std::array<float,3>{0,0,0},
+            "Night/no sun left stale shiny facets");
+        require(textureUploads == 2 && mipGenerations == 1,
+            "Light motion regenerated the grain textures");
         const auto geometry = identities(published(terrain));
         const auto shadowRevision = terrain.shadowContentRevision();
         const auto oldSubmissions = submissions;

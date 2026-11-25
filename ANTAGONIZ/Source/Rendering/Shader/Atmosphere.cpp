@@ -1065,6 +1065,29 @@ const AtmosphereSettings& Atmosphere::settings() const { return m->config; }
 const AtmosphereStats& Atmosphere::stats() const { return m->statistics; }
 const std::string& Atmosphere::error() const { return m->failure; }
 bool Atmosphere::active() const { return m->config.enabled && m->ready && (m->hasEnvironment || m->liveSkyReady); }
+
+glm::vec3 Atmosphere::primarySpecularDirection() const
+{
+    if (active())
+    {
+        // Same horizon/source conditions as geAtmSunLightingEnabled(). The
+        // textured moon retains the existing area reflection in IBL at night.
+        return m->gpu.sunDirection.w > 0.5f && m->gpu.sunDirection.y >= 0.0f
+            && glm::any(glm::greaterThan(glm::vec3(m->gpu.sunRadiance), glm::vec3(0)))
+            ? glm::vec3(m->gpu.sunDirection) : glm::vec3(0);
+    }
+    if (m->pc && m->pc->lightManager)
+        for (const auto* light : m->pc->lightManager->getLights())
+        {
+            if (!light || !light->isActive() || light->getStatus() != 0 || light->getRange() <= 0.f
+                || !glm::any(glm::greaterThan(light->getColors(), glm::vec3(0)))) continue;
+            const glm::vec3 direction = -light->getDirection();
+            const float lengthSquared = glm::dot(direction, direction);
+            if (lengthSquared > 1e-10f) return direction / std::sqrt(lengthSquared);
+        }
+    return glm::vec3(0);
+}
+
 const AtmospherePalette& Atmosphere::displayedPalette() const { return m->hasDisplayedPalette?m->displayedPalette:m->transition.displayed(); }
 void Atmosphere::setPaletteTarget(const AtmospherePalette& value,bool force)
 {
