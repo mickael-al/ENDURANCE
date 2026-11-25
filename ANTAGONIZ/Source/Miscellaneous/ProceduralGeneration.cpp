@@ -519,12 +519,8 @@ bool ProceduralGeneration::initialize(const Config& config)
     // A neutral fallback also permits texture-free terrain tools/fixtures.
     static constexpr std::uint8_t neutralGrain[] = {128, 128, 255, 255};
     const auto* grain = config.grainImage.get();
-    unsigned grainMipLevels = 1;
-    if (grain)
-        for (unsigned size = (std::max)(grain->width, grain->height); size > 1; size >>= 1)
-            ++grainMipLevels;
     impl->grainTexture = createTerrainFineTexture(grain ? grain->width : 1u, grain ? grain->height : 1u,
-        grainMipLevels, GL_RGBA8, GL_RGBA, grain ? grain->rgba.data() : neutralGrain);
+        1, GL_RGBA8, GL_RGBA, grain ? grain->rgba.data() : neutralGrain);
     if (!impl->fineTexture || !impl->grainTexture)
     {
         m_lastError = "Terrain fine-surface texture allocation failed.";

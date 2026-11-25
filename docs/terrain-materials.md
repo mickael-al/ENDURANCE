@@ -198,7 +198,7 @@ CPU image to the renderer. The renderer uploads one linear **RGBA8** texture, no
 an sRGB/color texture. No new `STB_IMAGE_IMPLEMENTATION` is added to the engine;
 its existing implementation remains in `TextureManager.cpp`.
 
-`terrainApplyGranularSurface` makes **one repeating texture lookup with mipmaps**
+`terrainApplyGranularSurface` makes **one bilinear, repeating texture lookup**
 after material blending. Both maps always share UVs. The world projection and a
 seeded offset are independent of chunk origin, LOD, camera and frame number.
 `terrainSparkleGrainSize` describes one source texel, not the whole image. The
@@ -244,17 +244,10 @@ still skip generic smooth micro-normal/roughness noise and FBM stains, including
 saved stain controls. Other materials, macro color/ripple masks, geometry and
 the separate geometric-normal tag for shadow bias are preserved.
 
-The original PNG packing, facet selection, normals, roughness and grain scale
-from `39a88fa` are restored. The compact-grain bake, slope-moment filtering and
-harmonic roughness adjustment from `b28b853` are removed.
-
-The only rendering addition is a complete mip chain, generated once at upload,
-with `GL_LINEAR_MIPMAP_LINEAR`, `GL_LINEAR` magnification and `GL_REPEAT`.
-`textureGrad` uses world derivatives captured before material branches, so
-minification selects and blends the appropriate levels instead of forcing mip 0.
-There is **no distance cutoff**, added anisotropy, extra rendering pass or new
-material setting. Ordinary normal-map mip averaging softens distant grain; it
-is not a statistical glint filter or a guarantee of zero temporal aliasing.
+There is **no distance or pixel-footprint cutoff**. The texture uses GL_LINEAR,
+GL_REPEAT and level 0 only, as requested. Bilinear filtering alone does not
+resolve subpixel minification: distant grain can still shimmer in motion without
+temporal antialiasing. No fade or view-distance limit is hidden in this path.
 
 Stains retain eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
 0.5 **before** filtering. C++ builds a 512² R8 mask once per process, with four
@@ -271,7 +264,7 @@ The fixed rotated world projection uses X/Z plus a Y shear, so walls also have
 vertical detail. It is a cheap planar projection, not full triplanar mapping;
 some directional stretching is an intentional performance tradeoff.
 
-GPU memory for the packed 1024² RGBA8 grain pair is **5,592,404 bytes** (about 5.333 MiB) including its 11 mip levels,
+GPU memory for fine detail is **4 MiB** for the packed 1024² RGBA8 grain pair,
 plus **349,525 bytes** (about 0.333 MiB) for the stain cache including mipmaps.
 The game retains one shared 4 MiB packed CPU image across renderer restarts; the
 original decoded PNG arrays are freed after packing. The stain CPU bake retains
@@ -304,8 +297,8 @@ Palettes, geometry and stain sizes are not changed by this migration.
 loader, checks its process cache, and compares every packed byte to an independent
 PNG decode. `check_gpu.py` feeds those same production bytes into actual OpenGL
 shaders on Mesa llvmpipe (software rendering). It checks source-pixel normal
-encoding/UV alignment, bilinear magnification, trilinear minification/repeat boundaries, normalized directions,
-seed/LOD stability, stable large-footprint averages, unaffected albedo/geometry/AO/
+encoding/UV alignment, bilinear filtering/repeat boundaries, normalized directions,
+seed/LOD stability, large-footprint visibility, unaffected albedo/geometry/AO/
 metallic, stain isolation and static disable. Generic smooth-relief minification
 is checked separately because granular normals intentionally stay active at range.
 `check_runtime.py` checks dimension/data validation, uploads, state restoration,

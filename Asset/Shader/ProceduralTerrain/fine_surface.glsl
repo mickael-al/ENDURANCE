@@ -66,12 +66,8 @@ void terrainApplyGranularSurface(inout vec3 normal, inout float roughness,
     // spans 10.24m at the 1cm default (five times the previous 2.048m).
     vec2 texels = terrainFineProjection(c.position)/terrainSparkleGrainSize;
     vec2 offset = vec2(worldSeed & 1023u, (worldSeed >> 10u) & 1023u);
-    vec2 textureExtent = vec2(textureSize(terrainGrainTexture,0));
-    vec2 uv = (texels+offset)/textureExtent;
-    // Use the mip chain with derivatives captured before material branches.
-    vec2 dx = terrainFineProjection(c.dx)/(terrainSparkleGrainSize*textureExtent);
-    vec2 dy = terrainFineProjection(c.dy)/(terrainSparkleGrainSize*textureExtent);
-    vec4 grain = textureGrad(terrainGrainTexture,uv,dx,dy);
+    vec2 uv = (texels+offset)/vec2(textureSize(terrainGrainTexture,0));
+    vec4 grain = textureLod(terrainGrainTexture,uv,0.0); // One bilinear fetch.
 
     // The supplied normal encodes signed XY in RG, positive Z directly in B.
     vec3 detailNormal = vec3(grain.rg*2.0-1.0,grain.b);

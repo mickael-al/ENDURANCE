@@ -122,11 +122,10 @@ class MaterialRig:
         self.grain_texture = 'terrainGrainTexture' in self.fragment_source
         if self.grain_texture and not hasattr(gl, 'terrain_grain'):
             payload = export_grain() # Exact production decode + channel packing.
-            gl.terrain_grain = gl.texture((1024,1024),internal=0x8058,levels=11,value=0.)
+            gl.terrain_grain = gl.texture((1024,1024),internal=0x8058,levels=1,value=0.)
             gl.sampler(1,gl.terrain_grain)
             gl.glTexImage2D(TEXTURE_2D,0,0x8058,1024,1024,0,0x1908,0x1401,C.c_char_p(payload))
-            gl.glGenerateMipmap(TEXTURE_2D)
-            gl.glTexParameteri(TEXTURE_2D,0x2801,0x2703) # GL_LINEAR_MIPMAP_LINEAR
+            gl.glTexParameteri(TEXTURE_2D,0x2801,0x2601) # GL_LINEAR, no mipmaps
             gl.glTexParameteri(TEXTURE_2D,0x2800,0x2601)
             gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
             gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
@@ -572,20 +571,11 @@ def check_fine_surface(gl):
         assert max_difference(ceiling[3],baseline[3]) < 2e-6
         rig.set(testNormal=(0.,1.,0.))
 
-    # At a footprint wider than the whole source tile, mip filtering must
-    # converge to a stable average, not keep random level-zero grain samples.
-    # Use a constant half-vector to isolate texture minification from lighting.
-    rig.set(testAxisX=(32768.,0.,0.),testAxisY=(0.,0.,32768.),
-            terrainGrainCameraPosition=(0.,1.e9,0.))
+    # A pixel spans more than the complete 16 m cache: its last mip is uniform.
+    rig.set(testAxisX=(4096.,0.,0.),testAxisY=(0.,0.,4096.))
     rig.upload(grains); far=rig.read()
-    assert max_difference(far[3],baseline[3]) > .1, 'mip filtering disabled the grain material'
-    for component in range(3):
-        values=far[1][component::4]
-        assert max(values)-min(values)<.001, 'distant normal map still aliases'
-    values=far[3][1::4]
-    assert max(values)-min(values)<.001, 'distant roughness still aliases'
-    rig.set(testOrigin=(-.13,0.,.47)); shifted=rig.read()
-    assert max_difference(far[1],shifted[1])<.001 and max_difference(far[3],shifted[3])<.001, 'last mip changes with world phase'
+    assert max_difference(far[1],baseline[1]) > .02, 'distant facet orientations disappeared'
+    assert max_difference(far[3],baseline[3]) > .1, 'white grains must remain active at large pixel footprints'
     rig.upload(stains); far=rig.read()
     far_ratios=[c[0]/.3 for c in linear_colors(far[2])]
     assert .94 < min(far_ratios) <= max(far_ratios) < .96, 'mips must preserve average stain coverage'
@@ -594,7 +584,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: original PNG normals/noise, bilinear magnification, trilinear minification, repeat/UV/encoding, bounded normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no distance cutoff and compile-time disable',flush=True)
+    print('PASS fine surfaces: original PNG normals/noise, bilinear repeat/UV/encoding, bounded normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):
