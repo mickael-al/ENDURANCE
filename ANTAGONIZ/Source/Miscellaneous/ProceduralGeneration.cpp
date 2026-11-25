@@ -517,24 +517,18 @@ bool ProceduralGeneration::initialize(const Config& config)
         TerrainFineSurfaceMipLevels, GL_R8, GL_RED, terrainFineSurfacePixels().data());
     // The engine accepts game-owned image data; it contains no project path.
     // A neutral fallback also permits texture-free terrain tools/fixtures.
-    static constexpr std::uint8_t neutralGrain[] = {128, 128, 0, 0};
+    static constexpr std::uint8_t neutralGrain[] = {128, 128, 255, 255};
     const auto* grain = config.grainImage.get();
+    unsigned grainMipLevels = 1;
+    if (grain)
+        for (unsigned size = (std::max)(grain->width, grain->height); size > 1; size >>= 1)
+            ++grainMipLevels;
     impl->grainTexture = createTerrainFineTexture(grain ? grain->width : 1u, grain ? grain->height : 1u,
-        grain ? terrainGrainMipLevels(grain->width, grain->height) : 1u,
-        GL_RGBA8, GL_RGBA, grain ? grain->rgba.data() : neutralGrain);
+        grainMipLevels, GL_RGBA8, GL_RGBA, grain ? grain->rgba.data() : neutralGrain);
     if (!impl->fineTexture || !impl->grainTexture)
     {
         m_lastError = "Terrain fine-surface texture allocation failed.";
         return false;
-    }
-    // Bounded grazing-angle filtering, only on this data texture. Lower-cap
-    // drivers retain the complete trilinear fallback; no global sampler edit.
-    if (GLEW_VERSION_4_6 || GLEW_ARB_texture_filter_anisotropic || GLEW_EXT_texture_filter_anisotropic)
-    {
-        GLfloat maximumAnisotropy = 1.f;
-        glGetFloatv(GL_MAX_TEXTURE_MAX_ANISOTROPY, &maximumAnisotropy);
-        glTextureParameterf(impl->grainTexture, GL_TEXTURE_MAX_ANISOTROPY,
-            (std::min)(2.f, maximumAnisotropy));
     }
     impl->shadowIndex = glGetUniformLocation(impl->shadow->getProgram(), "offsetShadow");
 

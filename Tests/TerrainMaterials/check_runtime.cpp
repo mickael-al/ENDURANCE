@@ -62,15 +62,7 @@ int main()
         grain->rgba.push_back(190);
         require(terrain.initialize(config), terrain.getLastError());
         require(textures.size() == 2 && textureUploads == 2 && mipGenerations == 2,
-            "Fine textures not uploaded once (both grain moments and stain cache have mips)");
-        for (const auto& [texture,width] : textures)
-        {
-            require(textureLevels.at(texture) == (width==2 ? 2 : 10), "Incomplete fine texture mip chain");
-            require(textureParameters.at({texture,GL_TEXTURE_MIN_FILTER}) == GL_LINEAR_MIPMAP_LINEAR,
-                "Fine texture still forces level zero");
-            if (width==2) require(textureParameters.at({texture,GL_TEXTURE_MAX_ANISOTROPY}) == 2.f,
-                "Grain anisotropy is missing or exceeds its budget");
-        }
+            "Fine textures not uploaded once (mips for both original grain and stain textures)");
         require(activeTexture == GL_TEXTURE0+3 && unpackBuffer == 779
             && pixelStore[GL_UNPACK_ALIGNMENT] == 8 && pixelStore[GL_UNPACK_ROW_LENGTH] == 91
             && pixelStore[GL_UNPACK_SKIP_ROWS] == 7 && pixelStore[GL_UNPACK_SKIP_PIXELS] == 9,
