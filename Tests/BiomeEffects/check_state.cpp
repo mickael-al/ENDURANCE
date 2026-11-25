@@ -177,7 +177,8 @@ void extendedArtRecipes()
             "Wind ribbons must not allocate a generic particle group");
     const std::pair<E::EffectId, unsigned> rainCounts[] = {
         {E::EffectId::Rain, 30720}, {E::EffectId::HeavyRain, 61440},
-        {E::EffectId::Thunderstorm, 46080}, {E::EffectId::Sleet, 35840}};
+        {E::EffectId::Thunderstorm, 46080}, {E::EffectId::Sleet, 35840},
+        {E::EffectId::CanopyDrips, 3840}};
     for (const auto& entry : rainCounts)
     {
         const auto& rain = definitions[index(entry.first)].particles;
@@ -186,7 +187,7 @@ void extendedArtRecipes()
                 "Rain must use its vertical rendering family without generic velocity rotation");
     }
     const auto& sand = definitions[index(E::EffectId::SandGust)].particles;
-    require(sand.count == 2 * 30720, "Sand gust must double the previous population");
+    require(sand.count == 2 * 61440, "Sand gust must double the previous population");
     require(near(sand.group.scaleStart, .007f) && near(sand.group.scaleEnd, .028f),
             "Sand gust sprite dimensions must retain the doubled visibility setting");
     require(near(sand.group.colorGradient[1].a, .32f * .75f),

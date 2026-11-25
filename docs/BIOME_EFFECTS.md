@@ -31,7 +31,7 @@ Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 | N° | Identifiant | Type | Aspect et mouvement | Particules |
 | ---: | --- | --- | --- | ---: |
 | 1 | `heat_haze` | Passif | Réfraction animée de l'image : vagues deux fois plus larges et hautes, vitesse apparente conservée, protégées par la profondeur. | — |
-| 2 | `sand_gust` | Passif | Grains ocre, échelle 0,007–0,028 ; alpha et portée conservés. | 61 440 |
+| 2 | `sand_gust` | Passif | Grains ocre, échelle 0,007–0,028 ; densité doublée, alpha et portée conservés. | 122 880 |
 | 3 | `volcanic_ash` | Passif | Éclats de cendre irréguliers, chute lente, vrilles et basculements ; silhouette distincte de la neige. | 11 520 |
 | 4 | `wind_pollen` | Passif | Aigrettes jaune pâle en suspension, microvolutes et dérive lente ; faible ascension propre. | 3 840 |
 | 5 | `fireflies` | Passif | Noyaux lumineux multicolores, petites boucles indépendantes et clignotements désynchronisés ; très faible sensibilité au vent. | 720 |
@@ -51,7 +51,7 @@ Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 | 19 | `fumaroles` | Passif | Panaches gris brun verticaux, ascension propre et grandes volutes ; sources dans une couche basse. | 400 |
 | 20 | `spores` | Passif | Grains à enveloppe cellulaire, remontée très lente et dérive tourbillonnante douce. | 3 840 |
 | 21 | `glowing_spores` | Passif | Spores cyan plus espacées, moins opaques ; membranes lumineuses et lentes pulsations. | 480 |
-| 22 | `canopy_drips` | Passif | Gouttes fines issues d'une couche haute, chute verticale accélérée, faible déviation par le vent. | 3 840 |
+| 22 | `canopy_drips` | Passif | Gouttes fines issues d'une couche haute, rendu vertical de la pluie, population ×4 ; chute accélérée et faible déviation par le vent. | 15 360 |
 | 23 | `insects` | Passif | Petites silhouettes à ailes, virages nerveux et oscillations indépendantes ; vent très faible. | 640 |
 | 24 | `wind_streaks` | Passif | 32 longs rubans blancs courbés dans le monde, déplacés par le vent ; rendu dédié hors du système de particules. | — |
 | 25 | `ice_haze` | Passif | Voiles glacés horizontaux dans l'environnement sur 240 m de demi-portée ; aucune origine bouche/caméra. | 640 |
@@ -60,7 +60,7 @@ Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 | 28 | `sand_veil` | Passif | Voile d'écran chaud associé aux poussières, brun rouge ; distinct des milieux 3D des tempêtes. | — |
 | 29 | `rain` | Actif | Pluie à longue traînée verticale dans le monde, descente rapide dominante, faible divergence et réponse amortie au vent. | 122 880 |
 | 30 | `heavy_rain` | Actif | Pluie dense avec légère brume volumétrique de pluie, gouttes et buée sur l'écran. | 245 760 |
-| 31 | `sandstorm` | Actif | Grains d'échelle 0,02–0,064 ; vrai milieu de poussière éclairé et visibilité atmosphérique conservés. | 122 880 |
+| 31 | `sandstorm` | Actif | Grains d'échelle 0,035–0,095 et alpha maximal 0,60 pour une meilleure lisibilité ; milieu de poussière conservé. | 122 880 |
 | 32 | `blizzard` | Actif | Flocons tournoyants, givre et diffusion volumétrique froide ; pas de voile opaque uniforme sur l'image. | 61 440 |
 | 33 | `ash_storm` | Actif | Fragments sombres et milieu de cendres absorbant/diffusant ; profondeur lisible par extinction progressive. | 40 960 |
 | 34 | `thunderstorm` | Actif | Pluie, milieu humide sombre éclairé par la scène, flash bref d'écran et rémanence humide. | 184 320 |
@@ -132,8 +132,8 @@ par effet. La neige et la pluie occupent des couches hautes ; les voiles de glac
 conservent une couche mince. Ces hauteurs définissent la **naissance**, pas une
 cage qui empêcherait fumées et braises de monter pendant leur vie.
 
-- Maximum passif : **65 280 particules**, à 1x, hors rubans de vent.
-- Neige légère : **15 360** ; cendres : **11 520** ; sable : **61 440** ;
+- Maximum passif : **126 720 particules**, à 1x, hors rubans de vent.
+- Neige légère : **15 360** ; cendres : **11 520** ; sable : **122 880** ;
   embruns : **8 960**.
 - Forte pluie : **245 760** ; blizzard : **61 440** ; tempête de sable : **122 880** à 1x.
 - Les nappes transparentes ont **400–800** instances avec une opacité et une
@@ -153,7 +153,7 @@ ne crée aucune particule tant qu'elle n'est pas activée.
 
 ## Pluie et rubans de vent
 
-La pluie, la pluie battante, l'orage et la pluie mêlée de neige utilisent
+La pluie, la pluie battante, l'orage, la pluie mêlée de neige et les gouttes de canopée utilisent
 `ENDURANCE/Ressources/Shader/Environment/rain.vs.glsl`, avec le fragment shader
 environnemental commun. Leur population est multipliée par **4** sans élargir
 le volume d'émission. La simulation GPU et le stockage compact restent ceux
@@ -173,6 +173,10 @@ Les paramètres sont dans `EnduranceWindStreaks.cpp` et les shaders
 - 32 rubans à densité 1x, au maximum 128 à 4x ; 24 segments par ruban.
 - Longueur de 10 à 24 m, demi-largeur de 0,025 à 0,065 m ; ondulations latérales
   et verticales douces, avec phases indépendantes.
+- La phase progresse avec la distance réellement parcourue et la longueur
+  d'onde du ruban : une longueur d'onde parcourue correspond à un cycle.
+  Doubler la vitesse double la vitesse d'ondulation ; un vent nul fige la
+  courbe. Les rafales et le découpage des pas de temps ne changent pas cette relation.
 - Naissance dans un rayon horizontal de 64 m autour du joueur, entre −3 et
   +12 m par rapport à sa hauteur ; disparition progressive avant 80 m.
 - Durée de vie de 6 à 10 s, apparition en 0,6 s et extinction sur 1,2 s.
@@ -192,16 +196,23 @@ sans modifier la direction de base, la période des rafales ou le vent des nuage
 
 ## Réglages de lisibilité
 
-L'ajustement précédent double la taille des sprites de sable : bourrasques
+L'ajustement initial doublait la taille des sprites de sable : bourrasques
 0,0035–0,014 → 0,007–0,028 ; tempête 0,01–0,032 → 0,02–0,064.
-Les capacités restent de 61 440 et 122 880 particules respectivement. Le vent,
-les durées de vie, la portée et les opacités restent identiques.
+La révision suivante double la population des bourrasques, de 61 440 à 122 880,
+sans changer leurs dimensions, portée, mouvement ou opacité. Pour la tempête,
+la population reste à 122 880, mais l'échelle passe à 0,035–0,095 et l'alpha
+maximal de 0,43 à 0,60. Cela rend les petits grains plus lisibles après le
+filtrage sous-pixel, sans ajouter d'émission ni modifier le milieu atmosphérique.
+Sur un champ initialisé avec les shaders de production, à 640×400 en air clair,
+la couverture alpha moyenne passe de 0,00136 à 0,00447 ; ce diagnostic à caméra
+fixe ne représente pas une mesure en jeu avec brume/exposition.
 Les voiles d'écran et la diffusion volumétrique ne sont pas
 des particules et conservent leurs réglages. Le plafond d'admission est relevé
 pour éviter de tronquer les combinaisons autorisées à densité 4x ; il n'est pas
 préalloué. Ce seul réglage de taille n'avait pas fait l'objet d'une mesure de performance.
 
-Les valeurs ci-dessous comparent le catalogue actuel à la révision `1d227f0`.
+Les valeurs ci-dessous décrivent les premiers ajustements par rapport à `1d227f0` ;
+les comptes et dimensions actuels sont ceux du tableau des 40 recettes.
 
 | Effet | Changement |
 | --- | --- |

@@ -68,10 +68,10 @@ namespace EnduranceEnvironment
             heat.screen.speed = .85f;
             heat.fadeIn = heat.fadeOut = 2.0f;
 
-            // Keep the increased population; double the small-grain sizes for visibility.
-            // Retain the softer alpha and the existing spatial distribution.
+            // Double the latest gust population, retaining grain size, softer
+            // alpha and the existing spatial distribution.
             auto& sand = define(Id::SandGust, "sand_gust", "Bourrasques de sable");
-            sand.particles = particles(Shape::DustCloud, 6144, {23, 1.4f, 23}, {0, -0.8f, 0},
+            sand.particles = particles(Shape::DustCloud, 2 * 6144, {23, 1.4f, 23}, {0, -0.8f, 0},
                 {1, 0.1f, 0.3f}, .8f, 2.6f, 9, 16, .007f, .028f, {.65f,.48f,.27f,.24f});
 
             sand.particles.turbulence = .65f;
@@ -296,12 +296,11 @@ namespace EnduranceEnvironment
             glowing.particles.group.spreadAngle = 100.f;
 
             auto& drips = define(Id::CanopyDrips, "canopy_drips", "Gouttes de la canopée");
-            drips.particles = particles(Shape::Droplet, 384, {20,8,20}, {0,12,0},
+            drips.particles = particles(Shape::Streak, 4 * 384, {20,8,20}, {0,12,0},
                 {0, -1, 0}, 1.0f, 2.4f, 2.5f, 5, 0.018f, 0.04f, {0.58f, 0.73f, 0.68f, 0.50f});
             drips.particles.aspect = 3.5f;
             drips.particles.windScale = 0.12f;
             drips.particles.group.gravity = V3(0, -2.5f, 0);
-            drips.particles.group.flags |= Ge::VelOrientation;
 
             drips.particles.group.spreadAngle = 5.f;
             drips.particles.group.drag = .15f;
@@ -380,8 +379,10 @@ namespace EnduranceEnvironment
             heavy.particles.group.spreadAngle = 6.f;
 
             auto& storm = define(Id::Sandstorm, "sandstorm", "Tempête de sable", true);
+            // Slightly larger, more opaque grains survive subpixel coverage
+            // filtering; retain the same bounded population and volume medium.
             storm.particles = particles(Shape::DustCloud, 12288, {32, 13, 32}, {0, 2, 0},
-                {1, 0.08f, 0.25f}, 8, 15, 3.5f, 6, 0.02f, 0.064f, {0.53f, 0.34f, 0.16f, 0.43f});
+                {1, 0.08f, 0.25f}, 8, 15, 3.5f, 6, 0.035f, 0.095f, {0.53f, 0.34f, 0.16f, 0.60f});
             storm.particles.aspect = .65f;
             storm.particles.windScale = 3.5f;
             storm.screen.dust = 0.0f;

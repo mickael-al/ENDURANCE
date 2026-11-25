@@ -27,7 +27,7 @@ void main()
     vec3 lateral=vec3(-direction.z,0,direction.x);
     float spatialPhase=along*6.28318530718*streak.curve.z;
     float phase=spatialPhase+streak.curve.w;
-    // Both temporal phases have period 2*pi, matching the CPU phase wrap.
+    // Both travel-driven phases have period 2*pi, matching the CPU phase wrap.
     // Only the spatial frequency differs between the two bending axes.
     float verticalPhase=spatialPhase*.73+streak.curve.w+1.7;
     vec3 local=streak.centerLength.xyz+direction*((along-.5)*streak.centerLength.w)

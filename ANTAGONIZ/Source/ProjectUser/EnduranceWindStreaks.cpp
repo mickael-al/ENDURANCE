@@ -20,6 +20,7 @@ namespace
     constexpr unsigned Segments = 24;
     constexpr float Radius = 80.0f;
     constexpr float Pi = 3.14159265358979323846f;
+    constexpr double Tau = 6.283185307179586476925286766559;
     constexpr char ShaderRoot[] = "../ENDURANCE/Ressources/Shader/Environment/";
 
     bool finiteFloat(float value)
@@ -121,7 +122,8 @@ struct EnduranceWindStreaks::Impl
         glm::dvec3 center{};
         glm::vec3 direction{1, 0, 0};
         float age = 0, lifetime = 0, length = 0, width = 0;
-        float lateral = 0, vertical = 0, cycles = 0, phase = 0, frequency = 0;
+        float lateral = 0, vertical = 0, cycles = 0;
+        double phase = 0;
         bool alive = false;
     };
     const ptrClass* engine = nullptr;
@@ -150,8 +152,8 @@ struct EnduranceWindStreaks::Impl
         s.age = 0; s.lifetime = 6.0f+4.0f*random();
         s.length = 10.0f+14.0f*random(); s.width = .025f+.04f*random();
         s.lateral = .25f+.65f*random(); s.vertical = .12f+.25f*random();
-        s.cycles = .6f+.65f*random(); s.phase = random()*2.0f*Pi;
-        s.frequency = .6f+.8f*random(); s.alive = true;
+        s.cycles = .6f+.65f*random(); s.phase = random()*Tau;
+        s.alive = true;
     }
     void registerCallback(bool needed)
     {
@@ -242,6 +244,8 @@ void EnduranceWindStreaks::update(float strength, const glm::vec3& cameraPositio
     const glm::vec3 velocity(safeRange(wind.x,-100.0f,100.0f,0.0f), 0,
         safeRange(wind.y,-100.0f,100.0f,0.0f));
     const float speed = glm::length(velocity);
+    const glm::dvec3 displacement = glm::dvec3(velocity)*static_cast<double>(dt);
+    const double travelled = glm::length(displacement);
     const glm::vec3 heading = speed > .001f ? velocity/speed : glm::vec3(1,0,0);
     const float turnBlend = 1.0f-std::exp(-2.0f*dt);
     m->count = 0;
@@ -251,9 +255,12 @@ void EnduranceWindStreaks::update(float strength, const glm::vec3& cameraPositio
         if (i >= requested) { s.alive = false; continue; }
         if (s.alive)
         {
-            s.center += glm::dvec3(velocity)*static_cast<double>(dt);
+            s.center += displacement;
             s.age += dt;
-            s.phase = std::fmod(s.phase+dt*s.frequency, 2.0f*Pi);
+            // One wavelength of world-space travel advances one wave cycle.
+            // Integrating displacement keeps gusts continuous and freezes the
+            // curve in calm air; no unrelated wall-clock oscillator remains.
+            s.phase = std::fmod(s.phase+travelled*(Tau*s.cycles/s.length), Tau);
             if (speed > .001f)
             {
                 const glm::vec3 direction = glm::mix(s.direction, heading, turnBlend);
@@ -270,7 +277,7 @@ void EnduranceWindStreaks::update(float strength, const glm::vec3& cameraPositio
         auto& gpu = m->upload[m->count++];
         gpu.centerLength = glm::vec4(glm::vec3(s.center-m->anchor),s.length);
         gpu.directionWidth = glm::vec4(s.direction,s.width);
-        gpu.curve = glm::vec4(s.lateral,s.vertical,s.cycles,s.phase);
+        gpu.curve = glm::vec4(s.lateral,s.vertical,s.cycles,static_cast<float>(s.phase));
         gpu.appearance = glm::vec4(.34f*strength*lifeFade*volumeFade*smooth(0,.8f,speed),.95f,.98f,1.0f);
     }
     glNamedBufferSubData(m->buffer, 0, static_cast<GLsizeiptr>(m->count*sizeof(GpuStreak)), m->upload.data());

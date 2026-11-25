@@ -236,6 +236,46 @@ void run() {
     require(wind.initialize(&f.pointers),"Wind reinitialization failed");
     require(f.renderer.callbacks.empty(),"Reinitialize restored old wind callback");
     wind.release();checkGL("wind cleanup");
+
+    // Reinitialize the same seeded field for each trajectory. Compare the
+    // actual uploaded geometry, not a second implementation of its phase law.
+    struct Trajectory { std::vector<Record> born, moved; };
+    auto trajectory=[&](float speed,float dt,unsigned steps) {
+        require(wind.initialize(&f.pointers),"Wind trajectory initialization failed");
+        f.bind();update(1,{},glm::vec2(speed,0),0,true);render();
+        Trajectory result{records,{}};
+        for(unsigned i=0;i<steps;++i) update(1,{},glm::vec2(speed,0),dt);
+        render();result.moved=records;
+        require(result.born.size()==result.moved.size(),"Short trajectory respawned/recounted wind");
+        wind.release();return result;
+    };
+    const auto stationary=trajectory(0,.25f,2);
+    for(unsigned i=0;i<stationary.born.size();++i)
+        for(unsigned word=0;word<12;++word)
+            require(std::abs(stationary.born[i].words[word]-stationary.moved[i].words[word])<1e-6f,
+                "Wind geometry or phase drifts while air velocity is zero");
+    const auto slow=trajectory(2,.25f,2);       // 1 m in 0.5 s
+    const auto fast=trajectory(8,.0625f,2);     // 1 m in 0.125 s
+    const auto subdivided=trajectory(2,.0625f,8); // Same 1 m with smaller steps
+    const auto farther=trajectory(4,.25f,2);   // Twice the distance in the same time
+    require(slow.moved.size()==fast.moved.size() && slow.moved.size()==subdivided.moved.size()
+        && slow.moved.size()==farther.moved.size(),"Trajectory populations differ");
+    constexpr double Cycle=6.283185307179586;
+    for(unsigned i=0;i<slow.moved.size();++i) {
+        for(unsigned word=0;word<12;++word) {
+            require(std::abs(slow.moved[i].words[word]-fast.moved[i].words[word])<5e-6f,
+                "Equal wind travel at different speeds changes ribbon geometry");
+            require(std::abs(slow.moved[i].words[word]-subdivided.moved[i].words[word])<5e-6f,
+                "Wind phase depends on timestep subdivision");
+        }
+        const double phase=std::remainder(double(slow.moved[i].words[11])-slow.born[i].words[11],Cycle);
+        const double twice=std::remainder(double(farther.moved[i].words[11])-farther.born[i].words[11],Cycle);
+        require(std::abs(phase)>.01 && std::abs(twice-2*phase)<5e-6,
+            "Doubling traveled distance does not double wind phase advance");
+    }
+    checkGL("wind travel-linked phase");
+    std::cout<<"PASS wind phase: no zero-speed drift, equal travel gives equal phase, "
+        "timestep subdivision invariance and proportional speed response\n";
     std::cout<<"PASS wind: zero dormant draws; bounded instanced strips; world anchoring/advection; "
         "teleport and invalid input; opaque occlusion; GL state and cleanup\n";
 }
