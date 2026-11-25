@@ -3,6 +3,7 @@
 #include "EnduranceAtmosphere.hpp"
 #include "EnduranceBiomeEffectsState.hpp"
 #include "EnduranceBiomeParticles.hpp"
+#include "EnduranceWindStreaks.hpp"
 #include "EnduranceParticleWind.hpp"
 #include "EnduranceBiomeMedium.hpp"
 #include "Camera.hpp"
@@ -71,9 +72,11 @@ struct EnduranceBiomeEffectsComponent::Impl
     const ptrClass* pc = nullptr;
     EffectsState state;
     EnduranceBiomeParticles particles;
+    EnduranceWindStreaks windStreaks;
     bool registered = false, hasPosition = false;
     glm::vec3 previousPosition{};
     glm::vec2 currentWind{};
+    float windSpeedScale = 1.0f;
     glm::dvec2 mediumWindOffset{};
     double seconds = 0.0;
     float dominantWeight = 0.0f;
@@ -102,6 +105,8 @@ void EnduranceBiomeEffectsComponent::start()
     { m->error = "Biome effects require the scene renderer."; return; }
     if (!m->particles.initialize(m->pc))
     { m->error = m->particles.error(); return; }
+    if (!m->windStreaks.initialize(m->pc))
+    { m->error = m->windStreaks.error(); m->particles.release(); return; }
     m->pc->postProcess->clearEnvironmentEffects();
     m->pc->graphiquePipelineManager->addCustomRenderer(this);
     m->registered = true;
@@ -120,6 +125,7 @@ void EnduranceBiomeEffectsComponent::stop()
         if (m->pc && m->pc->postProcess) m->pc->postProcess->clearEnvironmentEffects();
         activeEffects = nullptr;
     }
+    m->windStreaks.release();
     m->particles.release();
     m = std::make_unique<Impl>();
 }
@@ -144,6 +150,8 @@ void EnduranceBiomeEffectsComponent::prepareRenderer()
     {
         m->state.clear(); m->hasPosition = false; m->dominantWeight = 0.0f;
         m->particles.update({}, {}, {0, 0, -1}, {}, 0.0f, true);
+        m->windStreaks.update(0.0f, {}, {}, 0.0f, true);
+        m->windSpeedScale = 1.0f;
         m->pc->postProcess->clearEnvironmentEffects();
         EnduranceAtmosphereComponent::setEnvironmentMedium({});
         return;
@@ -171,7 +179,12 @@ void EnduranceBiomeEffectsComponent::prepareRenderer()
     const auto& definitions = effectDefinitions();
     for (std::size_t i = 0; i < EffectCount; ++i)
         if (!definitions[i].activeEvent) strengths[i] *= passive;
-    m->currentWind = particleWind({wind[0], wind[1]}, m->seconds, windVariation, windPeriod);
+    // PolarIce is stable biome ID 0. Smooth the speed change at its boundary;
+    // preserve the heading/gust pattern and leave atmosphere/cloud wind alone.
+    const float targetWindScale = valid && sample.biome == 0u ? 2.0f : 1.0f;
+    m->windSpeedScale = teleport ? targetWindScale
+        : glm::mix(m->windSpeedScale, targetWindScale, 1.0f-std::exp(-dt/1.2f));
+    m->currentWind = particleWind({wind[0], wind[1]}, m->seconds, windVariation, windPeriod)*m->windSpeedScale;
     // Accumulate displacement, so changing wind direction does not teleport
     // the weather noise. Its coordinate field stays independent of cloud wind.
     m->mediumWindOffset += glm::dvec2(m->currentWind) * static_cast<double>(dt);
@@ -181,6 +194,9 @@ void EnduranceBiomeEffectsComponent::prepareRenderer()
     m->particles.update(particlesEnabled ? strengths : std::array<float, EffectCount>{},
                         position, glm::vec3(0.0f), m->currentWind, dt, teleport,
                         finiteRange(particleDensity, 1.0f, 0.0f, 4.0f));
+    m->windStreaks.update(particlesEnabled ? strengths[static_cast<std::size_t>(EffectId::WindStreaks)] : 0.0f,
+                         position, m->currentWind, dt, teleport,
+                         finiteRange(particleDensity, 1.0f, 0.0f, 4.0f));
 
     if (screenEnabled)
     {
@@ -216,6 +232,7 @@ void EnduranceBiomeEffectsComponent::onGUI()
     ImGui::DragFloat("Teleport reset distance", &teleportDistance, 1.0f, 16.0f, 4096.0f);
     if (!m->error.empty()) ImGui::TextWrapped("%s", m->error.c_str());
     if (!m->particles.error().empty()) ImGui::TextWrapped("%s", m->particles.error().c_str());
+    if (!m->windStreaks.error().empty()) ImGui::TextWrapped("%s", m->windStreaks.error().c_str());
     if (!m->registered) { ImGui::TextUnformatted("Start the scene to preview biome effects."); return; }
     const int biome = m->state.biome();
     if (biome >= 0) ImGui::Text("Dominant: %s (%.1f%%)", ProceduralTerrain::BiomeNames[biome], 100.0f * m->dominantWeight);
@@ -223,6 +240,7 @@ void EnduranceBiomeEffectsComponent::onGUI()
     ImGui::Text("Live particles: %u / %u; groups: %u; events: %u / %u",
         static_cast<unsigned>(m->particles.liveParticleCount()), static_cast<unsigned>(EnduranceBiomeParticles::MaxLiveParticles),
         static_cast<unsigned>(m->particles.groupCount()), m->state.activeEventCount(), EffectsState::MaxConcurrentEvents);
+    ImGui::Text("Wind ribbons: %u", static_cast<unsigned>(m->windStreaks.liveCount()));
     const auto& definitions = effectDefinitions();
     if (ImGui::TreeNode("Current passive effects"))
     {

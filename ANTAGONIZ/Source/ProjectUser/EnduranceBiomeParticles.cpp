@@ -242,8 +242,9 @@ bool EnduranceBiomeParticles::initialize(const ptrClass* engine)
     m->rebaseDelta=glGetUniformLocation(m->rebase->getProgram(),"uAnchorDelta");
     for(unsigned f=0; f<FamilyCount; ++f)
     {
+        const char* vertexShader=f==family(ParticleShape::Streak) ? "rain.vs.glsl" : "particle.vs.glsl";
         m->pipelines[f]=engine->graphiquePipelineManager->createPipeline(
-            std::string(ShaderRoot)+"particle.fs.glsl", std::string(ShaderRoot)+"particle.vs.glsl",
+            std::string(ShaderRoot)+"particle.fs.glsl", std::string(ShaderRoot)+vertexShader,
             false, true, true, 2, "#define GE_BIOME_PARTICLE_KIND "+std::to_string(f)+"\n", cache);
         if(!m->pipelines[f] || !m->pipelines[f]->isValid())
         {

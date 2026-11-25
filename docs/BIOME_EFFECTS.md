@@ -25,7 +25,7 @@ demander à cet endroit.
 La colonne « particules » indique la capacité du groupe quand il est actif,
 à intensité non nulle, avec `Particle density = 1x`. Le réglage de densité
 multiplie cette capacité ; celui d'intensité atténue l'opacité. À zéro, le groupe
-est retiré. Un tiret désigne une recette sans groupe de particules (écran ou milieu 3D).
+est retiré. Un tiret désigne une recette sans groupe de particules (écran, milieu 3D ou rubans dédiés).
 Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 
 | N° | Identifiant | Type | Aspect et mouvement | Particules |
@@ -53,19 +53,19 @@ Les couleurs d'émission sont composées dans le rendu HDR, avant le bloom.
 | 21 | `glowing_spores` | Passif | Spores cyan plus espacées, moins opaques ; membranes lumineuses et lentes pulsations. | 480 |
 | 22 | `canopy_drips` | Passif | Gouttes fines issues d'une couche haute, chute verticale accélérée, faible déviation par le vent. | 3 840 |
 | 23 | `insects` | Passif | Petites silhouettes à ailes, virages nerveux et oscillations indépendantes ; vent très faible. | 640 |
-| 24 | `wind_streaks` | Passif | Filets longs et transparents suivant des courbes larges ; durée plus longue et vitesse propre modérée. | 960 |
+| 24 | `wind_streaks` | Passif | 32 longs rubans blancs courbés dans le monde, déplacés par le vent ; rendu dédié hors du système de particules. | — |
 | 25 | `ice_haze` | Passif | Voiles glacés horizontaux dans l'environnement sur 240 m de demi-portée ; aucune origine bouche/caméra. | 640 |
 | 26 | `wet_lens` | Passif | Gouttes réfractantes évoluant sur l'image, distinctes des précipitations dans le monde. | — |
 | 27 | `condensation` | Passif | Buée périphérique douce ; faible évolution temporelle, sans pulsation de respiration. | — |
 | 28 | `sand_veil` | Passif | Voile d'écran chaud associé aux poussières, brun rouge ; distinct des milieux 3D des tempêtes. | — |
-| 29 | `rain` | Actif | Pluie à longue traînée, descente rapide dominante, faible divergence et réponse amortie au vent. | 30 720 |
-| 30 | `heavy_rain` | Actif | Pluie dense avec légère brume volumétrique de pluie, gouttes et buée sur l'écran. | 61 440 |
+| 29 | `rain` | Actif | Pluie à longue traînée verticale dans le monde, descente rapide dominante, faible divergence et réponse amortie au vent. | 122 880 |
+| 30 | `heavy_rain` | Actif | Pluie dense avec légère brume volumétrique de pluie, gouttes et buée sur l'écran. | 245 760 |
 | 31 | `sandstorm` | Actif | Grains d'échelle 0,02–0,064 ; vrai milieu de poussière éclairé et visibilité atmosphérique conservés. | 122 880 |
 | 32 | `blizzard` | Actif | Flocons tournoyants, givre et diffusion volumétrique froide ; pas de voile opaque uniforme sur l'image. | 61 440 |
 | 33 | `ash_storm` | Actif | Fragments sombres et milieu de cendres absorbant/diffusant ; profondeur lisible par extinction progressive. | 40 960 |
-| 34 | `thunderstorm` | Actif | Pluie, milieu humide sombre éclairé par la scène, flash bref d'écran et rémanence humide. | 46 080 |
+| 34 | `thunderstorm` | Actif | Pluie, milieu humide sombre éclairé par la scène, flash bref d'écran et rémanence humide. | 184 320 |
 | 35 | `hail` | Actif | Grêlons facettés lourds, chute rapide et peu sensible au vent ; rotations plus vives. | 20 480 |
-| 36 | `sleet` | Actif | Précipitations courtes et denses entre pluie et neige, inclinaison modérée, eau et givre léger. | 35 840 |
+| 36 | `sleet` | Actif | Précipitations courtes et denses entre pluie et neige, traînée verticale, eau et givre léger. | 143 360 |
 | 37 | `meteor_shower` | Actif | Fragments incandescents en trajectoire balistique haute, longues traînées et aucune influence du vent. | 320 |
 | 38 | `lunar_dust_fall` | Actif | Éclats minéraux gris violet, chute lente avec rotation et voile froid discret. | 12 800 |
 | 39 | `pollen_burst` | Actif | Envol dense d'aigrettes en volutes ascendantes, plus de turbulence que le pollen passif. | 20 480 |
@@ -132,17 +132,17 @@ par effet. La neige et la pluie occupent des couches hautes ; les voiles de glac
 conservent une couche mince. Ces hauteurs définissent la **naissance**, pas une
 cage qui empêcherait fumées et braises de monter pendant leur vie.
 
-- Maximum passif : **66 240 particules**, dans `AridPlateau`, à 1x.
+- Maximum passif : **65 280 particules**, à 1x, hors rubans de vent.
 - Neige légère : **15 360** ; cendres : **11 520** ; sable : **61 440** ;
   embruns : **8 960**.
-- Forte pluie et blizzard : **61 440** chacun ; tempête de sable : **122 880** à 1x.
+- Forte pluie : **245 760** ; blizzard : **61 440** ; tempête de sable : **122 880** à 1x.
 - Les nappes transparentes ont **400–800** instances avec une opacité et une
   forme adaptées aux couches. Leur aspect horizontal est défini par un ratio
   hauteur/largeur inférieur à 1 ; les fumerolles conservent des panaches verticaux.
-- Budget total : **1 048 576 particules, 8 groupes**, transitions comprises.
+- Budget total : **2 097 152 particules, 8 groupes**, transitions comprises.
   Toutes les combinaisons autorisées d'un biome et deux événements tiennent
   dans ce budget même à 4x ; les transitions peuvent temporairement le saturer.
-- Le flux reste à **32 octets par particule** : 32 Mio pour 1 048 576 particules,
+- Le flux reste à **32 octets par particule** : 64 Mio pour 2 097 152 particules,
   hors métadonnées et capacité/réserves de l'allocateur. Ce plafond n'est pas une
   allocation systématique pour chaque biome.
 
@@ -151,16 +151,55 @@ transparent et la résolution restent importants ; les mesures sur GTX 1660
 restent nécessaires. La présence d'une recette dans le catalogue ou la matrice
 ne crée aucune particule tant qu'elle n'est pas activée.
 
+## Pluie et rubans de vent
+
+La pluie, la pluie battante, l'orage et la pluie mêlée de neige utilisent
+`ENDURANCE/Ressources/Shader/Environment/rain.vs.glsl`, avec le fragment shader
+environnemental commun. Leur population est multipliée par **4** sans élargir
+le volume d'émission. La simulation GPU et le stockage compact restent ceux
+du système existant. L'axe long du triangle reste vertical dans le monde ;
+seule sa largeur pivote autour de cet axe pour rester visible. Le fragment
+shader découpe le triangle en rectangle et conserve la profondeur, les
+intersections adoucies et la composition atmosphérique. Le tangage et le roulis
+de la caméra ne couchent donc plus les gouttes. Une vue directement au-dessus
+ou au-dessous conserve le raccourcissement naturel d'un rectangle vertical.
+
+`EnduranceWindStreaks` est une classe du jeu indépendante de `ParticleSystem`.
+Elle utilise le callback de transparence du moteur, avec **un seul dessin
+instancié de rubans segmentés**, sans modifier les shaders `forward`.
+Les paramètres sont dans `EnduranceWindStreaks.cpp` et les shaders
+`Environment/wind_streaks.vs.glsl` / `.fs.glsl` :
+
+- 32 rubans à densité 1x, au maximum 128 à 4x ; 24 segments par ruban.
+- Longueur de 10 à 24 m, demi-largeur de 0,025 à 0,065 m ; ondulations latérales
+  et verticales douces, avec phases indépendantes.
+- Naissance dans un rayon horizontal de 64 m autour du joueur, entre −3 et
+  +12 m par rapport à sa hauteur ; disparition progressive avant 80 m.
+- Durée de vie de 6 à 10 s, apparition en 0,6 s et extinction sur 1,2 s.
+- Positions conservées en double précision côté CPU, puis envoyées dans un
+  repère local : déplacer la caméra ne déplace pas les rubans déjà vivants.
+  Le vent transporte leur centre ; les nouveaux rubans naissent autour de la
+  nouvelle position du joueur. Une téléportation réinitialise le champ.
+- Un buffer de 8 Kio au maximum, mis à jour sans recréer les ressources ;
+  callback retiré quand l'effet ou sa densité est nul. Profondeur opaque,
+  atténuation proche et atmosphère sont conservées.
+
+Les affectations aux biomes et la prévisualisation manuelle de `wind_streaks`
+restent les mêmes. Dans **PolarIce**, le vent environnemental cible une vitesse
+**deux fois plus élevée**, avec une transition douce de 1,2 s aux frontières.
+Cela accélère les effets déjà présents dans ce biome et la dérive de son milieu,
+sans modifier la direction de base, la période des rafales ou le vent des nuages.
+
 ## Réglages de lisibilité
 
-Le dernier ajustement double la taille des sprites de sable : bourrasques
+L'ajustement précédent double la taille des sprites de sable : bourrasques
 0,0035–0,014 → 0,007–0,028 ; tempête 0,01–0,032 → 0,02–0,064.
 Les capacités restent de 61 440 et 122 880 particules respectivement. Le vent,
 les durées de vie, la portée et les opacités restent identiques.
 Les voiles d'écran et la diffusion volumétrique ne sont pas
 des particules et conservent leurs réglages. Le plafond d'admission est relevé
 pour éviter de tronquer les combinaisons autorisées à densité 4x ; il n'est pas
-préalloué. Aucun test ni mesure de performance n'a été relancé pour ce réglage.
+préalloué. Ce seul réglage de taille n'avait pas fait l'objet d'une mesure de performance.
 
 Les valeurs ci-dessous comparent le catalogue actuel à la révision `1d227f0`.
 
@@ -277,10 +316,11 @@ particules et attend un prélèvement proche de la nouvelle position.
 Dans l'inspecteur du composant, après démarrage de la scène :
 
 - `Enabled`, `Particles`, `Screen effects` et `World fog effects` permettent de couper séparément les contributions.
-- `Particle density` ajuste le nombre de particules : 0, 0.5x, 1x, 2x ou 4x.
+- `Particle density` ajuste le nombre de particules et de rubans de vent : 0, 0.5x, 1x, 2x ou 4x.
   La valeur par défaut 1x utilise les recettes renforcées ci-dessus.
 - `Passive intensity` et `Screen intensity` règlent leur opacité.
-- `Wind XZ`, `Wind variation` et `Wind period` règlent uniquement le vent des particules.
+- `Wind XZ`, `Wind variation` et `Wind period` règlent le vent environnemental
+  des particules, des rubans et des milieux météo ; les nuages ont leur propre vent.
 - `Current passive effects` indique les effets du biome dominant.
 - `Active events (manual trigger)` permet d'essayer les événements autorisés,
   avec durée et intensité. Deux événements peuvent être actifs simultanément.
@@ -318,7 +358,7 @@ le son, la météo générale ou les lumières de la scène.
   chaque particule. Fumerolles et embruns sont donc des ambiances
   autour du joueur, sans ancrage précis au sol, à la côte ou à un volcan. Un
   système de volumes abrités pourra les masquer plus tard en intérieur.
-- Au plus **8 groupes et 1 048 576 particules** sont admis, transitions comprises.
+- Au plus **8 groupes et 2 097 152 particules** sont admis, transitions comprises.
   Au-delà du budget, l'admission attend qu'un groupe se libère ; un groupe peut
   être admis partiellement lorsque seule une fraction de sa capacité rentre.
   Le catalogue seul ne crée aucun groupe. Quand tous les effets de particules sont à zéro,
@@ -381,6 +421,13 @@ contribution des milieux à l'intégration atmosphérique.
 sélection dominante contre le classificateur du terrain. Le contrôle C++ de
 `Tests/Atmosphere/check_render_integration.py` compile les nouvelles unités avec
 les en-têtes de production.
+
+`check_rain_gpu.py` mesure la géométrie du vrai vertex shader par transform
+feedback à plusieurs angles de caméra, y compris les vues verticales et le
+roulis. `check_wind_streaks.py` exerce la classe C++ réelle et ses shaders :
+ancrage, déplacement, téléportation, limites, profondeur, isolation de l'état
+OpenGL et libération des callbacks/ressources. Le mode `--fast-math` vérifie
+aussi la compilation optimisée utilisée par le moteur.
 
 Ces vérifications ne remplacent pas une session visuelle dans l'éditeur Windows
 ni une mesure sur GTX 1660. Les tailles, opacités et budgets pourront être

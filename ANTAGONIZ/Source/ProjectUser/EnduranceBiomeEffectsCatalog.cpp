@@ -317,15 +317,8 @@ namespace EnduranceEnvironment
             insects.particles.group.drag = 1.8f;
             insects.particles.group.spreadAngle = 160.f;
 
-            auto& streaks = define(Id::WindStreaks, "wind_streaks", "Filets de vent");
-            streaks.particles = particles(Shape::Streak, 96, {25, 4, 25}, {0, 0.2f, 0},
-                {1, 0.03f, 0.2f}, 2.0f, 4.0f, 6.0f, 10.0f, 0.025f, 0.06f, {0.64f, 0.70f, 0.68f, 0.13f});
-            streaks.particles.group.flags |= Ge::VelOrientation;
-
-            streaks.particles.aspect = 14.f;
-            streaks.particles.windScale = .8f;
-            streaks.particles.turbulence = .6f;
-            streaks.particles.turbulenceScale = .04f;
+            // Dedicated world-space ribbon renderer; no generic particle group.
+            define(Id::WindStreaks, "wind_streaks", "Filets de vent");
 
             // Third-person environment: extended suspended ice veils, no mouth
             // anchor, camera-facing puff or breathing pulse.
@@ -362,10 +355,9 @@ namespace EnduranceEnvironment
             veil.screen.speed = 0.45f;
 
             auto& rain = define(Id::Rain, "rain", "Pluie", true);
-            rain.particles = particles(Shape::Streak, 3072, {28,32,28}, {0,14,0},
+            rain.particles = particles(Shape::Streak, 4 * 3072, {28,32,28}, {0,14,0},
                 {0.08f, -1, 0.03f}, 7, 11, 2.5f, 4.5f, 0.018f, 0.035f, {0.58f, 0.69f, 0.76f, 0.42f});
             rain.particles.aspect = 14.0f;
-            rain.particles.group.flags |= Ge::VelOrientation;
             rain.particles.group.gravity = V3(0, -0.6f, 0);
             rain.screen.wet = 0.25f;
 
@@ -374,11 +366,10 @@ namespace EnduranceEnvironment
             rain.particles.group.spreadAngle = 3.f;
 
             auto& heavy = define(Id::HeavyRain, "heavy_rain", "Pluie battante", true);
-            heavy.particles = particles(Shape::Streak, 6144, {31,38,31}, {0,18,0},
+            heavy.particles = particles(Shape::Streak, 4 * 6144, {31,38,31}, {0,18,0},
                 {0.3f, -1, 0.12f}, 12, 17, 2, 3.5f, 0.022f, 0.045f, {0.52f, 0.64f, 0.72f, 0.53f});
             heavy.particles.aspect = 18.0f;
 
-            heavy.particles.group.flags |= Ge::VelOrientation;
             heavy.screen.wet = 0.56f;
             heavy.medium = {.0025f, V3(.72f,.78f,.84f), 0.0f, 3500.0f, .3f, .0018f, false};
             heavy.screen.condensation = 0.09f;
@@ -438,11 +429,10 @@ namespace EnduranceEnvironment
             ashStorm.particles.group.drag = .75f;
 
             auto& thunder = define(Id::Thunderstorm, "thunderstorm", "Orage lumineux", true);
-            thunder.particles = particles(Shape::Streak, 4608, {30,40,30}, {0,18,0},
+            thunder.particles = particles(Shape::Streak, 4 * 4608, {30,40,30}, {0,18,0},
                 {0.22f, -1, 0.18f}, 10, 15, 2.2f, 4, 0.02f, 0.04f, {0.48f, 0.60f, 0.70f, 0.47f});
             thunder.particles.aspect = 16.0f;
 
-            thunder.particles.group.flags |= Ge::VelOrientation;
             thunder.screen.wet = 0.40f;
             thunder.screen.flash = 0.65f;
             thunder.medium = {.004f, V3(.55f,.63f,.72f), 0.0f, 3500.0f, .45f, .002f, false};
@@ -467,11 +457,10 @@ namespace EnduranceEnvironment
             hail.particles.group.spreadAngle = 5.f;
 
             auto& sleet = define(Id::Sleet, "sleet", "Grésil", true);
-            sleet.particles = particles(Shape::Streak, 3584, {28,30,28}, {0,14,0},
+            sleet.particles = particles(Shape::Streak, 4 * 3584, {28,30,28}, {0,14,0},
                 {0.28f, -1, 0.12f}, 4, 8, 3, 5.5f, 0.025f, 0.07f, {0.67f, 0.80f, 0.87f, 0.64f});
             sleet.particles.aspect = 4.5f;
 
-            sleet.particles.group.flags |= Ge::VelOrientation;
             sleet.screen.wet = 0.26f;
             sleet.screen.frost = 0.13f;
 

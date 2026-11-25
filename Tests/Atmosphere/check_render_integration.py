@@ -40,6 +40,7 @@ def main():
                "ProjectUser/EnduranceAtmosphere.cpp", "ProjectUser/EnduranceMoonMesh.cpp",
                "ProjectUser/EnduranceBiomeEffects.cpp", "ProjectUser/EnduranceBiomeEffectsCatalog.cpp",
                "ProjectUser/EnduranceBiomeEffectsState.cpp", "ProjectUser/EnduranceBiomeParticles.cpp",
+               "ProjectUser/EnduranceWindStreaks.cpp",
                "ProjectUser/TreeRenderGpu.cpp", "ProjectUser/EnduranceTreeRenderer.cpp",
                "ProjectUser/EnduranceTerrainMaterials.cpp",
                "ProjectUser/EnduranceTerrainMaterialPanel.cpp")

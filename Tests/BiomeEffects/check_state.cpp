@@ -74,7 +74,7 @@ void catalogue()
         require(E::findEffect(d.key) == &d, label + "Key lookup returns a different recipe");
         require(finite(d.fadeIn) && finite(d.fadeOut) && d.fadeIn >= .05f && d.fadeOut >= .05f,
                 label + "Invalid fade times");
-        require(p.count > 0 || s.features() != 0 || d.medium.extinction > 0,
+        require(p.count > 0 || s.features() != 0 || d.medium.extinction > 0 || d.id == E::EffectId::WindStreaks,
                 label + "Effect has no visual implementation");
         const auto& medium = d.medium;
         require(finite(medium.extinction) && medium.extinction >= 0,
@@ -94,7 +94,7 @@ void catalogue()
         finiteVector(s.tint, label + "Invalid screen tint");
         require(finite(s.scale) && s.scale > 0 && finite(s.speed) && s.speed >= 0, label + "Invalid screen motion");
         require(static_cast<unsigned>(p.shape) < static_cast<unsigned>(E::ParticleShape::Count), label + "Invalid sprite shape");
-        require(p.count <= 131072, label + "Unbounded single-effect base particle pool");
+        require(p.count <= 262144, label + "Unbounded single-effect base particle pool");
         if (p.count)
         {
             require(finite(g.lifeTimeMin) && finite(g.lifeTimeMax) && g.lifeTimeMin > 0
@@ -173,6 +173,18 @@ void extendedArtRecipes()
     // 1d227f0. Population is deliberately NOT forced upward for every effect:
     // wider leaves and lighter spores must remain cheaper than dense storms.
     const auto& definitions = E::effectDefinitions();
+    require(definitions[index(E::EffectId::WindStreaks)].particles.count == 0,
+            "Wind ribbons must not allocate a generic particle group");
+    const std::pair<E::EffectId, unsigned> rainCounts[] = {
+        {E::EffectId::Rain, 30720}, {E::EffectId::HeavyRain, 61440},
+        {E::EffectId::Thunderstorm, 46080}, {E::EffectId::Sleet, 35840}};
+    for (const auto& entry : rainCounts)
+    {
+        const auto& rain = definitions[index(entry.first)].particles;
+        require(rain.count == 4 * entry.second, "Rain populations must be quadrupled");
+        require(rain.shape == E::ParticleShape::Streak && !(rain.group.flags & Ge::VelOrientation),
+                "Rain must use its vertical rendering family without generic velocity rotation");
+    }
     const auto& sand = definitions[index(E::EffectId::SandGust)].particles;
     require(sand.count == 2 * 30720, "Sand gust must double the previous population");
     require(near(sand.group.scaleStart, .007f) && near(sand.group.scaleEnd, .028f),

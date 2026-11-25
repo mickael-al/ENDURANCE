@@ -316,7 +316,8 @@ def main():
         programs=[]
         for family in range(18):
             defines=f'#define GE_BIOME_PARTICLE_KIND {family}\n'
-            programs.append(gl.compile([(0x8B31,shader_source(SHADERS/'particle.vs.glsl',defines)),
+            vertex='rain.vs.glsl' if family==2 else 'particle.vs.glsl'
+            programs.append(gl.compile([(0x8B31,shader_source(SHADERS/vertex,defines)),
                                         (0x8B30,shader_source(SHADERS/'particle.fs.glsl',defines))],f'biome particle family {family}'))
         check_rendering(gl,programs)
         check_identity_motion(gl,programs)

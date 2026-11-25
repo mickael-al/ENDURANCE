@@ -461,18 +461,18 @@ void run() {
     require(adapter.liveParticleCount()==EnduranceBiomeParticles::MaxLiveParticles && calls.dispatch==truncated.dispatch
         && calls.buffer==truncated.buffer,"Clamped density recreated budget-truncated groups");
     strengths={};update();
-    for(auto effect:{EffectId::Rain,EffectId::HeavyRain,EffectId::Sandstorm}) strengths[std::size_t(effect)]=1;
+    for(auto effect:{EffectId::Rain,EffectId::HeavyRain,EffectId::Thunderstorm}) strengths[std::size_t(effect)]=1;
     update({},false,4);
     require(adapter.liveParticleCount()==EnduranceBiomeParticles::MaxLiveParticles && adapter.groupCount()==3,"Promotion fixture did not saturate pool");
     const auto beforePromotion=calls.dispatch;
     strengths[std::size_t(EffectId::Rain)]=strengths[std::size_t(EffectId::HeavyRain)]=0;update({},false,4);
-    require(adapter.groupCount()==1 && adapter.liveParticleCount()==4*effectDefinitions()[std::size_t(EffectId::Sandstorm)].particles.count
+    require(adapter.groupCount()==1 && adapter.liveParticleCount()==4*effectDefinitions()[std::size_t(EffectId::Thunderstorm)].particles.count
         && calls.dispatch==beforePromotion+1,"Truncated group did not recover density when budget became available");
     const auto promoted=calls;update({},false,4);
     require(calls.dispatch==promoted.dispatch && calls.subdata==promoted.subdata && calls.data==promoted.data
         && calls.buffer==promoted.buffer,"Promoted unchanged group rebuilt/uploaded again");
     update({},false,std::numeric_limits<float>::quiet_NaN());
-    require(adapter.liveParticleCount()==effectDefinitions()[std::size_t(EffectId::Sandstorm)].particles.count,
+    require(adapter.liveParticleCount()==effectDefinitions()[std::size_t(EffectId::Thunderstorm)].particles.count,
         "Nonfinite density did not fall back to configured default");
     strengths.fill(std::numeric_limits<float>::quiet_NaN());update();
     require(adapter.groupCount()==0 && f.renderer.callbacks.empty(),"Nonfinite strengths retained live groups");
