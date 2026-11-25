@@ -418,33 +418,32 @@ def check_fine_surface(gl):
     assert sparkle[0] == baseline[0] and sparkle[2] == baseline[2], 'glints changed geometry/emission/albedo'
     assert sparkle[3][0::4] == baseline[3][0::4] and sparkle[3][2::4] == baseline[3][2::4]
     assert min(sparkle[3][1::4]) < .16 and max(sparkle[3][1::4]) > .79, 'missing sparse glossy grains'
-    # Upper tail of an independent uniform sample, shaped by a fourth power.
+    # Sparse independent mineral facets over an otherwise unchanged substrate.
     coverage=sum(r < .5 for r in sparkle[3][1::4])/128**2
-    assert .02 < coverage < .35, ('grain coverage',coverage)
-    assert sparkle[1] == baseline[1], 'white-noise sparkle introduced bump normals'
-    for n in pixels(sparkle[1]): assert abs(sum(x*x for x in n[:3])-1.) < 3e-5
+    assert .17 < coverage < .28, ('grain coverage',coverage)
+    facets=[]
+    for n,rough in zip(pixels(sparkle[1]),sparkle[3][1::4]):
+        assert abs(sum(x*x for x in n[:3])-1.) < 3e-5
+        assert n[1]>.82, 'facet slope exceeded the bounded hemisphere'
+        if rough > .79: assert max_difference(n[:3],(0.,1.,0.))<1e-6
+        else: facets.append(n)
+    assert max(n[0] for n in facets)-min(n[0] for n in facets)>.5
+    assert abs(sum(n[0] for n in facets)/len(facets))<.05
+    assert abs(sum(n[2] for n in facets)/len(facets))<.05
     rig.set(testLod=5,testViewOffset=(5.,2.,-10.))
     stable=rig.read()
     assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
-
-    # Recover the raw white-noise values from the roughness mapping. This
-    # checks a distribution, not a second copy of the implementation's hash.
-    raw=[max(0.,min(1.,(.8-r)/(.8-.12)))**.25 for r in sparkle[3][1::4]]
-    mean=sum(raw)/len(raw)
-    variance=sum((x-mean)**2 for x in raw)/len(raw)
-    assert abs(mean-.5)<.05 and abs(variance-1./12)<.02, ('white-noise moments',mean,variance)
-    bins=[sum(lo/10 <= x < (lo+1)/10 for x in raw)/len(raw) for lo in range(10)]
-    assert min(bins)>.045 and max(bins)<.16, ('white-noise histogram',bins)
 
     # Point sampling must be exactly constant inside a world cell. Advancing
     # to another cell (or by the old 128-cell tile) must not preserve its value.
     rig.set(testOrigin=(.011,.011,.011),testAxisX=(.008,0.,0.),testAxisY=(0.,0.,.008))
     cell=rig.read()
     assert max(cell[3][1::4])-min(cell[3][1::4]) < 1e-6, 'grain samples interpolate within a cell'
+    for channel in range(3):
+        assert max(cell[1][channel::4])-min(cell[1][channel::4]) < 1e-6
     rig.set(testOrigin=(.021,.011,.021)); within=rig.read()
     assert max_difference(cell[3],within[3]) < 1e-6, 'grain sample depends on subcell location'
-    rig.set(testOrigin=(.051,.011,.011)); adjacent=rig.read()
-    assert max_difference(cell[3],adjacent[3])>.001, 'adjacent cells reuse the same white-noise value'
+    assert max_difference(cell[1],within[1]) < 1e-6, 'facet normal interpolates within a cell'
     rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
     first=rig.read()
     rig.set(testOrigin=(-.37+128*.04,180.,.23)); shifted=rig.read()
@@ -466,7 +465,7 @@ def check_fine_surface(gl):
     rig.upload(noisy); ordinary=rig.read()
     assert max_difference(ordinary[1],baseline[1])>.001, 'microrelief regression setup is flat'
     rig.upload(edited_vec(noisy,0,96,(1.,.12,.10,.06))); granular=rig.read()
-    assert max_difference(granular[1],baseline[1])<2e-6, 'coherent FBM bumps survive on sand/snow'
+    assert max_difference(granular[1],sparkle[1])<2e-6, 'coherent FBM bumps survive on sand/snow'
     assert max_difference(granular[3],sparkle[3])<2e-6, 'coherent FBM roughness survives on sand/snow'
     rig.set(microDetailStrength=0.)
 
@@ -517,7 +516,7 @@ def check_fine_surface(gl):
     # A pixel spans more than the complete 16 m cache: its last mip is uniform.
     rig.set(testAxisX=(4096.,0.,0.),testAxisY=(0.,0.,4096.))
     rig.upload(grains); far=rig.read()
-    assert max_difference(far[1],baseline[1]) < 2e-6, 'distant grains changed normals'
+    assert max_difference(far[1],baseline[1]) > .1, 'distant facet orientations disappeared'
     assert max_difference(far[3],baseline[3]) > .1, 'white grains must remain active at large pixel footprints'
     rig.upload(stains); far=rig.read()
     far_ratios=[c[0]/.3 for c in linear_colors(far[2])]
@@ -527,7 +526,7 @@ def check_fine_surface(gl):
         '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
     off=MaterialRig(gl,stains,fragment=disabled)
     assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
-    print('PASS fine surfaces: point-sampled non-tiling white grains, no granular FBM/bump leakage, 10% stains, independent scales, LOD/seed stability, mip coverage and compile-time disable',flush=True)
+    print('PASS fine surfaces: sparse point-sampled facets, bounded isotropic normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):

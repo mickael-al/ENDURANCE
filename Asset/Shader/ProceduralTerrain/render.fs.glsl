@@ -45,13 +45,15 @@ void main()
     TerrainAppearanceSample appearance = terrainEvaluateAppearance(baseNormal,patterns);
 #if TERRAIN_FINE_SURFACE_ENABLED
     terrainApplyFineStains(appearance,patterns);
-    terrainApplySparkle(appearance,patterns);
 #endif
 
     // Blend height gradients first, project tangentially and normalize once.
     vec3 gradient = appearance.heightGradient;
     gradient -= baseNormal * dot(baseNormal,gradient);
     vec3 normal = normalize(baseNormal-gradient);
+#if TERRAIN_FINE_SURFACE_ENABLED
+    terrainApplyGranularSurface(normal,appearance.roughness,appearance,patterns);
+#endif
     vec3 color = appearance.color;
 #if DEBUG_TERRAIN_MATERIAL == 2
     color = vec3(appearance.wallMask);

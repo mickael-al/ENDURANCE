@@ -185,32 +185,39 @@ The sizes describe base features/spacing, not an exact diameter of irregular
 patches. These controls change uniforms without remeshing or rebaking anything.
 They are independent of the biome relief noise's period and octaves.
 
-Grains now use **raw scalar white noise with no interpolation**. The existing
-integer cell hash evaluates one uniform value at `floor(worldPosition/grainSize)`.
-This is equivalent to nearest sampling a white-noise cell field, without a small
-repeating image, a texture fetch or random normal tilts. Raising the scalar to
-the fourth power creates contrast, then modulates roughness in the existing PBR
-path. The `Tribute Journey` code supplied by the user instead multiplies a
-specular/rim lobe by a powered white-noise scalar. Our deferred adaptation does
-not reproduce that shader exactly; it retains the engine's lights, shadows and
-IBL without emission, another lighting pass or a new G-buffer channel.
+The sand/snow path uses **point-sampled white-noise mineral facets**. The old
+fourth-power random-roughness approach is removed: it made many pixels glossy
+with an identical normal and produced a large speckled reflection patch.
+`terrainApplyGranularSurface` now keeps about 78% of cells at the authored
+substrate roughness and normal. The remaining 22% receive independently oriented
+facets, with the authored grain roughness. Facet slopes use an isotropic,
+truncated GGX distribution (spread 0.28, maximum tilt about 34 degrees).
 
-The old bilinear grain islands and normal tilts are removed. Granular materials
-also skip their smooth procedural micro-normal and smooth grain roughness
-variation: these can produce broad circular specular contours around bumps.
-They retain the terrain mesh normal, geometry, palettes and authored roughness.
-Selection occurs before material blending, so adjacent non-granular rock/green
-layers retain their own detail. When both active layers are granular, the
-procedural surface-normal calculation is skipped entirely. The discrete stain
-controls are ignored for granular materials, and the inspector indicates this.
+One existing integer hash at `floor(worldPosition/grainSize)` supplies disjoint
+8/12/12-bit fields for coverage, azimuth and radial slope. There is no grain
+texture, interpolation, FBM, repeated small tile or per-frame randomization.
+The facet calculation runs only for selected cells after all material blends.
+`fineSurface.x` blends the facet normal and roughness continuously with the
+substrate; `fineSurface.y` sets the facet roughness. The two local constants
+`facetCoverage` and `slopeSpread` in `fine_surface.glsl` tune density and spread.
 
-The fixed world cell domain does not follow the camera or chunk LOD. There is no
-128-cell tile repetition. White grains have no distance or pixel-footprint fade:
-the hash and roughness modulation stay active even when the grains are subpixel,
-as explicitly requested. This can shimmer and adds grain work to distant sand
-and snow; the earlier footprint-based early exit is removed. Extremely large
-domains outside signed-integer-safe cell coordinates still skip the effect to
-avoid undefined integer conversion; this is numerical protection, not filtering.
+Only the ordinary G-buffer normal and roughness are changed. **The forward /
+deferred lighting shaders, G-buffer formats/tags, lighting model, passes and
+resource allocations are unchanged.** The existing PBR supplies directional,
+point and spot lighting, shadows, Fresnel and IBL. Nothing is painted into albedo
+or emission. This is a stylized stochastic material, not a reproduction of the
+supplied Tribute Journey shader's dedicated specular/rim-light calculation.
+
+Granular layers still skip smooth procedural micro-normal/roughness variation
+and discrete FBM stains, including saved stain controls. Adjacent rock/vegetation
+layers retain their own detail. Macro color/ripple masks, terrain mesh geometry
+and the separate geometric-normal tag for shadow bias are retained.
+
+There is **no distance or pixel-footprint fade**. The fixed world cell domain
+stays active even for subpixel grains, as requested. Subpixel facets can shimmer
+in motion without temporal antialiasing; this change does not claim to solve that
+sampling problem. Only coordinates outside signed-integer-safe cell bounds skip
+the effect, to avoid undefined conversion (not a view-distance restriction).
 
 Stains retain eight-octave periodic FBM (lacunarity 2, gain 0.5), thresholded at
 0.5 **before** filtering. C++ builds a 512² R8 mask once per process, with four
@@ -229,8 +236,9 @@ some directional stretching is an intentional performance tradeoff.
 
 Only the stain GPU cache remains: **349,525 bytes (about 0.333 MiB)** including
 mipmaps, with a retained 256 KiB CPU bake shared across renderer restarts. The
-64 KiB grain texture, its upload, extra texture unit/sampler state and normal
-perturbation have been removed. Initialization uploads the stain cache once;
+64 KiB grain texture, its upload and extra texture unit/sampler state remain
+removed. The new facet orientations are calculated directly from the cell hash.
+Initialization uploads the stain cache once;
 chunk generation and material edits do not regenerate it. Borrowed texture unit
 0, sampler and pixel-unpack state are restored. The material UBO layout is
 unchanged at 15,392 bytes; no new draw or generation pass is added.
@@ -248,21 +256,26 @@ comparisons and restores the ordinary procedural-normal path.
 
 ### Validation and timing
 
-The revision-6 and revision-7 grain-size/visibility adjustments were not compiled,
-tested or benchmarked, as requested. The validation and timings below describe v5;
-the existing distant-grain assertion now expects the unfiltered v7 behavior.
+The redesigned granular path is checked with actual OpenGL shaders on Mesa
+llvmpipe (software rendering). `Tests/TerrainMaterials/check_gpu.py` verifies
+sparse coverage, bounded normalized facet directions, a stable matte substrate,
+constant samples within each world cell, seed/LOD stability, large-footprint
+visibility, unaffected albedo/geometry/AO/metallic, stain isolation and static
+disable. There is no C++ layout or serialized parameter change.
 
-The material checks cover C++/GLSL layout, saved-scene migration, live-edit state
-restoration, independent grain size, vegetation stains enlarged tenfold, stable
-scale blending, unaffected geometry/PBR channels and distant filtering. These
-run on the available Mesa llvmpipe software renderer; they do not establish
-whole-game performance or the visual result on the target GTX 1660.
+`Tests/TerrainMaterials/check_granular_render.py` sends the production terrain
+fragment output through the **unchanged** production deferred shader, using a
+perspective plane and the engine's RG32F/RGB16F/RGBA16F/RGB8 formats. It checks
+sparse HDR highlights, their response to sun direction, real shadow-map blocking,
+absence of emission and the shared snow/sand path with IBL. Its optional preview
+compares against an earlier commit under identical controlled lighting; it is
+not an in-game capture or a target-GPU performance measurement.
 
-Additional checks verify constant values within each grain cell, uniform raw
-noise statistics, lack of the old 128-cell repetition, seed/LOD stability,
-unchanged grain normals, and rejection of stale stains on granular materials.
-The C++ integration syntax check covers the renderer, presets, scene component
-and inspector. It is not a full Windows build or an in-game visual validation.
+No extra texture, allocation, generation work or lighting pass is introduced.
+The new orientations require some extra arithmetic on selected terrain pixels;
+GTX 1660 frame cost and the result under actual game exposure still need in-game
+validation. The timings below predate this facet redesign and must **not** be
+used as its performance estimate.
 
 The November 25 comparison against published revision `1ff2aec` uses a 256²
 viewport, 15 alternating sample pairs, three draws per sample and one llvmpipe
