@@ -201,12 +201,13 @@ stationary dyadic grids to soften scale transitions.
 
 - Projected world coordinates identify a cell at each of two grid levels. One
   integer hash per level, salted with the world seed and level, chooses a center
-  in the range **0.36–0.64** of each cell axis. Chunk IDs and frame numbers do not
+  in the range **0.28–0.72** of each cell axis. Chunk IDs and frame numbers do not
   enter this calculation. Changing levels changes the visible population
   gradually; it does not continuously slide either grid over the terrain.
-- A separable cubic B-spline provides compact coverage around each center. The
-  kernel has support of +/-2 in each axis and shares its contribution smoothly
-  between adjacent pixels as the camera moves. It does not average an entire
+- A separable cubic B-spline provides compact coverage around each center. Its
+  analytic integral over each pixel preserves subpixel coverage when a small
+  point moves between pixel centers. At the default scale of 0.5, the filtered
+  support is +/-1.5 screen pixels in each axis. It does not average an entire
   noise texture into a uniform normal or create contours by thresholding an
   interpolated normal map.
 - The full **2x2 world-to-screen metric** uses derivatives captured in
@@ -226,20 +227,25 @@ stationary dyadic grids to soften scale transitions.
   center or compact shape. Random amplitude, material strength and the broad
   reflection envelope keep the surface from becoming uniformly glossy.
 
-Two constants in `sparkle.glsl` control the screen appearance:
+Three constants in `sparkle.glsl` control the screen appearance:
 
 | Constant | Default | Meaning |
 |---|---:|---|
-| `TERRAIN_SPARKLE_WIDTH` | 1.0 | Kernel screen scale; about 1.4 pixels full width at half maximum for its unlit coverage profile |
-| `TERRAIN_SPARKLE_SPACING` | 8.0 | Lower-grid spacing bound relative to width and the full pixel footprint; larger values make points sparser |
+| `TERRAIN_SPARKLE_WIDTH` | 0.5 | Base kernel screen scale, halved from the initial procedural version; pixel integration limits aliasing of the smaller points |
+| `TERRAIN_SPARKLE_SPACING` | 8.0 | Minimum lower-grid spacing relative to the full pixel footprint; larger values make points sparser |
+| `TERRAIN_SPARKLE_JITTER` | 0.44 | Center displacement range within a cell, increased from 0.28; centers now span 0.28–0.72 on each axis |
 
 The width is an approximate coverage target, not a guarantee that each final
 lit component occupies exactly one pixel. Tone mapping, exposure, bloom and the
-PBR adapter affect perceived size. The spacing bound is also a correctness
-condition: do not lower it below 8 without revisiting kernel containment or
-adding neighbor evaluation. Increasing width also increases the safe grid
-spacing. Material `fineSurface.x` and `.y` continue to control strength and
-selected-facet roughness independently of these shader constants.
+PBR adapter affect perceived size. Halving the base kernel width does not halve
+every final lit diameter after pixel integration. Spacing is independent of
+width at the defaults, preserving the previous grid population. To contain the
+kernel without neighbor evaluation, the effective spacing factor is clamped to
+`max(SPACING, sqrt(2) * (2 * WIDTH + 0.5) / margin)`, where
+`margin = (1 - JITTER) / 2`. Keep `WIDTH > 0` and `0 <= JITTER < 1`.
+Larger width or jitter can therefore increase the required grid spacing.
+Material `fineSurface.x` and `.y` continue to control strength and selected-facet
+roughness independently of these shader constants.
 
 The terrain draw receives the current camera position and the normalized sun
 vector from `Atmosphere::primarySpecularDirection()` (CPU state only). Outside
@@ -355,10 +361,11 @@ python3 Tests/TerrainMaterials/run_all.py
 python3 Tests/TerrainMaterials/check_grain_motion.py --compare-ref ee47948
 ```
 
-The November 25 diagnostic against `ee47948` uses eight frames per scenario,
-a 160x100 target and a 4x4 HDR reference. Normalized temporal residuals are:
+The initial procedural version `52c04cc` was compared against `ee47948` on
+November 25 using eight frames per scenario, a 160x100 target and a 4x4 HDR
+reference. Normalized temporal residuals were:
 
-| Scenario | Procedural | Previous PNG path |
+| Scenario | Initial procedural (`52c04cc`) | Previous PNG path |
 |---|---:|---:|
 | Close-up lateral motion | 0.216 | 0.239 |
 | Distant lateral motion | 0.236 | 1.931 |
@@ -372,7 +379,18 @@ changes; this is not a pixel-identical replacement. The reference glint RMS is
 not reduced. Full metrics, shader hash and settings are in
 [the motion report](terrain-material-validation/procedural-sparkle-motion-2026-11-25.json).
 
-The same-day budget comparison against `ee47948` uses a 256x256 target,
+The subsequent smaller-point adjustment halves the base kernel scale, widens
+the center jitter range and analytically integrates the kernel over each pixel.
+The same diagnostic against `52c04cc` measures median bright-component area of
+two pixels instead of four in both lateral-motion cases, with similar component
+counts (14 vs 15 near; 18 vs 19 far). The smaller points are more sensitive to
+sampling: normalized temporal residuals rise from 0.216 to 0.297 near, 0.236 to
+0.335 far, and 0.279 to 0.393 during approach. Absolute temporal residuals rise
+by about 7–9%; reference glint RMS also decreases. Pixel integration does not
+make the nonlinear material/lighting response alias-free. Full measurements are
+in [the smaller-point motion report](terrain-material-validation/smaller-sparkle-motion-2026-11-25.json).
+
+The initial version's same-day budget comparison against `ee47948` uses a 256x256 target,
 15 alternating sample pairs, three draws per sample and one llvmpipe thread.
 Completed-draw paired median ratios (new/old) are **1.098** for sand sparkles,
 **1.018** for ordinary stains and **1.023** for distant four-biome terrain.
@@ -380,6 +398,8 @@ The sparkle ratio interquartile range is 1.002–1.166. This is software-rendere
 material-pass cost, not whole-frame cost or GTX 1660 performance. Removing the
 texture saves memory but does not establish a speedup. Raw samples and source
 hashes are in [the budget report](terrain-material-validation/procedural-sparkle-budget-2026-11-25.json).
+These timings predate the smaller-point adjustment and are not a measurement of
+its pixel-integrated kernel.
 
 The motion diagnostic and optional timing experiments are separate from the
 normal validation runner. GTX 1660 frame cost and the result under actual game

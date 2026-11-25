@@ -6,17 +6,31 @@
 // Unlike their example, no view/time offset moves the grid. Two stationary
 // levels crossfade; no normal-map mip averages away the discrete highlights.
 // Controls are independent: screen width, screen spacing, material strength.
-const float TERRAIN_SPARKLE_WIDTH = 1.0; // ~1.4px FWHM, smooth pixel handover
+const float TERRAIN_SPARKLE_WIDTH = 0.5; // half-size kernel, filtered over each pixel
 const float TERRAIN_SPARKLE_SPACING = 8.0; // minimum grid width in pixels
+const float TERRAIN_SPARKLE_JITTER = 0.44; // center range 0.28..0.72 of a cell
 
-float terrainSparkleKernel(float x)
+float terrainSparkleIntegral(float x)
 {
-    // Cubic B-spline: compact support +/-2 and smooth subpixel translation.
-    // Its shifted integer samples sum to one (unlike a binary point mask).
+    // Analytic CDF of the same compact cubic B-spline. Integrating the smaller
+    // point over a pixel keeps it from flashing as it crosses pixel centers.
+    bool negative = x < 0.0;
     x = abs(x);
-    if (x < 1.0) return (2.0/3.0) - x*x + 0.5*x*x*x;
     float a = max(2.0-x,0.0);
-    return a*a*a/6.0;
+    float value = x < 1.0
+        ? 0.5 + x*((2.0/3.0) + x*x*(-1.0/3.0 + x*0.125))
+        : 1.0 - (a*a)*(a*a)/24.0;
+    return negative ? 1.0-value : value;
+}
+
+float terrainSparklePixelCoverage(float x)
+{
+    float upper = terrainSparkleIntegral((x+0.5)/TERRAIN_SPARKLE_WIDTH);
+    float lower = terrainSparkleIntegral((x-0.5)/TERRAIN_SPARKLE_WIDTH);
+    // Preserve the peak control; the integral over the screen stays constant
+    // under subpixel translation. This denominator is compile-time constant.
+    float peak = 2.0*terrainSparkleIntegral(0.5/TERRAIN_SPARKLE_WIDTH)-1.0;
+    return max(upper-lower,0.0)/peak;
 }
 
 float terrainSparkleLevel(vec2 p, mat2 screenFromWorld, float spacing,
@@ -28,12 +42,13 @@ float terrainSparkleLevel(vec2 p, mat2 screenFromWorld, float spacing,
     uint h = terrainHashCellSalt(ivec3(cell,level),0x51a7c3e9u);
     vec3 random = vec3(h & 1023u,(h >> 10u) & 1023u,h >> 20u)
         / vec3(1023.0,1023.0,4095.0);
-    // Center margin >= 0.36*spacing. The spacing bound below contains the
-    // entire +/-2px support inside this cell, so no neighbor search is needed.
-    vec2 center = vec2(0.36)+0.28*random.xy;
+    // More placement freedom, still hashed only from the fixed world cell.
+    // The spacing bound below also contains the pixel filter's extra support.
+    vec2 center = vec2(0.5)+TERRAIN_SPARKLE_JITTER*(random.xy-0.5);
     vec2 delta = screenFromWorld*((fract(q)-center)*spacing);
-    delta /= TERRAIN_SPARKLE_WIDTH;
-    float coverage = 2.25*terrainSparkleKernel(delta.x)*terrainSparkleKernel(delta.y);
+    float support = 2.0*TERRAIN_SPARKLE_WIDTH+0.5;
+    if (any(greaterThanEqual(abs(delta),vec2(support)))) return 0.0;
+    float coverage = terrainSparklePixelCoverage(delta.x)*terrainSparklePixelCoverage(delta.y);
     if (coverage <= 0.0) return 0.0;
 
     // Fixed broad orientation response per point, not a contour cut out of
@@ -66,12 +81,16 @@ void terrainApplyGranularSurface(inout vec3 normal, inout float roughness,
     if (abs(determinant) <= max(1.0e-20,footprint*footprint*1.0e-7)) return;
     mat2 screenFromWorld = mat2(dy.y,-dx.y,-dy.x,dx.x)/determinant;
     float minimumSpacing = max(terrainSparkleGrainSize,0.001);
-    float level = max(log2(max(TERRAIN_SPARKLE_SPACING*TERRAIN_SPARKLE_WIDTH*footprint/minimumSpacing,1.0e-8))+1.0,0.0);
+    // Decouple point width from density. At the defaults this retains the
+    // previous spacing; the bound also keeps future width/jitter edits safe.
+    float margin = 0.5*(1.0-TERRAIN_SPARKLE_JITTER);
+    float support = 2.0*TERRAIN_SPARKLE_WIDTH+0.5;
+    float gridWidth = max(TERRAIN_SPARKLE_SPACING,1.414214*support/margin);
+    float level = max(log2(max(gridWidth*footprint/minimumSpacing,1.0e-8))+1.0,0.0);
     float lower = floor(level);
     float spacing = minimumSpacing*exp2(lower);
     // +1 in the level calculation makes even the LOWER grid satisfy the
-    // containment bound: spacing >=8*width*footprint. The 0.36 cell margin
-    // exceeds the worst support radius 2*sqrt(2)*width*footprint.
+    // containment bound: margin*spacing >= sqrt(2)*support*footprint.
     vec2 p = terrainFineProjection(c.position);
     float first = terrainSparkleLevel(p,screenFromWorld,spacing,int(lower),normal,H);
     float second = terrainSparkleLevel(p,screenFromWorld,2.0*spacing,int(lower)+1,normal,H);

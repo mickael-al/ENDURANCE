@@ -1,0 +1,115 @@
+{
+  "shader_sha256": "d5cf9ff091e6dd5a8c22b184d941606fde7826e079a4d8f89d31b08630eea045",
+  "comparison_revision": "52c04cc8321ac3e87d1ec5b02adb203e00e741dc",
+  "target_size": [
+    160,
+    100
+  ],
+  "supersample_factor": 4,
+  "frames": 8,
+  "method": "HDR supersampling with target derivatives; world-reprojected errors normalized by reference glint RMS",
+  "scope": "synthetic plane, production material/deferred shaders, finite reference; not game capture or GTX timing",
+  "cases": {
+    "current": {
+      "near_lateral": {
+        "reprojected_temporal_residual_rms": 0.012634898750573267,
+        "normalized_temporal_residual": 0.29723367009040114,
+        "spatial_error_rms": 0.018193189127808727,
+        "reference_glint_rms": 0.04250830246361547,
+        "reference_glint_mean": 0.0025429696695798937,
+        "peak_hdr_glint_excess": 12.755924156343564,
+        "bright_pixel_fraction": 0.0022734375,
+        "near_shape_threshold_hdr": 0.1,
+        "bright_components": {
+          "count": 14,
+          "area_median": 2.0,
+          "area_p95": 5.35,
+          "aspect_p95": 2.0
+        }
+      },
+      "far_lateral": {
+        "reprojected_temporal_residual_rms": 0.015492953703493845,
+        "normalized_temporal_residual": 0.33520636178304647,
+        "spatial_error_rms": 0.02010803499891563,
+        "reference_glint_rms": 0.0462191517520221,
+        "reference_glint_mean": 0.003080951570669342,
+        "peak_hdr_glint_excess": 21.825138540384174,
+        "bright_pixel_fraction": 0.0027109375,
+        "near_shape_threshold_hdr": 0.1,
+        "bright_components": {
+          "count": 18,
+          "area_median": 2.0,
+          "area_p95": 4.0,
+          "aspect_p95": 2.0
+        }
+      },
+      "approach": {
+        "reprojected_temporal_residual_rms": 0.018812508290700556,
+        "normalized_temporal_residual": 0.39307446698355875,
+        "spatial_error_rms": 0.02106037965555167,
+        "reference_glint_rms": 0.047859909179721494,
+        "reference_glint_mean": 0.003207001198354465,
+        "peak_hdr_glint_excess": 18.891455300224575,
+        "bright_pixel_fraction": 0.002671875,
+        "near_shape_threshold_hdr": 0.1,
+        "bright_components": {
+          "count": 15,
+          "area_median": 3.0,
+          "area_p95": 4.299999999999999,
+          "aspect_p95": 2.0
+        }
+      }
+    },
+    "52c04cc": {
+      "near_lateral": {
+        "reprojected_temporal_residual_rms": 0.011722150914438486,
+        "normalized_temporal_residual": 0.2161068862564048,
+        "spatial_error_rms": 0.017640756123193393,
+        "reference_glint_rms": 0.05424237569426862,
+        "reference_glint_mean": 0.004166012405566502,
+        "peak_hdr_glint_excess": 19.020949996477363,
+        "bright_pixel_fraction": 0.004390625,
+        "near_shape_threshold_hdr": 0.1,
+        "bright_components": {
+          "count": 15,
+          "area_median": 4.0,
+          "area_p95": 8.899999999999997,
+          "aspect_p95": 2.0
+        }
+      },
+      "far_lateral": {
+        "reprojected_temporal_residual_rms": 0.014202930300878547,
+        "normalized_temporal_residual": 0.23610218829128155,
+        "spatial_error_rms": 0.0191293067287048,
+        "reference_glint_rms": 0.06015586049272976,
+        "reference_glint_mean": 0.005163765505381999,
+        "peak_hdr_glint_excess": 18.786548613746834,
+        "bright_pixel_fraction": 0.005125,
+        "near_shape_threshold_hdr": 0.1,
+        "bright_components": {
+          "count": 19,
+          "area_median": 4.0,
+          "area_p95": 8.199999999999996,
+          "aspect_p95": 2.0
+        }
+      },
+      "approach": {
+        "reprojected_temporal_residual_rms": 0.01763570358609326,
+        "normalized_temporal_residual": 0.2794191845026682,
+        "spatial_error_rms": 0.01968285791042394,
+        "reference_glint_rms": 0.06311557890157987,
+        "reference_glint_mean": 0.005438715529608151,
+        "peak_hdr_glint_excess": 18.251961842042206,
+        "bright_pixel_fraction": 0.00540625,
+        "near_shape_threshold_hdr": 0.1,
+        "bright_components": {
+          "count": 17,
+          "area_median": 5.0,
+          "area_p95": 8.2,
+          "aspect_p95": 2.0
+        }
+      }
+    }
+  },
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)"
+}
