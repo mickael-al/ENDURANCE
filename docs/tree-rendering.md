@@ -22,7 +22,7 @@ distances, seuils, budgets, matériau du feuillage et vent nécessitent **Régé
 | `treeModelBudgetMiB` | 512 Mio | Budget GPU des maillages et textures chargés |
 | `treeFoliageTransmission` | 0,65 | Éclairage de feuille mince : diffusion douce et transmission en contre-jour ; 0 conserve le matériau opaque |
 | `treeWindEnabled` | `true` | Active le vent ; désactivé, le code est retiré à la compilation |
-| `treeWindStrength` | 0,03 | Déplacement horizontal maximal / hauteur de l'arbre, soit 3 % |
+| `treeWindStrength` | 0,06 | Déplacement horizontal maximal / hauteur de l'arbre, soit 6 % ; réglable de 0 à 0,1 |
 | `treeWindSpeedX`, `treeWindSpeedZ` | 6, 2 m/s | Vitesse de déplacement du bruit et direction du vent dans le monde |
 | `treeWindScale` | 64 m | Taille d'une cellule du bruit de rafales ; plus grand = variations plus lentes et plus larges |
 | `treeWindDistance` | 256 m | Portée de l'animation ; fondu sur les derniers 30 % |
@@ -210,7 +210,7 @@ rampe à tout le quad. Du bois situé à l'intérieur de la couronne peut recevo
 cette approximation. Il n'y a aucun rebake ni lecture de texture supplémentaire.
 
 Les réglages déjà sauvegardés dans une scène priment sur les nouveaux défauts.
-Pour reproduire ce réglage : distance 15 360 m, amplitude 0,03, transmission 0,65,
+Pour reproduire ce réglage : distance 15 360 m, amplitude 0,06, transmission 0,65,
 puis **Régénérer avec ces réglages**. L'ancien `treeFoliageNormalBlend` du renderer
 est ignoré au chargement ; le contrôle de normales du générateur d'arbres reste
 disponible pour les nouveaux bakes. La densité et le masque du placement sont

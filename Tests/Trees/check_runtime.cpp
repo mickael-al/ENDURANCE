@@ -478,7 +478,7 @@ extern "C" int tree_runtime_tests(const char* root,const char* temporary)
         { if(impostorAlpha[i]<-.64f) ++crownPixels; else if(impostorAlpha[i]==0) ++trunkPixels; }
         require(crownPixels>100 && trunkPixels>10,"Impostor lost its crown/lower-trunk separation");
         view=viewAt(centre,radius*4);
-        gpu.shutdown(); settings.windEnabled=true; settings.windStrength=.05f; settings.windScale=8;
+        gpu.shutdown(); settings.windEnabled=true; settings.windStrength=RenderSettings{}.windStrength; settings.windScale=8;
         require(gpu.initialize({prototype},settings),gpu.error()); waitAssets(gpu,pool,blocks,1,view,1);
         draw(gpu,target,0,view.clip); target.checkGBuffer("wind0"); const auto windDepth0=target.depthRead();
         draw(gpu,target,21,light); const auto windShadow0=target.depthRead();

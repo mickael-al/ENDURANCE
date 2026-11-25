@@ -260,7 +260,7 @@ void ProceduralTerrainComponent::onGUI()
         if(ImGui::SliderInt("Cache modeles (Mio)",&budget,64,2048)) treeModelBudgetMiB=static_cast<std::uint32_t>(budget);
         ImGui::SliderFloat("Transmission du feuillage",&treeFoliageTransmission,0.0f,1.0f,"%.2f");
         ImGui::Checkbox("Vent sur les arbres",&treeWindEnabled);
-        ImGui::SliderFloat("Vent : amplitude / hauteur",&treeWindStrength,0.0f,0.05f,"%.3f");
+        ImGui::SliderFloat("Vent : amplitude / hauteur",&treeWindStrength,0.0f,0.1f,"%.3f");
         ImGui::DragFloat("Vent : vitesse X (m/s)",&treeWindSpeedX,0.1f,-100.0f,100.0f,"%.1f");
         ImGui::DragFloat("Vent : vitesse Z (m/s)",&treeWindSpeedZ,0.1f,-100.0f,100.0f,"%.1f");
         ImGui::DragFloat("Vent : taille des rafales (m)",&treeWindScale,1.0f,1.0f,2048.0f,"%.0f");

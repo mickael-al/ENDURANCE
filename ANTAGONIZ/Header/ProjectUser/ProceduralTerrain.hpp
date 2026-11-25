@@ -66,7 +66,7 @@ public:
     std::uint32_t treeModelBudgetMiB = 512;
     float treeFoliageTransmission = 0.65f;
     bool treeWindEnabled = true;
-    float treeWindStrength = 0.03f;
+    float treeWindStrength = 0.06f;
     float treeWindSpeedX = 6.0f, treeWindSpeedZ = 2.0f;
     float treeWindScale = 64.0f, treeWindDistance = 256.0f;
 

@@ -14,7 +14,7 @@ struct RenderSettings
     float transitionFraction=0.15f, maximumDistance=15360.0f;
     float foliageTransmission=0.65f; // Thin foliage material, 0 = opaque response.
     bool windEnabled=true;
-    float windStrength=0.03f, windScale=64.0f, windDistance=256.0f;
+    float windStrength=0.06f, windScale=64.0f, windDistance=256.0f;
     glm::vec2 windSpeed{6.0f,2.0f}; // World XZ, metres/second.
     std::uint32_t modelBudgetMiB=512, maximumResidentModels=64;
     std::string shaderDirectory="../ENDURANCE/Ressources/Shader/Trees";
