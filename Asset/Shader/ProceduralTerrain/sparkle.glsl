@@ -6,9 +6,9 @@
 // Unlike their example, no view/time offset moves the grid. Two stationary
 // levels crossfade; no normal-map mip averages away the discrete highlights.
 // Controls are independent: screen width, screen spacing, material strength.
-const float TERRAIN_SPARKLE_WIDTH = 0.5; // half-size kernel, filtered over each pixel
-const float TERRAIN_SPARKLE_SPACING = 8.0; // minimum grid width in pixels
-const float TERRAIN_SPARKLE_JITTER = 0.44; // center range 0.28..0.72 of a cell
+const float TERRAIN_SPARKLE_WIDTH = 0.1; // half-size kernel, filtered over each pixel
+const float TERRAIN_SPARKLE_SPACING = 2.0; // minimum grid width in pixels
+const float TERRAIN_SPARKLE_JITTER = 0.64; // center range 0.28..0.72 of a cell
 
 float terrainSparkleIntegral(float x)
 {
