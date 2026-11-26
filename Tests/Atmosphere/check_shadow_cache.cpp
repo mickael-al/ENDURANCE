@@ -26,10 +26,10 @@ namespace Ge
         static void initialize(LightManager& lights, GraphicsDataMisc& graphics) { lights.initialize(&graphics); }
         static void release(LightManager& lights) { lights.release(); }
         static unsigned frame(LightManager& lights, const std::vector<CustomRenderer*>& providers,
-            bool untrackedCasters = false)
+            bool untrackedCasters = false, std::uint64_t immutableModels = 0)
         {
             lights.prepareShadowCasterBounds(providers);
-            lights.prepareShadowMaps(providers, untrackedCasters);
+            lights.prepareShadowMaps(providers, untrackedCasters, immutableModels);
             require(lights.getShadowContentRevision() == 0, "Pending shadow pass exposed a completed content revision");
             unsigned draws = 0;
             for (unsigned layer = 0; layer < lights.getFrameShadowBuffer().size(); ++layer)
@@ -64,6 +64,20 @@ struct Unknown final : CustomRenderer
     unsigned draws = 0;
     void drawRenderer() override {}
     void drawShadowRenderer(unsigned) override { ++draws; }
+};
+
+struct LayeredTerrain final : CustomRenderer
+{
+    std::array<std::uint64_t, 4> revisions{};
+    std::array<unsigned, 4> draws{};
+    mutable unsigned queries = 0;
+    LayeredTerrain() { for (auto& revision : revisions) revision = nextShadowCasterBoundsRevision(); }
+    void drawRenderer() override {}
+    void drawShadowRenderer(unsigned layer) override { ++draws.at(layer); }
+    // Global fallback is deliberately unknown: the manager must use the
+    // explicit layer contract, not silently fall back to a global revision.
+    std::uint64_t shadowLayerContentRevision(unsigned layer, const glm::mat4&) const override
+    { ++queries; return revisions.at(layer); }
 };
 
 static void managerLifecycle()
@@ -202,8 +216,125 @@ static void individualLayers()
     std::cout << "PASS per-layer cache: selective refresh, atomic completed revision, restart tokens, no incomplete/NaN reuse\n";
 }
 
+static void skippedCelestialLayers()
+{
+    ShadowMapCache cache;
+    std::vector<glm::mat4> matrices(8,glm::mat4(1));
+    int identity;
+    std::vector<ShadowContentSource> sources{{&identity,1}};
+    const auto frame=[&](bool night) {
+        cache.prepare(matrices,sources,false);
+        for(unsigned i=0;i<8;++i) {
+            if((i<4)==night) { cache.skip(i); cache.skip(i); }
+            else if(cache.needsRender(i)) cache.rendered(i);
+        }
+        cache.finish();
+        require(cache.contentRevision()!=0,"Skipped inactive layers left the frame incomplete");
+        return cache.redrawnLayers();
+    };
+    require(frame(false)==4 && frame(false)==0,"Day rendered lunar cascades or lost stable sun reuse");
+    sources[0].revision=2; matrices[5][3].x=100;
+    require(frame(false)==4,"Active shadows ignored changed geometry");
+    require(frame(true)==4 && frame(true)==0,"Night reused stale lunar maps or rendered solar cascades");
+    require(frame(false)==4 && frame(false)==0,"Sunrise reused skipped stale cascades");
+    std::cout<<"PASS inactive shadow layers: no depth draws, complete revisions, fresh resume, idempotent skip\n";
+}
+
+static void immutableModelIntegration()
+{
+    LightManager lights;
+    Camera camera;
+    GraphicsDataMisc graphics;
+    graphics.current_camera = &camera;
+    Engine::getPtrClassAddr()->lightManager = &lights;
+    RenderingEngine::initialize(lights, graphics);
+    lights.createDirectionalLight({-45,20,0},{1,1,1})->setshadow(true);
+    Terrain terrain;
+    const std::vector<CustomRenderer*> providers{&terrain};
+    std::uint64_t models = 17;
+    require(RenderingEngine::frame(lights, providers, false, models) == 4,
+        "Immutable reference model did not cast its initial shadow");
+    const auto first = lights.getShadowContentRevision();
+    for (unsigned i=0;i<64;++i)
+        require(RenderingEngine::frame(lights, providers, false, models) == 0 &&
+            lights.getShadowContentRevision() == first,
+            "Stationary immutable model invalidated terrain/tree/volume shadows");
+    ++models;
+    require(RenderingEngine::frame(lights, providers, false, models) == 4 &&
+        RenderingEngine::frame(lights, providers, false, models) == 0,
+        "Immutable model movement or alpha edit failed to update and recache maps");
+    terrain.publish();
+    require(RenderingEngine::frame(lights, providers, false, models) == 4,
+        "Immutable model token hid a new terrain publication");
+    require(RenderingEngine::frame(lights, providers, true, 0) == 4 &&
+        RenderingEngine::frame(lights, providers, true, 0) == 4,
+        "Untracked models/callbacks inherited immutable model reuse");
+    require(RenderingEngine::frame(lights, providers, false, models) == 4 &&
+        RenderingEngine::frame(lights, providers, false, models) == 0,
+        "Returning to known immutable inputs reused unknown previous content");
+    require(RenderingEngine::frame(lights, providers, false, 0) == 4,
+        "Removing immutable model source left its old shadow behind");
+    RenderingEngine::release(lights);
+    std::cout << "PASS production LightManager immutable-model token: stationary reuse, mutations/publication, unknown fallback, source removal\n";
+}
+
+static void layerContentIntegration()
+{
+    LightManager lights;
+    Camera camera;
+    GraphicsDataMisc graphics;
+    graphics.current_camera = &camera;
+    Engine::getPtrClassAddr()->lightManager = &lights;
+    RenderingEngine::initialize(lights, graphics);
+    lights.createDirectionalLight({-45,20,0},{1,1,1})->setshadow(true);
+    LayeredTerrain terrain;
+    std::vector<CustomRenderer*> providers{&terrain};
+    require(RenderingEngine::frame(lights, providers) == 4, "Layer provider did not initialize all maps");
+    const auto initial = lights.getShadowContentRevision();
+    require(RenderingEngine::frame(lights, providers) == 0 && terrain.queries == 8,
+        "Layer selection was not queried once per layer or failed stationary reuse");
+    terrain.revisions[3] = nextShadowCasterBoundsRevision();
+    require(RenderingEngine::frame(lights, providers) == 1 && lights.getShadowReusedLayers() == 3 &&
+        lights.getShadowContentRevision() > initial && terrain.draws == std::array<unsigned,4>{1,1,1,2},
+        "Far-layer publication redrew unrelated near maps or froze updated geometry");
+    require(RenderingEngine::frame(lights, providers) == 0, "Updated far layer did not recache");
+    terrain.revisions[1] = 0; // Only this provider/layer cannot promise immutable content.
+    require(RenderingEngine::frame(lights, providers) == 1 &&
+        RenderingEngine::frame(lights, providers) == 1,
+        "Unknown layer either froze or unnecessarily invalidated every map");
+    terrain.revisions[1] = nextShadowCasterBoundsRevision();
+    require(RenderingEngine::frame(lights, providers) == 1 &&
+        RenderingEngine::frame(lights, providers) == 0,
+        "Returning to known layer content reused unknown data or failed to recache");
+    Terrain legacy;
+    providers.push_back(&legacy);
+    require(RenderingEngine::frame(lights, providers) == 4, "Added legacy caster left old maps cached");
+    require(RenderingEngine::frame(lights, providers) == 0, "Legacy default layer adapter failed reuse");
+    legacy.publish();
+    require(RenderingEngine::frame(lights, providers) == 4, "Global fallback failed conservative invalidation");
+    providers.pop_back();
+    require(RenderingEngine::frame(lights, providers) == 4, "Removed provider left its silhouette cached");
+    for (auto& token : terrain.revisions) token = nextShadowCasterBoundsRevision();
+    require(RenderingEngine::frame(lights, providers) == 4, "Same-address provider restart reused prior layer tokens");
+    require(RenderingEngine::frame(lights, providers, true) == 4,
+        "Layer providers hid an unknown ordinary caster or callback");
+    RenderingEngine::release(lights);
+    std::cout << "PASS production LightManager layer content: far publication redraws 1/4, exact source identities, unknown per-layer and global fallback, removal/restart\n";
+
+    ShadowMapCache incomplete;
+    const std::vector<glm::mat4> matrices(4, glm::mat4(1));
+    const std::vector<std::vector<ShadowContentSource>> missing(3);
+    for (unsigned frame = 0; frame < 2; ++frame)
+    {
+        incomplete.prepareLayerSources(matrices, missing, false);
+        for (unsigned i = 0; i < 4; ++i)
+        { require(incomplete.needsRender(i), "Malformed layer source list became cacheable"); incomplete.rendered(i); }
+        incomplete.finish();
+    }
+}
+
 int main()
 {
-    try { managerLifecycle(); localProjectionInvalidation(); individualLayers(); }
+    try { managerLifecycle(); localProjectionInvalidation(); individualLayers(); skippedCelestialLayers(); immutableModelIntegration(); layerContentIntegration(); }
     catch (const std::exception& e) { std::cerr << "FAIL shadow cache: " << e.what() << '\n'; return 1; }
 }

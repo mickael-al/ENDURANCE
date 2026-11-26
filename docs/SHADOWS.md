@@ -61,9 +61,18 @@ un retrait, une modification de shader pertinente ou un redémarrage. Les
 jetons de publication du terrain satisfont ce contrat. Une révision de bornes
 seule n'autorise pas implicitement la mise en cache.
 
-**Repli conservateur :** les modèles ordinaires, leurs buffers animés et les
-callbacks historiques n'exposent pas encore ce contrat. Quand ils dessinent
-des casters, les cartes sont recalculées. Un renderer inconnu renvoie zéro et
+`shadowLayerContentRevision(layer, clip)` permet de fournir un jeton pour
+les seules géométries sélectionnées par une couche. Le terrain et les arbres
+partagent cette sélection avec leur rendu : publier un secteur hors de la
+cascade ne l'invalide plus. Les matrices restent comparées exactement, et les
+changements d'allocation, de modèle, de LOD ou de fondu restent suivis. Le
+composant de préparation de l'atmosphère déclare explicitement un contenu vide
+stable, puisqu'il ne dessine aucune géométrie dans les cartes d'ombres.
+
+**Repli conservateur :** les modèles ordinaires peuvent déclarer explicitement
+un contenu immuable (voir `ANTAGONIZ/Documentation/ImmutableShadowContent.md`).
+Les modèles non suivis, leurs buffers animés et les callbacks historiques
+imposent toujours un recalcul. Un renderer inconnu renvoie zéro et
 déclenche aussi le recalcul. L'optimisation bénéficie donc actuellement aux
 scènes dont les casters sont tous explicitement versionnés, notamment le
 terrain seul ; elle ne promet pas de supprimer les passes d'une scène animée.

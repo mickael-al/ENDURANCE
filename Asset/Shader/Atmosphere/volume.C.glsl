@@ -24,7 +24,7 @@ void main()
         // Disabled media use tiny neutral allocations; never fetch them with
         // coordinates belonging to the full camera volume.
         vec3 source=vec3(0.0),extinction=vec3(0.0);
-        if(geAtmControl.x!=0)
+        if(GE_ATM_PHYSICAL_ON)
         {
             vec4 physical=texelFetch(geAtmPhysicalSourceVolume,ivec3(p,z),0);
             source=physical.rgb;
@@ -36,28 +36,28 @@ void main()
         vec3 unusedExtinction;
         vec3 baselineSource=geAtmPhysicalSource(geAtmOrigin()+direction*center,
             direction,vec2(1.0),unusedExtinction);
-        if(geAtmControl.z!=0)
+        if(geAtmHasClouds())
         {
             vec4 cloud=texelFetch(geAtmCloudSourceVolume,ivec3(p,z),0);
             vec3 cloudSource=cloud.rgb;
             float cloudExtinction=cloud.a;
             source+=cloudSource;
             vec3 unoccludedCloudSource=cloudSource;
-            if(cloudExtinction>0.0 && geAtmControl.w!=0)
+            if(cloudExtinction>0.0 && GE_ATM_TERRAIN_SHADOWS_ON)
             {
                 vec3 world=geAtmCamera.xyz+direction*center;
                 vec2 terrain=vec2(1.0);
-                if(geAtmSunDirection.w>0.5) terrain.x=geAtmTerrainVisibility(world,geAtmShadow.x);
-                if(geAtmMoonDirection.w>0.5) terrain.y=geAtmTerrainVisibility(world,geAtmShadow.y);
+                if(geAtmSunLightingEnabled()) terrain.x=geAtmTerrainVisibility(world,geAtmShadow.x);
+                if(geAtmMoonLightingEnabled()) terrain.y=geAtmTerrainVisibility(world,geAtmShadow.y);
                 if(any(lessThan(terrain,vec2(1.0))))
                 {
                     // The captured/current background includes cloud self-shadow,
                     // but no terrain shadow. Subtract precisely that reference,
                     // otherwise the terrain's darkening cancels from the sky.
                     vec2 cloudVisibility=vec2(1.0);
-                    if(geAtmSunDirection.w>0.5)
+                    if(geAtmSunLightingEnabled())
                         cloudVisibility.x=geAtmCloudLightRay(world,normalize(geAtmSunDirection.xyz),geAtmSamples.y);
-                    if(geAtmMoonDirection.w>0.5)
+                    if(geAtmMoonLightingEnabled())
                         cloudVisibility.y=geAtmCloudLightRay(world,normalize(geAtmMoonDirection.xyz),geAtmSamples.y);
                     unoccludedCloudSource=geAtmMediumLight(world,geAtmOrigin()+direction*center,direction,
                         vec3(cloudExtinction*0.98),geAtmCloudShape.w,cloudVisibility);

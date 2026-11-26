@@ -28,6 +28,11 @@ shared float tile[225];
 #endif
 shared uint scan[128];
 shared uint outputBase;
+#if TERRAIN_FIELD_STATE && !EMIT_PASS
+// Standalone extraction callers with only a sign header retain the full scan.
+// The production backend always supplies the complete prepared tile table.
+uniform bool uUseGroupBounds;
+#endif
 
 ivec3 corner(uint i)
 {
@@ -48,6 +53,10 @@ vec3 tileGradient(uint i)
 }
 #endif
 
+#if EMIT_PASS && TERRAIN_OBJECTS
+#include "objects_collect.glsl"
+#endif
+
 void main()
 {
     uint lane=gl_LocalInvocationIndex;
@@ -59,6 +68,28 @@ void main()
         hasMarineSurface=meshFieldStates[uFieldStateIndex].w;
 #endif
     if(skipMeshGroup(group,true)) return;
+#if TERRAIN_FIELD_STATE && !EMIT_PASS
+    if(uUseGroupBounds)
+    {
+        // XZ preparation covers samples in 8x8 tiles. This group's corner range
+        // starts at (8*x+1,4*z+1), and can overlap the next tile in either axis.
+        // Union every touched tile before excluding a Y interval; this also keeps
+        // narrow ridges and caves crossing tile boundaries conservative.
+        uint tilesX=(uCells+10u)/8u;
+        uint firstX=gl_WorkGroupID.x;
+        uint lastX=min(gl_WorkGroupID.x*8u+9u,uCells+1u)/8u;
+        uint firstZ=(gl_WorkGroupID.z*4u+1u)/8u;
+        uint lastZ=min(gl_WorkGroupID.z*4u+5u,uCells+1u)/8u;
+        uint possible=0u;
+        for(uint z=firstZ;z<=lastZ;++z) for(uint x=firstX;x<=lastX;++x)
+            possible|=meshFieldStates[uFieldStateIndex+1u+x+z*tilesX].w;
+        if((possible&(1u<<gl_WorkGroupID.y))==0u)
+        {
+            if(lane==0u) recordMeshGroup(group,0u);
+            return;
+        }
+    }
+#endif
     ivec3 groupOrigin=ivec3(gl_WorkGroupID)*ivec3(8,4,4);
     for(uint i=lane;i<TILE_SAMPLES;i+=128u)
     {
@@ -93,6 +124,11 @@ void main()
     if(lane==0u) outputBase=scan[127]>0u?atomicAdd(cursor,scan[127]):0u;
     barrier();
     uint first=outputBase+scan[lane]-count;
+#if TERRAIN_OBJECTS
+    // Sparse site tests share the existing density/column data. Transition
+    // stitching is deliberately excluded; it is not additional world surface.
+    if(count>0u) collectCellObjects(cell,caseIndex,count,values);
+#endif
     // Every output is owned by this lane; the three uint words never require
     // atomic bitfield updates and cannot race with a neighbouring vertex.
 #if TERRAIN_EDGE_REUSE

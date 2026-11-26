@@ -288,6 +288,7 @@ void main()
 		vec3 Lo = vec3(0.0);
 		for (int i = 0; i < ubd.maxLight; i++)
 		{
+			if (!geAtmosphereLightEnabled(i)) continue;
 			float shadow = 1.0;
 			vec3 L = normalize(ubl.ubl[i].position - WorldPos);
 			float distance = length(ubl.ubl[i].position - WorldPos);
@@ -300,17 +301,22 @@ void main()
 			vec3 H = normalize(V + L);
 
 			// Cook-Torrance BRDF
-			float NDF = DistributionGGX(normal.rgb, H, other.y);
-			float G = GeometrySmith(normal.rgb, V, L, other.y);
 			vec3 F = fresnelSchlick(max(dot(H, V), 0.001), F0);
 
 			vec3 kS = F;
 			vec3 kD = vec3(1.0) - kS;
 			kD *= 1.0 - other.x;
 
-			vec3 numerator = NDF * G * F;
-			float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * max(dot(normal.rgb, L), 0.0) + 0.0001;
-			vec3 specular = (numerator / denominator);
+			vec3 specular = vec3(0.0);
+			// Uniform per light: the lunar area reflection already comes from IBL.
+			if (geAtmosphereDirectSpecular(i) > 0.0)
+			{
+				float NDF = DistributionGGX(normal.rgb, H, other.y);
+				float G = GeometrySmith(normal.rgb, V, L, other.y);
+				vec3 numerator = NDF * G * F;
+				float denominator = 4.0 * max(dot(normal.rgb, V), 0.0) * max(dot(normal.rgb, L), 0.0) + 0.0001;
+				specular = (numerator / denominator);
+			}
 
 			// Add to outgoing radiance Lo
 			float NdotL = max(dot(normal.rgb, L), 0.0);

@@ -2,11 +2,13 @@
 
 #include "Behaviour.hpp"
 #include "CustomRenderer.hpp"
+#include "EnduranceEnvironmentMedium.hpp"
 #include <array>
 #include <cstdint>
 #include <memory>
 #include <string>
 #include <vector>
+#include <glm/vec2.hpp>
 #ifndef JS_STL_ARRAY
 #define JS_STL_ARRAY
 #endif
@@ -28,6 +30,18 @@ struct EnduranceSkyBiomeStyle
            fogDensity,fogAlbedo,fogBaseHeight,fogHeightScale,fogNoiseAmount,fogNoiseScale);
 };
 
+// Latest completed climate sample shared with game systems. Reading this is
+// CPU-only on the render thread; the sky's existing asynchronous GPU request
+// produces the snapshot.
+struct EnduranceBiomeSample
+{
+    bool valid=false;
+    std::uint32_t biome=0;
+    float weight=0.0f;
+    glm::vec2 worldXZ{0.0f};
+    std::uint64_t revision=0;
+};
+
 class EnduranceAtmosphereComponent final : public Behaviour, public CustomRenderer
 {
 public:
@@ -40,11 +54,23 @@ public:
     // Renderer callback remains active while the editor pauses behaviours.
     void prepareRenderer() override;
     void drawRenderer() override {}
+    // This component only updates atmosphere inputs; it never emits depth
+    // geometry. Mark that empty content as tracked so registering this hook
+    // does not force every terrain/tree shadow cascade to redraw every frame.
+    std::uint64_t shadowCasterBoundsRevision() const override { return m_emptyShadowRevision; }
+    std::uint64_t shadowContentRevision() const override { return m_emptyShadowRevision; }
     void onGUI() override;
     std::string serialize() override;
     void load(std::string data) override;
+    static EnduranceBiomeSample currentBiomeSample();
+    // CPU-only render-thread input. Send {} when effects stop. Does not mutate
+    // scene atmosphere settings or invalidate LUTs, sky captures or fog atlases.
+    static void setEnvironmentMedium(const EnduranceEnvironmentMediumState& state);
 
     std::string paletteFile="../ENDURANCE/Ressources/Atmosphere/biome_palettes.json";
+    // The model is preferred; an empty path explicitly selects the legacy atlas.
+    std::string moonModelFile="../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb";
+    std::string moonSurfaceFile="../ENDURANCE/Ressources/Atmosphere/moon.surface";
     std::vector<EnduranceSkyBiomeStyle> palettes;
     std::string engineSettings;
     // -2 = first directional fallback; -1 = deliberately unassigned.
@@ -58,6 +84,7 @@ public:
     std::array<float,3> fogWind{{4.0f,0.0f,1.0f}};
 
 private:
+    const std::uint64_t m_emptyShadowRevision = Ge::nextShadowCasterBoundsRevision();
     struct Impl;
     std::unique_ptr<Impl> m;
     bool loadPaletteFile();

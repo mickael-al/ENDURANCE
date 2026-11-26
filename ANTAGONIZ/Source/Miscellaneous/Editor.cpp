@@ -169,6 +169,7 @@ void Editor::duplicateSceneObject(GObject* obj, GObject* parent)
 	{
 		Model* m = m_pc->modelManager->createModel(model->getShapeBuffer(), *model->getName());
 		m->setMaterial(model->getMaterial());
+        m->setImmutableShadowContent(model->getImmutableShadowContent());
 		no = m;
 		m_currentSceneData->models.push_back(m);
 		// Zone helpers own their material so Show remains independent.
@@ -1414,6 +1415,7 @@ void Editor::ssModel(SceneData* sd, std::map<GObject*, std::vector<ScriptData>>&
 			m->setPosition(sd->modelData[i].position);
 			m->setRotation(sd->modelData[i].rotation);
 			m->setScale(sd->modelData[i].scale);
+            m->setImmutableShadowContent(sd->modelData[i].immutableShadowContent);
 			so[(GObject*)m] = sd->modelData[i].scripts;
 			collisionObj[(GObject*)m] = sd->modelData[i].collisions;
 			tagObj[(GObject*)m] = sd->modelData[i].tags;
@@ -2682,6 +2684,7 @@ void Editor::saveScene(const std::string& filePath, SceneData* sd)
 		md.position = sd->models[i]->getPosition();
 		md.rotation = sd->models[i]->getRotation();
 		md.scale = sd->models[i]->getScale();
+        md.immutableShadowContent = sd->models[i]->getImmutableShadowContent();
 		md.scripts = scriptObject[(GObject*)sd->models[i]];
 		md.collisions = collisionObj[(GObject*)sd->models[i]];
 		md.tags = tagObj[(GObject*)sd->models[i]];

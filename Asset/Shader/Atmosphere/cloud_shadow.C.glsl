@@ -11,12 +11,12 @@ void main()
     vec2 transmission=vec2(1.0);
     if(geAtmHasClouds())
     {
-        if(geAtmSunDirection.w>0.5)
+        if(geAtmSunLightingEnabled())
         {
             vec3 light=normalize(geAtmSunDirection.xyz);
             transmission.x=geAtmCloudLightRay(vec3(xz.x,geAtmCloudShadowHeight(light),xz.y),light,geAtmSamples.z);
         }
-        if(geAtmMoonDirection.w>0.5)
+        if(geAtmMoonLightingEnabled())
         {
             vec3 light=normalize(geAtmMoonDirection.xyz);
             transmission.y=geAtmCloudLightRay(vec3(xz.x,geAtmCloudShadowHeight(light),xz.y),light,geAtmSamples.z);

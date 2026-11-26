@@ -37,7 +37,7 @@ def main():
         if optimized:
             command.append("-DTERRAIN_BENCHMARK_CACHE_API")
         for include in ("ANTAGONIZ/Header/Struct", "ANTAGONIZ/Header/Miscellaneous",
-                        "ANTAGONIZ/Header/Rendering/Shader", "ThirdParty"):
+                        "ANTAGONIZ/Header/Rendering/Shader", "ThirdParty", "ThirdParty/glm"):
             command += ["-I", str(root / include)]
         command += [str(ROOT / "Tests/Terrain/benchmark_generation.cpp"),
                     str(root / "ANTAGONIZ/Source/Miscellaneous/ProceduralTerrainGpu.cpp")]

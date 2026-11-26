@@ -112,7 +112,9 @@ la transmittance et la perspective aerienne.
 La recette climatique actuelle est relativement lourde : cinq couches,
 huit octaves et deux axes. Un lancement de calcul ponctuel n’est donc pas
 suppose gratuit. L’implementation conserve la recette GPU du terrain et utilise
-un petit resultat de **64 octets**. Trois emplacements permettent de recueillir
+un petit resultat de **80 octets**, dont 16 pour le biome dominant partage avec
+les effets environnementaux (sans lancement de calcul supplementaire).
+Trois emplacements permettent de recueillir
 les resultats differes :
 
 1. Soumettre le calcul uniquement apres franchissement du seuil de deplacement
@@ -559,3 +561,11 @@ prioritaires pour la verification visuelle sur le materiel cible.
   <https://www.guerrilla-games.com/read/nubis-authoring-real-time-volumetric-cloudscapes-with-the-decima-engine>.
 - Google, *Filament*, modele d’eclairage indirect et environnement :
   <https://google.github.io/filament/main/filament.html>.
+
+### Variantes et mesure du moteur
+
+Les programmes internes spécialisent les options physiques, fog, nuages et
+rayons via des defines, avec un cache borné et des captures IBL conservant leurs
+programmes jusqu'à publication. Les programmes de matériaux partagés gardent
+un chemin générique. Les règles de durée de vie, les mesures et leurs limites
+sont détaillées dans [la seconde passe moteur](performance-engine-pass2.md).

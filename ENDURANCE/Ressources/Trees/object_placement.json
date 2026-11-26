@@ -1,0 +1,1491 @@
+{
+  "format": "ENDURANCE.ObjectPlacement",
+  "version": 1,
+  "maximumLod": 6,
+  "maximumSectors": 2048,
+  "candidateSpacing": 32.0,
+  "minimumDistance": 20.0,
+  "retentionDistance": 15360.0,
+  "prototypes": [
+    {
+      "id": 0,
+      "asset": "Baked/Acacia/tree_1_seed_1371",
+      "capacity": 65536,
+      "boundingRadius": 48.1217,
+      "minimumScale": 0.8,
+      "maximumScale": 1.6
+    },
+    {
+      "id": 1,
+      "asset": "Baked/Acacia/tree_2_seed_1372",
+      "capacity": 65536,
+      "boundingRadius": 47.5983,
+      "minimumScale": 0.8,
+      "maximumScale": 1.6
+    },
+    {
+      "id": 2,
+      "asset": "Baked/Acacia/tree_3_seed_1373",
+      "capacity": 65536,
+      "boundingRadius": 45.2239,
+      "minimumScale": 0.8,
+      "maximumScale": 1.6
+    },
+    {
+      "id": 3,
+      "asset": "Baked/Acacia/tree_4_seed_1374",
+      "capacity": 65536,
+      "boundingRadius": 48.0513,
+      "minimumScale": 0.8,
+      "maximumScale": 1.6
+    },
+    {
+      "id": 4,
+      "asset": "Baked/Acacia/tree_5_seed_1375",
+      "capacity": 65536,
+      "boundingRadius": 47.2187,
+      "minimumScale": 0.8,
+      "maximumScale": 1.6
+    },
+    {
+      "id": 5,
+      "asset": "Baked/Acacia/tree_6_seed_1376",
+      "capacity": 65536,
+      "boundingRadius": 47.06,
+      "minimumScale": 0.8,
+      "maximumScale": 1.6
+    },
+    {
+      "id": 6,
+      "asset": "Baked/ArbreMort/tree_1_seed_1356",
+      "capacity": 65536,
+      "boundingRadius": 37.1351,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 7,
+      "asset": "Baked/ArbreMort/tree_2_seed_1357",
+      "capacity": 65536,
+      "boundingRadius": 37.3481,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 8,
+      "asset": "Baked/ArbreMort/tree_3_seed_1358",
+      "capacity": 65536,
+      "boundingRadius": 37.4812,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 9,
+      "asset": "Baked/ArbreMort/tree_4_seed_1359",
+      "capacity": 65536,
+      "boundingRadius": 38.4719,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 10,
+      "asset": "Baked/ArbreMort/tree_5_seed_1360",
+      "capacity": 65536,
+      "boundingRadius": 36.4728,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 11,
+      "asset": "Baked/ArbreMort/tree_6_seed_1361",
+      "capacity": 65536,
+      "boundingRadius": 37.5442,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 12,
+      "asset": "Baked/BIG_01/tree_1_seed_1416",
+      "capacity": 65536,
+      "boundingRadius": 164.371,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 13,
+      "asset": "Baked/BIG_01/tree_2_seed_1417",
+      "capacity": 65536,
+      "boundingRadius": 172.894,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 14,
+      "asset": "Baked/BIG_01/tree_3_seed_1418",
+      "capacity": 65536,
+      "boundingRadius": 166.3226,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 15,
+      "asset": "Baked/BIG_01/tree_4_seed_1419",
+      "capacity": 65536,
+      "boundingRadius": 161.8718,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 16,
+      "asset": "Baked/BIG_01/tree_5_seed_1420",
+      "capacity": 65536,
+      "boundingRadius": 165.7395,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 17,
+      "asset": "Baked/BIG_01/tree_6_seed_1421",
+      "capacity": 65536,
+      "boundingRadius": 164.3494,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 18,
+      "asset": "Baked/BIG_02/tree_1_seed_1421",
+      "capacity": 65536,
+      "boundingRadius": 259.7372,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 19,
+      "asset": "Baked/BIG_02/tree_2_seed_1422",
+      "capacity": 65536,
+      "boundingRadius": 274.2983,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 20,
+      "asset": "Baked/BIG_02/tree_3_seed_1423",
+      "capacity": 65536,
+      "boundingRadius": 272.7327,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 21,
+      "asset": "Baked/BIG_02/tree_4_seed_1424",
+      "capacity": 65536,
+      "boundingRadius": 265.2536,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 22,
+      "asset": "Baked/BIG_02/tree_5_seed_1425",
+      "capacity": 65536,
+      "boundingRadius": 272.3742,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 23,
+      "asset": "Baked/BIG_02/tree_6_seed_1426",
+      "capacity": 65536,
+      "boundingRadius": 275.0731,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 24,
+      "asset": "Baked/BIG_DEAD/tree_1_seed_1426",
+      "capacity": 65536,
+      "boundingRadius": 198.1201,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 25,
+      "asset": "Baked/BIG_DEAD/tree_2_seed_1427",
+      "capacity": 65536,
+      "boundingRadius": 201.8752,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 26,
+      "asset": "Baked/BIG_DEAD/tree_3_seed_1428",
+      "capacity": 65536,
+      "boundingRadius": 198.7985,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 27,
+      "asset": "Baked/BIG_DEAD/tree_4_seed_1429",
+      "capacity": 65536,
+      "boundingRadius": 201.8472,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 28,
+      "asset": "Baked/BIG_DEAD/tree_5_seed_1430",
+      "capacity": 65536,
+      "boundingRadius": 195.9214,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 29,
+      "asset": "Baked/BIG_DEAD/tree_6_seed_1431",
+      "capacity": 65536,
+      "boundingRadius": 202.5174,
+      "minimumScale": 0.85,
+      "maximumScale": 1.15
+    },
+    {
+      "id": 30,
+      "asset": "Baked/Banyan/tree_1_seed_1411",
+      "capacity": 65536,
+      "boundingRadius": 48.0036,
+      "minimumScale": 0.75,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 31,
+      "asset": "Baked/Banyan/tree_2_seed_1412",
+      "capacity": 65536,
+      "boundingRadius": 50.2528,
+      "minimumScale": 0.75,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 32,
+      "asset": "Baked/Banyan/tree_3_seed_1413",
+      "capacity": 65536,
+      "boundingRadius": 49.8072,
+      "minimumScale": 0.75,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 33,
+      "asset": "Baked/Banyan/tree_4_seed_1414",
+      "capacity": 65536,
+      "boundingRadius": 47.9801,
+      "minimumScale": 0.75,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 34,
+      "asset": "Baked/Banyan/tree_5_seed_1415",
+      "capacity": 65536,
+      "boundingRadius": 47.3861,
+      "minimumScale": 0.75,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 35,
+      "asset": "Baked/Banyan/tree_6_seed_1416",
+      "capacity": 65536,
+      "boundingRadius": 48.1882,
+      "minimumScale": 0.75,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 36,
+      "asset": "Baked/Baobab/tree_1_seed_1376",
+      "capacity": 65536,
+      "boundingRadius": 52.1734,
+      "minimumScale": 0.8,
+      "maximumScale": 1.7
+    },
+    {
+      "id": 37,
+      "asset": "Baked/Baobab/tree_2_seed_1377",
+      "capacity": 65536,
+      "boundingRadius": 53.6529,
+      "minimumScale": 0.8,
+      "maximumScale": 1.7
+    },
+    {
+      "id": 38,
+      "asset": "Baked/Baobab/tree_3_seed_1378",
+      "capacity": 65536,
+      "boundingRadius": 53.7169,
+      "minimumScale": 0.8,
+      "maximumScale": 1.7
+    },
+    {
+      "id": 39,
+      "asset": "Baked/Baobab/tree_4_seed_1379",
+      "capacity": 65536,
+      "boundingRadius": 52.2657,
+      "minimumScale": 0.8,
+      "maximumScale": 1.7
+    },
+    {
+      "id": 40,
+      "asset": "Baked/Baobab/tree_5_seed_1380",
+      "capacity": 65536,
+      "boundingRadius": 52.3497,
+      "minimumScale": 0.8,
+      "maximumScale": 1.7
+    },
+    {
+      "id": 41,
+      "asset": "Baked/Baobab/tree_6_seed_1381",
+      "capacity": 65536,
+      "boundingRadius": 52.0039,
+      "minimumScale": 0.8,
+      "maximumScale": 1.7
+    },
+    {
+      "id": 42,
+      "asset": "Baked/Bouleau/tree_1_seed_1366",
+      "capacity": 65536,
+      "boundingRadius": 85.9901,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 43,
+      "asset": "Baked/Bouleau/tree_2_seed_1367",
+      "capacity": 65536,
+      "boundingRadius": 85.1808,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 44,
+      "asset": "Baked/Bouleau/tree_3_seed_1368",
+      "capacity": 65536,
+      "boundingRadius": 84.6947,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 45,
+      "asset": "Baked/Bouleau/tree_4_seed_1369",
+      "capacity": 65536,
+      "boundingRadius": 84.9389,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 46,
+      "asset": "Baked/Bouleau/tree_5_seed_1370",
+      "capacity": 65536,
+      "boundingRadius": 83.8696,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 47,
+      "asset": "Baked/Bouleau/tree_6_seed_1371",
+      "capacity": 65536,
+      "boundingRadius": 85.888,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 48,
+      "asset": "Baked/Chene/tree_1_seed_1361",
+      "capacity": 65536,
+      "boundingRadius": 65.4461,
+      "minimumScale": 0.9,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 49,
+      "asset": "Baked/Chene/tree_2_seed_1362",
+      "capacity": 65536,
+      "boundingRadius": 62.761,
+      "minimumScale": 0.9,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 50,
+      "asset": "Baked/Chene/tree_3_seed_1363",
+      "capacity": 65536,
+      "boundingRadius": 61.6078,
+      "minimumScale": 0.9,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 51,
+      "asset": "Baked/Chene/tree_4_seed_1364",
+      "capacity": 65536,
+      "boundingRadius": 61.3553,
+      "minimumScale": 0.9,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 52,
+      "asset": "Baked/Chene/tree_5_seed_1365",
+      "capacity": 65536,
+      "boundingRadius": 65.8795,
+      "minimumScale": 0.9,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 53,
+      "asset": "Baked/Chene/tree_6_seed_1366",
+      "capacity": 65536,
+      "boundingRadius": 64.7616,
+      "minimumScale": 0.9,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 54,
+      "asset": "Baked/Conifere/tree_1_seed_1346",
+      "capacity": 65536,
+      "boundingRadius": 90.6612,
+      "minimumScale": 1.2,
+      "maximumScale": 3.6
+    },
+    {
+      "id": 55,
+      "asset": "Baked/Conifere/tree_2_seed_1347",
+      "capacity": 65536,
+      "boundingRadius": 90.6446,
+      "minimumScale": 1.2,
+      "maximumScale": 3.6
+    },
+    {
+      "id": 56,
+      "asset": "Baked/Conifere/tree_3_seed_1348",
+      "capacity": 65536,
+      "boundingRadius": 91.5726,
+      "minimumScale": 1.2,
+      "maximumScale": 3.6
+    },
+    {
+      "id": 57,
+      "asset": "Baked/Conifere/tree_4_seed_1349",
+      "capacity": 65536,
+      "boundingRadius": 90.6447,
+      "minimumScale": 1.2,
+      "maximumScale": 3.6
+    },
+    {
+      "id": 58,
+      "asset": "Baked/Conifere/tree_5_seed_1350",
+      "capacity": 65536,
+      "boundingRadius": 91.3482,
+      "minimumScale": 1.2,
+      "maximumScale": 3.6
+    },
+    {
+      "id": 59,
+      "asset": "Baked/Conifere/tree_6_seed_1351",
+      "capacity": 65536,
+      "boundingRadius": 90.4478,
+      "minimumScale": 1.2,
+      "maximumScale": 3.6
+    },
+    {
+      "id": 60,
+      "asset": "Baked/Cypres/tree_1_seed_1386",
+      "capacity": 65536,
+      "boundingRadius": 76.5344,
+      "minimumScale": 1.0,
+      "maximumScale": 2.4
+    },
+    {
+      "id": 61,
+      "asset": "Baked/Cypres/tree_2_seed_1387",
+      "capacity": 65536,
+      "boundingRadius": 75.259,
+      "minimumScale": 1.0,
+      "maximumScale": 2.4
+    },
+    {
+      "id": 62,
+      "asset": "Baked/Cypres/tree_3_seed_1388",
+      "capacity": 65536,
+      "boundingRadius": 76.8851,
+      "minimumScale": 1.0,
+      "maximumScale": 2.4
+    },
+    {
+      "id": 63,
+      "asset": "Baked/Cypres/tree_4_seed_1389",
+      "capacity": 65536,
+      "boundingRadius": 76.4077,
+      "minimumScale": 1.0,
+      "maximumScale": 2.4
+    },
+    {
+      "id": 64,
+      "asset": "Baked/Cypres/tree_5_seed_1390",
+      "capacity": 65536,
+      "boundingRadius": 76.2508,
+      "minimumScale": 1.0,
+      "maximumScale": 2.4
+    },
+    {
+      "id": 65,
+      "asset": "Baked/Cypres/tree_6_seed_1391",
+      "capacity": 65536,
+      "boundingRadius": 75.8265,
+      "minimumScale": 1.0,
+      "maximumScale": 2.4
+    },
+    {
+      "id": 66,
+      "asset": "Baked/FeuilluEtale/tree_1_seed_1337",
+      "capacity": 65536,
+      "boundingRadius": 68.2412,
+      "minimumScale": 1.0,
+      "maximumScale": 2.6
+    },
+    {
+      "id": 67,
+      "asset": "Baked/FeuilluEtale/tree_2_seed_1338",
+      "capacity": 65536,
+      "boundingRadius": 68.097,
+      "minimumScale": 1.0,
+      "maximumScale": 2.6
+    },
+    {
+      "id": 68,
+      "asset": "Baked/FeuilluEtale/tree_3_seed_1339",
+      "capacity": 65536,
+      "boundingRadius": 68.5154,
+      "minimumScale": 1.0,
+      "maximumScale": 2.6
+    },
+    {
+      "id": 69,
+      "asset": "Baked/FeuilluEtale/tree_4_seed_1340",
+      "capacity": 65536,
+      "boundingRadius": 68.3165,
+      "minimumScale": 1.0,
+      "maximumScale": 2.6
+    },
+    {
+      "id": 70,
+      "asset": "Baked/FeuilluEtale/tree_5_seed_1341",
+      "capacity": 65536,
+      "boundingRadius": 69.5627,
+      "minimumScale": 1.0,
+      "maximumScale": 2.6
+    },
+    {
+      "id": 71,
+      "asset": "Baked/FeuilluEtale/tree_6_seed_1342",
+      "capacity": 65536,
+      "boundingRadius": 70.2651,
+      "minimumScale": 1.0,
+      "maximumScale": 2.6
+    },
+    {
+      "id": 72,
+      "asset": "Baked/Genevrier/tree_1_seed_1401",
+      "capacity": 65536,
+      "boundingRadius": 19.2792,
+      "minimumScale": 0.65,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 73,
+      "asset": "Baked/Genevrier/tree_2_seed_1402",
+      "capacity": 65536,
+      "boundingRadius": 20.0121,
+      "minimumScale": 0.65,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 74,
+      "asset": "Baked/Genevrier/tree_3_seed_1403",
+      "capacity": 65536,
+      "boundingRadius": 18.3784,
+      "minimumScale": 0.65,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 75,
+      "asset": "Baked/Genevrier/tree_4_seed_1404",
+      "capacity": 65536,
+      "boundingRadius": 18.8544,
+      "minimumScale": 0.65,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 76,
+      "asset": "Baked/Genevrier/tree_5_seed_1405",
+      "capacity": 65536,
+      "boundingRadius": 19.4523,
+      "minimumScale": 0.65,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 77,
+      "asset": "Baked/Genevrier/tree_6_seed_1406",
+      "capacity": 65536,
+      "boundingRadius": 19.8125,
+      "minimumScale": 0.65,
+      "maximumScale": 1.4
+    },
+    {
+      "id": 78,
+      "asset": "Baked/Mangrove/tree_1_seed_1381",
+      "capacity": 65536,
+      "boundingRadius": 41.0905,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 79,
+      "asset": "Baked/Mangrove/tree_2_seed_1382",
+      "capacity": 65536,
+      "boundingRadius": 41.027,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 80,
+      "asset": "Baked/Mangrove/tree_3_seed_1383",
+      "capacity": 65536,
+      "boundingRadius": 39.7573,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 81,
+      "asset": "Baked/Mangrove/tree_4_seed_1384",
+      "capacity": 65536,
+      "boundingRadius": 43.5419,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 82,
+      "asset": "Baked/Mangrove/tree_5_seed_1385",
+      "capacity": 65536,
+      "boundingRadius": 42.1185,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 83,
+      "asset": "Baked/Mangrove/tree_6_seed_1386",
+      "capacity": 65536,
+      "boundingRadius": 40.8112,
+      "minimumScale": 0.8,
+      "maximumScale": 1.8
+    },
+    {
+      "id": 84,
+      "asset": "Baked/Palmier/tree_1_seed_1391",
+      "capacity": 65536,
+      "boundingRadius": 44.8029,
+      "minimumScale": 0.9,
+      "maximumScale": 2.2
+    },
+    {
+      "id": 85,
+      "asset": "Baked/Palmier/tree_2_seed_1392",
+      "capacity": 65536,
+      "boundingRadius": 45.0264,
+      "minimumScale": 0.9,
+      "maximumScale": 2.2
+    },
+    {
+      "id": 86,
+      "asset": "Baked/Palmier/tree_3_seed_1393",
+      "capacity": 65536,
+      "boundingRadius": 45.4596,
+      "minimumScale": 0.9,
+      "maximumScale": 2.2
+    },
+    {
+      "id": 87,
+      "asset": "Baked/Palmier/tree_4_seed_1394",
+      "capacity": 65536,
+      "boundingRadius": 44.1223,
+      "minimumScale": 0.9,
+      "maximumScale": 2.2
+    },
+    {
+      "id": 88,
+      "asset": "Baked/Palmier/tree_5_seed_1395",
+      "capacity": 65536,
+      "boundingRadius": 45.1636,
+      "minimumScale": 0.9,
+      "maximumScale": 2.2
+    },
+    {
+      "id": 89,
+      "asset": "Baked/Palmier/tree_6_seed_1396",
+      "capacity": 65536,
+      "boundingRadius": 44.1034,
+      "minimumScale": 0.9,
+      "maximumScale": 2.2
+    },
+    {
+      "id": 90,
+      "asset": "Baked/Retombant/tree_1_seed_1351",
+      "capacity": 65536,
+      "boundingRadius": 46.5353,
+      "minimumScale": 0.9,
+      "maximumScale": 1.9
+    },
+    {
+      "id": 91,
+      "asset": "Baked/Retombant/tree_2_seed_1352",
+      "capacity": 65536,
+      "boundingRadius": 46.4021,
+      "minimumScale": 0.9,
+      "maximumScale": 1.9
+    },
+    {
+      "id": 92,
+      "asset": "Baked/Retombant/tree_3_seed_1353",
+      "capacity": 65536,
+      "boundingRadius": 45.7766,
+      "minimumScale": 0.9,
+      "maximumScale": 1.9
+    },
+    {
+      "id": 93,
+      "asset": "Baked/Retombant/tree_4_seed_1354",
+      "capacity": 65536,
+      "boundingRadius": 46.6771,
+      "minimumScale": 0.9,
+      "maximumScale": 1.9
+    },
+    {
+      "id": 94,
+      "asset": "Baked/Retombant/tree_5_seed_1355",
+      "capacity": 65536,
+      "boundingRadius": 46.7328,
+      "minimumScale": 0.9,
+      "maximumScale": 1.9
+    },
+    {
+      "id": 95,
+      "asset": "Baked/Retombant/tree_6_seed_1356",
+      "capacity": 65536,
+      "boundingRadius": 46.1606,
+      "minimumScale": 0.9,
+      "maximumScale": 1.9
+    },
+    {
+      "id": 96,
+      "asset": "Baked/Tremble/tree_1_seed_1396",
+      "capacity": 65536,
+      "boundingRadius": 91.1355,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 97,
+      "asset": "Baked/Tremble/tree_2_seed_1397",
+      "capacity": 65536,
+      "boundingRadius": 90.5721,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 98,
+      "asset": "Baked/Tremble/tree_3_seed_1398",
+      "capacity": 65536,
+      "boundingRadius": 90.6664,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 99,
+      "asset": "Baked/Tremble/tree_4_seed_1399",
+      "capacity": 65536,
+      "boundingRadius": 91.0956,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 100,
+      "asset": "Baked/Tremble/tree_5_seed_1400",
+      "capacity": 65536,
+      "boundingRadius": 90.1844,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    },
+    {
+      "id": 101,
+      "asset": "Baked/Tremble/tree_6_seed_1401",
+      "capacity": 65536,
+      "boundingRadius": 87.7325,
+      "minimumScale": 1.0,
+      "maximumScale": 3.2
+    }
+  ],
+  "groups": [
+    {
+      "id": 0,
+      "name": "Acacia",
+      "first": 0,
+      "count": 6
+    },
+    {
+      "id": 1,
+      "name": "ArbreMort",
+      "first": 6,
+      "count": 6
+    },
+    {
+      "id": 2,
+      "name": "BIG_01",
+      "first": 12,
+      "count": 6
+    },
+    {
+      "id": 3,
+      "name": "BIG_02",
+      "first": 18,
+      "count": 6
+    },
+    {
+      "id": 4,
+      "name": "BIG_DEAD",
+      "first": 24,
+      "count": 6
+    },
+    {
+      "id": 5,
+      "name": "Banyan",
+      "first": 30,
+      "count": 6
+    },
+    {
+      "id": 6,
+      "name": "Baobab",
+      "first": 36,
+      "count": 6
+    },
+    {
+      "id": 7,
+      "name": "Bouleau",
+      "first": 42,
+      "count": 6
+    },
+    {
+      "id": 8,
+      "name": "Chene",
+      "first": 48,
+      "count": 6
+    },
+    {
+      "id": 9,
+      "name": "Conifere",
+      "first": 54,
+      "count": 6
+    },
+    {
+      "id": 10,
+      "name": "Cypres",
+      "first": 60,
+      "count": 6
+    },
+    {
+      "id": 11,
+      "name": "FeuilluEtale",
+      "first": 66,
+      "count": 6
+    },
+    {
+      "id": 12,
+      "name": "Genevrier",
+      "first": 72,
+      "count": 6
+    },
+    {
+      "id": 13,
+      "name": "Mangrove",
+      "first": 78,
+      "count": 6
+    },
+    {
+      "id": 14,
+      "name": "Palmier",
+      "first": 84,
+      "count": 6
+    },
+    {
+      "id": 15,
+      "name": "Retombant",
+      "first": 90,
+      "count": 6
+    },
+    {
+      "id": 16,
+      "name": "Tremble",
+      "first": 96,
+      "count": 6
+    }
+  ],
+  "biomes": [
+    {
+      "id": 0,
+      "name": "PolarIce",
+      "choices": [],
+      "density": 0,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 900.0,
+      "forestThreshold": 0.45,
+      "forestSoftness": 0.18,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 1,
+      "name": "FrozenTundra",
+      "choices": [],
+      "density": 0,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1100.0,
+      "forestThreshold": 0.45,
+      "forestSoftness": 0.18,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 2,
+      "name": "Tundra",
+      "choices": [
+        {
+          "group": 12,
+          "weight": 80
+        },
+        {
+          "group": 1,
+          "weight": 20
+        }
+      ],
+      "density": 0.008,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1300.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 3,
+      "name": "Taiga",
+      "choices": [
+        {
+          "group": 9,
+          "weight": 70
+        },
+        {
+          "group": 7,
+          "weight": 20
+        },
+        {
+          "group": 16,
+          "weight": 10
+        }
+      ],
+      "density": 0.164,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1500.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 4,
+      "name": "BorealBog",
+      "choices": [
+        {
+          "group": 10,
+          "weight": 45
+        },
+        {
+          "group": 15,
+          "weight": 35
+        },
+        {
+          "group": 1,
+          "weight": 20
+        }
+      ],
+      "density": 0.126,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1700.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 5,
+      "name": "RockyTundra",
+      "choices": [
+        {
+          "group": 12,
+          "weight": 100
+        }
+      ],
+      "density": 0.003,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 900.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 6,
+      "name": "ColdSteppe",
+      "choices": [
+        {
+          "group": 12,
+          "weight": 70
+        },
+        {
+          "group": 1,
+          "weight": 30
+        }
+      ],
+      "density": 0.009,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1100.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 7,
+      "name": "BorealForest",
+      "choices": [
+        {
+          "group": 9,
+          "weight": 50
+        },
+        {
+          "group": 7,
+          "weight": 30
+        },
+        {
+          "group": 16,
+          "weight": 15
+        },
+        {
+          "group": 2,
+          "weight": 1
+        }
+      ],
+      "density": 0.176,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1300.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 8,
+      "name": "ColdForest",
+      "choices": [
+        {
+          "group": 9,
+          "weight": 40
+        },
+        {
+          "group": 8,
+          "weight": 30
+        },
+        {
+          "group": 7,
+          "weight": 25
+        },
+        {
+          "group": 1,
+          "weight": 5
+        }
+      ],
+      "density": 0.144,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1500.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 9,
+      "name": "ColdMarsh",
+      "choices": [
+        {
+          "group": 10,
+          "weight": 50
+        },
+        {
+          "group": 15,
+          "weight": 40
+        },
+        {
+          "group": 1,
+          "weight": 10
+        }
+      ],
+      "density": 0.128,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1700.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 10,
+      "name": "DryPlain",
+      "choices": [
+        {
+          "group": 0,
+          "weight": 50
+        },
+        {
+          "group": 12,
+          "weight": 40
+        },
+        {
+          "group": 1,
+          "weight": 10
+        }
+      ],
+      "density": 0.011,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 900.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 11,
+      "name": "Meadow",
+      "choices": [
+        {
+          "group": 11,
+          "weight": 50
+        },
+        {
+          "group": 8,
+          "weight": 30
+        },
+        {
+          "group": 16,
+          "weight": 20
+        }
+      ],
+      "density": 0.028,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1100.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 12,
+      "name": "TemperateForest",
+      "choices": [
+        {
+          "group": 8,
+          "weight": 45
+        },
+        {
+          "group": 11,
+          "weight": 30
+        },
+        {
+          "group": 7,
+          "weight": 20
+        },
+        {
+          "group": 2,
+          "weight": 1
+        }
+      ],
+      "density": 0.164,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1300.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 13,
+      "name": "TemperateRainforest",
+      "choices": [
+        {
+          "group": 11,
+          "weight": 45
+        },
+        {
+          "group": 15,
+          "weight": 25
+        },
+        {
+          "group": 5,
+          "weight": 25
+        },
+        {
+          "group": 3,
+          "weight": 1
+        }
+      ],
+      "density": 0.188,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1500.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 14,
+      "name": "TemperateMarsh",
+      "choices": [
+        {
+          "group": 10,
+          "weight": 45
+        },
+        {
+          "group": 15,
+          "weight": 40
+        },
+        {
+          "group": 1,
+          "weight": 15
+        }
+      ],
+      "density": 0.134,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1700.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 15,
+      "name": "RockDesert",
+      "choices": [],
+      "density": 0,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 900.0,
+      "forestThreshold": 0.45,
+      "forestSoftness": 0.18,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 16,
+      "name": "DrySavanna",
+      "choices": [
+        {
+          "group": 0,
+          "weight": 65
+        },
+        {
+          "group": 6,
+          "weight": 25
+        },
+        {
+          "group": 1,
+          "weight": 10
+        }
+      ],
+      "density": 0.024,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1100.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 17,
+      "name": "Savanna",
+      "choices": [
+        {
+          "group": 0,
+          "weight": 55
+        },
+        {
+          "group": 6,
+          "weight": 30
+        },
+        {
+          "group": 14,
+          "weight": 10
+        },
+        {
+          "group": 2,
+          "weight": 1
+        }
+      ],
+      "density": 0.044,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1300.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 18,
+      "name": "DryJungle",
+      "choices": [
+        {
+          "group": 6,
+          "weight": 35
+        },
+        {
+          "group": 0,
+          "weight": 30
+        },
+        {
+          "group": 5,
+          "weight": 30
+        },
+        {
+          "group": 1,
+          "weight": 5
+        }
+      ],
+      "density": 0.116,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1500.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 19,
+      "name": "TropicalJungle",
+      "choices": [
+        {
+          "group": 5,
+          "weight": 45
+        },
+        {
+          "group": 14,
+          "weight": 20
+        },
+        {
+          "group": 11,
+          "weight": 30
+        },
+        {
+          "group": 3,
+          "weight": 1
+        }
+      ],
+      "density": 0.192,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1700.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 20,
+      "name": "VolcanicDesert",
+      "choices": [],
+      "density": 0,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 900.0,
+      "forestThreshold": 0.45,
+      "forestSoftness": 0.18,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 21,
+      "name": "RedDesert",
+      "choices": [],
+      "density": 0,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1100.0,
+      "forestThreshold": 0.45,
+      "forestSoftness": 0.18,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 22,
+      "name": "AridPlateau",
+      "choices": [
+        {
+          "group": 12,
+          "weight": 70
+        },
+        {
+          "group": 1,
+          "weight": 30
+        }
+      ],
+      "density": 0.005,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1300.0,
+      "forestThreshold": 0.58,
+      "forestSoftness": 0.08,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 23,
+      "name": "BurningJungle",
+      "choices": [
+        {
+          "group": 4,
+          "weight": 1
+        },
+        {
+          "group": 1,
+          "weight": 35
+        },
+        {
+          "group": 5,
+          "weight": 40
+        },
+        {
+          "group": 6,
+          "weight": 20
+        }
+      ],
+      "density": 0.096,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1500.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": 1.0
+    },
+    {
+      "id": 24,
+      "name": "TropicalMangrove",
+      "choices": [
+        {
+          "group": 13,
+          "weight": 65
+        },
+        {
+          "group": 10,
+          "weight": 20
+        },
+        {
+          "group": 5,
+          "weight": 15
+        }
+      ],
+      "density": 0.166,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 1700.0,
+      "forestThreshold": 0.5,
+      "forestSoftness": 0.06,
+      "minimumAboveSea": -1.0
+    },
+    {
+      "id": 25,
+      "name": "Marine",
+      "choices": [],
+      "density": 0,
+      "minimumNormalY": 0.82,
+      "forestPeriod": 900.0,
+      "forestThreshold": 0.45,
+      "forestSoftness": 0.18,
+      "minimumAboveSea": 1.0
+    }
+  ]
+}

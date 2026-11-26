@@ -1,5 +1,4 @@
 #include "AudioManager.hpp"
-#define CLEAR_REGISTRY
 #include "AudioSource.hpp"
 #include "Debug.hpp"
 #include "SoundBuffer.hpp"
@@ -30,7 +29,7 @@ void AudioManager::registerSound(const std::string& key, const std::vector<std::
     m_registry[key] = paths;
 }
 
-void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType sType, unsigned int nb_multi, float volume)
+void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType sType, unsigned int nb_multi, float volume, float loopBlendSeconds)
 {
     if (m_stopping.load())
     {
@@ -40,6 +39,10 @@ void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType s
     bool soundStarted = false;
     {
         std::lock_guard<std::mutex> lock(m_dataMutex);
+        if (m_stopping.load())
+        {
+            return;
+        }
         auto soundIt = m_sounds.find(key);
         if (soundIt == m_sounds.end())
         {
@@ -61,7 +64,10 @@ void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType s
             req.sType = sType;
             req.nb_multi = nb_multi;
             req.volume = std::clamp(volume, 0.0f, 1.0f);
-            m_pendingLoads.insert(key);
+            req.loadId = ++m_nextLoadId;
+            req.loopBlendSeconds = pType == AudioPlayType::LOOP && req.paths.size() == 1
+                ? std::clamp(loopBlendSeconds, 0.0f, 2.0f) : 0.0f;
+            m_pendingLoads[key] = req.loadId;
             m_requests.push(req);
             return;
         }
@@ -70,6 +76,7 @@ void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType s
         if (sound->loaded && sound->source)
         {
             sound->startPending = false;
+            sound->playbackActive = true;
             sound->fading = false;
             sound->stopAfterFade = false;
             sound->pauseAfterFade = false;
@@ -81,12 +88,17 @@ void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType s
             sound->sType = sType;
             sound->nb_multi = nb_multi;
             sound->source->stop();
-            sound->source->setLoop(false);
+            sound->source->setLoop(!sound->isTriple && pType == AudioPlayType::LOOP);
             sound->source->setGain(sound->localVolume * m_masterVolume);
             sound->source->setSoundBuffer(sound->first);
-            sound->source->play();
+            sound->startPending = m_pc != nullptr && m_pc->soundManager != nullptr &&
+                m_pc->soundManager->isPaused();
+            if (!sound->startPending)
+            {
+                sound->source->play();
+            }
             sound->currentBuffer = 0;
-            soundStarted = true;
+            soundStarted = !sound->startPending;
         }
     }
 
@@ -99,9 +111,15 @@ void AudioManager::play(const std::string& key, AudioPlayType pType, SoundType s
 void AudioManager::musicStopper(std::string ingoreKey)
 {
     std::lock_guard<std::mutex> lock(m_dataMutex);
+    musicStopperLocked(ingoreKey);
+}
+
+void AudioManager::musicStopperLocked(const std::string& ignoreKey)
+{
     for (auto& [key, sound] : m_sounds)
     {
-        if (!sound->loaded || !sound->source || key == ingoreKey || sound->sType != SoundType::MUSIC)
+        if (!sound->loaded || !sound->source || !sound->playbackActive ||
+            key == ignoreKey || sound->sType != SoundType::MUSIC)
         {
             continue;
         }
@@ -133,7 +151,7 @@ bool AudioManager::musicState()
     std::lock_guard<std::mutex> lock(m_dataMutex);
     for (auto& [key, sound] : m_sounds)
     {
-        if (!sound->loaded || !sound->source || sound->sType != SoundType::MUSIC)
+        if (!sound->loaded || !sound->source || !sound->playbackActive || sound->sType != SoundType::MUSIC)
         {
             continue;
         }
@@ -172,6 +190,10 @@ AudioPlaybackStatus AudioManager::playbackStatus(const std::string& key) const
             ? AudioPlaybackState::LOADING : AudioPlaybackState::STOPPED, 0.0f };
     }
     const AudioTrack& sound = *entry->second;
+    if (!sound.playbackActive)
+    {
+        return {};
+    }
     if (sound.startPending)
     {
         return { AudioPlaybackState::LOADING, 0.0f };
@@ -207,12 +229,14 @@ AudioPlaybackStatus AudioManager::playbackStatus(const std::string& key) const
 void AudioManager::stop(const std::string& key)
 {
     std::lock_guard<std::mutex> lock(m_dataMutex);
+    m_pendingLoads.erase(key);
 
     auto it = m_sounds.find(key);
     if (it != m_sounds.end() && it->second->source)
     {
         it->second->fading = false;
         it->second->startPending = false;
+        it->second->playbackActive = false;
         it->second->stopAfterFade = false;
         it->second->pauseAfterFade = false;
         it->second->source->stop();
@@ -222,12 +246,31 @@ void AudioManager::stop(const std::string& key)
 void AudioManager::stopFade(const std::string& key, float duration)
 {
     std::lock_guard<std::mutex> lock(m_dataMutex);
+    m_pendingLoads.erase(key);
 
     auto it = m_sounds.find(key);
     if (it != m_sounds.end())
     {
+        // A source whose async load finished but has not started is still silent.
+        if (it->second->startPending)
+        {
+            it->second->startPending = false;
+            it->second->playbackActive = false;
+            return;
+        }
         beginFade(*it->second, 0.0f, duration, true, false);
     }
+}
+
+void AudioManager::releaseSound(const std::string& key)
+{
+    std::lock_guard<std::mutex> lock(m_dataMutex);
+    m_pendingLoads.erase(key);
+    // AudioTrack's source deleter releases the source before its unique buffers.
+    m_sounds.erase(key);
+    m_registry.erase(key);
+    m_spatialConfigurations.erase(key);
+    m_volumeConfigurations.erase(key);
 }
 
 void AudioManager::setVolume(
@@ -250,7 +293,10 @@ void AudioManager::setVolume(
 
     AudioTrack& sound = *it->second;
     const float target = std::clamp(volume, 0.0f, 1.0f);
-    if (target > 0.0f && !sound.source->isPlaying())
+    const bool globallyPaused = m_pc != nullptr && m_pc->soundManager != nullptr &&
+        m_pc->soundManager->isPaused();
+    if (target > 0.0f && sound.playbackActive && !globallyPaused &&
+        sound.source->SourceState() == AL_PAUSED)
     {
         sound.source->play();
     }
@@ -332,6 +378,8 @@ void AudioManager::stopThread()
     if (!m_stopping.exchange(true))
     {
         m_requests.shutdown();
+        std::lock_guard<std::mutex> lock(m_dataMutex);
+        m_pendingLoads.clear();
     }
 
     if (m_worker.joinable())
@@ -348,15 +396,36 @@ void AudioManager::threadFunc()
     {
         if (req.type == AudioRequestType::LOAD)
         {
-            loadSound(req.key, req.paths,req.pType, req.sType, req.nb_multi, req.volume);
+            {
+                std::lock_guard<std::mutex> lock(m_dataMutex);
+                if (!isCurrentLoad(req))
+                {
+                    continue;
+                }
+            }
+            loadSound(req);
             std::lock_guard<std::mutex> lock(m_dataMutex);
-            m_pendingLoads.erase(req.key);
+            if (isCurrentLoad(req))
+            {
+                m_pendingLoads.erase(req.key);
+            }
         }
     }
 }
 
-void AudioManager::loadSound(const std::string& key, const std::vector<std::string>& paths, AudioPlayType pType, SoundType sType, unsigned int nb_multi, float volume)
+bool AudioManager::isCurrentLoad(const AudioRequest& request) const
 {
+    const auto pending = m_pendingLoads.find(request.key);
+    return !m_stopping.load() && pending != m_pendingLoads.end() &&
+        pending->second == request.loadId;
+}
+
+void AudioManager::loadSound(const AudioRequest& request)
+{
+    const std::string& key = request.key;
+    const std::vector<std::string>& paths = request.paths;
+    const AudioPlayType pType = request.pType;
+    const SoundType sType = request.sType;
     if (m_pc == nullptr || m_pc->soundManager == nullptr ||
         (paths.empty() || paths.size() > 3))
     {
@@ -371,7 +440,7 @@ void AudioManager::loadSound(const std::string& key, const std::vector<std::stri
     const ptrClass* pc = m_pc;
     if (paths.size() == 1)
     {
-        sound->first = m_pc->soundManager->createBuffer(paths[0].c_str());
+        sound->first = m_pc->soundManager->createBuffer(paths[0].c_str(), false, false, request.loopBlendSeconds);
     }
     else
     {
@@ -455,17 +524,20 @@ void AudioManager::loadSound(const std::string& key, const std::vector<std::stri
     sound->loaded = true;
     sound->pType = pType;
     sound->sType = sType;
-    sound->nb_multi = nb_multi;
-    sound->localVolume = std::clamp(volume, 0.0f, 1.0f);
+    sound->nb_multi = request.nb_multi;
+    sound->localVolume = std::clamp(request.volume, 0.0f, 1.0f);
     sound->fadeTargetVolume = sound->localVolume;
     {
         std::lock_guard<std::mutex> lock(m_dataMutex);
-        // A scene may have been closed while its WAV files were loading.
-        if (m_stopping.load())
+        // A scene can stop/release/re-register a key while its WAV is decoding.
+        // A superseded load must neither publish nor consume the newer request.
+        if (!isCurrentLoad(request))
         {
             return;
         }
-        sound->source->setGain(sound->localVolume * m_masterVolume);
+        // Gain is applied immediately before play() by update(). The source is
+        // already registered with SoundManager here: touching its cached gain
+        // on this worker would race the main thread's music/SFX bus adjustment.
         const auto configuration = m_spatialConfigurations.find(key);
         if (configuration != m_spatialConfigurations.end())
         {
@@ -483,9 +555,9 @@ void AudioManager::loadSound(const std::string& key, const std::vector<std::stri
         // Start on the next main-thread update. This respects engine pause and
         // the latest gain without racing a scene change or global pause toggle.
         sound->startPending = true;
+        sound->playbackActive = true;
         m_sounds[key] = std::move(sound);
     }
-    if (sType == SoundType::MUSIC) musicStopper(key);
 }
 
 void AudioManager::update()
@@ -501,15 +573,22 @@ void AudioManager::update()
 
     for (auto& [key, sound] : m_sounds)
     {
-        if (!sound->loaded || !sound->source)
+        if (!sound->loaded || !sound->source || !sound->playbackActive)
         {
             continue;
         }
 
         if (sound->startPending)
         {
+            if (sound->sType == SoundType::MUSIC)
+            {
+                musicStopperLocked(key);
+            }
             sound->startPending = false;
             sound->source->setGain(sound->localVolume * m_masterVolume);
+            // Let OpenAL wrap the very first pass too. Restarting it in update()
+            // would insert a frame-sized silence at the first loop boundary.
+            sound->source->setLoop(!sound->isTriple && sound->pType == AudioPlayType::LOOP);
             sound->source->play();
             const auto volume = m_volumeConfigurations.find(key);
             if (volume != m_volumeConfigurations.end())
@@ -518,6 +597,12 @@ void AudioManager::update()
                 beginFade(*sound, configuration.target, configuration.transitionSeconds,
                     false, configuration.pauseWhenSilent && configuration.target <= 0.0f);
             }
+        }
+
+        // A paused intro/loop must not advance or consume its fade timer.
+        if (sound->source->SourceState() == AL_PAUSED)
+        {
+            continue;
         }
 
         if (!sound->isTriple)
@@ -554,6 +639,8 @@ void AudioManager::beginFade(
         sound.source->setGain(target * m_masterVolume);
         if (stopAfterFade && target <= 0.0f)
         {
+            sound.playbackActive = false;
+            sound.startPending = false;
             sound.source->stop();
         }
         else if (pauseAfterFade && target <= 0.0f)
@@ -594,6 +681,8 @@ void AudioManager::updateFade(AudioTrack& sound, float deltaTime)
         sound.fading = false;
         if (sound.stopAfterFade && sound.fadeTargetVolume <= 0.0f)
         {
+            sound.playbackActive = false;
+            sound.startPending = false;
             sound.source->stop();
         }
         else if (sound.pauseAfterFade && sound.fadeTargetVolume <= 0.0f)
@@ -661,6 +750,7 @@ void AudioManager::updateTriple(AudioTrack& sound)
             if (sound.end == nullptr)
             {
                 sound.currentBuffer = 3;
+                sound.playbackActive = false;
                 sound.source->stop();
                 return;
             }
@@ -671,6 +761,7 @@ void AudioManager::updateTriple(AudioTrack& sound)
         }
         else if (sound.currentBuffer == 2)
         {            
+            sound.playbackActive = false;
             sound.source->stop();
         }
     }
@@ -684,6 +775,7 @@ void AudioManager::updateNormal(AudioTrack& sound)
     {
         if (sound.pType == AudioPlayType::ONCE)
         {
+            sound.playbackActive = false;
             sound.source->stop();
         }
         else if (sound.pType == AudioPlayType::MULTI)
@@ -695,6 +787,7 @@ void AudioManager::updateNormal(AudioTrack& sound)
             }
             else
             {
+                sound.playbackActive = false;
                 sound.source->stop();
             }
         }

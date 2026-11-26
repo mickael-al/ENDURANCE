@@ -1,5 +1,6 @@
 #pragma once
 #include <glm/glm.hpp>
+#define SHADOW_MAP_CASCADE_COUNT 4
 namespace Ge
 {
     struct Lights

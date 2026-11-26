@@ -18,7 +18,7 @@ namespace Ge
 	{
 	public:
 		SoundBuffer * createBuffer(const char * filepath, bool forceMono = false,
-			bool retainAnalysisPcm = false);
+			bool retainAnalysisPcm = false, float loopBlendSeconds = 0.0f);
 		void releaseBuffer(SoundBuffer * sb);		
 		AudioSource* createSource(SoundBuffer* sb, std::string name = "AudioSource", bool music = false);
 		void releaseSource(AudioSource* as);

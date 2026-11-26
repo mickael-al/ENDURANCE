@@ -28,12 +28,17 @@ namespace Ge
 		GraphiquePipeline * createPipeline(const std::string & frag, const std::string & vert, bool back = false, bool multiS = true, bool transparency = false, int cullmode = 1, std::string define = "",
 			const ShaderCacheOptions& cache = {});
 		void destroyPipeline(GraphiquePipeline * pipeline);
+		// Both programs are built during initialize(), never during a frame.
+		GraphiquePipeline* getDeferredLightingPipeline(bool ssaoEnabled) const;
 		std::vector<GraphiquePipeline *> & GetPipelines();
 		std::vector<CustomRenderer*> & getCustomRenderer();
 		void addCustomRenderer(CustomRenderer * c);
 		void removeCustomRenderer(CustomRenderer * c);
 	private:
 		GraphicsDataMisc * m_gdm;
+		// Shares the default pipeline's ShaderPair; owned separately from user
+		// pipelines so release() cannot restore it later without its defines.
+		GraphiquePipeline* m_deferredWithoutSsao = nullptr;
 		std::vector<ShaderPair*> m_fileNameShaders;
 		std::vector<GraphiquePipeline*> m_graphiquePipeline;//TODO Use ** to release shader without remove first *
 		std::vector<CustomRenderer*> m_customRenderers;

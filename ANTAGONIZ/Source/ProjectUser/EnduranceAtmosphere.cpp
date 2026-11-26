@@ -1,5 +1,6 @@
 #include "glcore.hpp"
 #include "EnduranceAtmosphere.hpp"
+#include "EnduranceMoonMesh.hpp"
 #define CLEAR_REGISTRY
 #include "Atmosphere.hpp"
 #include "Camera.hpp"
@@ -21,13 +22,39 @@
 #include <utility>
 
 REGISTER(Behaviour,EnduranceAtmosphereComponent,paletteFile,palettes,engineSettings,
-         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent,fogWind);
+         sunLightIndex,moonLightIndex,fogAtlasResolution,fogAtlasExtent,fogWind,moonSurfaceFile,moonModelFile);
 
 namespace
 {
     using Clock=std::chrono::steady_clock;
     constexpr const char* ShaderRoot="../ENDURANCE/Ressources/Shader/Atmosphere/";
     EnduranceAtmosphereComponent* activeComponent=nullptr;
+    // Render-thread sequence survives component restarts, so subscribers can
+    // distinguish a newly completed sample from a previous scene's snapshot.
+    std::uint64_t nextBiomeSampleRevision=0;
+
+    bool loadMoonSurface(Ge::Atmosphere& atmosphere,const std::string& path,std::string& error)
+    {
+        // Small game-owned baked asset; GPU allocation/upload belongs to the engine.
+        // Explicit little-endian header, bounded size, exact payload validation.
+        std::ifstream file(path,std::ios::binary);
+        std::array<unsigned char,20> header{};
+        if(!file.read(reinterpret_cast<char*>(header.data()),header.size()) ||
+            std::memcmp(header.data(),"EMOON001",8)!=0)
+        { error="Cannot read baked moon surface: "+path; return false; }
+        const auto u32=[&](unsigned i) { return std::uint32_t(header[i]) | (std::uint32_t(header[i+1])<<8)
+            | (std::uint32_t(header[i+2])<<16) | (std::uint32_t(header[i+3])<<24); };
+        const auto width=u32(8),height=u32(12),meanBits=u32(16);
+        float mean=0; std::memcpy(&mean,&meanBits,sizeof mean);
+        if(width<2 || width>4096 || height<1 || height>2048 || width!=height*2 ||
+            !std::isfinite(mean) || mean<0 || mean>1)
+        { error="Invalid baked moon dimensions/albedo: "+path; return false; }
+        std::vector<std::uint8_t> pixels(std::size_t(width)*height*4);
+        if(!file.read(reinterpret_cast<char*>(pixels.data()),std::streamsize(pixels.size())) ||
+            file.peek()!=std::char_traits<char>::eof())
+        { error="Invalid baked moon payload: "+path; return false; }
+        return atmosphere.setMoonSurface(pixels.data(),width,height,mean);
+    }
 
     struct PaletteAsset
     {
@@ -44,8 +71,11 @@ namespace
     struct alignas(16) GpuPalette
     {
         glm::vec4 horizon,middle,zenith,controls;
+        std::uint32_t biome=0;
+        float weight=0.0f;
+        glm::vec2 reserved{0.0f};
     };
-    static_assert(sizeof(GpuStyle)==96 && sizeof(GpuPalette)==64,"std430 palette ABI");
+    static_assert(sizeof(GpuStyle)==96 && sizeof(GpuPalette)==80,"std430 palette ABI");
 
     glm::vec3 color(const std::array<float,3>& c) { return {c[0],c[1],c[2]}; }
     Ge::AtmospherePalette enginePalette(const EnduranceSkyBiomeStyle& s)
@@ -177,6 +207,8 @@ struct EnduranceAtmosphereComponent::Impl
     bool lightSelectionDirty=false;
     bool registered=false,stylesDirty=true,forceSample=true,reloadRequested=false;
     bool atlasValid=false,atlasDirty=true,hasPosition=false;
+    bool moonLoadAttempted=false,moonReloadRequested=false,moonMeshLoaded=false,moonAtlasLoaded=false;
+    std::string loadedMoonFile,loadedMoonModelFile,moonError;
     std::string error;
     GLuint paletteProgram=0,fogProgram=0,mapping=0,styleBuffer=0;
     GLuint fogMedium=0,fogShape=0;
@@ -184,22 +216,74 @@ struct EnduranceAtmosphereComponent::Impl
     glm::vec2 lastSubmittedXZ{0.0f};
     glm::vec4 atlasOriginSize{0.0f};
     glm::dvec3 fogWindOffset{0.0};
+    EnduranceEnvironmentMediumState environmentMedium;
     std::uint32_t seed=1337;
     std::uint64_t terrainKey=0,revision=1,nextSequence=0,lastResultSequence=0;
     std::uint64_t submitted=0,completed=0,busyFrames=0,atlasUpdates=0;
     double latencyMilliseconds=0.0,climateMilliseconds=0.0,atlasMilliseconds=0.0;
     glm::vec3 climate{0.5f,0.5f,0.0f};
+    EnduranceBiomeSample biomeSample;
+    bool hasBiomeSource=false;
     struct Slot
     {
         GLuint buffer=0,queries[2]{0,0};
         GLsync fence=nullptr;
         std::uint64_t revision=0,sequence=0;
         bool force=false,timed=false;
+        glm::vec2 worldXZ{0.0f};
         Clock::time_point submitted;
     };
     std::array<Slot,3> slots;
     GLuint atlasQueries[2]{0,0};
     bool atlasTimingPending=false;
+
+    void invalidateBiomeSample()
+    {
+        biomeSample.valid=false;
+        biomeSample.revision=++nextBiomeSampleRevision;
+    }
+
+    void loadMoonAssets(const std::string& modelPath,const std::string& surfacePath)
+    {
+        // Asset work is triggered by an explicit request/path change, never by
+        // the animation clock, camera movement or a failed previous attempt.
+        moonLoadAttempted=true; moonReloadRequested=false;
+        loadedMoonModelFile=modelPath; loadedMoonFile=surfacePath; moonError.clear();
+        if(!modelPath.empty())
+        {
+            Ge::MoonMeshData mesh;
+            if(EnduranceMoon::loadMoonMesh(modelPath,mesh,moonError))
+            {
+                if(atmosphere->setMoonMesh(&mesh))
+                {
+                    moonMeshLoaded=true; moonAtlasLoaded=false;
+                    // The GLB owns its albedo; avoid retaining the old 8 MiB atlas.
+                    atmosphere->setMoonSurface(nullptr,0,0,0);
+                    return;
+                }
+                moonError="Cannot upload lunar mesh: "+atmosphere->error();
+            }
+            // Failed hot reloads leave the complete previously loaded body.
+            if(moonMeshLoaded) return;
+        }
+        else
+        {
+            atmosphere->setMoonMesh(nullptr);
+            moonMeshLoaded=false;
+        }
+        std::string surfaceError;
+        if(!surfacePath.empty() && loadMoonSurface(*atmosphere,surfacePath,surfaceError))
+        { moonAtlasLoaded=true; return; }
+        if(!surfaceError.empty())
+            moonError+=(moonError.empty()?"":"\n")+surfaceError;
+        // Preserve a previously valid atlas on failure; an empty path is an
+        // explicit request for the renderer's analytic fallback.
+        if(surfacePath.empty())
+        {
+            atmosphere->setMoonSurface(nullptr,0,0,0);
+            moonAtlasLoaded=false;
+        }
+    }
 
     std::pair<Ge::Lights*,Ge::Lights*> resolveLights(int& sunIndex,int& moonIndex)
     {
@@ -245,6 +329,7 @@ struct EnduranceAtmosphereComponent::Impl
         if(fogProgram) glDeleteProgram(fogProgram);
         paletteProgram=camera.takeProgram(); fogProgram=fog.takeProgram();
         error.clear(); ++revision; forceSample=true; atlasDirty=true;
+        invalidateBiomeSample();
         return true;
     }
 
@@ -257,6 +342,20 @@ struct EnduranceAtmosphereComponent::Impl
         glProgramUniform1ui(program,glGetUniformLocation(program,"uGameFogSeed"),seed);
         glProgramUniform3f(program,glGetUniformLocation(program,"uGameFogWindOffset"),
             float(fogWindOffset.x),float(fogWindOffset.y),float(fogWindOffset.z));
+        // Only the existing volume integration consumes these small uniforms.
+        // Changing weather never rebuilds the climate atlas or sky/IBL/LUTs.
+        std::array<glm::vec4,2> coefficients{},shapes{},winds{};
+        const float seaLevel=atmosphere ? atmosphere->settings().seaLevel : 0.0f;
+        for(std::size_t i=0;i<environmentMedium.layers.size();++i)
+        {
+            const auto& layer=environmentMedium.layers[i];
+            coefficients[i]=glm::vec4(layer.albedo*layer.extinction,layer.extinction);
+            shapes[i]=glm::vec4(layer.baseHeight,layer.heightScale,layer.noiseAmount,layer.noiseScale);
+            winds[i]=glm::vec4(layer.windOffset,seaLevel,0.0f);
+        }
+        glProgramUniform4fv(program,glGetUniformLocation(program,"uEnvironmentMedium[0]"),2,&coefficients[0].x);
+        glProgramUniform4fv(program,glGetUniformLocation(program,"uEnvironmentShape[0]"),2,&shapes[0].x);
+        glProgramUniform4fv(program,glGetUniformLocation(program,"uEnvironmentWind[0]"),2,&winds[0].x);
     }
 
     void collect()
@@ -289,6 +388,16 @@ struct EnduranceAtmosphereComponent::Impl
             }
             if(slot.revision!=revision || slot.sequence<=lastResultSequence) continue;
             lastResultSequence=slot.sequence;
+            // This shared snapshot must reject NaN/Inf even in -ffast-math
+            // builds. The terrain helper checks uint32 exponent bits via memcpy.
+            if(value.biome<ProceduralTerrain::BiomeCount &&
+                ProceduralTerrain::finiteFieldValue(value.weight) && value.weight>0.0f && value.weight<=1.00001f &&
+                ProceduralTerrain::finiteFieldValue(slot.worldXZ.x) && ProceduralTerrain::finiteFieldValue(slot.worldXZ.y))
+            {
+                biomeSample={true,value.biome,std::clamp(value.weight,0.0f,1.0f),
+                    slot.worldXZ,++nextBiomeSampleRevision};
+            }
+            else invalidateBiomeSample();
             Ge::AtmospherePalette p;
             p.horizon=glm::vec3(value.horizon); p.middle=glm::vec3(value.middle);
             p.zenith=glm::vec3(value.zenith); p.middleElevation=value.horizon.w;
@@ -316,6 +425,35 @@ struct EnduranceAtmosphereComponent::Impl
 EnduranceAtmosphereComponent::EnduranceAtmosphereComponent():m(std::make_unique<Impl>()) {}
 EnduranceAtmosphereComponent::~EnduranceAtmosphereComponent() { stop(); }
 
+EnduranceBiomeSample EnduranceAtmosphereComponent::currentBiomeSample()
+{
+    if(!activeComponent || !activeComponent->m || !activeComponent->m->registered)
+        return {};
+    auto result=activeComponent->m->biomeSample;
+    if(!activeComponent->m->hasBiomeSource) result.valid=false;
+    return result;
+}
+
+void EnduranceAtmosphereComponent::setEnvironmentMedium(const EnduranceEnvironmentMediumState& state)
+{
+    if(!activeComponent || !activeComponent->m || !activeComponent->m->registered) return;
+    auto bounded=[](float value,float lo,float hi,float fallback)
+    { return ProceduralTerrain::finiteFieldValue(value) ? std::clamp(value,lo,hi) : fallback; };
+    auto& destination=activeComponent->m->environmentMedium;
+    for(std::size_t i=0;i<destination.layers.size();++i)
+    {
+        const auto& input=state.layers[i];
+        auto& layer=destination.layers[i];
+        layer.extinction=bounded(input.extinction,0.0f,0.05f,0.0f);
+        for(int axis=0;axis<3;++axis) layer.albedo[axis]=bounded(input.albedo[axis],0.0f,1.0f,1.0f);
+        layer.baseHeight=bounded(input.baseHeight,-100000.0f,100000.0f,0.0f);
+        layer.heightScale=bounded(input.heightScale,1.0f,100000.0f,150.0f);
+        layer.noiseAmount=bounded(input.noiseAmount,0.0f,1.0f,0.0f);
+        layer.noiseScale=bounded(input.noiseScale,0.000001f,0.1f,0.002f);
+        for(int axis=0;axis<2;++axis) layer.windOffset[axis]=bounded(input.windOffset[axis],-1.0e8f,1.0e8f,0.0f);
+    }
+}
+
 bool EnduranceAtmosphereComponent::loadPaletteFile()
 {
     std::ifstream file(paletteFile,std::ios::binary);
@@ -332,6 +470,7 @@ bool EnduranceAtmosphereComponent::loadPaletteFile()
     palettes=std::move(asset.palettes);
     m->stylesDirty=true; m->forceSample=true; m->atlasDirty=true; m->error.clear();
     ++m->revision;
+    m->invalidateBiomeSample();
     return true;
 }
 
@@ -360,6 +499,8 @@ void EnduranceAtmosphereComponent::start()
             m->error="Invalid saved atmosphere settings; keeping the engine defaults.";
     }
     else m->atmosphere->settings().enabled=true;
+    if(m->atmosphere->settings().moonSurface)
+        m->loadMoonAssets(moonModelFile,moonSurfaceFile);
     m->atmosphere->setPaletteTarget(enginePalette(palettes[12]),true);
     const auto mapping=ProceduralTerrain::makeBiomeCellTable();
     glCreateBuffers(1,&m->mapping);
@@ -393,6 +534,8 @@ void EnduranceAtmosphereComponent::stop()
             m->atmosphere->setGameFogBinding({});
             m->atmosphere->setGameFogShader({});
             m->atmosphere->setSun(nullptr); m->atmosphere->setMoon(nullptr);
+            m->atmosphere->setMoonMesh(nullptr);
+            m->atmosphere->setMoonSurface(nullptr,0,0,0);
         }
         activeComponent=nullptr;
     }
@@ -415,9 +558,14 @@ void EnduranceAtmosphereComponent::stop()
 
 void EnduranceAtmosphereComponent::prepareRenderer()
 {
-    if(!m->registered || !m->atmosphere || !m->pc->cameraManager) return;
-    auto* camera=m->pc->cameraManager->getCurrentCamera();
-    if(!camera) return;
+    if(!m->registered || !m->atmosphere) return;
+    auto* camera=m->pc->cameraManager ? m->pc->cameraManager->getCurrentCamera() : nullptr;
+    if(!camera)
+    {
+        if(m->hasBiomeSource) { ++m->revision; m->invalidateBiomeSample(); }
+        m->hasBiomeSource=false; m->forceSample=true;
+        return;
+    }
     auto* editor=Ge::Editor::instance();
     SceneData* scene=editor ? editor->getCurrentSceneData() : nullptr;
     const auto lights=m->resolveLights(sunLightIndex,moonLightIndex);
@@ -437,17 +585,24 @@ void EnduranceAtmosphereComponent::prepareRenderer()
             m->fogWindOffset[axis]+=velocity*deltaSeconds;
         }
 
-    if(!m->atmosphere->settings().enabled)
-    {
-        m->collect();
-        return;
-    }
+    // The camera climate snapshot is also consumed by biome effects, even
+    // when atmospheric rendering itself is disabled.
+    if(m->atmosphere->settings().enabled && m->atmosphere->settings().moonSurface && (!m->moonLoadAttempted || m->moonReloadRequested ||
+        m->loadedMoonModelFile!=moonModelFile || m->loadedMoonFile!=moonSurfaceFile))
+        m->loadMoonAssets(moonModelFile,moonSurfaceFile);
 
     ProceduralGeneration* terrain=nullptr;
     for(auto* renderer:m->pc->graphiquePipelineManager->getCustomRenderer())
         if(auto* candidate=dynamic_cast<ProceduralGeneration*>(renderer))
             if(candidate->isInitialized() && (!scene || &candidate->getScene()==scene))
             { terrain=candidate; break; }
+    // A failed palette edit below must not keep an otherwise stale scene's
+    // biome snapshot visible while its terrain has been removed.
+    if(!terrain && m->hasBiomeSource)
+    {
+        m->hasBiomeSource=false;
+        m->invalidateBiomeSample();
+    }
 
     ComputeGuard guard;
     if(m->reloadRequested)
@@ -470,6 +625,7 @@ void EnduranceAtmosphereComponent::prepareRenderer()
         // Orphan the small upload buffer rather than waiting for an old atlas dispatch.
         glNamedBufferData(m->styleBuffer,sizeof styles,styles.data(),GL_DYNAMIC_DRAW);
         m->stylesDirty=false; m->forceSample=true; m->atlasDirty=true; ++m->revision;
+        m->invalidateBiomeSample();
         if(!terrain) m->atmosphere->setPaletteTarget(enginePalette(palettes[12]),true);
     }
     if(!terrain)
@@ -477,16 +633,19 @@ void EnduranceAtmosphereComponent::prepareRenderer()
         // A terrain can disappear briefly while its generator is rebuilt.
         // Invalidate pending camera results and rebuild the atlas when it
         // returns, even if its seed, settings and camera position are unchanged.
-        if(m->terrainKey!=0) { m->terrainKey=0; ++m->revision; }
+        if(m->terrainKey!=0) { m->terrainKey=0; ++m->revision; m->invalidateBiomeSample(); }
+        m->hasBiomeSource=false;
         m->atlasValid=false;
         m->atlasDirty=true; m->forceSample=true;
         m->collect();
         return;
     }
+    m->hasBiomeSource=true;
     const auto key=climateKey(*terrain);
     if(key!=m->terrainKey)
     {
         m->terrainKey=key; ++m->revision; m->forceSample=true; m->atlasDirty=true;
+        m->invalidateBiomeSample();
         m->seed=terrain->getSeed();
         m->atmosphere->settings().seaLevel=terrain->getConfig().field.seaLevel;
     }
@@ -515,13 +674,14 @@ void EnduranceAtmosphereComponent::prepareRenderer()
             if(slot->timed) glQueryCounter(slot->queries[1],GL_TIMESTAMP);
             slot->fence=glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE,0);
             slot->revision=m->revision; slot->sequence=++m->nextSequence;
+            slot->worldXZ=xz;
             slot->force=m->forceSample; slot->submitted=Clock::now();
             ++m->submitted;
             m->forceSample=false; m->lastSubmittedXZ=xz; m->hasPosition=true;
         }
     }
 
-    if(!m->atmosphere->settings().localFog) return;
+    if(!m->atmosphere->settings().enabled || !m->atmosphere->settings().localFog) return;
     // The guard band guarantees coverage of every ray up to aerialDistance.
     static constexpr int atlasPresets[4]={32,64,96,128};
     const int quality=std::clamp(static_cast<int>(m->atmosphere->settings().quality),0,3);
@@ -600,6 +760,22 @@ void EnduranceAtmosphereComponent::onGUI()
     };
     lightSelector("Atmospheric sun",sunLightIndex,true);
     lightSelector("Optional moon light",moonLightIndex,false);
+    if(ImGui::TreeNode("Lunar model"))
+    {
+        ImGui::TextWrapped("Model: %s",moonModelFile.empty()?"(legacy surface)":moonModelFile.c_str());
+        if(m->registered && ImGui::Button("Reload lunar asset")) m->moonReloadRequested=true;
+        if(m->registered)
+        {
+            ImGui::TextUnformatted(m->moonMeshLoaded?"Cached excavated mesh":
+                (m->moonAtlasLoaded?"Legacy surface atlas":"Analytic fallback"));
+            const auto& stats=m->atmosphere->stats();
+            ImGui::Text("Mesh image / shadow updates: %llu / %llu",
+                static_cast<unsigned long long>(stats.moonImageUpdates),
+                static_cast<unsigned long long>(stats.moonShadowUpdates));
+        }
+        if(!m->moonError.empty()) ImGui::TextWrapped("%s",m->moonError.c_str());
+        ImGui::TreePop();
+    }
     bool atlasChanged=ImGui::SliderInt("Fog atlas resolution (0 = quality)",&fogAtlasResolution,0,512);
     atlasChanged|=ImGui::DragFloat("Fog atlas extent (m)",&fogAtlasExtent,256.0f,1024.0f,262144.0f,"%.0f");
     if(atlasChanged) m->atlasDirty=true;

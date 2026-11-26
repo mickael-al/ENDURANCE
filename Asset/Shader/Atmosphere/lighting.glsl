@@ -11,14 +11,30 @@ uniform int uAtmosphereMoonIndex;
 uniform float uAtmosphereSunScale;
 uniform float uAtmosphereMoonScale;
 uniform vec2 uAtmosphereInvResolution;
+bool geAtmosphereLightEnabled(int index)
+{
+    if(!uAtmosphereActive) return true;
+    if(index==uAtmosphereSunIndex && index>=0) return geAtmSunLightingEnabled();
+    if(index==uAtmosphereMoonIndex && index>=0) return geAtmMoonLightingEnabled();
+    return true; // unrelated point, spot and directional lights remain active
+}
 vec3 geAtmosphereDirect(vec3 radiance,int index,vec3 world,vec3 direction)
 {
     if(!uAtmosphereActive) return radiance;
+    if(!geAtmosphereLightEnabled(index)) return vec3(0);
+    if(index==uAtmosphereMoonIndex && geAtmMoonRadiance.w>0.5)
+        return geAtmMoonRadiance.rgb*geAtmDirectTransmission(world,direction);
     float multiplier=1.0;
     if(index==uAtmosphereSunIndex) multiplier=uAtmosphereSunScale;
     else if(index==uAtmosphereMoonIndex) multiplier=uAtmosphereMoonScale;
     else return radiance;
     return radiance*max(multiplier,0.0)*geAtmDirectTransmission(world,direction);
+}
+float geAtmosphereDirectSpecular(int index)
+{
+    // Textured moons already appear in the GGX environment as an area source.
+    return uAtmosphereActive && uAtmosphereIblActive && index==uAtmosphereMoonIndex
+        && geAtmMoonRadiance.w>0.5 ? 0.0 : 1.0;
 }
 float geAtmosphereShadow(int index,float visibility,float legacyAmbient)
 {

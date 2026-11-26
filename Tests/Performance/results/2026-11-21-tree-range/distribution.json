@@ -1,0 +1,438 @@
+{
+  "seed": 1337,
+  "regionKm": [
+    16.384,
+    16.384
+  ],
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "sourceSha256": {
+    "catalogue": "8a149617e7a3be2dde0b585be04ce2423cf8524af5661a48a4427a4d5eab47f8",
+    "objects_common.glsl": "848f877572f03055290c1b03594e110d68fe639905ff5a77f7d340519a94c6a1",
+    "measurementScript": "7e245cf04013fa7703d6ea31aabb147f0a5a5a27d1090a168108c83522401ab8",
+    "baselineCatalogue": "13a27b66a0b806d8410d2052cb57d1f069d0bf2bb77c3dc524885006194bf31a"
+  },
+  "current": [
+    {
+      "id": 2,
+      "name": "Tundra",
+      "sitesPerKm2": 1.66,
+      "emptyAreaPercent": 57.18,
+      "empty256mPatchesPercent": 44.43,
+      "fullGroveAreaPercent": 14.41,
+      "meanOccupancy": 0.2729,
+      "fullGroveEnvelopeRatio": 0.001,
+      "siteRatioToBaseline": 0.2054
+    },
+    {
+      "id": 3,
+      "name": "Taiga",
+      "sitesPerKm2": 49.72,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.068,
+      "siteRatioToBaseline": 0.2013
+    },
+    {
+      "id": 4,
+      "name": "BorealBog",
+      "sitesPerKm2": 32.32,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.033,
+      "siteRatioToBaseline": 0.197
+    },
+    {
+      "id": 5,
+      "name": "RockyTundra",
+      "sitesPerKm2": 0.58,
+      "emptyAreaPercent": 56.11,
+      "empty256mPatchesPercent": 39.23,
+      "fullGroveAreaPercent": 15.36,
+      "meanOccupancy": 0.2848,
+      "fullGroveEnvelopeRatio": 0.0,
+      "siteRatioToBaseline": 0.1779
+    },
+    {
+      "id": 6,
+      "name": "ColdSteppe",
+      "sitesPerKm2": 2.13,
+      "emptyAreaPercent": 54.75,
+      "empty256mPatchesPercent": 40.26,
+      "fullGroveAreaPercent": 16.42,
+      "meanOccupancy": 0.2983,
+      "fullGroveEnvelopeRatio": 0.001,
+      "siteRatioToBaseline": 0.2145
+    },
+    {
+      "id": 7,
+      "name": "BorealForest",
+      "sitesPerKm2": 57.26,
+      "emptyAreaPercent": 44.47,
+      "empty256mPatchesPercent": 32.57,
+      "fullGroveAreaPercent": 30.41,
+      "meanOccupancy": 0.4288,
+      "fullGroveEnvelopeRatio": 0.083,
+      "siteRatioToBaseline": 0.2003
+    },
+    {
+      "id": 8,
+      "name": "ColdForest",
+      "sitesPerKm2": 43.41,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.087,
+      "siteRatioToBaseline": 0.1997
+    },
+    {
+      "id": 9,
+      "name": "ColdMarsh",
+      "sitesPerKm2": 32.86,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.035,
+      "siteRatioToBaseline": 0.197
+    },
+    {
+      "id": 10,
+      "name": "DryPlain",
+      "sitesPerKm2": 2.34,
+      "emptyAreaPercent": 56.11,
+      "empty256mPatchesPercent": 39.23,
+      "fullGroveAreaPercent": 15.36,
+      "meanOccupancy": 0.2848,
+      "fullGroveEnvelopeRatio": 0.006,
+      "siteRatioToBaseline": 0.1971
+    },
+    {
+      "id": 11,
+      "name": "Meadow",
+      "sitesPerKm2": 6.15,
+      "emptyAreaPercent": 54.75,
+      "empty256mPatchesPercent": 40.26,
+      "fullGroveAreaPercent": 16.42,
+      "meanOccupancy": 0.2983,
+      "fullGroveEnvelopeRatio": 0.021,
+      "siteRatioToBaseline": 0.1936
+    },
+    {
+      "id": 12,
+      "name": "TemperateForest",
+      "sitesPerKm2": 53.39,
+      "emptyAreaPercent": 44.47,
+      "empty256mPatchesPercent": 32.57,
+      "fullGroveAreaPercent": 30.41,
+      "meanOccupancy": 0.4288,
+      "fullGroveEnvelopeRatio": 0.145,
+      "siteRatioToBaseline": 0.2003
+    },
+    {
+      "id": 13,
+      "name": "TemperateRainforest",
+      "sitesPerKm2": 57.02,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.199,
+      "siteRatioToBaseline": 0.2012
+    },
+    {
+      "id": 14,
+      "name": "TemperateMarsh",
+      "sitesPerKm2": 34.47,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.037,
+      "siteRatioToBaseline": 0.1976
+    },
+    {
+      "id": 16,
+      "name": "DrySavanna",
+      "sitesPerKm2": 5.22,
+      "emptyAreaPercent": 54.75,
+      "empty256mPatchesPercent": 40.26,
+      "fullGroveAreaPercent": 16.42,
+      "meanOccupancy": 0.2983,
+      "fullGroveEnvelopeRatio": 0.019,
+      "siteRatioToBaseline": 0.1917
+    },
+    {
+      "id": 17,
+      "name": "Savanna",
+      "sitesPerKm2": 8.95,
+      "emptyAreaPercent": 57.18,
+      "empty256mPatchesPercent": 44.43,
+      "fullGroveAreaPercent": 14.41,
+      "meanOccupancy": 0.2729,
+      "fullGroveEnvelopeRatio": 0.036,
+      "siteRatioToBaseline": 0.1952
+    },
+    {
+      "id": 18,
+      "name": "DryJungle",
+      "sitesPerKm2": 34.85,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.087,
+      "siteRatioToBaseline": 0.1993
+    },
+    {
+      "id": 19,
+      "name": "TropicalJungle",
+      "sitesPerKm2": 50.08,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.197,
+      "siteRatioToBaseline": 0.2004
+    },
+    {
+      "id": 22,
+      "name": "AridPlateau",
+      "sitesPerKm2": 1.01,
+      "emptyAreaPercent": 57.18,
+      "empty256mPatchesPercent": 44.43,
+      "fullGroveAreaPercent": 14.41,
+      "meanOccupancy": 0.2729,
+      "fullGroveEnvelopeRatio": 0.001,
+      "siteRatioToBaseline": 0.202
+    },
+    {
+      "id": 23,
+      "name": "BurningJungle",
+      "sitesPerKm2": 28.79,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.065,
+      "siteRatioToBaseline": 0.1991
+    },
+    {
+      "id": 24,
+      "name": "TropicalMangrove",
+      "sitesPerKm2": 43.33,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.079,
+      "siteRatioToBaseline": 0.2006
+    }
+  ],
+  "baseline": [
+    {
+      "id": 2,
+      "name": "Tundra",
+      "sitesPerKm2": 8.08,
+      "emptyAreaPercent": 57.18,
+      "empty256mPatchesPercent": 44.43,
+      "fullGroveAreaPercent": 14.41,
+      "meanOccupancy": 0.2729,
+      "fullGroveEnvelopeRatio": 0.005
+    },
+    {
+      "id": 3,
+      "name": "Taiga",
+      "sitesPerKm2": 246.99,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.34
+    },
+    {
+      "id": 4,
+      "name": "BorealBog",
+      "sitesPerKm2": 164.09,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.164
+    },
+    {
+      "id": 5,
+      "name": "RockyTundra",
+      "sitesPerKm2": 3.26,
+      "emptyAreaPercent": 56.11,
+      "empty256mPatchesPercent": 39.23,
+      "fullGroveAreaPercent": 15.36,
+      "meanOccupancy": 0.2848,
+      "fullGroveEnvelopeRatio": 0.002
+    },
+    {
+      "id": 6,
+      "name": "ColdSteppe",
+      "sitesPerKm2": 9.93,
+      "emptyAreaPercent": 54.75,
+      "empty256mPatchesPercent": 40.26,
+      "fullGroveAreaPercent": 16.42,
+      "meanOccupancy": 0.2983,
+      "fullGroveEnvelopeRatio": 0.006
+    },
+    {
+      "id": 7,
+      "name": "BorealForest",
+      "sitesPerKm2": 285.8,
+      "emptyAreaPercent": 44.47,
+      "empty256mPatchesPercent": 32.57,
+      "fullGroveAreaPercent": 30.41,
+      "meanOccupancy": 0.4288,
+      "fullGroveEnvelopeRatio": 0.416
+    },
+    {
+      "id": 8,
+      "name": "ColdForest",
+      "sitesPerKm2": 217.33,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.437
+    },
+    {
+      "id": 9,
+      "name": "ColdMarsh",
+      "sitesPerKm2": 166.78,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.174
+    },
+    {
+      "id": 10,
+      "name": "DryPlain",
+      "sitesPerKm2": 11.87,
+      "emptyAreaPercent": 56.11,
+      "empty256mPatchesPercent": 39.23,
+      "fullGroveAreaPercent": 15.36,
+      "meanOccupancy": 0.2848,
+      "fullGroveEnvelopeRatio": 0.029
+    },
+    {
+      "id": 11,
+      "name": "Meadow",
+      "sitesPerKm2": 31.77,
+      "emptyAreaPercent": 54.75,
+      "empty256mPatchesPercent": 40.26,
+      "fullGroveAreaPercent": 16.42,
+      "meanOccupancy": 0.2983,
+      "fullGroveEnvelopeRatio": 0.105
+    },
+    {
+      "id": 12,
+      "name": "TemperateForest",
+      "sitesPerKm2": 266.55,
+      "emptyAreaPercent": 44.47,
+      "empty256mPatchesPercent": 32.57,
+      "fullGroveAreaPercent": 30.41,
+      "meanOccupancy": 0.4288,
+      "fullGroveEnvelopeRatio": 0.726
+    },
+    {
+      "id": 13,
+      "name": "TemperateRainforest",
+      "sitesPerKm2": 283.47,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.993
+    },
+    {
+      "id": 14,
+      "name": "TemperateMarsh",
+      "sitesPerKm2": 174.47,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.185
+    },
+    {
+      "id": 16,
+      "name": "DrySavanna",
+      "sitesPerKm2": 27.23,
+      "emptyAreaPercent": 54.75,
+      "empty256mPatchesPercent": 40.26,
+      "fullGroveAreaPercent": 16.42,
+      "meanOccupancy": 0.2983,
+      "fullGroveEnvelopeRatio": 0.093
+    },
+    {
+      "id": 17,
+      "name": "Savanna",
+      "sitesPerKm2": 45.84,
+      "emptyAreaPercent": 57.18,
+      "empty256mPatchesPercent": 44.43,
+      "fullGroveAreaPercent": 14.41,
+      "meanOccupancy": 0.2729,
+      "fullGroveEnvelopeRatio": 0.179
+    },
+    {
+      "id": 18,
+      "name": "DryJungle",
+      "sitesPerKm2": 174.88,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.434
+    },
+    {
+      "id": 19,
+      "name": "TropicalJungle",
+      "sitesPerKm2": 249.95,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.984
+    },
+    {
+      "id": 22,
+      "name": "AridPlateau",
+      "sitesPerKm2": 5.0,
+      "emptyAreaPercent": 57.18,
+      "empty256mPatchesPercent": 44.43,
+      "fullGroveAreaPercent": 14.41,
+      "meanOccupancy": 0.2729,
+      "fullGroveEnvelopeRatio": 0.003
+    },
+    {
+      "id": 23,
+      "name": "BurningJungle",
+      "sitesPerKm2": 144.62,
+      "emptyAreaPercent": 47.01,
+      "empty256mPatchesPercent": 35.77,
+      "fullGroveAreaPercent": 27.42,
+      "meanOccupancy": 0.3986,
+      "fullGroveEnvelopeRatio": 0.326
+    },
+    {
+      "id": 24,
+      "name": "TropicalMangrove",
+      "sitesPerKm2": 215.99,
+      "emptyAreaPercent": 52.44,
+      "empty256mPatchesPercent": 42.53,
+      "fullGroveAreaPercent": 22.47,
+      "meanOccupancy": 0.3438,
+      "fullGroveEnvelopeRatio": 0.396
+    }
+  ]
+}

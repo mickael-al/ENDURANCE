@@ -1,4 +1,5 @@
 #version 460 core
+#include "render_options.glsl"
 
 // Each vertex is 12 bytes: XYZ uint16 scaled by 65534, climate UNORM8,
 // and an octahedral normal SNORM16x2. Code 65535 is unused so 2:1 LOD
@@ -29,7 +30,9 @@ layout(location = 0) out vec3 viewPosition;
 layout(location = 1) out vec3 worldPosition;
 layout(location = 2) out vec3 worldNormal;
 layout(location = 3) out vec2 climate;
+#ifdef DEBUG_TERRAIN_LOD
 layout(location = 4) flat out uint chunkLod;
+#endif
 
 vec3 decodeNormal(uint encodedNormal)
 {
@@ -60,7 +63,9 @@ void main()
     worldNormal = decodeNormal(packedNormal);
     climate = vec2((packedZClimate >> 16u) & 255u,
                    packedZClimate >> 24u) * (1.0 / 255.0);
+#ifdef DEBUG_TERRAIN_LOD
     chunkLod = chunk.metadata.x;
+#endif
     vec4 position = camera.view * vec4(worldPosition, 1.0);
     viewPosition = position.xyz;
     gl_Position = camera.proj * position;

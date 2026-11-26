@@ -64,6 +64,9 @@ def check_grazing_visibility(gl, fixture):
     f.parameters = Parameters()
     f.parameters.set("Control", 0, 0, 1, 0)
     f.parameters.set("CloudLayer", 2000, 1500, 1, 1e-6)
+    # A dark moon intentionally skips its shadow integration. This fixture
+    # compares two illuminated channels against the analytic transmission.
+    f.parameters.set("MoonRadiance", 1, 1, 1, 0)
     f.parameters.set("CloudShape", 4000, 4, 0, .6)
     f.parameters.set("CloudWeather", 48000, 0, 1.4, 0)
     f.parameters.set("CloudProfiles", 0, 1, 0, 0)
@@ -111,11 +114,16 @@ def check_grazing_visibility(gl, fixture):
         row = [(0., 2750., 0., 0., *direction, 0.)]
         approximate = query(gl, material, row)[0]
         integrated = query(gl, reference, row)[0]
-        for actual in (*approximate[:2], *integrated[:2]):
+        for actual in integrated[:2]:
             assert 0 <= actual <= 1 and abs(actual - expected) < .002, (
                 "Bounded grazing homogeneous ray violates Beer--Lambert", y, actual, expected,
             )
-        values.append(approximate[0])
+        # The low-level integrator stays valid in either direction. The map
+        # now evaluates only the active celestial source: neither below the
+        # horizon, and sun only when both share a direction above it.
+        assert abs(approximate[0] - (expected if y>=0 else 1.)) < .002
+        assert approximate[1] == 1., "Inactive moon shadow channel was evaluated"
+        values.append(integrated[0])
     assert max(values) - min(values) < .002, (
         "Material visibility jumps around the old +/-0.001 horizon threshold", values,
     )
@@ -351,6 +359,8 @@ def check_current_visible_clouds(gl, fixture):
         gl.dispatch_extent(visible_program, *size)
         cloud_delta = gl.texels(delta, size)
         finite(cloud_delta, "current visible cloud delta including odd dispatch tails")
+        assert all(0 <= value <= 1 for value in cloud_delta[3::4]), "Invalid cached celestial transmittance"
+        assert min(cloud_delta[3::4]) < .8, "Cloud alpha did not retain occlusion for celestial bodies"
         gl.image(0, direct, internal=RGBA32F)
         gl.dispatch_extent(reference_program, *size)
         expected = gl.texels(direct, size)
@@ -389,6 +399,7 @@ def check_current_visible_clouds(gl, fixture):
     gl.image(0, delta)
     gl.dispatch_extent(visible_program, *size)
     assert all(value == 0 for value in rgb(gl.texels(delta, size))), "Coverage-zero visible cloud pass retained stale cloud pixels"
+    assert all(value == 1 for value in gl.texels(delta, size)[3::4]), "Empty cloud view still hides celestial bodies"
     print(f"PASS current visible sky: real sky.fs matches current cloud ray, ignores changed frozen IBL and clock-only changes, advances with cloud displacement at fixed camera (+{offset_difference:.4f} HDR) and after camera XZ motion (+{position_difference:.4f}); empty view clears stale delta", flush=True)
 
 

@@ -22,7 +22,7 @@ def main():
         stub.mkdir()
         (stub / "glcore.hpp").write_text(GL_STUB)
         (stub / "scheduler_engine.hpp").write_text(ENGINE_STUB)
-        for name in ("Engine", "PointeurClass", "Camera", "GraphiquePipeline", "ShaderPair"):
+        for name in ("Engine", "PointeurClass", "Camera", "GraphiquePipeline", "ShaderPair", "RenderingEngine", "Atmosphere"):
             (stub / (name + ".hpp")).write_text('#include "scheduler_engine.hpp"\n')
         includes = (stub, ROOT / MISC, ROOT / "ANTAGONIZ/Header/Interface", ROOT / "ThirdParty/glm", ROOT / "ThirdParty")
         sources = [ROOT / "Tests/TerrainMaterials/check_runtime.cpp"] + [

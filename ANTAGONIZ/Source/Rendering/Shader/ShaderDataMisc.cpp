@@ -42,5 +42,7 @@ void ShaderDataMisc::update(Camera * cam)
 	m_ubd.fov = cam->getFieldOfView();
 	m_ubd.ortho = cam->getOrtho();
 	glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssbo);
-	glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, sizeof(UniformBufferDiver), &m_ubd);
+    // Complete per-frame replacement avoids overwriting storage still read by
+    // earlier lighting, water or particle commands. The buffer name stays fixed.
+    glBufferData(GL_SHADER_STORAGE_BUFFER, sizeof(UniformBufferDiver), &m_ubd, GL_STREAM_DRAW);
 }

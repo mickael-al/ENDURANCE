@@ -5,6 +5,7 @@
 #include "../Terrain/check_scheduler.cpp"
 #undef main
 #include <limits>
+#include "ProceduralTerrainBiomes.hpp"
 
 int main()
 {
@@ -15,11 +16,13 @@ int main()
         Ge::GraphiquePipelineManager pipelines;
         Ge::CameraManager cameras;
         Ge::LightManager lights;
+        Ge::RenderingEngine renderer;
         Ge::SettingManager settings;
         auto* engine = Ge::Engine::getPtrClassAddr();
         engine->graphiquePipelineManager = &pipelines;
         engine->cameraManager = &cameras;
         engine->lightManager = &lights;
+        engine->renderingEngine = &renderer;
         engine->settingManager = &settings;
         auto& camera = cameras.camera;
         camera.setPosition({1, 18, 3});
@@ -38,8 +41,24 @@ int main()
         // selected generic binding, as happens between atmosphere/material work.
         glBindBufferRange(GL_UNIFORM_BUFFER, 6, 900, 256, 512);
         glBindBuffer(GL_UNIFORM_BUFFER, 901);
+        glActiveTexture(GL_TEXTURE0+3);
+        glBindTextureUnit(0, 777);
+        glBindSampler(0, 778);
+        glBindTextureUnit(1, 780);
+        glBindSampler(1, 781);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER, 779);
+        glPixelStorei(GL_UNPACK_ALIGNMENT, 8);
+        glPixelStorei(GL_UNPACK_ROW_LENGTH, 91);
+        glPixelStorei(GL_UNPACK_SKIP_ROWS, 7);
+        glPixelStorei(GL_UNPACK_SKIP_PIXELS, 9);
         ProceduralGeneration terrain(scene, 1337);
         require(terrain.initialize(config), terrain.getLastError());
+        require(textures.size() == 1 && textureUploads == 1 && mipGenerations == 1,
+            "Stain cache not uploaded exactly once");
+        require(activeTexture == GL_TEXTURE0+3 && unpackBuffer == 779
+            && pixelStore[GL_UNPACK_ALIGNMENT] == 8 && pixelStore[GL_UNPACK_ROW_LENGTH] == 91
+            && pixelStore[GL_UNPACK_SKIP_ROWS] == 7 && pixelStore[GL_UNPACK_SKIP_PIXELS] == 9,
+            "Stain initialization corrupted enclosing texture/PBO state");
         require(uniform == 901 && uniformBindings[6].buffer == 900,
             "DSA material initialization changed enclosing UBO state");
         require(pipelines.registeredRenderers == 1 && pipelines.activePipelines == 2,
@@ -57,9 +76,33 @@ int main()
 
         settle(terrain, camera);
         require(terrain.getStats().cameraDrawChunks > 0, "Runtime fixture did not exercise terrain draw");
+        require(activeTexture == GL_TEXTURE0+3 && textureBindings[0] == 777 && samplerBindings[0] == 778
+            && textureBindings[1] == 780 && samplerBindings[1] == 781,
+            "Terrain draw did not restore borrowed texture/sampler state");
+        require(textureUploads == 1 && mipGenerations == 1,
+            "Chunk generation/draw rebuilt the fine surface cache");
         require(uniform == 901 && uniformBindings[6].buffer == 900
             && uniformBindings[6].start == 256 && uniformBindings[6].size == 512,
             "Terrain draw did not restore UBO range and generic binding");
+        require(vec3Uniforms.at(locations.at("terrainGrainCameraPosition")) == std::array<float,3>{1,18,3},
+            "Grain selection did not receive the current camera");
+        require(vec3Uniforms.at(locations.at("terrainGrainLightDirection")) == std::array<float,3>{0,1,0},
+            "Grain selection did not receive the current sun");
+        camera.setPosition({2,19,4});
+        terrain.drawRenderer();
+        require(vec3Uniforms.at(locations.at("terrainGrainCameraPosition")) == std::array<float,3>{2,19,4},
+            "Moving camera left a stale grain selection");
+        camera.setPosition({1,18,3});
+        renderer.atmosphere.direction = {0,.6f,.8f};
+        terrain.drawRenderer();
+        require(vec3Uniforms.at(locations.at("terrainGrainLightDirection")) == std::array<float,3>{0,.6f,.8f},
+            "Rotating sun left a stale grain selection");
+        renderer.atmosphere.direction = {0,0,0};
+        terrain.drawRenderer();
+        require(vec3Uniforms.at(locations.at("terrainGrainLightDirection")) == std::array<float,3>{0,0,0},
+            "Night/no sun left stale shiny facets");
+        require(textureUploads == 1 && mipGenerations == 1,
+            "Light motion regenerated the stain cache");
         const auto geometry = identities(published(terrain));
         const auto shadowRevision = terrain.shadowContentRevision();
         const auto oldSubmissions = submissions;
@@ -89,6 +132,9 @@ int main()
             "Uploaded material bytes differ from accepted parameters");
         edited.macroPeriod = 512.0f;
         edited.patchPeriod = 48.0f;
+        edited.vegetationStainSize = 5.f;
+        edited.otherStainSize = .5f;
+        edited.sparkleGrainSize = .08f;
         edited.debugView = 3;
         require(terrain.setTerrainAppearance(edited), terrain.getLastError());
         require(uploads == firstUploads + 1 && floatUniforms[locations.at("terrainMacroPeriod")] == 512.0f,
@@ -97,6 +143,85 @@ int main()
         require(submissions == oldSubmissions && terrain.getStats().publishedLodGroups == oldPublications
             && identities(published(terrain)) == geometry && terrain.shadowContentRevision() == shadowRevision,
             "Appearance changes restarted generation or invalidated geometry/shadow coverage");
+
+        const auto beforeCachedSwitch = pipelines.createdPipelines;
+        edited.debugView = 0;
+        edited.macroPeriod = 768.0f;
+        require(terrain.setTerrainAppearance(edited), terrain.getLastError());
+        terrain.drawRenderer();
+        require(pipelines.createdPipelines == beforeCachedSwitch
+            && programFloatUniforms[{lastDrawProgram,locations.at("terrainMacroPeriod")}] == 768.0f
+            && programFloatUniforms[{lastDrawProgram,locations.at("terrainPatchPeriod")}] == 48.0f
+            && programFloatUniforms[{lastDrawProgram,locations.at("microDetailStrength")}] == 0.25f
+            && programFloatUniforms[{lastDrawProgram,locations.at("microDetailScale")}] == 3.0f
+            && programFloatUniforms[{lastDrawProgram,locations.at("terrainVegetationStainSize")}] == 5.f
+            && programFloatUniforms[{lastDrawProgram,locations.at("terrainOtherStainSize")}] == .5f
+            && programFloatUniforms[{lastDrawProgram,locations.at("terrainSparkleGrainSize")}] == .08f,
+            "Cached normal variant was recompiled or retained stale numeric controls");
+        const auto normalProgram = lastDrawProgram;
+        const auto beforeRejectedUpload = uploads;
+        const auto beforeRejectedPipelines = pipelines.activePipelines;
+        auto rejected = edited;
+        rejected.debugView = 6;
+        rejected.biomes[0].ground.base.colorLow[0] = 0.73f;
+        pipelines.failNextPipeline = true;
+        require(!terrain.setTerrainAppearance(rejected,0.0f,6.0f), "Failed shader variant was accepted");
+        terrain.drawRenderer();
+        require(lastDrawProgram == normalProgram && uploads == beforeRejectedUpload
+            && pipelines.activePipelines == beforeRejectedPipelines
+            && terrain.getConfig().appearance.debugView == 0
+            && terrain.getConfig().microDetailStrength == 0.25f
+            && terrain.getConfig().appearance.biomes[0].ground.base.colorLow[0] == edited.biomes[0].ground.base.colorLow[0],
+            "Shader failure partly changed the visible program, palette or detail controls");
+        blockBytes = 16;
+        require(!terrain.setTerrainAppearance(rejected,0.0f,6.0f), "Incompatible shader ABI variant was accepted");
+        blockBytes = sizeof(TerrainMaterialTable);
+        terrain.drawRenderer();
+        require(lastDrawProgram == normalProgram && uploads == beforeRejectedUpload
+            && pipelines.activePipelines == beforeRejectedPipelines,
+            "Failed shader ABI check evicted the valid program, leaked or partly uploaded its palette");
+        require(terrain.setTerrainAppearance(edited), terrain.getLastError());
+        require(terrain.getLastError().empty(), "Successful edit retained a previous variant compilation error");
+        require(terrain.setTerrainDebugLod(true), terrain.getLastError());
+        require(pipelines.createdDefines.back().find("#define DEBUG_TERRAIN_LOD 1") != std::string::npos,
+            "LOD inspection was not compiled as a shader variant");
+        const auto beforeLodUnchanged = pipelines.createdPipelines;
+        require(terrain.setTerrainDebugLod(true) && pipelines.createdPipelines == beforeLodUnchanged,
+            "Unchanged LOD inspection caused recompilation");
+        require(terrain.setTerrainDebugLod(false), terrain.getLastError());
+        terrain.drawRenderer();
+        require(lastDrawProgram == normalProgram, "Leaving LOD debug did not reuse production program");
+        for (unsigned detail=0; detail<2; ++detail) for (int debug=0; debug<7; ++debug)
+        {
+            edited.debugView = debug;
+            require(terrain.setTerrainAppearance(edited,detail ? 0.25f : 0.0f,3.0f),terrain.getLastError());
+            require(pipelines.activePipelines <= 9, "Unbounded terrain variant cache");
+            terrain.drawRenderer();
+            require(programUIntUniforms[{lastDrawProgram,locations.at("worldSeed")}] == 1337u
+                && programUIntArrays[{lastDrawProgram,locations.at("terrainBiomeMatrix[0]")}]
+                    == std::vector<unsigned>(BiomeMatrix2D.begin(),BiomeMatrix2D.end())
+                && programFloatUniforms[{lastDrawProgram,locations.at("terrainSeaLevel")}] == config.field.seaLevel
+                && programFloatUniforms[{lastDrawProgram,locations.at("terrainSeaBlendWidth")}] == config.field.seaBlendWidth
+                && programFloatUniforms[{lastDrawProgram,locations.at("terrainAlbedoGamma")}] == settings.gamma,
+                "A terrain variant missed immutable fields, biome matrix or gamma initialization");
+        }
+        edited.debugView = 0;
+        require(terrain.setTerrainAppearance(edited,0.25f,3.0f),terrain.getLastError());
+        require(submissions == oldSubmissions && terrain.shadowContentRevision() == shadowRevision,
+            "Render variant changes touched terrain or shadow geometry");
+        // Per-layer visibility queries reuse the draw's existing frustum cache.
+        const auto culls = terrain.getStats().shadowCullUpdates;
+        const auto nearToken = terrain.shadowLayerContentRevision(0,glm::mat4(1));
+        require(nearToken != 0 && terrain.getStats().shadowCullUpdates == culls,
+            "Layer token query repeated the draw's unchanged culling work");
+        require(terrain.shadowLayerContentRevision(0,glm::mat4(1)) == nearToken,
+            "Unchanged layer returned a new token");
+        glm::mat4 outside(1.0f); outside[3][0]=1000000.0f;
+        const auto emptyToken = terrain.shadowLayerContentRevision(0,outside);
+        require(emptyToken != nearToken && terrain.shadowLayerContentRevision(0,outside) == emptyToken,
+            "Empty shadow selection did not invalidate exactly once");
+        require(terrain.shadowLayerContentRevision(0,glm::mat4(1)) != emptyToken,
+            "Returning casters reused an empty-map token");
 
         const auto unchangedWrites = uniformWrites;
         terrain.drawRenderer();
@@ -117,9 +242,16 @@ int main()
             "Initially unbound UBO slot was not restored");
 
         require(terrain.initialize(config), terrain.getLastError());
+        require(textures.size() == 1, "Terrain restart leaked fine-surface textures");
         require(buffers.size() == 1 && pipelines.activePipelines == 2 && pipelines.registeredRenderers == 1,
             "Terrain restart leaked material storage or registration");
         terrain.shutdown();
+        require(textures.empty(), "Terrain shutdown leaked stain texture");
+        textureAllocationFailure = true;
+        require(!terrain.initialize(config), "Stain allocation failure was accepted");
+        textureAllocationFailure = false;
+        require(textures.empty() && buffers.empty() && pipelines.activePipelines == 0,
+            "Failed stain allocation leaked resources");
         require(buffers.empty() && pipelines.activePipelines == 0 && pipelines.registeredRenderers == 0,
             "Terrain shutdown retained GPU storage or renderer registration");
         allocationFailure = true;
@@ -135,7 +267,7 @@ int main()
         require(terrain.initialize(config), terrain.getLastError());
         terrain.shutdown();
         std::cout << "PASS production terrain materials: live edits without remeshing, upload deduplication, "
-            "atomic invalid-data rejection, UBO range restoration, gamma updates, restart/failure cleanup\n";
+            "bounded compiled variants, atomic failed-build rejection, uniform restoration, UBO range restoration, gamma updates, shared shadow selection, restart/failure cleanup\n";
         return 0;
     }
     catch (const std::exception& error)

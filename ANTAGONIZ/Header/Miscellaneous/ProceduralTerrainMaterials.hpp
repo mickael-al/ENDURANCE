@@ -27,6 +27,10 @@ namespace ProceduralTerrain
         // Nonnegative macro/patch/strata/ripple weights, normalized in GLSL.
         // All zero is legal and selects the center of the palette.
         TerrainMaterialVector pattern{{0.65f, 0.35f, 0.0f, 0.0f}};
+        // Directional grain strength, facet roughness, stain darkening, stain roughness
+        // reduction. Per material, disabled in the generic engine defaults.
+        // Darkening is a fraction of LINEAR albedo, not a display-space offset.
+        TerrainMaterialVector fineSurface{{0.0f, 0.16f, 0.0f, 0.0f}};
     };
 
     struct alignas(16) TerrainSurface
@@ -53,6 +57,9 @@ namespace ProceduralTerrain
         // Patch-period multiplier, grain period (m), grain octaves, octave gain.
         // Each biome uses its own stable world-space domain before climate blending.
         TerrainMaterialVector spectrum{{1.0f, 0.10f, 1.0f, 0.32f}};
+        // Large vegetation-stain weights: ground base/accent, wall base/accent.
+        // Zero selects fine stains. Blend masks, never their spatial frequencies.
+        TerrainMaterialVector stainRouting{{0.f, 0.f, 0.f, 0.f}};
     };
 
     using TerrainMaterialTable = std::array<TerrainBiomeAppearance, BiomeCount>;
@@ -62,29 +69,35 @@ namespace ProceduralTerrain
         TerrainMaterialTable biomes{};
         float macroPeriod = 384.0f;
         float patchPeriod = 32.0f;
+        float vegetationStainSize = 2.5f;
+        float otherStainSize = 0.25f;
+        // Serialized name retained: minimum procedural sparkle spacing in metres.
+        float sparkleGrainSize = 0.01f;
         int debugView = 0;
     };
 
     static_assert(sizeof(TerrainMaterialVector) == 16, "Terrain vec4 ABI");
     static_assert(std::is_standard_layout<TerrainMaterial>::value
         && std::is_trivially_copyable<TerrainMaterial>::value, "Terrain material upload ABI");
-    static_assert(sizeof(TerrainMaterial) == 96 && alignof(TerrainMaterial) == 16,
-        "TerrainMaterial must match six std140 vec4s");
+    static_assert(sizeof(TerrainMaterial) == 112 && alignof(TerrainMaterial) == 16,
+        "TerrainMaterial must match seven std140 vec4s");
     static_assert(offsetof(TerrainMaterial, colorMid) == 16
         && offsetof(TerrainMaterial, colorHigh) == 32
         && offsetof(TerrainMaterial, response) == 48
         && offsetof(TerrainMaterial, ramp) == 64
-        && offsetof(TerrainMaterial, pattern) == 80, "TerrainMaterial std140 offsets");
-    static_assert(sizeof(TerrainSurface) == 240
-        && offsetof(TerrainSurface, accent) == 96
-        && offsetof(TerrainSurface, blend) == 192
-        && offsetof(TerrainSurface, detail) == 208
-        && offsetof(TerrainSurface, normal) == 224, "TerrainSurface std140 offsets");
-    static_assert(sizeof(TerrainBiomeAppearance) == 512
-        && offsetof(TerrainBiomeAppearance, wall) == 240
-        && offsetof(TerrainBiomeAppearance, slope) == 480
-        && offsetof(TerrainBiomeAppearance, spectrum) == 496, "TerrainBiomeAppearance std140 offsets");
-    static_assert(sizeof(TerrainMaterialTable) == 13312
+        && offsetof(TerrainMaterial, pattern) == 80
+        && offsetof(TerrainMaterial, fineSurface) == 96, "TerrainMaterial std140 offsets");
+    static_assert(sizeof(TerrainSurface) == 272
+        && offsetof(TerrainSurface, accent) == 112
+        && offsetof(TerrainSurface, blend) == 224
+        && offsetof(TerrainSurface, detail) == 240
+        && offsetof(TerrainSurface, normal) == 256, "TerrainSurface std140 offsets");
+    static_assert(sizeof(TerrainBiomeAppearance) == 592
+        && offsetof(TerrainBiomeAppearance, wall) == 272
+        && offsetof(TerrainBiomeAppearance, slope) == 544
+        && offsetof(TerrainBiomeAppearance, spectrum) == 560
+        && offsetof(TerrainBiomeAppearance, stainRouting) == 576, "TerrainBiomeAppearance std140 offsets");
+    static_assert(sizeof(TerrainMaterialTable) == 15392
         && sizeof(TerrainMaterialTable) <= 16384, "Terrain table fits the minimum OpenGL UBO size");
 
     // Bit classification remains correct under a caller's -ffast-math build.
@@ -116,7 +129,11 @@ namespace ProceduralTerrain
             || !terrainMaterialRange(m.ramp[0], 0.05f, 0.95f)
             || !terrainMaterialRange(m.ramp[1], 0.0f, 1.0f)
             || !terrainMaterialRange(m.ramp[2], 0.0f, 8.0f)
-            || !terrainMaterialRange(m.ramp[3], -1.0f, 1.0f)) return false;
+            || !terrainMaterialRange(m.ramp[3], -1.0f, 1.0f)
+            || !terrainMaterialRange(m.fineSurface[0], 0.0f, 1.0f)
+            || !terrainMaterialRange(m.fineSurface[1], 0.04f, 1.0f)
+            || !terrainMaterialRange(m.fineSurface[2], 0.0f, 1.0f)
+            || !terrainMaterialRange(m.fineSurface[3], 0.0f, 1.0f)) return false;
         for (float weight : m.pattern)
             if (!terrainMaterialRange(weight, 0.0f, 4.0f)) return false;
         return true;
@@ -144,6 +161,8 @@ namespace ProceduralTerrain
     {
         for (const auto& b : table)
         {
+            for (float weight : b.stainRouting)
+                if (!terrainMaterialRange(weight, 0.f, 1.f)) return false;
             if (!validTerrainSurface(b.ground) || !validTerrainSurface(b.wall)
                 || !terrainMaterialRange(b.slope[0], 0.0f, 1.0f)
                 || !terrainMaterialRange(b.slope[1], 0.0f, 1.0f)
@@ -163,6 +182,9 @@ namespace ProceduralTerrain
         return validTerrainMaterialTable(appearance.biomes)
             && terrainMaterialRange(appearance.macroPeriod, 1.0f, 100000.0f)
             && terrainMaterialRange(appearance.patchPeriod, 0.1f, 100000.0f)
+            && terrainMaterialRange(appearance.vegetationStainSize, 0.005f, 1000.0f)
+            && terrainMaterialRange(appearance.otherStainSize, 0.005f, 1000.0f)
+            && terrainMaterialRange(appearance.sparkleGrainSize, 0.001f, 1.0f)
             && appearance.debugView >= 0 && appearance.debugView <= 6;
     }
 }

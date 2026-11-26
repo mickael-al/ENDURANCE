@@ -15,6 +15,7 @@ namespace Ge
 		~ShapeBufferBase();		
 		void SetupVAO(unsigned int program);
 		unsigned int getIndiceSize() const;
+        bool supportsImmutableShadowContent() const noexcept override { return true; }
 		const std::vector<Vertex> & getVertices() const;
 		const std::vector<uint32_t> & getIndices() const;
 	private:

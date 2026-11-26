@@ -9,6 +9,7 @@ namespace Ge
 	{
 		m_vertices = vertices;
 		m_indices = indices;	
+        m_VAO = 0; // No VAO exists before the first SetupVAO call.
 
 		glGenBuffers(1, &m_IBO);
 		glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_IBO);
@@ -71,6 +72,9 @@ namespace Ge
 			glEnableVertexAttribArray(TEXCOORDS);
 			glVertexAttribPointer(TEXCOORDS, 2, GL_FLOAT, false, sizeof(Vertex), (void*)offsetof(Vertex, texCoord));
 		}
+        // A shared mesh can be rebound by another model/material. OpenGL may
+        // recycle the old VAO name even when its attribute layout has changed.
+        invalidateShadowContent();
 	}
 
 	unsigned int ShapeBufferBase::getIndiceSize() const

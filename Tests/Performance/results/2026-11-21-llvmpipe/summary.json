@@ -1,0 +1,387 @@
+{
+  "date": "2026-11-21",
+  "baseline_commit": "b4ca0a1c055f1cb95d9f307cb8a8304364068192",
+  "renderer": "llvmpipe (LLVM 19.1.7, 256 bits)",
+  "scope": "production subsystems under llvmpipe; no whole-game FPS or target-GPU prediction",
+  "full_generation": {
+    "before": {
+      "objects_runs_ms": [
+        13860.703168999999,
+        13544.647578999999
+      ],
+      "objects_median_ms": 13702.675373999999,
+      "initialize_ms": [
+        3158.626961,
+        3368.753629
+      ],
+      "gpu_stage_median_ms": {
+        "columns": 1804.1979229999997,
+        "count": 4584.8635520000025,
+        "emit": 1642.9432944999999,
+        "preparation": 3187.160984500001,
+        "volume": 2253.843674999999
+      },
+      "without_objects_ms": 11068.652164,
+      "completed": 2665,
+      "selected_chunks": 2665,
+      "vertices": 27228894,
+      "mesh_bytes": 326759088,
+      "object_instances": 1913,
+      "object_capture_jobs": 209,
+      "object_scratch_bytes": 6722112
+    },
+    "after-final": {
+      "objects_runs_ms": [
+        10960.7794,
+        11042.083091999999
+      ],
+      "objects_median_ms": 11001.431246,
+      "initialize_ms": [
+        1034.2178199999998,
+        614.4891309999999
+      ],
+      "gpu_stage_median_ms": {
+        "columns": 1706.0025005000002,
+        "count": 2280.5816700000014,
+        "emit": 1552.979231000001,
+        "preparation": 3080.7875354999996,
+        "volume": 2166.4273759999996
+      },
+      "without_objects_ms": 10034.744652,
+      "completed": 2665,
+      "selected_chunks": 2665,
+      "vertices": 27228894,
+      "mesh_bytes": 326759088,
+      "object_instances": 312,
+      "object_capture_jobs": 209,
+      "object_scratch_bytes": 1684032
+    }
+  },
+  "bounded_generation": {
+    "before": {
+      "3": {
+        "runs_ms": [
+          103.143014,
+          129.176911,
+          105.78977499999999
+        ],
+        "median_ms": 105.78977499999999,
+        "count_stage_median_ms": 14.238681,
+        "vertices": 40719,
+        "completed_chunks": 8
+      },
+      "8": {
+        "runs_ms": [
+          106.200507,
+          91.099959,
+          102.932515
+        ],
+        "median_ms": 102.932515,
+        "count_stage_median_ms": 11.100531,
+        "vertices": 40719,
+        "completed_chunks": 8
+      }
+    },
+    "after": {
+      "3": {
+        "runs_ms": [
+          109.97379199999999,
+          93.347448,
+          108.064584
+        ],
+        "median_ms": 108.064584,
+        "count_stage_median_ms": 6.983953,
+        "vertices": 40719,
+        "completed_chunks": 8
+      },
+      "8": {
+        "runs_ms": [
+          98.66592,
+          115.46340099999999,
+          100.399794
+        ],
+        "median_ms": 100.399794,
+        "count_stage_median_ms": 8.670636,
+        "vertices": 40719,
+        "completed_chunks": 8
+      }
+    }
+  },
+  "trees": {
+    "before": {
+      "static": {
+        "wall_per_frame_ms": [
+          305.1410222,
+          266.86568939999995
+        ],
+        "wall_per_frame_median_ms": 286.0033558,
+        "gpu_pooled_frame_median_ms": 273.6817945,
+        "cpu_pooled_frame_median_ms": 267.676874,
+        "transform_builds_per_5frames": [
+          0,
+          0
+        ],
+        "triangles_per_frame": [
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ],
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ]
+        ]
+      },
+      "camera_motion": {
+        "wall_per_frame_ms": [
+          328.4278854,
+          348.3677456
+        ],
+        "wall_per_frame_median_ms": 338.3978155,
+        "gpu_pooled_frame_median_ms": 321.7219665,
+        "cpu_pooled_frame_median_ms": 317.059018,
+        "transform_builds_per_5frames": [
+          0,
+          0
+        ],
+        "triangles_per_frame": [
+          [
+            2149344,
+            2149346,
+            2149348,
+            2149348,
+            2149348
+          ],
+          [
+            2149344,
+            2149346,
+            2149348,
+            2149348,
+            2149348
+          ]
+        ]
+      },
+      "publication_churn": {
+        "wall_per_frame_ms": [
+          283.6524376,
+          296.774664
+        ],
+        "wall_per_frame_median_ms": 290.2135508,
+        "gpu_pooled_frame_median_ms": 284.4126235,
+        "cpu_pooled_frame_median_ms": 279.373614,
+        "transform_builds_per_5frames": [
+          5,
+          5
+        ],
+        "triangles_per_frame": [
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ],
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ]
+        ]
+      }
+    },
+    "after-final": {
+      "static": {
+        "wall_per_frame_ms": [
+          194.3838164,
+          187.2673538
+        ],
+        "wall_per_frame_median_ms": 190.8255851,
+        "gpu_pooled_frame_median_ms": 190.5256925,
+        "cpu_pooled_frame_median_ms": 189.87503149999998,
+        "transform_builds_per_5frames": [
+          0,
+          0
+        ],
+        "triangles_per_frame": [
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ],
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ]
+        ]
+      },
+      "camera_motion": {
+        "wall_per_frame_ms": [
+          198.12975279999998,
+          226.21615219999998
+        ],
+        "wall_per_frame_median_ms": 212.17295249999998,
+        "gpu_pooled_frame_median_ms": 214.77097399999997,
+        "cpu_pooled_frame_median_ms": 210.052334,
+        "transform_builds_per_5frames": [
+          0,
+          0
+        ],
+        "triangles_per_frame": [
+          [
+            2149344,
+            2149346,
+            2149348,
+            2149348,
+            2149348
+          ],
+          [
+            2149344,
+            2149346,
+            2149348,
+            2149348,
+            2149348
+          ]
+        ]
+      },
+      "publication_churn": {
+        "wall_per_frame_ms": [
+          184.1970378,
+          218.1371816
+        ],
+        "wall_per_frame_median_ms": 201.1671097,
+        "gpu_pooled_frame_median_ms": 190.155184,
+        "cpu_pooled_frame_median_ms": 184.8805395,
+        "transform_builds_per_5frames": [
+          0,
+          0
+        ],
+        "triangles_per_frame": [
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ],
+          [
+            2149344,
+            2149344,
+            2149344,
+            2149344,
+            2149344
+          ]
+        ]
+      }
+    }
+  },
+  "budget_failure": {
+    "base_spacing_m": 1.0,
+    "biome_metadata_bytes": 47680,
+    "cached_field_bytes": 56926720,
+    "cells": 64,
+    "column_cache_hits": 13,
+    "column_tiles_built": 8,
+    "complete_scene_coverage": false,
+    "completed": 13,
+    "completed_fixture": false,
+    "cpu_dispatch": {
+      "count": 3,
+      "max_ms": 108.16496599999999,
+      "median_ms": 25.850664,
+      "p95_ms": 25.850664,
+      "sum_ms": 152.365232
+    },
+    "cpu_poll": {
+      "count": 3,
+      "max_ms": 7.210443,
+      "median_ms": 5.23192,
+      "p95_ms": 5.23192,
+      "sum_ms": 14.050839
+    },
+    "cpu_submit": {
+      "count": 21,
+      "max_ms": 0.001112,
+      "median_ms": 0.00011999999999999999,
+      "p95_ms": 0.000931,
+      "sum_ms": 0.0053479999999999995
+    },
+    "density_cache_hits": 0,
+    "density_fields_built": 21,
+    "driver_lazy_work_may_be_included": true,
+    "empty": 11,
+    "failed_jobs": 4,
+    "failure": "Terrain vertex memory budget exhausted",
+    "field_batches": 3,
+    "full_resolution_voxel_cells": 698613760,
+    "gpu_stage_ms": {
+      "columns": 74.356793,
+      "count": 19.703603,
+      "emit": 13.672038999999998,
+      "preparation": 24.987001,
+      "volume": 32.858491
+    },
+    "gpu_timer_samples_dropped": 0,
+    "gpu_timer_samples_pending": 0,
+    "group_metadata_bytes": 68608,
+    "height_bounds_m": [
+      -7571.2001953125,
+      7571.2001953125
+    ],
+    "initialize_ms": 697.0055269999999,
+    "interleaved_render_frames": 0,
+    "jobs": 8,
+    "lod_histogram": [
+      256,
+      184,
+      229,
+      256,
+      220,
+      224,
+      1296,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "mesh_budget_bytes": 1048560,
+    "object_blocks": 0,
+    "object_cached_jobs": 0,
+    "object_capture_jobs": 0,
+    "object_error": "",
+    "object_generated_instances": 0,
+    "object_instances": 0,
+    "object_pool_bytes": 0,
+    "object_revision": 0,
+    "object_scratch_bytes": 0,
+    "objects_enabled": false,
+    "peak_pending_jobs": 8,
+    "polls": 3,
+    "ready": 2,
+    "requested_chunks": 64,
+    "resident_mesh_bytes": 1038192,
+    "resident_vertices": 86505,
+    "same_sampling_as_scene": true,
+    "selected_chunks": 2665,
+    "selection_cpu_ms": 3.28295,
+    "selection_hash": 8608138027111875233,
+    "submitted": 21,
+    "transient_field_bytes": 1723776,
+    "view_distance_m": 40096.0,
+    "wall_ms": 166.60921199999999
+  }
+}

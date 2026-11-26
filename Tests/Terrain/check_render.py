@@ -40,9 +40,34 @@ def check_render(gl, directory):
     for name, signature in signatures.items():
         gl._fn(name,*signature)
     programs={}
-    for stem in ("render","shadow"):
-        programs[stem]=gl.compile([(0x8B31,shader_source(directory/(stem+".vs.glsl"))),
-                                   (0x8B30,shader_source(directory/(stem+".fs.glsl")))],stem)
+    programs['shadow']=gl.compile([(0x8B31,shader_source(directory/'shadow.vs.glsl')),
+                                   (0x8B30,shader_source(directory/'shadow.fs.glsl'))],'shadow')
+    render_sources=[(stage,shader_source(directory/name)) for stage,name in
+                    ((0x8B31,'render.vs.glsl'),(0x8B30,'render.fs.glsl'))]
+    def render_variant(biome):
+        key=('render',biome)
+        if key not in programs:
+            defines=(f'#define TERRAIN_FIXED_BIOME {biome}\n'
+                     '#define TERRAIN_MICRODETAIL_ENABLED 0\n')
+            sources=[]
+            for stage,text in render_sources:
+                version,body=text.split('\n',1)
+                sources.append((stage,version+'\n'+defines+body))
+            program=gl.compile(sources,f'render biome {biome}')
+            gl.glUseProgram(program)
+            location=gl.glGetUniformLocation(program,b'terrainBiomeMatrix[0]')
+            if biome < 0:
+                assert location>=0,'Missing terrain climate matrix'
+                gl.glUniform1uiv(location,25,(C.c_uint*25)(*range(25)))
+            for name,value in settings.items():
+                gl.uniform(program,name,'1i' if name=='terrainMaterialDebug' else '1f',value)
+            for name,kind,value in (('microDetailStrength','1f',0.),('microDetailScale','1f',1.),
+                                    ('worldSeed','1ui',1337),('terrainSeaLevel','1f',-1000.),
+                                    ('terrainSeaBlendWidth','1f',64.)):
+                gl.uniform(program,name,kind,value)
+            programs[key]=program
+        gl.glUseProgram(programs[key])
+        return programs[key]
     # Use the actual authored material table. Disable only its bump amplitudes
     # in this vertex-decoding fixture; full material normals are tested by
     # Tests/TerrainMaterials/check_gpu.py with independent derivative checks.
@@ -90,20 +115,7 @@ def check_render(gl, directory):
             gl.glEnableVertexAttribArray(index)
         indirect=gl.buffer(struct.pack("<4I",3,1,0,1))
         gl.glBindBuffer(0x8F3F,indirect)
-        render=programs["render"]
-        gl.glUseProgram(render)
-        location=gl.glGetUniformLocation(render,b"terrainBiomeMatrix[0]")
-        assert location>=0,"Missing terrain climate matrix"
-        gl.glUniform1uiv(location,25,(C.c_uint*25)(*range(25)))
-        for name,value in settings.items():
-            gl.uniform(render,name,"1i" if name=="terrainMaterialDebug" else "1f",value)
-        gl.uniform(render,"microDetailStrength","1f",0)
-        gl.uniform(render,"microDetailScale","1f",1)
-        gl.uniform(render,"worldSeed","1ui",1337)
-        gl.uniform(render,"debugLod","1i",0)
-        gl.uniform(render,"terrainBiomeOverride","1i",-1)
-        gl.uniform(render,"terrainSeaLevel","1f",-1000.)
-        gl.uniform(render,"terrainSeaBlendWidth","1f",64.)
+        render=render_variant(-1)
         for index in range(4):
             gl.glClearBufferfv(0x1800,index,(C.c_float*4)(-77,-77,-77,-77))
         gl.glClearBufferfv(0x1801,0,(C.c_float*1)(1))
@@ -124,7 +136,7 @@ def check_render(gl, directory):
         assert material[0]==0. and .04<=material[1]<=1. and 0.<=material[2]<=1.,("G-buffer authored PBR",material)
         palette=set()
         for biome in range(26):
-            gl.uniform(render,"terrainBiomeOverride","1i",biome)
+            render=render_variant(biome)
             gl.glClearBufferfv(0x1801,0,(C.c_float*1)(1))
             gl.glDrawArraysIndirect(0x0004,None)
             biome_color=sample(2)
@@ -132,7 +144,7 @@ def check_render(gl, directory):
             palette.add(tuple(round(v,5) for v in biome_color[:3]))
         assert len(palette)>=20,("Biome diagnostic selection has too few distinct palettes",len(palette))
         forced_marine=biome_color
-        gl.uniform(render,"terrainBiomeOverride","1i",-1)
+        render=render_variant(-1)
         gl.uniform(render,"terrainSeaLevel","1f",1000.)
         gl.glClearBufferfv(0x1801,0,(C.c_float*1)(1))
         gl.glDrawArraysIndirect(0x0004,None)

@@ -15,14 +15,12 @@ import argparse
 import ctypes as C
 import hashlib
 import json
-import io
 import os
 from pathlib import Path
 import re
 import statistics
 import subprocess
 import sys
-import tarfile
 import tempfile
 import time
 
@@ -39,24 +37,34 @@ def revision_baseline(reference):
     """Read historical shader/data into scratch; never switch the user's branch."""
     sha=subprocess.check_output(['git','rev-parse','--verify','--end-of-options',
                                  reference+'^{commit}'],cwd=ROOT,text=True).strip()
-    paths=['Asset/Shader',
-           'ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainMaterials.hpp',
+    paths=['ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainMaterials.hpp',
            'ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainBiomes.hpp',
            'ANTAGONIZ/Header/Miscellaneous/json_struct.h',
            'ANTAGONIZ/Header/ProjectUser/EnduranceTerrainMaterials.hpp',
            'ANTAGONIZ/Header/ProjectUser/EnduranceTerrainMaterialSerialization.hpp',
            'ANTAGONIZ/Source/ProjectUser/EnduranceTerrainMaterials.cpp',
            'Tests/TerrainMaterials/check_cpu.py','Tests/TerrainMaterials/check_cpu.cpp']
-    archive=subprocess.check_output(['git','archive',sha,'--',*paths],cwd=ROOT)
+    optional='ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp'
+    if subprocess.check_output(['git','ls-tree','--name-only',sha,'--',optional],cwd=ROOT).strip():
+        paths.append(optional)
     with tempfile.TemporaryDirectory(prefix='endurance-material-baseline-') as directory:
         destination=Path(directory).resolve()
-        with tarfile.open(fileobj=io.BytesIO(archive)) as source:
-            for member in source.getmembers():
-                if not member.isfile(): continue
-                target=(destination/member.name).resolve()
-                target.relative_to(destination) # reject paths outside temporary checkout
-                target.parent.mkdir(parents=True,exist_ok=True)
-                target.write_bytes(source.extractfile(member).read())
+        for name in paths:
+            target=(destination/name).resolve(); target.relative_to(destination)
+            target.parent.mkdir(parents=True,exist_ok=True)
+            target.write_bytes(subprocess.check_output(['git','show',sha+':'+name],cwd=ROOT))
+        # A partial checkout need not download every unrelated generation,
+        # atmosphere or post-process shader to compare this material pass.
+        pending=['Asset/Shader/ProceduralTerrain/render.fs.glsl']; seen=set()
+        while pending:
+            name=pending.pop()
+            if name in seen: continue
+            seen.add(name)
+            target=(destination/name).resolve(); target.relative_to(destination)
+            text=subprocess.check_output(['git','show',sha+':'+name],cwd=ROOT,text=True)
+            target.parent.mkdir(parents=True,exist_ok=True); target.write_text(text)
+            for include in re.findall(r'^\s*#include\s+"([^"]+)"',text,re.MULTILINE):
+                pending.append(str((target.parent/include).resolve().relative_to(destination)))
         script='''import json,sys
 from pathlib import Path
 sys.path.insert(0,str(Path(sys.argv[1])/'Tests/TerrainMaterials'))
@@ -117,6 +125,10 @@ def run(size=(256,256),samples=17,baseline_ref=None,batch_draws=1,warmup_draws=8
         query=C.c_uint(); gl.glGenQueries(1,C.byref(query))
         results=[]
         cases=(
+            ('glints','near, glossy sand grains',dict(terrainBiomeOverride=21,testOrigin=(-50.,180.,20.),
+                testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.),testNormal=(0.,1.,0.))),
+            ('plain','near, fine stains on volcanic rock',dict(terrainBiomeOverride=20,testOrigin=(-50.,180.,20.),
+                testAxisX=(8.,0.,0.),testAxisY=(0.,0.,8.),testNormal=(0.,1.,0.))),
             ('near1','near, one biome',dict(terrainBiomeOverride=16,testOrigin=(-50.,180.,20.),
                 testAxisX=(8.,0.,0.),testAxisY=(0.,0.,8.),testNormal=(0.,1.,0.))),
             ('near4','near, four biomes + slope blend',dict(terrainBiomeOverride=-1,testClimate=(.375,.625),
@@ -210,7 +222,7 @@ def main():
     candidate.add_argument('--current-ref',help='Measure a historical candidate without changing the working tree')
     candidate.add_argument('--current-fragment',type=Path,
                            help='Measure an expanded fragment prototype with the current authored table')
-    parser.add_argument('--case',action='append',choices=('near1','near4','far4','coast'),
+    parser.add_argument('--case',action='append',choices=('glints','plain','near1','near4','far4','coast'),
                         help='Select screening cases; omit to measure all four cases')
     args=parser.parse_args()
     if args.lp_threads is not None: os.environ['LP_NUM_THREADS']=str(args.lp_threads)

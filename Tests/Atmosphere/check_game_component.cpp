@@ -57,6 +57,7 @@ namespace
     struct Frame
     {
         std::array<float,3> offset{};
+        std::array<std::array<float,4>,2> environmentMedium{},environmentShape{};
         GLuint mediumTexture=0,shapeTexture=0;
         std::vector<float> medium,shape,transmission;
     };
@@ -111,6 +112,23 @@ namespace
         pipeline.addCustomRenderer(&terrain);
 
         EnduranceAtmosphereComponent component;
+        const auto emptyShadowToken=component.shadowContentRevision();
+        const auto validateEmptyCaster=[&]()
+        {
+            require(emptyShadowToken!=0 && component.shadowContentRevision()==emptyShadowToken &&
+                    component.shadowCasterBoundsRevision()==emptyShadowToken,
+                    "Atmosphere input-only renderer invalidated its empty shadow content");
+            for(unsigned layer=0;layer<4;++layer)
+            {
+                glm::mat4 clip(1); clip[3][0]=float(layer*1700);
+                require(component.shadowLayerContentRevision(layer,clip)==emptyShadowToken,
+                        "Atmosphere input-only renderer marked a cascade as unknown/changing");
+            }
+            std::vector<Ge::ShadowCasterBounds> casters;
+            component.appendShadowCasterBounds(casters);
+            require(casters.empty(),"Atmosphere inputs unexpectedly published shadow geometry");
+        };
+        validateEmptyCaster();
         component.fogWind={{20.0f,1.5f,-7.5f}};
         component.fogAtlasResolution=32;
         component.start();
@@ -120,16 +138,30 @@ namespace
         const auto saved=component.serialize();
         const auto json=nlohmann::json::parse(saved);
         require(json.contains("fogWind"),"Component REGISTER omitted fogWind");
+        require(json.contains("moonSurfaceFile") && json["moonSurfaceFile"]==component.moonSurfaceFile,
+                "Component REGISTER omitted the baked lunar surface path");
+        require(json.contains("moonModelFile") && json["moonModelFile"]==component.moonModelFile,
+                "Component REGISTER omitted the baked lunar model path");
         require(json["fogWind"]==nlohmann::json({20.0f,1.5f,-7.5f}),"Component serializer lost fog wind axes");
         {
             EnduranceAtmosphereComponent restored;
             restored.load(saved);
+            require(restored.shadowContentRevision()!=0 && restored.shadowContentRevision()!=emptyShadowToken &&
+                    restored.shadowCasterBoundsRevision()==restored.shadowContentRevision(),
+                    "New atmosphere component reused another instance's shadow identity");
             require(restored.fogWind==component.fogWind,"Component wind JSON round trip failed");
+            require(restored.moonSurfaceFile==component.moonSurfaceFile,"Lunar surface path failed JSON round trip");
+            require(restored.moonModelFile==component.moonModelFile,"Lunar model path failed JSON round trip");
             require(restored.palettes.size()==26 && restored.palettes[14].fogDensity==.001f,
                     "Component JSON round trip lost the actual fog profile");
             EnduranceAtmosphereComponent legacy;
             legacy.load("{\"fogAtlasResolution\":64}");
+            require(legacy.shadowContentRevision()!=0 && legacy.shadowContentRevision()!=emptyShadowToken &&
+                    legacy.shadowContentRevision()!=restored.shadowContentRevision(),
+                    "Legacy/new component shadow identities collided");
             require(legacy.fogWind==std::array<float,3>{{4,0,1}},"Older scenes lost default game fog wind");
+            require(legacy.moonModelFile=="../ENDURANCE/Ressources/Model/Moon/Baked/moon.glb",
+                    "Older scenes lost the default baked lunar model path");
         }
         std::cout<<"PASS game component JSON: real registration/serialize/load, wind XYZ and legacy defaults\n"<<std::flush;
 
@@ -137,6 +169,7 @@ namespace
         {
             clock.delta=dt;
             component.prepareRenderer();
+            validateEmptyCaster();
             atmosphere.prepare(&camera,dt);
             checkGL("game component + atmosphere preparation");
         };
@@ -163,6 +196,16 @@ namespace
             require(offsetLocation>=0,"Real volume shader did not include ENDURANCE game_fog.glsl");
             Frame result;
             glGetUniformfv(program,offsetLocation,result.offset.data());
+            for(unsigned layer=0;layer<2;++layer)
+            {
+                const auto suffix="["+std::to_string(layer)+"]";
+                const auto mediumLocation=glGetUniformLocation(program,("uEnvironmentMedium"+suffix).c_str());
+                const auto shapeLocation=glGetUniformLocation(program,("uEnvironmentShape"+suffix).c_str());
+                require(mediumLocation>=0 && shapeLocation>=0,
+                        "Existing fog volume did not receive environmental medium uniforms");
+                glGetUniformfv(program,mediumLocation,result.environmentMedium[layer].data());
+                glGetUniformfv(program,shapeLocation,result.environmentShape[layer].data());
+            }
             result.mediumTexture=textureAt(6); result.shapeTexture=textureAt(7);
             result.medium=readTexture(result.mediumTexture); result.shape=readTexture(result.shapeTexture);
             glGetIntegeri_v(GL_IMAGE_BINDING_NAME,1,&transmission);
@@ -189,6 +232,7 @@ namespace
         std::cout<<"PASS game fog render path: stationary camera changes real volume transmission; world atlas is unchanged\n"<<std::flush;
 
         component.stop(); component.start();
+        validateEmptyCaster();
         // A complete prior environment may survive a component restart. The
         // current game resources still prepare once before a frame is sampled.
         awaitEnvironment();
@@ -207,6 +251,7 @@ namespace
         const auto stopped=frame(120);
         expectOffset(stopped,advanced.offset,"zero wind freezes phase");
         require(stopped.transmission==advanced.transmission,"Zero wind altered local fog coefficients");
+        std::cout<<"PASS atmosphere empty shadow hook: nonzero stable bounds/content/cascade tokens through preparation, restart and weather edits; distinct instance identities\n"<<std::flush;
         std::cout<<"PASS game fog time integration: equal elapsed time, phase-continuous wind edits and zero-wind freeze\n"<<std::flush;
 
         component.fogWind={{1,2,3}};
@@ -247,6 +292,82 @@ namespace
                 "Unchanged engine parameters froze the actual game fog animation");
         std::cout<<"PASS game fog cache contract: animated caller medium reintegrates with unchanged engine parameters\n"<<std::flush;
 
+        // The live weather override belongs to the existing volume integration.
+        // It must not rewrite scene settings, rebuild the world atlas, recapture
+        // sky/IBL or allocate another render target while fading in/out.
+        component.fogWind={{0,0,0}};
+        for(int attempt=0;attempt<300 && atmosphere.stats().environmentCaptureActive;++attempt) prepare(0);
+        const auto dryWeather=frame(0);
+        const auto stableWeatherStats=atmosphere.stats();
+        const auto serializedBeforeWeather=component.serialize();
+        EnduranceEnvironmentMediumState weather;
+        weather.layers[0].extinction=.002f;
+        weather.layers[0].albedo={.7f,.8f,.9f};
+        weather.layers[0].heightScale=100;
+        weather.layers[1].extinction=.01f;
+        weather.layers[1].albedo={.4f,.55f,.7f};
+        weather.layers[1].baseHeight=10;
+        weather.layers[1].heightScale=1000;
+        EnduranceAtmosphereComponent::setEnvironmentMedium(weather);
+        require(atmosphere.stats().dispatches==stableWeatherStats.dispatches
+            && atmosphere.stats().gpuTextureBytes==stableWeatherStats.gpuTextureBytes,
+            "CPU weather setter performs GPU work");
+        const auto wetWeather=frame(0);
+        require(difference(dryWeather.transmission,wetWeather.transmission)>1e-5f,
+                "Active weather did not change actual volume transmission");
+        require(std::abs(wetWeather.environmentMedium[1][3]-.01f)<1e-7f
+            && std::abs(wetWeather.environmentMedium[1][0]-.004f)<1e-7f,
+            "Weather binder lost physical scattering/extinction coefficients");
+        const auto appliedStats=atmosphere.stats();
+        require(appliedStats.fogDispatches==stableWeatherStats.fogDispatches+1
+            && appliedStats.aerialDispatches==stableWeatherStats.aerialDispatches
+            && appliedStats.cloudVolumeDispatches==stableWeatherStats.cloudVolumeDispatches,
+            "Weather added a separate integration instead of reusing the existing fog dispatch");
+        require(appliedStats.environmentCapturesStarted==stableWeatherStats.environmentCapturesStarted
+            && appliedStats.environmentUpdates==stableWeatherStats.environmentUpdates
+            && appliedStats.skyUpdates==stableWeatherStats.skyUpdates
+            && appliedStats.transmittanceUpdates==stableWeatherStats.transmittanceUpdates
+            && appliedStats.multiscatterUpdates==stableWeatherStats.multiscatterUpdates
+            && appliedStats.gpuTextureBytes==stableWeatherStats.gpuTextureBytes,
+            "Weather updates rebuild sky/LUT/IBL resources");
+        require(wetWeather.mediumTexture==dryWeather.mediumTexture && wetWeather.shapeTexture==dryWeather.shapeTexture
+            && wetWeather.medium==dryWeather.medium && wetWeather.shape==dryWeather.shape,
+            "Weather overrides rewrite the climate atlas");
+        require(component.serialize()==serializedBeforeWeather,"Weather override mutated persisted scene settings");
+        const auto frozenWeather=frame(0);
+        require(frozenWeather.transmission==wetWeather.transmission,"Paused weather is not deterministic");
+        EnduranceAtmosphereComponent::setEnvironmentMedium({});
+        const auto clearedWeather=frame(0);
+        require(clearedWeather.environmentMedium[0][3]==0 && clearedWeather.environmentMedium[1][3]==0
+            && clearedWeather.transmission==dryWeather.transmission,
+            "Cleared weather did not return exactly to the previous medium");
+        std::cout<<"PASS native weather medium: live shader binding, one existing fog dispatch, no LUT/IBL/atlas/texture cost, persisted state unchanged and exact clear\n"<<std::flush;
+
+        const auto bytesBeforeMoon=atmosphere.stats().gpuTextureBytes;
+        const auto modelPath=component.moonModelFile;
+        component.moonModelFile.clear(); // Explicitly retain and verify the legacy fallback.
+        config.moonSurface=true; clock.delta=0; component.prepareRenderer();
+        require(atmosphere.stats().gpuTextureBytes>=bytesBeforeMoon+2048u*1024u*4u,
+                "Game component did not lazily load the production lunar surface");
+        component.moonModelFile=modelPath; prepare(0);
+        require(atmosphere.stats().moonMeshGpuBytes>0 && atmosphere.stats().moonImageUpdates>0,
+                "Game component did not load/render the pushed lunar GLB");
+        const auto meshBytes=atmosphere.stats().moonMeshGpuBytes;
+        const auto imageUpdates=atmosphere.stats().moonImageUpdates;
+        const auto shadowUpdates=atmosphere.stats().moonShadowUpdates;
+        prepare(0);
+        require(atmosphere.stats().moonImageUpdates==imageUpdates &&
+                atmosphere.stats().moonShadowUpdates==shadowUpdates,
+                "Game component reuploaded an unchanged lunar asset");
+        component.moonModelFile="missing-lunar-model-for-regression.glb"; prepare(0);
+        require(atmosphere.stats().moonMeshGpuBytes==meshBytes &&
+                atmosphere.stats().moonImageUpdates==imageUpdates,
+                "Failed lunar replacement discarded/rebuilt the last good mesh");
+        component.moonModelFile.clear(); prepare(0);
+        require(atmosphere.stats().moonMeshGpuBytes==0 &&
+                atmosphere.stats().gpuTextureBytes>=bytesBeforeMoon+2048u*1024u*4u,
+                "Explicit legacy fallback did not release the mesh and restore its atlas");
+        std::cout<<"PASS game lunar assets: model/legacy serialization, lazy GLB load, cache reuse, failed replacement and fallback\n"<<std::flush;
         component.stop(); component.stop();
         require(pipeline.getCustomRenderer().size()==1,"Game component stop leaked its renderer callback");
         atmosphere.release();

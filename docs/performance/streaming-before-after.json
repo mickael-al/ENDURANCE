@@ -1,0 +1,108 @@
+{
+  "scope": "Complete production planner initial fill; CPU time and exact job counts, no GPU timing",
+  "camera": [
+    80,
+    180,
+    120
+  ],
+  "reference_ref": "b4ca0a1",
+  "compiler": "c++",
+  "flags": "-std=c++17 -O3 -ffast-math",
+  "source_before_sha256": "e142d81998baf4bc98c2e839fef18737ab90577546e279094a962d04ccc1ed12",
+  "source_after_sha256": "88549aa33398a80ac3514967e3e47dfe53728afdfe2a3f096d1f902648b766c4",
+  "shared_lod_sha256": "22f6cc8e20ba4027ce3bdffcb20c9016cb583b8603a2e3ea2f41c474a9bd9fe3",
+  "fixture_sha256": "a82619a63f0da31544831c66ca611159f31c79736b734cac0ad35f53d55d624d",
+  "exact_final_snapshot_bytes": 77088,
+  "exact_final_snapshot_sha256": "2b34ea3d1933e1e7d6802ca0869069ee25a007697596dc3eaf772631af886567",
+  "queue_timing_assumptions": {
+    "target_hardware": "GTX 1660 / 6 GB, not measured by this CPU benchmark",
+    "saved_max_in_flight": 3,
+    "single_poll_instant_single_stage_frames_min": 889,
+    "single_poll_single_stage_seconds_at_60_40_fps": [
+      14.816666666666666,
+      22.225
+    ],
+    "single_poll_count_emit_frames_approx": 1778,
+    "single_poll_count_emit_seconds_at_60_40_fps": [
+      29.633333333333333,
+      44.45
+    ],
+    "limitation": "Ideal 2665-job frame-cadence bounds before CPU planning, publication and GPU time. The bounded second poll can advance count/emission and free empty slots sooner; queue depth and real throughput still require target-GPU measurements."
+  },
+  "cases": [
+    {
+      "before": {
+        "view_distance_m": 4096,
+        "selected_chunks": 1189,
+        "transactions": 108,
+        "mesh_jobs": 2453,
+        "repeated_geometry_jobs": 1264,
+        "largest_batch": 32,
+        "planning_ms_runs": [
+          80.5084,
+          71.9567,
+          79.3528,
+          73.1344,
+          83.3914
+        ],
+        "planning_ms_median": 79.3528,
+        "peak_planning_ms_max": 2.72171
+      },
+      "after": {
+        "view_distance_m": 4096,
+        "selected_chunks": 1189,
+        "transactions": 39,
+        "mesh_jobs": 1189,
+        "repeated_geometry_jobs": 0,
+        "largest_batch": 32,
+        "planning_ms_runs": [
+          15.9588,
+          15.3293,
+          15.3997,
+          16.0465,
+          21.6923
+        ],
+        "planning_ms_median": 15.9588,
+        "peak_planning_ms_max": 1.25974
+      },
+      "mesh_job_reduction_percent": 51.528740317977984
+    },
+    {
+      "before": {
+        "view_distance_m": 40096,
+        "selected_chunks": 2665,
+        "transactions": 209,
+        "mesh_jobs": 4229,
+        "repeated_geometry_jobs": 1564,
+        "largest_batch": 32,
+        "planning_ms_runs": [
+          187.441,
+          189.105,
+          206.302,
+          182.316,
+          194.748
+        ],
+        "planning_ms_median": 189.105,
+        "peak_planning_ms_max": 3.79196
+      },
+      "after": {
+        "view_distance_m": 40096,
+        "selected_chunks": 2665,
+        "transactions": 85,
+        "mesh_jobs": 2665,
+        "repeated_geometry_jobs": 0,
+        "largest_batch": 32,
+        "planning_ms_runs": [
+          59.6777,
+          58.6154,
+          60.0217,
+          61.1437,
+          74.3706
+        ],
+        "planning_ms_median": 60.0217,
+        "peak_planning_ms_max": 2.07621
+      },
+      "mesh_job_reduction_percent": 36.9827382359896
+    }
+  ]
+}

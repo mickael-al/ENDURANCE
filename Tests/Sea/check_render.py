@@ -175,12 +175,16 @@ def check_surface(gl):
     rig.set_opaque(-100.2)
     shallow, _ = rig.draw()
     assert max_difference(first, shallow) > .01, "Shallow-water depth/foam does not affect the surface"
+    rig.set_opaque(-400.)
+    deep, _ = rig.draw()
+    assert all(abs(a-.97) < 2e-5 for a in deep[3::4]), "Deep water must retain a faint, darkened seabed"
     rig.set_opaque(-100.2, -2.)
     sky, _ = rig.draw()
     rig.set_opaque(0., 0.)
     no_surface, _ = rig.draw()
     assert max_difference(sky, no_surface) < 2e-5, "Sky/missing opaque background creates a foam band"
     assert all(math.isfinite(v) and v >= 0. for v in sky)
+    assert all(abs(a-1.) < 2e-5 for a in sky[3::4]), "Missing seabed leaks the background sky through water"
     rig.set_camera(underwater=True)
     below, _ = rig.draw()
     assert all(math.isfinite(v) and v >= 0. for v in below), "Water underside is invalid"

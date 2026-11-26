@@ -1,11 +1,24 @@
 #version 450 core
 #include "field_batch_common.glsl"
 layout(local_size_x=64,local_size_y=1,local_size_z=1) in;
+uniform bool uResetDensityHeaders;
 void main()
 {
     uint pass=gl_GlobalInvocationID.x;
     if(pass>=FIELD_PASS_COUNT) return;
     bool volume=pass>=FIELD_BIOME_COUNT;
+    // A density cache slot has only one BUILD_DENSITY owner in this batch.
+    // Reset it in GPU command order, retaining cached and aliased headers.
+    // In this phase no invocation reads the volume headers being reset:
+    // volume work lists are built only after PrepareVolume has completed.
+    if(uResetDensityHeaders && pass<min(uJobSlots,FIELD_MAX_JOBS)
+        && fieldJobHas(pass,FIELD_JOB_BUILD_DENSITY))
+        fieldStates[fieldJobs[pass].storage.z*uStateStride]=uvec4(0u,~0u,0u,0u);
+    if(uResetDensityHeaders && volume)
+    {
+        fieldCommands[pass]=uvec4(0u);
+        return;
+    }
     uint biome=pass%FIELD_BIOME_COUNT;
     uint count=0u;
     uint maximumY=0u;

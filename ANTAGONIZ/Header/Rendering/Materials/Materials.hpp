@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include "UniformBufferMaterial.hpp"
 #include "Component.hpp"
+#include "ShadowContentToken.hpp"
 #include <vector>
 
 namespace Ge
@@ -69,6 +70,8 @@ namespace Ge
 		bool getDepthTest() const;
 		void setDepthWrite(bool state);
 		bool getDepthWrite() const;
+        std::uint64_t shadowContentRevision() const noexcept { return m_shadowContent.value(); }
+        void invalidateShadowContent() noexcept { m_shadowContent.invalidate(); }
 	public:
 		friend class Model;
 		void addModel(Model * model);
@@ -93,6 +96,7 @@ namespace Ge
 		unsigned int m_aditionalInstanced = 0;
 		unsigned int m_ssbo;
 		unsigned int m_index = 0;
+        ShadowContentToken m_shadowContent;
 	};
 }
 

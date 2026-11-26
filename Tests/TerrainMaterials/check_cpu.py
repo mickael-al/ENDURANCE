@@ -33,9 +33,15 @@ def export_appearance():
         binary = compile_export(Path(directory))
         payload = subprocess.check_output([str(binary), "--dump"])
         settings = subprocess.check_output([str(binary), "--settings"],text=True).split()
-    assert len(payload) == 13312, len(payload)
+    assert len(payload) == 15392, len(payload)
     return payload,dict(terrainMacroPeriod=float(settings[0]),terrainPatchPeriod=float(settings[1]),
-                        terrainMaterialDebug=int(settings[2]))
+                        terrainMaterialDebug=int(settings[2]),terrainVegetationStainSize=float(settings[3]),
+                        terrainOtherStainSize=float(settings[4]),terrainSparkleGrainSize=float(settings[5]))
+
+
+def export_stain():
+    with tempfile.TemporaryDirectory(prefix="endurance-stain-") as directory:
+        return subprocess.check_output([str(compile_export(Path(directory))), "--stain"])
 
 
 def main():

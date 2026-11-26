@@ -29,13 +29,20 @@ class Runtime:
     def __init__(self, directory):
         library=directory/'ssao_runtime.so'
         command=[os.environ.get('CXX','c++'),'-std=c++17','-O2','-fPIC','-shared',
-                 '-DGLEW_NO_GLU','-pthread','-fvisibility=hidden','-ffunction-sections','-fdata-sections']
-        for path in ('Tests/SSAO/runtime_fixture','Tests/Atmosphere/runtime_fixture',
+                 '-DGLEW_NO_GLU','-DGLFW_INCLUDE_NONE','-pthread','-fvisibility=hidden','-ffunction-sections','-fdata-sections']
+        for path in ('Tests/SSAO/runtime_fixture',
                      'ANTAGONIZ/Header/Struct','ANTAGONIZ/Header/Interface',
                      'ANTAGONIZ/Header/Rendering/Window','ANTAGONIZ/Header/Rendering/Shader',
-                     'ThirdParty','ThirdParty/glm'):
+                     'ANTAGONIZ/Header/Setting',
+                     'ThirdParty','ThirdParty/glm','ThirdParty/glfw/include'):
             command+=['-I',str(ROOT/path)]
-        for path in ('Tests/SSAO/runtime_bridge.cpp','ANTAGONIZ/Source/Rendering/Window/SSAOBuffer.cpp'):
+        for path in ('Tests/SSAO/runtime_bridge.cpp','ANTAGONIZ/Source/Rendering/Window/SSAOBuffer.cpp',
+                     'ANTAGONIZ/Source/Setting/SettingManager.cpp',
+                     'ANTAGONIZ/Source/Rendering/Shader/GraphiquePipelineManager.cpp',
+                     'ANTAGONIZ/Source/Rendering/Shader/GraphiquePipeline.cpp',
+                     'ANTAGONIZ/Source/Rendering/Shader/ShaderPair.cpp',
+                     'ANTAGONIZ/Source/Rendering/Shader/ShaderCompilation.cpp',
+                     'ANTAGONIZ/Source/Rendering/Shader/ShaderBinaryCache.cpp'):
             command.append(str(ROOT/path))
         command+=['-l:libGLEW.so.2.2','-l:libGL.so.1','-l:libEGL.so.1','-ldl',
                   '-Wl,--gc-sections','-Wl,-z,defs','-o',str(library)]
@@ -44,10 +51,11 @@ class Runtime:
         self.api=C.CDLL(str(library))
         self.api.ssao_create.argtypes=[C.c_char_p]; self.api.ssao_create.restype=C.c_void_p
         self.api.ssao_initialize.argtypes=[C.c_void_p]; self.api.ssao_initialize.restype=C.c_int
-        for name in ('kernel','noise'):
+        for name in ('kernel','noise','program','enabled'):
             function=getattr(self.api,'ssao_'+name); function.argtypes=[C.c_void_p]; function.restype=C.c_uint
         for name in ('release','destroy'):
             function=getattr(self.api,'ssao_'+name); function.argtypes=[C.c_void_p];function.restype=None
+        self.api.ssao_set_enabled.argtypes=[C.c_void_p,C.c_int];self.api.ssao_set_enabled.restype=None
         self.handle=None
     def create(self):
         self.handle=self.api.ssao_create(str(ROOT).encode());assert self.handle,'Production SSAO initialization failed'
@@ -296,6 +304,65 @@ def check_forward_geometry(gl,runtime):
     print('PASS actual forward caller: five camera rotations, real corner contact and smooth normals preserved across primitive-normal tags',flush=True)
 
 
+def check_toggle(gl,runtime):
+    assert runtime.texture('enabled')==1,'Engine SSAO default changed'
+    on=runtime.texture('program')
+    runtime.api.ssao_set_enabled(runtime.handle,0)
+    off=runtime.texture('program')
+    assert on and off and on!=off,'Both lighting variants must be compiled at startup'
+    gl._fn('glGetProgramResourceIndex',C.c_uint,C.c_uint,C.c_uint,C.c_char_p)
+    for enabled,program in ((True,on),(False,off)):
+        block=gl.glGetProgramResourceIndex(program,0x92E6,b'UniformBufferSSAO')
+        assert (block!=0xffffffff)==enabled,'SSAO kernel is still active in disabled shader'
+        assert (gl.glGetUniformLocation(program,b'texNoise')>=0)==enabled,'SSAO noise is still active in disabled shader'
+        assert gl.glGetAttribLocation(program,b'a_Position')==0
+        assert gl.glGetAttribLocation(program,b'a_TexCoords')==1
+    # Use exactly the same VAO, as RenderingEngine does when switching programs.
+    gl.mesh_arrays[off]=gl.mesh_array(on)
+    vertex=shader_source(ROOT/'Asset/Shader/forward.vs.glsl')
+    fragment=shader_source(ROOT/'Asset/Shader/forward.fs.glsl')
+    reference=gl.compile([(0x8B31,vertex),(0x8B30,fragment.replace(
+        'void main()','#define geSsaoEvaluate(p,n,pixel) 1.0\nvoid main()',1))],
+        'independent AO=1 lighting reference')
+    kernel,noise=runtime.texture('kernel'),runtime.texture('noise')
+    def render(fixture,enabled,atmosphere):
+        runtime.api.ssao_set_enabled(runtime.handle,int(enabled))
+        assert runtime.texture('enabled')==int(enabled)
+        program=runtime.texture('program')
+        assert program==(on if enabled else off),'Toggling replaced a precompiled program'
+        assert (runtime.texture('kernel'),runtime.texture('noise'))==(kernel,noise),'Toggling reallocated SSAO resources'
+        gl.bind(kernel if enabled else 0,4)
+        fixture.samplers[5]=(noise if enabled else 0,TEXTURE_2D)
+        return fixture.render(program,atmosphere)
+    for scene in ('corner','plane','sky','emissive'):
+        field=SSAOFixture(gl,runtime,scene=scene)
+        fixture=DeferredFixture(gl,field.size,0,0,'sky' if scene=='sky' else 'opaque',
+                                camera_position=(5312.,800.,-4192.))
+        fixture.camera_buffer=field.camera
+        fixture.samplers[0]=(field.position,TEXTURE_2D)
+        fixture.samplers[1]=(field.normal,TEXTURE_2D)
+        if scene=='emissive':
+            fixture.samplers[0]=(gl.field_texture(field.size,[(-3.,2.)]*(field.size[0]*field.size[1]),
+                                                  internal=RG32F,repeat=True),TEXTURE_2D)
+        for atmosphere in (False,True):
+            baseline=fixture.render(reference,atmosphere)
+            disabled=render(fixture,False,atmosphere)
+            error=max(abs(a-b) for p,q in zip(baseline,disabled) for a,b in zip(p,q))
+            assert error<1e-6,('SSAO off changed non-AO lighting/atmosphere',scene,atmosphere,error)
+            enabled=render(fixture,True,atmosphere)
+            assert render(fixture,False,atmosphere)==disabled,'SSAO off is not stable after an on/off switch'
+            assert render(fixture,True,atmosphere)==enabled,'SSAO reactivation changed the rendered result'
+            if scene=='corner' and not atmosphere:
+                assert max(sum(a)-sum(b) for a,b in zip(disabled,enabled))>.02,'SSAO-on variant lost real contact'
+            elif scene!='corner':
+                assert enabled==disabled,(scene,'unexpectedly depends on SSAO')
+        if scene=='corner':
+            fixture.samplers[3]=(gl.field_texture(field.size,[(.3,.5,0.,1.)]*(field.size[0]*field.size[1]),
+                                                  repeat=True),TEXTURE_2D)
+            assert max(max(p) for p in render(fixture,False,False))==0,'SSAO off also disabled material AO'
+    print('PASS native settings and precompiled variants: default on, no kernel/noise interface when off, shared VAO, repeatable toggles, material AO/sky/emission/atmosphere preserved',flush=True)
+
+
 def check_legacy_witness(gl):
     legacy=(HERE/'legacy_ssao.glsl').read_text()
     source="""#version 450 core
@@ -371,6 +438,7 @@ def main():
                 check_fast_paths(gl,runtime)
                 check_lighting(gl)
                 check_forward_geometry(gl,runtime)
+                check_toggle(gl,runtime)
                 check_legacy_witness(gl)
                 check_lifecycle(gl,runtime,original_kernel)
                 gl.check('SSAO validation')

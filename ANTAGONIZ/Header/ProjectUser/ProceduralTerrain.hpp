@@ -8,7 +8,7 @@
 #include <string>
 
 class ProceduralGeneration;
-namespace Endurance { class SeaRenderer; }
+namespace Endurance { class SeaRenderer; class TreeRenderer; }
 struct ptrClass;
 
 // Scene-owned runtime component. Parameters are saved in the editor's script
@@ -56,14 +56,30 @@ public:
     bool debugLod = false;
     bool collisionEnabled = true;
     float collisionRadius = 128.0f;
+    bool objectPlacementEnabled = true;
+    std::string objectPlacementFile = "../ENDURANCE/Ressources/Trees/object_placement.json";
+    bool treeRenderingEnabled = true;
+    float treeRenderDistance = 15360.0f;
+    float treeLod0Coverage = 0.25f;
+    float treeImpostorCoverage = 0.06f;
+    float treeLodTransition = 0.15f;
+    std::uint32_t treeModelBudgetMiB = 512;
+    float treeFoliageTransmission = 0.65f;
+    bool treeWindEnabled = true;
+    float treeWindStrength = 0.06f;
+    float treeWindSpeedX = 6.0f, treeWindSpeedZ = 2.0f;
+    float treeWindScale = 64.0f, treeWindDistance = 256.0f;
 
 private:
     std::unique_ptr<ProceduralGeneration> m_generator;
     std::unique_ptr<Endurance::SeaRenderer> m_sea;
+    std::unique_ptr<Endurance::TreeRenderer> m_trees;
     const ptrClass* m_pc = nullptr;
     std::string m_error;
     std::string m_materialError;
     std::string m_seaError;
+    std::string m_objectError;
+    std::string m_treeError;
     bool m_showSea = true;
     int m_materialBiome = 0;
 };

@@ -238,6 +238,8 @@ class MeshRunner:
             for name, value in (("uCells", cells), ("uTransitionMask", mask)):
                 gl.uniform(program, name, "1ui", value)
             gl.uniform(program, "uFieldStateIndex", "1ui", state_index)
+            gl.uniform(program, "uUseGroupBounds", "1i",
+                       int("field_state_buffer" in field and "mesh_field_state" not in field))
         gl.dispatch_extent(self.regular[0], cells, cells, cells)
         gl.dispatch(self.transition[0], ((cells // 2)**2 + 63)//64, 6)
         total, cursor, overflow, _ = struct.unpack("<4I", gl.read(counter, 16))
@@ -451,6 +453,42 @@ def check_meshes(gl, fields):
     print(f"PASS ambiguous density stress: {len(edges)} edges all paired with consistent winding across LOD")
 
 
+
+def check_group_bounds(gl, fields):
+    """Compare prepared height/3D bounds with an unconditional density scan."""
+    fast, exhaustive = MeshRunner(gl), MeshRunner(gl, optimized=False)
+    fixtures = []
+    for cells, height in ((4, 0.), (4, 4.), (8, 3.25), (16, 4.), (64, 31.75)):
+        fixtures.append(fields.run(cells=cells, mode=1, uBaseHeight=height))
+    for sign in (-1, 1):
+        for lod in (0, 6, 12):
+            origin = sign * (1 << 24)
+            fixtures.append(fields.run(cells=16, origin=(0, origin, 0), lod=lod,
+                                       mode=1, uBaseHeight=float(origin + 5 * (1 << lod))))
+    fixtures.append(fields.run(cells=16, mode=2, uSphereRadius=5.75,
+                               uSphereCenter=(8., 8., 8.)))
+    # Exercise actual cave, pillar, marsh and marine recipes at their surface.
+    # Survey columns first because their elevations differ by kilometres.
+    for biome in (0, 1, 3, 8, 25):
+        options = dict(cells=16, lod=5, seed=1337, uBiomeOverride=biome)
+        survey = fields.run(**options)
+        heights = sorted(survey["columns"][0::COLUMN_WORDS])
+        y = 512 * math.floor(heights[len(heights)//2] / 512)
+        fixtures.append(fields.run(origin=(0, y, 0), **options))
+    triangles = 0
+    for field in fixtures:
+        a, b = fast.run(field, mask=63), exhaustive.run(field, mask=63)
+        # Workgroup atomic allocation order is deliberately not prescribed.
+        def ordered(mesh):
+            raw = mesh["packed_vertices"]
+            return sorted(raw[i:i+36] for i in range(0, len(raw), 36))
+        assert a["count"] == b["count"] and ordered(a) == ordered(b), (
+            "Prepared group bounds changed geometry/normals", field["origin"],
+            field["lod"], field["uniforms"]["uBiomeOverride"], a["count"], b["count"])
+        triangles += a["count"] // 3
+    print(f"PASS prepared count bounds: {len(fixtures)} fields, {triangles:,} triangles identical to exhaustive extraction, including partial groups, +/-2^24 origins, LOD0/6/12 and 3D biome recipes")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--render", action="store_true", help="Also rasterize the GLSL460 G-buffer/shadow stages and check their coordinate decoding")
@@ -462,6 +500,7 @@ def main():
             fields = check_fields(gl)
             if not args.fields_only:
                 check_meshes(gl, fields)
+                check_group_bounds(gl, fields)
             if args.render:
                 check_render_stages(gl)
     except GLUnavailable as error:

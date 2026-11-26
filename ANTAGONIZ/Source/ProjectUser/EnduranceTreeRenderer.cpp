@@ -1,0 +1,86 @@
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include "glcore.hpp"
+#include "EnduranceTreeRenderer.hpp"
+#include "ProceduralGeneration.hpp"
+#include "PointeurClass.hpp"
+#include "Camera.hpp"
+#include <algorithm>
+#include <cmath>
+
+namespace Endurance
+{
+TreeRenderer::TreeRenderer()=default;
+TreeRenderer::~TreeRenderer() { shutdown(); }
+bool TreeRenderer::initialize(const ptrClass& engine,ProceduralGeneration& terrain,
+                              const EnduranceTrees::RenderSettings& settings)
+{
+    shutdown();
+    if(!engine.graphiquePipelineManager || !engine.cameraManager) return false;
+    if(!m_gpu.initialize(terrain.getConfig().objects.prototypes,settings)) return false;
+    m_engine=&engine; m_terrain=&terrain;
+    m_windActive=settings.windEnabled && settings.windStrength>0 && glm::dot(settings.windSpeed,settings.windSpeed)>0;
+    m_boundsToken=m_contentToken=Ge::nextShadowCasterBoundsRevision();
+    engine.graphiquePipelineManager->addCustomRenderer(this); m_registered=true;
+    return true;
+}
+void TreeRenderer::prepareRenderer()
+{
+    if(!m_enabled || !m_engine || !m_terrain) return;
+    auto* camera=m_engine->cameraManager->getCurrentCamera();
+    if(!camera) { m_hasView=false; return; }
+    const auto* uniforms=camera->getUniformCamera();
+    EnduranceTrees::RenderView view;
+    view.view=uniforms->view; view.clip=uniforms->proj*uniforms->view;
+    view.camera=camera->getPosition(); view.projectionScale=std::abs(uniforms->proj[1][1]);
+    view.orthographic=camera->getOrtho();
+    const float delta=m_engine->time?m_engine->time->getDeltaTime():0.0f;
+    if(m_windActive && ProceduralTerrain::finiteFieldValue(delta) && delta>0) m_animationTime+=double(delta);
+    view.timeSeconds=m_animationTime;
+    float gamma=m_engine->settingManager?m_engine->settingManager->getGamma():2.2f;
+    view.albedoGamma=ProceduralTerrain::finiteFieldValue(gamma)&&gamma>0?(std::max)(gamma,0.001f):2.2f;
+    const bool lodChanged=!m_hasView || m_view.camera!=view.camera ||
+        m_view.projectionScale!=view.projectionScale || m_view.orthographic!=view.orthographic;
+    const bool animationChanged=m_windActive && m_view.timeSeconds!=view.timeSeconds;
+    m_view=view; m_hasView=true;
+    m_gpu.prepare(m_terrain->getObjectInstanceBuffer(),m_terrain->getObjectBlocks(),
+        m_terrain->getObjectPlacementStats().revision,m_view);
+    if(m_revision!=m_gpu.stats().revision)
+    {
+        m_revision=m_gpu.stats().revision;
+        m_boundsToken=m_contentToken=Ge::nextShadowCasterBoundsRevision();
+    }
+    else if(lodChanged || animationChanged) m_contentToken=Ge::nextShadowCasterBoundsRevision();
+}
+void TreeRenderer::drawRenderer()
+{ if(m_enabled && m_hasView) m_gpu.draw(0,m_view.clip); }
+void TreeRenderer::drawShadowRenderer(unsigned shadowIndex)
+{
+    glm::mat4 clip;
+    if(m_enabled && m_hasView && m_engine->lightManager && m_engine->lightManager->getShadowMatrix(shadowIndex,clip))
+        m_gpu.draw(shadowIndex+1u,clip);
+}
+std::uint64_t TreeRenderer::shadowCasterBoundsRevision() const { return m_boundsToken; }
+std::uint64_t TreeRenderer::shadowContentRevision() const { return m_contentToken; }
+std::uint64_t TreeRenderer::shadowLayerContentRevision(unsigned layer,const glm::mat4& clip) const
+{ return m_enabled && m_hasView?m_gpu.shadowContentRevision(layer+1u,clip):m_contentToken; }
+void TreeRenderer::appendShadowCasterBounds(std::vector<Ge::ShadowCasterBounds>& output) const
+{ if(m_enabled) m_gpu.appendBounds(output); }
+void TreeRenderer::setEnabled(bool enabled)
+{
+    if(m_enabled==enabled) return;
+    m_enabled=enabled; m_hasView=false;
+    m_boundsToken=m_contentToken=Ge::nextShadowCasterBoundsRevision();
+}
+void TreeRenderer::shutdown() noexcept
+{
+    if(m_registered && m_engine && m_engine->graphiquePipelineManager)
+        m_engine->graphiquePipelineManager->removeCustomRenderer(this);
+    m_registered=m_hasView=false; m_engine=nullptr; m_terrain=nullptr;
+    m_revision=m_boundsToken=m_contentToken=0; m_gpu.shutdown();
+    m_animationTime=0; m_windActive=false;
+}
+const EnduranceTrees::RenderStats& TreeRenderer::stats() const noexcept { return m_gpu.stats(); }
+const std::string& TreeRenderer::error() const noexcept { return m_gpu.error(); }
+}

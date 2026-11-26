@@ -6,13 +6,14 @@ import sys
 
 DIRECTORY=Path(__file__).resolve().parent
 TESTS=("check_cpu.py","check_shaders.py","check_common.py","check_luts.py",
-       "check_ibl.py","check_volumes.py","check_sampling.py","check_sky.py",
-       "check_game_climate.py","check_game_component.py","check_revision.py","check_runtime.py",
+       "check_ibl.py","check_feature_variants.py","check_volumes.py","check_sampling.py","check_sky.py",
+       "check_game_climate.py","check_game_component.py","check_moon.py","check_moon_lab.py",
+       "check_revision.py","check_runtime.py",
        "check_screen_composition.py","check_surface_shadows.py","check_position_precision.py",
        "check_terrain_shadow.py","check_light_persistence.py","check_gbuffer_geometry.py",
        "check_shadow_bounds.py", "check_shadow_filtering.py", "check_shadow_cache.py",
        "check_spot_shadows.py", "check_render_integration.py", "check_texture_packing.py",
-       "check_gbuffer_packing.py", "../SSAO/check_gpu.py")
+       "check_gbuffer_packing.py", "../SSAO/check_gpu.py", "../Rendering/check_bloom.py")
 
 
 def main():

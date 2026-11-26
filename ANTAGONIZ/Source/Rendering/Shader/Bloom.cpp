@@ -46,16 +46,35 @@ namespace Ge
             mMipChain.emplace_back(mip);
         }
 
-        m_downSampleShader = pc.graphiquePipelineManager->createPipeline("../Asset/Shader/downsampling.fs.glsl", "../Asset/Shader/pp.vs.glsl");
-        m_upSampleShader = pc.graphiquePipelineManager->createPipeline("../Asset/Shader/upsampling.fs.glsl", "../Asset/Shader/pp.vs.glsl");
-        m_tomeGammaShader = pc.graphiquePipelineManager->createPipeline("../Asset/Shader/tomeMapping.fs.glsl", "../Asset/Shader/pp.vs.glsl");
-        srcResolutionLocation = glGetUniformLocation(m_downSampleShader->getProgram(), "srcResolution");
-        thresholdLocation = glGetUniformLocation(m_downSampleShader->getProgram(), "threshold");
-        filterRadiusLocation = glGetUniformLocation(m_upSampleShader->getProgram(), "filterRadius");
-        gammaLocation = glGetUniformLocation(m_tomeGammaShader->getProgram(), "gamma");
-        exposureLocation = glGetUniformLocation(m_tomeGammaShader->getProgram(), "exposure");        
-        intensityLocation = glGetUniformLocation(m_tomeGammaShader->getProgram(), "intensity");
-        //threshold;
+        for(unsigned mode=0;mode<2;++mode)
+        {
+            const std::string value=std::to_string(mode)+"\n";
+            m_downSampleShaders[mode]=pc.graphiquePipelineManager->createPipeline(
+                "../Asset/Shader/downsampling.fs.glsl","../Asset/Shader/pp.vs.glsl",
+                false,true,false,1,"#define GE_BLOOM_THRESHOLD "+value,{true,{}});
+            m_tomeGammaShaders[mode]=pc.graphiquePipelineManager->createPipeline(
+                "../Asset/Shader/tomeMapping.fs.glsl","../Asset/Shader/pp.vs.glsl",
+                false,true,false,1,"#define GE_BLOOM_ENABLED "+value,{true,{}});
+            if(!m_downSampleShaders[mode]->getProgram() || !m_tomeGammaShaders[mode]->getProgram())
+            {
+                Debug::Error("Could not compile bloom variants");
+                release(); return false;
+            }
+            srcResolutionLocations[mode]=glGetUniformLocation(m_downSampleShaders[mode]->getProgram(),"srcResolution");
+            gammaLocations[mode]=glGetUniformLocation(m_tomeGammaShaders[mode]->getProgram(),"gamma");
+            exposureLocations[mode]=glGetUniformLocation(m_tomeGammaShaders[mode]->getProgram(),"exposure");
+        }
+        m_upSampleShader=pc.graphiquePipelineManager->createPipeline(
+            "../Asset/Shader/upsampling.fs.glsl","../Asset/Shader/pp.vs.glsl",
+            false,true,false,1,{}, {true,{}});
+        if(!m_upSampleShader->getProgram())
+        {
+            Debug::Error("Could not compile bloom upsampling");
+            release(); return false;
+        }
+        thresholdLocation=glGetUniformLocation(m_downSampleShaders[1]->getProgram(),"threshold");
+        filterRadiusLocation=glGetUniformLocation(m_upSampleShader->getProgram(),"filterRadius");
+        intensityLocation=glGetUniformLocation(m_tomeGammaShaders[1]->getProgram(),"intensity");
 
 		return true;
 	}
@@ -69,9 +88,12 @@ namespace Ge
         }
         mMipChain.clear();
         
-        pc.graphiquePipelineManager->destroyPipeline(m_downSampleShader);
-        pc.graphiquePipelineManager->destroyPipeline(m_upSampleShader);
-        pc.graphiquePipelineManager->destroyPipeline(m_tomeGammaShader);
+        for(auto& pipeline:m_downSampleShaders)
+        { if(pipeline) pc.graphiquePipelineManager->destroyPipeline(pipeline); pipeline=nullptr; }
+        for(auto& pipeline:m_tomeGammaShaders)
+        { if(pipeline) pc.graphiquePipelineManager->destroyPipeline(pipeline); pipeline=nullptr; }
+        if(m_upSampleShader) pc.graphiquePipelineManager->destroyPipeline(m_upSampleShader);
+        m_upSampleShader=nullptr;
 	}
 
 	void Bloom::resize(int width, int height)
@@ -111,22 +133,26 @@ namespace Ge
         {
             glBindFramebuffer(GL_FRAMEBUFFER, frameBuffer);
 
-            glUseProgram(m_downSampleShader->getProgram());
-            glUniform2f(srcResolutionLocation, size.x, size.y);
-
             glActiveTexture(GL_TEXTURE0);
             glBindTexture(GL_TEXTURE_2D, texture);
+            int previousMode=-1;
             for (int i = 0; i < mMipChain.size(); i++)
             {
+                const int mode=i==0 && settings->bloom_threshold>=0.0f?1:0;
+                if(mode!=previousMode)
+                {
+                    glUseProgram(m_downSampleShaders[mode]->getProgram());
+                    previousMode=mode;
+                }
+                const glm::ivec2 sourceSize=i==0?size:mMipChain[i-1].intSize;
+                glUniform2f(srcResolutionLocations[mode],sourceSize.x,sourceSize.y);
+                if(mode) glUniform1f(thresholdLocation,settings->bloom_threshold);
                 const bloomMip& mip = mMipChain[i];
                 glViewport(0, 0, mip.intSize.x, mip.intSize.y);
                 glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, mip.texture, 0);
 
-                glUniform1f(thresholdLocation, i == 0 ? settings->bloom_threshold : -1.0f);
                 glDrawElements(GL_TRIANGLES, sb->getIndiceSize(), GL_UNSIGNED_INT, 0);
 
-                // Set current mip resolution as srcResolution for next iteration            
-                glUniform2f(srcResolutionLocation, (float)mip.intSize.x, (float)mip.intSize.y);
                 // Set current mip as texture input for next iteration
                 glBindTexture(GL_TEXTURE_2D, mip.texture);
             }
@@ -164,15 +190,15 @@ namespace Ge
         // Otherwise tone mapping writes a separate color target for the next pass.
         glBindFramebuffer(GL_FRAMEBUFFER, m_outputFrameBuffer);
         glViewport(0, 0, size.x, size.y);
-        glUseProgram(m_tomeGammaShader->getProgram());
+        glUseProgram(m_tomeGammaShaders[useBloom?1:0]->getProgram());
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, texture);
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, useBloom ? mMipChain[compositeMip].texture : 0);
         const float gamma = settings->gamma == nullptr ? 2.2f : *settings->gamma;
-        glUniform1f(gammaLocation, (std::max)(gamma, 0.001f));
-        glUniform1f(exposureLocation, settings->exposure);
-        glUniform1f(intensityLocation, useBloom ? settings->bloom_intensity : 0.0f);
+        glUniform1f(gammaLocations[useBloom?1:0], (std::max)(gamma, 0.001f));
+        glUniform1f(exposureLocations[useBloom?1:0], settings->exposure);
+        if(useBloom) glUniform1f(intensityLocation,settings->bloom_intensity);
         
         glDrawElements(GL_TRIANGLES, sb->getIndiceSize(), GL_UNSIGNED_INT, 0);
         glActiveTexture(GL_TEXTURE0);

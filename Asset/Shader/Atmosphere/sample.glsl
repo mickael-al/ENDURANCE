@@ -44,7 +44,7 @@ vec3 geAtmComposite(vec3 surfaceRadiance,vec3 worldPosition,vec2 screenUV)
 vec3 geAtmCompositeSky(vec3 skyRadiance,vec2 screenUV)
 {
     if(!uAtmosphereActive) return geAtmSaturate(skyRadiance,geAtmArt.y);
-    if(geAtmControl.y==0 && geAtmControl.w==0) return geAtmSaturate(skyRadiance,geAtmArt.y);
+    if(!GE_ATM_LOCAL_FOG_ON && !GE_ATM_TERRAIN_SHADOWS_ON) return geAtmSaturate(skyRadiance,geAtmArt.y);
     vec3 s,t; geAtmSample(screenUV,geAtmVolume.x,s,t);
     vec3 baseS=max(textureLod(geAtmBaselineScattering,screenUV,0.0).rgb,vec3(0.0));
     vec3 baseT=clamp(textureLod(geAtmBaselineTransmission,screenUV,0.0).rgb,vec3(0.0),vec3(1.0));
@@ -60,8 +60,7 @@ vec3 geAtmDirectTransmission(vec3 worldPosition,vec3 lightDirection)
 {
     if(!uAtmosphereActive) return vec3(1.0);
     vec3 position=geAtmOrigin()+(worldPosition-geAtmCamera.xyz);
-    bool secondary=geAtmMoonDirection.w>0.5 &&
-        dot(lightDirection,geAtmMoonDirection.xyz)>dot(lightDirection,geAtmSunDirection.xyz);
+    bool secondary=geAtmMoonLightingEnabled();
     return geAtmSunTransmittance(position,normalize(lightDirection))
         *geAtmCloudVisibility(worldPosition,normalize(lightDirection),secondary);
 }

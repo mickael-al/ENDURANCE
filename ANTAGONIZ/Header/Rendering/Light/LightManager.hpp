@@ -37,8 +37,10 @@ namespace Ge
 		void updateStorage();
 		// Called after custom renderers publish their geometry for this frame.
 		void prepareShadowCasterBounds(const std::vector<CustomRenderer*>& renderers);
-        void prepareShadowMaps(const std::vector<CustomRenderer*>& renderers, bool untrackedCasters);
+        void prepareShadowMaps(const std::vector<CustomRenderer*>& renderers, bool untrackedCasters,
+            std::uint64_t immutableModelRevision = 0);
         bool shadowMapNeedsRender(unsigned layer) const { return m_shadowMaps.needsRender(layer); }
+        void skipShadowMap(unsigned layer) { m_shadowMaps.skip(layer); }
         void shadowMapRendered(unsigned layer) { m_shadowMaps.rendered(layer); }
         void finishShadowMaps() { m_shadowMaps.finish(); }
 	protected:
@@ -71,7 +73,7 @@ namespace Ge
         const Camera* m_shadowClipCamera = nullptr;
         float m_shadowClipNear = 0.0f, m_shadowClipFar = 0.0f;
         std::vector<glm::mat4> m_shadowMapMatrices;
-        std::vector<ShadowContentSource> m_shadowMapSources;
+        std::vector<std::vector<ShadowContentSource>> m_shadowMapLayerSources;
 		std::vector<unsigned int> m_frameBufferDepthShadow;
 		unsigned int m_ssboShadow;
 		unsigned int m_ssboPlaneHidden;

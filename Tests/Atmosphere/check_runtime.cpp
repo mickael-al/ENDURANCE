@@ -127,6 +127,150 @@ namespace
         s.measureGpu=false;
         return s;
     }
+    struct ParameterUploadProbe
+    {
+        static inline PFNGLNAMEDBUFFERDATAPROC data=nullptr;
+        static inline PFNGLNAMEDBUFFERSUBDATAPROC subData=nullptr;
+        static inline unsigned streamWrites=0,inPlaceWrites=0;
+        static void GLAPIENTRY recordData(GLuint buffer,GLsizeiptr size,const void* value,GLenum usage)
+        {
+            if(size==672 && usage==GL_STREAM_DRAW) ++streamWrites;
+            data(buffer,size,value,usage);
+        }
+        static void GLAPIENTRY recordSubData(GLuint buffer,GLintptr offset,GLsizeiptr size,const void* value)
+        {
+            if(size==672) ++inPlaceWrites;
+            subData(buffer,offset,size,value);
+        }
+        ParameterUploadProbe()
+        {
+            data=__glewNamedBufferData; subData=__glewNamedBufferSubData;
+            streamWrites=inPlaceWrites=0;
+            __glewNamedBufferData=recordData; __glewNamedBufferSubData=recordSubData;
+        }
+        ~ParameterUploadProbe() { __glewNamedBufferData=data; __glewNamedBufferSubData=subData; }
+    };
+    void checkParameterStreaming()
+    {
+        ParameterUploadProbe calls;
+        Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        atmosphere.settings()=smallSettings();
+        std::string error;
+        const auto probe=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_parameter_probe.C.glsl",{}}},error);
+        require(probe!=0,error);
+        GLuint output=0; glCreateBuffers(1,&output); glNamedBufferData(output,2*sizeof(glm::vec4),nullptr,GL_STREAM_READ);
+        const GLint index=glGetUniformLocation(probe,"resultIndex");
+        const auto capture=[&](unsigned destination)
+        {
+            glUseProgram(probe); glBindBufferBase(GL_SHADER_STORAGE_BUFFER,7,output);
+            glUniform1ui(index,destination); glDispatchCompute(1,1,1);
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+        };
+        atmosphere.prepare(&camera,0);
+        require(atmosphere.active(),atmosphere.error());
+        require(calls.streamWrites==1 && calls.inPlaceWrites==0,
+                "Atmosphere duplicated live uniform writes or overwrote queued uniforms");
+        capture(0); // Intentionally do not wait/read before changing the UBO.
+        camera.position={23,456,-7};
+        atmosphere.prepare(&camera,.25);
+        require(calls.streamWrites==2 && calls.inPlaceWrites==0,
+                "Unchanged live palette triggered an unnecessary uniform upload");
+        capture(1);
+        std::array<glm::vec4,2> values{};
+        glGetNamedBufferSubData(output,0,sizeof(values),values.data());
+        require(glm::length(values[0]-glm::vec4(0,100,0,0))<.0001f &&
+                glm::length(values[1]-glm::vec4(23,456,-7,.25f))<.0001f,
+                "Streaming live uniforms changed an earlier queued dispatch or failed to rebind slot6");
+        atmosphere.release(); glDeleteBuffers(1,&output); glDeleteProgram(probe);
+        checkGL("streamed atmosphere parameters");
+        std::cout<<"PASS atmosphere parameter streaming: one live upload per unchanged-palette frame, no in-place writes, queued GPU readers retain their own camera/clock\n"<<std::flush;
+    }
+    void checkShaderVariants()
+    {
+        Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        auto& config=atmosphere.settings(); config=smallSettings(); config.wind={0,0};
+        const auto frame=[&]()
+        {
+            atmosphere.prepare(&camera,0);
+            require(atmosphere.active() && atmosphere.error().empty(),"Feature variant failed: "+atmosphere.error());
+            require(atmosphere.stats().residentProgramVariants<=40,"Atmosphere variant cache exceeded 40 programs");
+            checkGL("atmosphere feature variants");
+            return atmosphere.stats();
+        };
+        auto previous=frame();
+        require(glm::length(atmosphere.primarySpecularDirection()+sun.direction)<1e-5f,
+            "Material highlight direction differs from the active sun");
+        const auto sunDirection = sun.direction;
+        sun.direction.y = -sun.direction.y;
+        frame();
+        require(atmosphere.primarySpecularDirection()==glm::vec3(0),
+            "Sun below horizon still enables material glints");
+        sun.direction = sunDirection; frame();
+        config.enabled=false;
+        require(glm::length(atmosphere.primarySpecularDirection()+sun.direction)<1e-5f,
+            "Disabled atmosphere lost the ordinary directional source");
+        sun.active=false;
+        require(atmosphere.primarySpecularDirection()==glm::vec3(0),
+            "Disabled light remains the material source");
+        sun.active=true; config.enabled=true; frame();
+        require(previous.programVariantBuilds==15 && previous.residentProgramVariants==15,
+                "Startup compiled speculative atmosphere combinations instead of only active stages");
+        camera.position.x+=1; config.fogDensity*=2; sun.colors*=.9f;
+        auto palette=atmosphere.displayedPalette(); palette.horizon*=.9f;
+        atmosphere.setPaletteTarget(palette,true);
+        auto next=frame();
+        require(next.programVariantBuilds==previous.programVariantBuilds,
+                "Dynamic camera/palette/source/numeric values recompiled atmosphere shaders");
+        config.localFog=true; previous=next; next=frame();
+        require(next.programVariantBuilds==previous.programVariantBuilds+1 &&
+                next.transmittanceUpdates==previous.transmittanceUpdates &&
+                next.multiscatterUpdates==previous.multiscatterUpdates,
+                "Fog toggle rebuilt unrelated programs or optical LUTs");
+        config.localFog=false; previous=next; next=frame();
+        require(next.programVariantBuilds==previous.programVariantBuilds && next.programVariantHits>=previous.programVariantHits+15,
+                "Returning to an existing feature combination failed to reuse programs");
+        config.clouds=true; config.cloudCoverage=0; previous=next; next=frame();
+        const auto configuredCloudPrograms=next.programVariantBuilds;
+        config.cloudCoverage=.4f; config.cloudDensity=.001f; next=frame();
+        config.cloudCoverage=0; next=frame();
+        require(next.programVariantBuilds==configuredCloudPrograms,
+                "Cloud weather/empty coverage changed static feature specialization");
+
+        std::string error;
+        const auto material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
+        require(material!=0,error);
+        auto queries=atmosphere.stats().lightingLocationQueries;
+        atmosphere.bindLighting(material,false,101);
+        require(atmosphere.stats().lightingLocationQueries==queries+8,"Tracked material did not resolve eight locations once");
+        queries=atmosphere.stats().lightingLocationQueries;
+        atmosphere.bindLighting(material,false,101); atmosphere.bindLighting(material,true,101);
+        require(atmosphere.stats().lightingLocationQueries==queries,"Repeated material binds queried linked uniform locations");
+        atmosphere.bindLighting(material,false,102);
+        require(atmosphere.stats().lightingLocationQueries==queries+8,"Program revision failed to invalidate material locations");
+        queries=atmosphere.stats().lightingLocationQueries;
+        atmosphere.bindLighting(material); atmosphere.bindLighting(material);
+        require(atmosphere.stats().lightingLocationQueries==queries+16,"Untracked external programs unexpectedly cached potentially recycled GL IDs");
+        config.enabled=false; atmosphere.bindLighting(material,false,102);
+        require(uniform(material,"uAtmosphereActive")==0 && uniform(material,"uAtmosphereIblActive")==0,
+                "Tracked uniform cache retained active flags while disabled");
+        config.enabled=true;
+        for(unsigned flags=0;flags<16;++flags)
+        {
+            config.physicalAtmosphere=(flags&1)!=0; config.localFog=(flags&2)!=0;
+            config.clouds=(flags&4)!=0; config.godRays=(flags&8)!=0;
+            frame();
+        }
+        require(atmosphere.stats().programVariantBuilds>40 && atmosphere.stats().residentProgramVariants==40,
+                "Variant eviction fixture did not exercise the bounded cache");
+        atmosphere.computeVolumes(&camera); checkGL("final feature variant volumes");
+        glDeleteProgram(material); atmosphere.release();
+        require(atmosphere.stats().residentProgramVariants==0,"Release leaked tracked atmosphere programs");
+        std::cout<<"PASS shader variants: active-stage startup only, per-program feature keys, dynamic values stay uniforms, cache hits, 40-program eviction, revision-safe lighting locations\n"<<std::flush;
+    }
     void checkInitialPalette(bool physical,float duration)
     {
         Ge::LightManager lights; Ge::Lights sun; lights.lights={&sun};
@@ -284,6 +428,112 @@ namespace
                 "Disabled terrain god rays still invalidated volumes on shadow revision changes");
         atmosphere.release(); glDeleteTextures(1,&lights.shadowTexture); glDeleteBuffers(1,&lights.shadowBuffer);
         std::cout<<"PASS volume cache: stable tracked shadows, actual shadowed scattering, fog-only integration, unknown hooks/revisions, cloud motion, camera/projection and disabled god rays\n"<<std::flush;
+    }
+    void checkCelestialSelection()
+    {
+        Ge::LightManager lights; Ge::Lights sun,moon;
+        sun.shadow=0; moon.shadow=4; moon.index=1; moon.direction={0,-1,0};
+        lights.lights={&sun,&moon}; lights.shadowFrames.resize(8);
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        atmosphere.setSun(&sun); atmosphere.setMoon(&moon);
+        auto& s=atmosphere.settings(); s=smallSettings();
+        s.clouds=true; s.cloudCoverage=1; s.cloudDensity=.01f; s.cloudWeatherStrength=0;
+        s.cloudBaseHeight=1000; s.cloudThickness=3000; s.wind={0,0};
+        s.moonIlluminanceScale=.03f; s.environmentBlendSeconds=0;
+        std::string error;
+        const auto program=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
+        require(program!=0,error);
+        GLuint output=0; glCreateBuffers(1,&output); glNamedBufferData(output,80,nullptr,GL_DYNAMIC_READ);
+        const auto check=[&](bool solar,bool lunar) {
+            atmosphere.prepare(&camera,0); atmosphere.computeVolumes(&camera);
+            const auto atlas=readTexture(textureAt(5,GL_TEXTURE_BINDING_2D),GL_TEXTURE_2D);
+            float minimum[2]={1,1};
+            for(std::size_t i=0;i<atlas.size();i+=4)
+                for(int c=0;c<2;++c) minimum[c]=std::min(minimum[c],atlas[i+c]);
+            require((solar?minimum[0]<.98f:minimum[0]==1.f) &&
+                    (lunar?minimum[1]<.98f:minimum[1]==1.f),"Cloud atlas evaluated the inactive celestial light");
+            atmosphere.bindLighting(program); glUseProgram(program);
+            glBindBufferBase(GL_SHADER_STORAGE_BUFFER,0,output); glDispatchCompute(1,1,1);
+            glMemoryBarrier(GL_BUFFER_UPDATE_BARRIER_BIT);
+            std::array<float,20> values{}; glGetNamedBufferSubData(output,0,80,values.data());
+            require(values[11]==float(solar) && values[15]==float(lunar),"Material selected the wrong celestial light: expected "+std::to_string(solar)+","+std::to_string(lunar)+" got "+std::to_string(values[11])+","+std::to_string(values[15]));
+            for(int c=0;c<3;++c) require((solar || values[8+c]==0) && (lunar || values[12+c]==0),
+                "Inactive celestial source still adds direct material light");
+            for(unsigned layer=0;layer<8;++layer)
+                if(layer>=4 || sun.active) require(atmosphere.shadowLayerActive(layer)==(layer<4?solar:lunar),"CPU/GPU light selection differs");
+            require(atmosphere.shadowLayerActive(8),"Selection disabled an unrelated light's shadow");
+            checkGL("celestial source selection");
+        };
+        check(true,false);
+        sun.direction={-1,-.0001f,0}; check(true,false);
+        sun.direction={-1,0,0}; check(true,false); // horizon belongs to the day
+        sun.direction={-1,.0001f,0}; check(false,true);
+        sun.direction={0,1,0}; check(false,true);
+        moon.direction={0,1,0}; check(false,false); // both below horizon
+        moon.direction={0,-1,0}; sun.active=false; check(false,true);
+        sun.active=true; sun.direction={0,-1,0}; check(true,false);
+        s.enabled=false;
+        require(atmosphere.shadowLayerActive(0) && atmosphere.shadowLayerActive(4),"Disabled atmosphere kept suppressing shadows");
+        atmosphere.release(); glDeleteProgram(program); glDeleteBuffers(1,&output);
+        std::cout<<"PASS celestial selection: one source at noon/horizon/night, cloud channels, PBR, shadow cascades, missing sun, both below, disable\n"<<std::flush;
+    }
+    void checkMoonCloudCache()
+    {
+        Ge::LightManager lights; Ge::Lights sun,moon;
+        sun.direction={0,1,0}; // night: only the moon illuminates the cloud layer
+        moon.index=1; moon.direction={0,-1,0}; lights.lights={&sun,&moon};
+        ptrClass pc; pc.lightManager=&lights; GraphicsDataMisc graphics; Ge::Camera camera;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        atmosphere.setSun(&sun); atmosphere.setMoon(&moon);
+        auto& s=atmosphere.settings(); s=smallSettings();
+        s.clouds=true; s.cloudCoverage=1; s.cloudDensity=.01f; s.cloudWeatherStrength=0;
+        s.cloudBaseHeight=1000; s.cloudThickness=3000; s.cloudScale=1200;
+        s.wind={0,0}; s.aerialDistance=4096; s.environmentBlendSeconds=0;
+        s.moonSurface=false; s.moonIlluminanceScale=0;
+        const auto frame=[&]() {
+            atmosphere.prepare(&camera,0); atmosphere.computeVolumes(&camera);
+            require(atmosphere.active(),"Moon cloud cache fixture inactive: "+atmosphere.error());
+            checkGL("moon cloud cache frame"); return atmosphere.stats();
+        };
+        const auto moonShadow=[&]() {
+            const auto atlas=readTexture(textureAt(5,GL_TEXTURE_BINDING_2D),GL_TEXTURE_2D);
+            float minimum=1;
+            for(std::size_t i=1;i<atlas.size();i+=4) minimum=std::min(minimum,atlas[i]);
+            return minimum;
+        };
+        auto previous=frame();
+        require(moonShadow()>.999f,"Zero-energy moon performed a cloud-shadow integration");
+        auto next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches,
+                "Unchanged lunar cloud state was not cached");
+        s.moonIlluminanceScale=.02f; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Zero-to-positive lunar energy left cloud lighting stale");
+        require(moonShadow()<.98f,"Activated moon reused the clear cloud-shadow channel");
+        previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches,
+                "Stable illuminated moon rebuilt cached cloud lighting");
+        s.moonIlluminanceScale=.03f; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Positive lunar gain change unnecessarily rebuilt cloud visibility or left lighting stale");
+        s.aerialDistance*=1.5f; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Cloud atlas extent changed without rebuilding dependent coefficients");
+        camera.position.x+=1024; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 &&
+                next.cloudVolumeDispatches==previous.cloudVolumeDispatches+1,
+                "Cloud atlas origin changed without rebuilding dependent coefficients");
+        s.moonIlluminanceScale=0; previous=next; next=frame();
+        require(next.cloudShadowDispatches==previous.cloudShadowDispatches+1 && moonShadow()>.999f,
+                "Zero-energy moon retained stale cloud shadow opacity");
+        atmosphere.release();
+        std::cout<<"PASS lunar cloud cache: zero/positive energy, actual shadow channel, stable reuse, atlas extent/origin\n"<<std::flush;
     }
     void checkCloudWind()
     {
@@ -455,15 +705,82 @@ namespace
         const auto transmission=readTexture(textureAt(13,GL_TEXTURE_BINDING_3D),GL_TEXTURE_3D);
         for(float value:transmission) require(value>=0 && value<=1,"Runtime transmittance escaped [0,1]");
     }
+    void checkTexturedMoon()
+    {
+        Ge::LightManager lights; Ge::Lights sun,moon;
+        moon.index=1; moon.direction={0,-1,0}; sun.direction={0,1,0};
+        lights.lights={&sun,&moon}; ptrClass pc; pc.lightManager=&lights;
+        GraphicsDataMisc graphics; Ge::Camera camera; Targets targets;
+        Ge::Atmosphere atmosphere; atmosphere.initialize(&pc,&graphics);
+        auto& s=atmosphere.settings(); s=smallSettings();
+        s.physicalAtmosphere=false; s.moonSurface=true; s.moonAngularRadius=10;
+        s.moonDiskIntensity=1; s.moonIlluminanceScale=1; s.moonNormalStrength=0;
+        s.moonElevation=90; s.moonAzimuth=0; s.environmentBlendSeconds=0;
+        s.iblMaxWorkUnitsPerFrame=64; s.wind={0,0};
+        atmosphere.setSun(&sun); atmosphere.setMoon(&moon);
+        const std::uint8_t pixels[8]={128,255,128,51,128,255,128,51};
+        require(atmosphere.setMoonSurface(pixels,2,1,.2f),"Moon atlas upload rejected");
+        const auto allocated=atmosphere.stats().gpuTextureBytes;
+        require(!atmosphere.setMoonSurface(pixels,9000,1,.2f) && atmosphere.stats().gpuTextureBytes==allocated,
+            "Invalid moon atlas mutated current resources");
+        const auto frame=[&]() { atmosphere.prepare(&camera,0); atmosphere.renderSky(0); checkGL("lunar runtime frame"); };
+        const auto settle=[&]() {
+            for(int i=0;i<100;++i) {
+                frame();
+                if(atmosphere.stats().environmentReady && !atmosphere.stats().environmentCaptureActive &&
+                    atmosphere.stats().publishedEnvironmentRevision==atmosphere.stats().requestedEnvironmentRevision) return;
+            }
+            throw std::runtime_error("Lunar capture failed to settle: "+atmosphere.error());
+        };
+        const auto parameters=[&]() {
+            GLint buffer=0; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING,6,&buffer);
+            std::array<float,168> data{}; glGetNamedBufferSubData(GLuint(buffer),0,sizeof(data),data.data()); return data;
+        };
+        settle(); const auto full=parameters();
+        require(full[9*4]>0 && full[9*4+3]==1,"Textured moon has no phase-driven direct irradiance");
+        const float expected=12.f*s.moonDiskColor.x*.2f*(2.f/3.f)*std::pow(std::sin(glm::radians(10.f)),2.f);
+        require(std::abs(full[9*4]-expected)<1e-5f,"Moon irradiance differs from Lambert sphere integral");
+        const auto cachedSky=atmosphere.stats().skyUpdates;
+        const auto revision=atmosphere.stats().requestedEnvironmentRevision;
+        camera.position.x+=s.movementThreshold*.25f; frame();
+        require(atmosphere.stats().requestedEnvironmentRevision==revision,"Tiny lunar parallax bypassed the IBL movement threshold");
+        camera.position.x=10000; settle(); const auto moved=parameters();
+        require(atmosphere.stats().requestedEnvironmentRevision>revision,"Lunar IBL ignored camera motion with clouds disabled");
+        require(atmosphere.stats().skyUpdates==cachedSky,"Lunar parallax invalidated clear-air LUTs");
+        GLint moonBuffer=0; glGetIntegeri_v(GL_UNIFORM_BUFFER_BINDING,7,&moonBuffer);
+        std::array<float,8> geometry{}; glGetNamedBufferSubData(GLuint(moonBuffer),0,sizeof(geometry),geometry.data());
+        require(std::abs(geometry[0]+10000.f)<.01f,"Moon follows the camera instead of its finite world position");
+        require(full[9*4]==moved[9*4],"Directional moon illumination follows camera translation");
+        sun.direction={-1,0,0}; settle(); const auto quarter=parameters();
+        require(std::abs(quarter[9*4]/full[9*4]-1.f/3.14159265f)<1e-4f,"Incorrect quarter-moon phase");
+        sun.direction=moon.direction; settle(); const auto dark=parameters();
+        require(dark[9*4]<1e-7f,"New moon lights the terrain");
+        sun.direction={0,1,0}; atmosphere.setMoon(nullptr); lights.lights={&sun}; settle();
+        require(parameters()[9*4+3]==2,"Unassigned moon should use diffuse IBL without a new light");
+        s.iblMaxWorkUnitsPerFrame=1; s.moonRotation=45; frame();
+        require(atmosphere.stats().environmentCaptureActive,"Expected a pending lunar capture");
+        const auto cancelled=atmosphere.stats().environmentCapturesCancelled;
+        require(atmosphere.setMoonSurface(pixels,2,1,.2f),"Atlas replacement failed");
+        require(atmosphere.stats().environmentCapturesCancelled==cancelled+1,"Atlas replacement mixed capture epochs");
+        s.iblMaxWorkUnitsPerFrame=64; settle();
+        s.moonSurface=false; settle(); atmosphere.release();
+        require(atmosphere.stats().gpuTextureBytes==0,"Lunar surface/reflection resources leaked");
+        std::cout<<"PASS textured moon runtime: upload bounds, phase irradiance, finite parallax, stable LUTs, optional source, immutable captures, toggle/release\n"<<std::flush;
+    }
     void run(const std::filesystem::path& root)
     {
         std::filesystem::current_path(root/"ENDURANCE");
         checkSettings();
+        checkTexturedMoon();
+        checkParameterStreaming();
+        checkShaderVariants();
         checkInitialPalette(true,.3f);
         checkInitialPalette(false,.3f);
         checkInitialPalette(true,0);
         checkCloudWind();
         checkVolumeCache();
+        checkMoonCloudCache();
+        checkCelestialSelection();
         std::string error;
         const GLuint material=Ge::buildShaderProgram({{GL_COMPUTE_SHADER,"../Tests/Atmosphere/runtime_probe.C.glsl",{}}},error);
         require(material!=0,error);
@@ -588,6 +905,10 @@ namespace
         frame(.1);
         require(!atmosphere.error().empty() && textureAt(6,GL_TEXTURE_BINDING_CUBE_MAP)==validIrradiance,
                 "Invalid hook discarded the previously complete environment");
+        const auto failedBuilds=atmosphere.stats().programVariantBuilds;
+        frame(.1); frame(.1);
+        require(atmosphere.stats().programVariantBuilds==failedBuilds,
+                "Invalid shader reload was recompiled every frame");
         atmosphere.setRadianceShader(""); settle();
         require(atmosphere.error().empty(),"Valid shader reload did not recover from an invalid hook");
         std::cout<<"PASS runtime radiance hook: same correction in IBL/aerial scattering, complete-state retention on failure and reload recovery\n"<<std::flush;

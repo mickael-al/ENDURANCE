@@ -282,6 +282,14 @@ namespace
             if (node.lod >= config.maxLod) return 0;
             const auto size = static_cast<std::int64_t>(config.cells) << node.lod;
             const auto coarseSize = size * 2;
+            // An uncovered face can already carry its destination transition.
+            // Fine-first initial fills otherwise emit the same terrain twice:
+            // once without the strip, then again when its coarse neighbour is
+            // published. Existing exterior bits are harmless too (retirement
+            // already preserves them); only a real neighbour constrains them.
+            auto exterior = node.transitionMask;
+            const auto target = desiredIndex.find(spatialKey(node));
+            if (target != desiredIndex.end()) exterior |= desired[target->second].transitionMask;
             std::uint32_t result = 0;
             for (unsigned face = 0; face < 6; ++face)
             {
@@ -294,7 +302,32 @@ namespace
                     if (origin < INT32_MIN || origin > INT32_MAX) { representable = false; break; }
                     neighbor.origin[axis] = static_cast<std::int32_t>(origin);
                 }
-                if (representable && nextIndex.count(neighbor)) result |= 1u << face;
+                if (representable && nextIndex.count(neighbor)) { result |= 1u << face; continue; }
+                if ((exterior & (1u << face)) == 0) continue;
+                // The transaction keeps a face-balanced octree. Across a face
+                // we can therefore see one same-size leaf or up to four leaves
+                // one level finer. Missing coverage is not a same-level leaf.
+                bool occupied = false;
+                for (unsigned level = 0; level < (node.lod ? 2u : 1u) && !occupied; ++level)
+                {
+                    const auto span = size >> level;
+                    const unsigned tiles = level ? 4u : 1u;
+                    for (unsigned tile = 0; tile < tiles && !occupied; ++tile)
+                    {
+                        Key adjacent{{},node.lod-level,0};
+                        bool valid = true; unsigned tileAxis = 0;
+                        for (unsigned axis = 0; axis < 3; ++axis)
+                        {
+                            const auto offset = axis == face / 2 ? ((face & 1u) ? size : -span)
+                                : static_cast<std::int64_t>((tile >> tileAxis++) & 1u) * (level ? span : 0);
+                            const auto coordinate = static_cast<std::int64_t>(node.origin[axis]) + offset;
+                            if (coordinate < INT32_MIN || coordinate > INT32_MAX) { valid = false; break; }
+                            adjacent.origin[axis] = static_cast<std::int32_t>(coordinate);
+                        }
+                        occupied = valid && nextIndex.count(adjacent);
+                    }
+                }
+                if (!occupied) result |= 1u << face;
             }
             return result;
         }
@@ -400,7 +433,7 @@ namespace
             // fills over larger compatible groups. edit() still caps all new
             // and affected neighbour meshes at 32 and shrinks a dense frontier.
             // Never skip a higher-priority hole requiring a balance split.
-            const std::size_t limit=previous.empty()?4u:16u;
+            const std::size_t limit=previous.empty()?4u:32u;
             std::vector<LodChunk> added;
             std::vector<Box> changed;
             for (const auto& node : holes)

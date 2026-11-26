@@ -3,7 +3,15 @@
 layout(local_size_x=8,local_size_y=8,local_size_z=1) in;
 layout(binding=0) uniform samplerCube geFilterSource;
 layout(rgba16f,binding=0) writeonly uniform imageCube geFilterOutput;
-uniform int geFilterMode; // 0 cosine convolution E/pi; 1 importance sampled GGX
+#ifndef GE_FILTER_MODE
+#define GE_FILTER_MODE -1
+#endif
+#if GE_FILTER_MODE < 0
+uniform int geFilterMode; // Generic reference/integration callers only.
+#define GE_FILTER_GGX (geFilterMode == 1)
+#else
+#define GE_FILTER_GGX (GE_FILTER_MODE == 1)
+#endif
 uniform int geFilterSamples;
 uniform float geFilterRoughness;
 uniform ivec3 geDispatchOffset;
@@ -14,7 +22,7 @@ void main()
     ivec2 size=imageSize(geFilterOutput);
     if(any(greaterThanEqual(p.xy,size))||p.z>=6) return;
     vec3 n=geCubeDirection(p,size);
-    if(geFilterMode==1 && geFilterRoughness<0.0001)
+    if(GE_FILTER_GGX && geFilterRoughness<0.0001)
     {
         imageStore(geFilterOutput,p,vec4(textureLod(geFilterSource,n,0).rgb,1));
         return;
@@ -26,7 +34,10 @@ void main()
     for(uint i=0u;i<count;++i)
     {
         vec2 xi=geHammersley(i,count);
-        if(geFilterMode==0)
+#if GE_FILTER_MODE != 1
+#if GE_FILTER_MODE < 0
+        if(!GE_FILTER_GGX)
+#endif
         {
             float phi=2.0*GE_FILTER_PI*xi.x;
             float r=sqrt(xi.y);
@@ -35,7 +46,11 @@ void main()
             sum+=textureLod(geFilterSource,l,max(0.0,0.5*log2(6.0*resolution*resolution/float(count)))).rgb;
             weight+=1.0;
         }
+#endif
+#if GE_FILTER_MODE != 0
+#if GE_FILTER_MODE < 0
         else
+#endif
         {
             vec3 h=geImportanceGGX(xi,n,geFilterRoughness);
             vec3 l=normalize(2.0*dot(n,h)*h-n);
@@ -52,6 +67,7 @@ void main()
                 weight+=nl;
             }
         }
+#endif
     }
     imageStore(geFilterOutput,p,vec4(sum/max(weight,0.0001),1));
 }

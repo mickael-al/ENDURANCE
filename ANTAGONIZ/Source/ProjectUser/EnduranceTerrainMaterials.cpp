@@ -1,4 +1,6 @@
 #include "EnduranceTerrainMaterials.hpp"
+#include <algorithm>
+#include <string>
 #include <array>
 #include <cmath>
 #include <cstdint>
@@ -67,9 +69,9 @@ namespace
              {{"Neige soufflee", "Glace affleurante", "Glace profonde", "Veines de givre"}},
              biome(
                 surface(material(0xC6D3D5,0xD5DEDC,0xE8ECE4, {{.87f,.89f,.92f,.55f}}, {{0.8f,0.f,0.f,0.2f}}, 0.95f,1.060f,.025f),
-                        material(0x7498A4,0x8DADB5,0xA9C3C8, {{.27f,.34f,.42f,.30f}}, {{0.85f,0.1f,0.05f,0.f}}, 0.95f,1.067f,.015f),
+                        material(0x7498A4,0x8DADB5,0xA9C3C8, {{.27f,.34f,.42f,.30f}}, {{0.85f,0.1f,0.05f,0.f}}, 0.95f,1.067f,0.0f),
                         {{0.7f,0.18f,0.97f,0.03f}}, {{48.f,2.6f,0.38f,1.1f}}),
-                surface(material(0x526F84,0x65869A,0x7C9AAA, {{.30f,.37f,.47f,.55f}}, {{0.65f,0.15f,0.2f,0.f}}, 0.82f,1.095f,.02f),
+                surface(material(0x526F84,0x65869A,0x7C9AAA, {{.04f,.04f,.04f,.55f}}, {{0.65f,0.15f,0.2f,0.f}}, 0.82f,1.095f,0.0f),
                         material(0x9FBFC5,0xB4CFD1,0xCDDDD9, {{.54f,.64f,.77f,.45f}}, {{0.6f,0.1f,0.3f,0.f}}, 0.82f,1.109f,.02f),
                         {{0.705f,0.16f,0.6f,0.4f}}, {{115.f,3.f,0.22f,55.2f}}), {{.20f,.58f,.09f,.9f}})},
             // 1 FrozenTundra: cold mineral massifs, warm glacial sediment in gaps.
@@ -386,7 +388,37 @@ ProceduralTerrain::TerrainAppearance makeTerrainAppearance()
         appearance.biomes[i].wall.normal = profiles[i].wallNormal;
         appearance.biomes[i].spectrum = profiles[i].spectrum;
     }
+    configureTerrainFineMaterials(appearance);
     return appearance;
+}
+
+void configureTerrainFineMaterials(ProceduralTerrain::TerrainAppearance& appearance)
+{
+    for (std::size_t id = 0; id < appearance.biomes.size(); ++id)
+    {
+        auto& b = appearance.biomes[id];
+        ProceduralTerrain::TerrainMaterial* materials[] = {&b.ground.base, &b.ground.accent, &b.wall.base, &b.wall.accent};
+        for (unsigned slot = 0; slot < 4; ++slot)
+        {
+            auto& m = *materials[slot];
+            // Palette values are linear reflectance, independent of the sun,
+            // exposure or fog. Resolve the default classification on the CPU.
+            const float r = m.colorMid[0], g = m.colorMid[1], blue = m.colorMid[2];
+            const float high = (std::max)(r, (std::max)(g, blue));
+            const float low = (std::min)(r, (std::min)(g, blue));
+            const bool pale = high >= 0.55f && low >= high * 0.68f;
+            const bool green = !pale && g > r*1.035f && g > blue*0.98f;
+            const bool snow = id < 10 && pale;
+            const bool sand = std::string(terrainMaterialLabel(id,slot >= 2,slot%2 != 0)).find("Sable") != std::string::npos;
+            b.stainRouting[slot] = green ? 1.f : 0.f;
+            // White/frost and sand may be primary OR secondary, ground OR wall.
+            // Snow/sand keep their granular response without discrete FBM spots.
+            // Other materials retain stains at their independently selected scale.
+            m.fineSurface = {{snow ? 0.95f : sand ? 0.90f : 0.f,
+                snow ? 0.12f : sand ? 0.15f : 0.16f,
+                snow || sand ? 0.f : 0.10f, snow || sand ? 0.f : 0.06f}};
+        }
+    }
 }
 
 const char* terrainMaterialIntent(std::size_t biome) noexcept

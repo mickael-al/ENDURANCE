@@ -96,6 +96,50 @@ radius, failure preserving the previous selection, and the demo's chunk budget.
 
 ## Frustum culling and incremental LOD publication
 
+The initial-fill workload comparison runs the real selector and transaction
+planner until complete convergence. It compares the final origins, LODs and
+transition masks byte for byte, and counts repeated mesh requests independently
+of CPU planning time. It does not simulate GPU execution or report game FPS.
+
+```sh
+python Tests/Terrain/benchmark_streaming.py --reference-ref b4ca0a1 \
+  --runs 5 --output /tmp/terrain-streaming-comparison.json
+python Tests/Terrain/check_scheduler.py --reference-ref b4ca0a1 \
+  --output /tmp/terrain-scheduler-comparison.json
+```
+
+The 4,096-m fixture requests 1,189 meshes instead of 2,453; the 40,096-m saved
+scene settings request 2,665 instead of 4,229, with identical final coverage.
+Destination transition strips on uncovered faces avoid regenerating fine
+chunks when their coarse neighbours arrive. The six-face regression below
+also validates each intermediate publication. The first fill remains four
+chunks; subsequent compatible fills use up to 32, within the existing hard
+transaction cap and unchanged per-frame/in-flight GPU budgets.
+
+Queue throughput also depends on frame cadence, independently of GPU speed.
+With the saved `maxInFlight=3`, 2,665 jobs and one poll per frame, even a
+single-stage instant GPU needs at least 889 frames: 14.8 seconds at 60 FPS or
+22.2 seconds at 40 FPS. Nonempty terrain has count and emission fences; if each
+stage waits for the next frame's poll, that approaches 1,778 frames (29.6/44.5
+seconds), before planning, publication and real GPU work. These are analytical
+limits for that scheduling model, not GTX 1660 / 6-GB measurements.
+
+The scheduler now allows one additional nonblocking poll/refill per update.
+An already-completed count can start emission immediately; empty jobs can free
+slots without waiting another frame. Both passes share `maxChunksPerFrame`,
+`maxInFlight` and the four-step publication budget. Two polls/dispatches are the
+hard maximum: this is neither a busy wait nor an unbounded submission loop.
+Use `check_scheduler.py --instant-gpu` for separate count/emit fence stages with
+immediately available results, alongside the normal six-update latency fixture.
+Increasing queue depth still requires measuring GPU time, transient memory and
+frame cost on the target card; it is not automatically a performance gain.
+
+`Stats.coverageComplete` distinguishes full rendered coverage (including empty
+chunks) from a drained but failed generation. `Stats.generationBlocked` reports
+that failure/capacity stop; collision capacity remains part of `resourceLimited`.
+The scheduler fixture checks completion, injected failure, recovery, moving
+cameras, preserved seams and submission budgets using a controlled GPU backend.
+
 ```sh
 c++ -std=c++17 -O3 -ffast-math \
   -I ANTAGONIZ/Header/Miscellaneous -I ThirdParty/glm \
@@ -103,7 +147,7 @@ c++ -std=c++17 -O3 -ffast-math \
 /tmp/endurance-check-frustum
 
 c++ -std=c++17 -O3 -ffast-math \
-  -I ANTAGONIZ/Header/Miscellaneous -I ThirdParty/glm \
+  -I ANTAGONIZ/Header/Miscellaneous -I ANTAGONIZ/Header/Interface -I ThirdParty/glm \
   Tests/Terrain/check_visibility.cpp -o /tmp/endurance-check-visibility
 /tmp/endurance-check-visibility
 
@@ -901,3 +945,28 @@ to the reference. Pass `--previous-shaders` with the primitive-based cave versio
 in the local before/after figure. The network figure shows actual horizontal
 and vertical cuts through a measured chamber without vertical exaggeration.
 See [controls and implementation](../../docs/TUNDRA_CAVES.md).
+
+Shadow visibility now has a per-layer content token derived from the exact
+selected immutable mesh handles. A publication outside that layer or a different
+publication order does not invalidate its depth map. Slot reuse, changed vertex
+ranges, empty transitions and generator lifetimes do invalidate it. The query
+and draw share the same selection, so querying the token does not duplicate
+frustum work. `check_visibility.cpp` exercises these transitions.
+
+Terrain inspection views (`DEBUG_TERRAIN_LOD`, `DEBUG_TERRAIN_MATERIAL`) and
+microdetail disabled/enabled use lazy compiled variants. At most eight terrain
+render variants remain resident per generator; source defines also enter the
+existing disk binary-cache key. No terrain is regenerated when toggling a view,
+and compilation/ABI failure retains the prior displayed appearance. Numeric
+palette and noise sliders remain uniforms. A forced biome is specialized for
+the lifetime of the terrain generator, while normal climate/coastal blending
+remains per fragment. `Tests/TerrainMaterials/check_runtime.py` verifies bounded
+cache lifetime, failed-build rollback and complete uniform restoration when
+reactivating cached programs. The actual GLSL comparison command is
+`python Tests/TerrainMaterials/check_revision_equivalence.py --baseline-ref 16bb573 --bounds --normal-epsilon 0.0002`.
+On Mesa llvmpipe it checks 914 cases against the previous implementation: color
+and signed depth/tags are bit-identical, PBR error is at most 2.39e-7, and normal
+reassociation from specialization reaches 1.72e-4 per component / 0.01586 degrees
+at extreme valid material settings. Only the normal attachment uses the explicit
+2e-4 tolerance; other attachments retain the 2e-6 default. The independent
+material suite also checks normal length, continuity and authored PBR bounds.

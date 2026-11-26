@@ -3,7 +3,11 @@
 
 #include "Initializer.hpp"
 #include "ModulePP.hpp"
+#include "EnvironmentScreenEffects.hpp"
 #include <vector>
+
+// Oil painting preview is parked. Uncomment to restore its editor/render integration.
+// #define GE_ENABLE_OIL_PAINTING
 
 namespace Ge
 {
@@ -11,11 +15,21 @@ namespace Ge
 	class Bloom;
 	class DepthOfField;
 	class ColorTint;
+#ifdef GE_ENABLE_OIL_PAINTING
+	class OilPainting;
+#endif
 	class PostProcess final : public InitializerAPI
 	{
 	public:
 		PPSetting* getPPSetting();
 		void setAtmosphereActive(bool active) { m_atmosphereActive = active; }
+        // Called by the game on the render thread. Zero state removes this pass.
+        void setEnvironmentEffects(const EnvironmentScreenState& state)
+        {
+            m_environmentState = state;
+            if (m_environmentEffects) m_environmentEffects->setState(state);
+        }
+        void clearEnvironmentEffects() { setEnvironmentEffects({}); }
 		void onGui(PPSetting*target);
 		std::vector<ModulePP*> & getModules();
 		void addExternalModule(ModulePP * modulePP);
@@ -29,7 +43,7 @@ namespace Ge
 		friend class Window;
 		void resize(int width, int height);
 	private:
-		bool ensurePostTargets(int width, int height);
+		bool ensurePostTargets(int width, int height, unsigned requiredCount);
 		bool m_atmosphereActive = false;
 		GraphicsDataMisc* m_gdm = nullptr;
 		std::vector<ModulePP*> m_modules;
@@ -38,10 +52,16 @@ namespace Ge
 		Bloom* m_bloom = nullptr;
 		DepthOfField* m_depthOfField = nullptr;
 		ColorTint* m_colorTint = nullptr;
+        EnvironmentScreenEffects* m_environmentEffects = nullptr;
+        EnvironmentScreenState m_environmentState{};
+#ifdef GE_ENABLE_OIL_PAINTING
+		OilPainting* m_oilPainting = nullptr;
+#endif
 		unsigned int m_postFrameBuffers[2] = {};
 		unsigned int m_postTextures[2] = {};
 		int m_postWidth = 0;
 		int m_postHeight = 0;
+		unsigned m_postTargetCount = 0;
 		bool m_postTargetsComplete = false;
 	};
 }

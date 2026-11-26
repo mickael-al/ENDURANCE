@@ -1,11 +1,13 @@
 #include "glcore.hpp"
 #include "Atmosphere.hpp"
+#include "MoonMeshCache.hpp"
 #include "Camera.hpp"
 #include "LightManager.hpp"
 #include "Lights.hpp"
 #include "PointeurClass.hpp"
 #include "GraphicsDataMisc.hpp"
 #include "ShaderCompilation.hpp"
+#include "ShaderBinaryCache.hpp"
 #include "Debug.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -15,6 +17,7 @@
 #include <cstring>
 #include <filesystem>
 #include <limits>
+#include <sstream>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -38,6 +41,13 @@ namespace
     };
     static_assert(sizeof(AtmosphereGpuParameters)==672,"Atmosphere std140 layout drift");
     static_assert(offsetof(AtmosphereGpuParameters,invView)==480,"Atmosphere std140 matrix offset");
+    struct alignas(16) MoonGpuParameters
+    {
+        glm::vec4 centerRadius{}; // camera-relative centre XYZ, physical radius
+        glm::vec4 surface{}; // rotation cosine/sine, normal strength, atlas present
+        glm::vec4 meshRight{},meshUp{},meshForward{}; // frozen perspective-cache projection
+    };
+    static_assert(sizeof(MoonGpuParameters)==80,"Moon std140 layout drift");
 
     struct Budget
     {
@@ -112,7 +122,6 @@ namespace
         glDispatchCompute((x+gx-1)/gx,(y+gy-1)/gy,(z+gz-1)/gz);
         glMemoryBarrier(GL_SHADER_IMAGE_ACCESS_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT|GL_TEXTURE_UPDATE_BARRIER_BIT);
     }
-    GLint location(GLuint program,const char* name) { return glGetUniformLocation(program,name); }
     void stripVersion(std::string& text)
     {
         const auto start=text.find("#version");
@@ -120,7 +129,7 @@ namespace
     }
 
     enum Program { Transmittance,MultipleScattering,SkyView,Aerial,CloudVolume,Volume,
-        CloudNoise,CloudShadow,VisibleClouds,Environment,Filter,Blend,Brdf,SkyDraw,ProgramCount };
+        CloudNoise,CloudShadow,VisibleClouds,Environment,FilterDiffuse,FilterGgx,Blend,Brdf,SkyDraw,ProgramCount };
     enum Timing { SkyTime,LutTime,IblTime,AerialTime,FogTime,CloudTime,TimingCount };
     enum WorkKind { SnapshotWork,CaptureSkyWork,CaptureTileWork,MipsWork,DiffuseTileWork,GgxTileWork,PublishWork,WorkKindCount };
     struct WorkItem { WorkKind kind; int x=0,y=0,face=0,level=0,size=0; };
@@ -139,13 +148,20 @@ namespace
         bool active=false;
         Budget budget;
         AtmosphereGpuParameters parameters{};
+        MoonGpuParameters moonParameters{};
         AtmospherePalette palette;
         EnvironmentSet output;
         GLuint uniforms=0,transmittance=0,multiple=0,sky=0,noise=0,shadow=0,lighting=0,external=0;
+        GLuint moonUniforms=0,reflection=0,moonImage=0;
+        bool texturedMoon=false,meshMoon=false;
+        std::uint64_t moonImageRevision=0;
         std::uint64_t revision=0;
         int tile=32;
         unsigned cursor=0;
         std::vector<WorkItem> work;
+        // The frozen capture owns a view of its feature programs as well as
+        // textures/parameters. Live feature changes must not alter later tiles.
+        std::array<GLuint,4> programs{}; // SkyView, Environment, diffuse, GGX.
     };
     struct TextureAllocation
     {
@@ -185,10 +201,30 @@ struct Atmosphere::Impl
     Budget budget;
     AtmosphereGpuParameters gpu{},previous{},lastVolumeParameters{},lastAerialParameters{},lastCloudVolumeParameters{};
     AtmosphereGpuParameters lastCloudShadowParameters{},lastVisibleCloudParameters{};
+    AtmosphereGpuParameters uploadedParameters{};
+    bool parametersUploaded=false;
     std::uint64_t lastVolumeShadowRevision=0;
     bool cloudShadowValid=false;
     std::array<GLuint,ProgramCount> programs{};
+    struct ProgramVariant { Program slot; unsigned key; GLuint id; std::uint64_t used; };
+    std::vector<ProgramVariant> programVariants;
+    std::unique_ptr<ShaderSourceSnapshot> sourceSnapshot;
+    std::unordered_map<GLuint,std::unordered_map<std::string,GLint>> ownedLocations;
+    std::uint64_t variantClock=0;
+    unsigned compiledFeatures=~0u,requestedFeatures=~0u;
+    struct LightingLocations
+    {
+        std::uint64_t revision=0;
+        std::array<GLint,8> values{};
+        bool complete=false;
+    };
+    std::unordered_map<GLuint,LightingLocations> lightingLocations;
     GLuint parameters=0,vao=0;
+    GLuint moonParameters=0,moonSurface=0;
+    MoonGpuParameters moonGpu{};
+    float moonMeanAlbedo=0.20f,moonSurfaceMeanAlbedo=0.20f;
+    MoonMeshCache moonMesh;
+    std::uint64_t moonImageRevision=1;
     GLuint transmittance=0,multiple=0,skyView=0,noise=0,cloudShadow=0,visibleClouds=0;
     // All coefficients remain FP32. Source alpha carries extinction R (physical)
     // or the scalar extinction (clouds); physicalExtinction stores the G/B pair.
@@ -208,8 +244,38 @@ struct Atmosphere::Impl
     double foregroundMilliseconds=0.0;
     std::uint64_t foregroundFrame=0;
 
-    GLuint compile(const std::string& file,GLenum stage,const std::string& defines={},
-        const std::string& vertex={})
+    unsigned featureBits() const
+    {
+        return (config.physicalAtmosphere?1u:0u) | (config.localFog?2u:0u)
+            | (config.clouds?4u:0u) | (config.godRays?8u:0u) | (config.moonSurface?16u:0u)
+            | (config.moonSurface && moonMesh.valid()?32u:0u);
+    }
+    static unsigned featureMask(Program program)
+    {
+        switch(program)
+        {
+        case SkyView: return 1u;
+        case Aerial: case CloudVolume: return 1u|4u|8u;
+        case Volume: return 15u;
+        case CloudShadow: return 4u;
+        case VisibleClouds: return 1u|4u;
+        case Environment: case SkyDraw: return 1u|4u|16u|32u;
+        default: return 0u;
+        }
+    }
+    static std::string featureDefines(Program program,unsigned key)
+    {
+        // Transmittance/MS are submitted only for the physical atmosphere.
+        if(program==Transmittance || program==MultipleScattering) key=1;
+        std::string result;
+        const char* names[]={"GE_ATM_PHYSICAL","GE_ATM_LOCAL_FOG","GE_ATM_CLOUDS","GE_ATM_TERRAIN_SHADOWS","GE_ATM_MOON_SURFACE","GE_ATM_MOON_MESH"};
+        for(unsigned bit=0;bit<6;++bit)
+            result+="\n#define "+std::string(names[bit])+" "+std::to_string((key>>bit)&1u)+"\n";
+        return result;
+    }
+    GLuint compile(const std::string& file,GLenum stage,const std::string& defines,
+        const std::string& vertex,ShaderSourceSnapshot& snapshot,
+        const detail::ShaderBinaryEnvironment& environment)
     {
         const std::string path="../Asset/Shader/Atmosphere/"+file;
         const bool addFog=file=="volume.C.glsl" && !gameFogPath.empty();
@@ -219,75 +285,70 @@ struct Atmosphere::Impl
         if(addRadiance) actual+="\n#define GE_CUSTOM_RADIANCE 1\n";
         std::vector<ShaderFile> stages{{stage,path,actual}};
         if(!vertex.empty()) stages.push_back({GL_VERTEX_SHADER,"../Asset/Shader/Atmosphere/"+vertex,{}});
-        if(!addFog && !addRadiance)
-            return buildShaderProgram(stages,failure,"Atmosphere "+file,ShaderCacheOptions{true,{}});
-        // Runtime game hooks are compiled into the same source snapshot. They
-        // may include arbitrary game-owned textures; engine code knows no biome.
-        GLuint program=glCreateProgram();
-        std::vector<GLuint> shaders;
-        bool okay=true;
+        std::vector<ShaderSource> sources;
         for(const auto& entry:stages)
         {
             ShaderSource source;
-            if(!loadShaderSource(entry.filename,entry.defines,source,failure,"450 core")) { okay=false; break; }
+            if(!loadShaderSource(entry.filename,entry.defines,source,failure,"450 core",&snapshot)) return 0;
             for(const std::string& hook:{addFog?gameFogPath:std::string{},addRadiance?radiancePath:std::string{}})
             {
                 if(hook.empty() || entry.stage==GL_VERTEX_SHADER) continue;
                 ShaderSource extra;
-                if(!loadShaderSource(hook,{},extra,failure,"450 core")) { okay=false; break; }
+                if(!loadShaderSource(hook,{},extra,failure,"450 core",&snapshot)) return 0;
                 stripVersion(extra.text);
-                source.text+="\n"+extra.text;
+                const auto base=source.files.size();
+                // Appended game includes retain distinct diagnostic source IDs.
+                std::istringstream lines(extra.text); std::string line;
+                source.text+='\n';
+                while(std::getline(lines,line))
+                {
+                    int number=0,id=0;
+                    if(line.compare(0,6,"#line ")==0)
+                    {
+                        std::istringstream directive(line.substr(6));
+                        if(directive>>number>>id) line="#line "+std::to_string(number)+" "+std::to_string(base+id);
+                    }
+                    source.text+=line+'\n';
+                }
+                source.files.insert(source.files.end(),extra.files.begin(),extra.files.end());
             }
-            if(!okay) break;
-            GLuint shader=glCreateShader(entry.stage);
-            shaders.push_back(shader);
-            const char* sourcePointer=source.text.c_str();
-            glShaderSource(shader,1,&sourcePointer,nullptr);
-            glCompileShader(shader);
-            GLint success=0; glGetShaderiv(shader,GL_COMPILE_STATUS,&success);
-            if(!success)
-            {
-                GLint size=0; glGetShaderiv(shader,GL_INFO_LOG_LENGTH,&size);
-                std::string log(static_cast<std::size_t>(std::max(size,1)),0);
-                glGetShaderInfoLog(shader,size,nullptr,log.data());
-                failure=file+": "+log; okay=false; break;
-            }
-            glAttachShader(program,shader);
+            sources.push_back(std::move(source));
         }
-        if(okay)
-        {
-            glLinkProgram(program);
-            GLint success=0; glGetProgramiv(program,GL_LINK_STATUS,&success);
-            if(!success)
-            {
-                GLint size=0; glGetProgramiv(program,GL_INFO_LOG_LENGTH,&size);
-                std::string log(static_cast<std::size_t>(std::max(size,1)),0);
-                glGetProgramInfoLog(program,size,nullptr,log.data());
-                failure=file+": "+log; okay=false;
-            }
-        }
-        for(GLuint shader:shaders) glDeleteShader(shader);
-        if(!okay) { glDeleteProgram(program); return 0; }
-        return program;
+        // Hooks, defines, dependencies and the driver all participate in the
+        // binary identity. A single source snapshot serves the complete set.
+        const std::string label="Atmosphere "+file;
+        detail::ShaderBinaryCache cache(stages,sources,ShaderCacheOptions{true,{}},label,&environment);
+        if(const GLuint cached=cache.load()) return cached;
+        return detail::buildPreparedShaderProgram(stages,sources,failure,label,cache);
     }
-
     void releasePrograms()
     {
-        for(auto& program:programs) { if(program) glDeleteProgram(program); program=0; }
+        for(const auto& entry:programVariants) glDeleteProgram(entry.id);
+        programVariants.clear(); programs={}; ownedLocations.clear(); sourceSnapshot.reset();
+        compiledFeatures=requestedFeatures=~0u; statistics.residentProgramVariants=0;
     }
-    bool buildPrograms()
+    bool buildPrograms(unsigned features,bool reload)
     {
         std::array<GLuint,ProgramCount> next{};
+        std::vector<ProgramVariant> added;
         std::string errors;
-        const auto build=[&](const std::string& file,GLenum stage,const std::string& defines=std::string{},const std::string& vertex=std::string{})
+        auto fresh=reload || !sourceSnapshot?std::make_unique<ShaderSourceSnapshot>():nullptr;
+        auto& snapshot=fresh?*fresh:*sourceSnapshot;
+        detail::ShaderBinaryEnvironment environment(true);
+        const auto build=[&](Program slot,const std::string& file,GLenum stage,
+            const std::string& defines=std::string{},const std::string& vertex=std::string{})
         {
-            const GLuint result=compile(file,stage,defines,vertex);
+            const unsigned key=features&featureMask(slot);
+            if(!reload) for(auto& entry:programVariants)
+                if(entry.slot==slot && entry.key==key)
+                { entry.used=++variantClock; ++statistics.programVariantHits; return entry.id; }
+            const GLuint result=compile(file,stage,featureDefines(slot,key)+defines,vertex,snapshot,environment);
             if(!result) errors+=file+": "+failure+"\n";
+            else { added.push_back({slot,key,result,++variantClock}); ++statistics.programVariantBuilds; }
             return result;
         };
         // A source-only stage-2 checkout remains a functional gradient sky.
-        // Adding the physical stages enables them without changing the game API.
-        bool physical=std::filesystem::exists("../Asset/Shader/Atmosphere/volume.C.glsl");
+        const bool physical=std::filesystem::exists("../Asset/Shader/Atmosphere/volume.C.glsl");
         if(physical)
         {
             const std::array<std::pair<Program,const char*>,9> jobs{{
@@ -295,25 +356,57 @@ struct Atmosphere::Impl
                 {SkyView,"skyview.C.glsl"},{Aerial,"aerial.C.glsl"},{CloudVolume,"cloud_volume.C.glsl"},
                 {Volume,"volume.C.glsl"},{CloudNoise,"cloud_noise.C.glsl"},{CloudShadow,"cloud_shadow.C.glsl"},
                 {VisibleClouds,"visible_clouds.C.glsl"}}};
-            for(const auto& job:jobs) next[job.first]=build(job.second,GL_COMPUTE_SHADER);
+            for(const auto& job:jobs) next[job.first]=build(job.first,job.second,GL_COMPUTE_SHADER);
         }
-        next[Environment]=build("environment.C.glsl",GL_COMPUTE_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"");
-        next[Filter]=build("filter.C.glsl",GL_COMPUTE_SHADER);
-        next[Blend]=build("blend.C.glsl",GL_COMPUTE_SHADER);
-        next[Brdf]=build("brdf.C.glsl",GL_COMPUTE_SHADER);
-        next[SkyDraw]=build("sky.fs.glsl",GL_FRAGMENT_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"","sky.vs.glsl");
+        next[Environment]=build(Environment,"environment.C.glsl",GL_COMPUTE_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"");
+        next[FilterDiffuse]=build(FilterDiffuse,"filter.C.glsl",GL_COMPUTE_SHADER,"#define GE_FILTER_MODE 0\n");
+        next[FilterGgx]=build(FilterGgx,"filter.C.glsl",GL_COMPUTE_SHADER,"#define GE_FILTER_MODE 1\n");
+        next[Blend]=build(Blend,"blend.C.glsl",GL_COMPUTE_SHADER);
+        next[Brdf]=build(Brdf,"brdf.C.glsl",GL_COMPUTE_SHADER);
+        next[SkyDraw]=build(SkyDraw,"sky.fs.glsl",GL_FRAGMENT_SHADER,physical?"#define GE_PHYSICAL_SKY 1":"","sky.vs.glsl");
         bool success=true;
         for(std::size_t i=physical?0:Environment;i<next.size();++i) success=success && next[i]!=0;
         if(!success)
         {
-            for(GLuint p:next) if(p) glDeleteProgram(p);
-            failure=errors;
-            return false;
+            for(const auto& entry:added) glDeleteProgram(entry.id);
+            failure=errors; return false;
         }
-        releasePrograms(); programs=next; physicalPrograms=physical; failure.clear();
-        programsDirty=false; volumesReady=false; cloudShadowValid=false; visibleCloudValid=false;
-        physicalDirty=multipleDirty=skyDirty=noiseDirty=dirty=true;
+        if(reload) releasePrograms();
+        if(fresh) sourceSnapshot=std::move(fresh);
+        programVariants.insert(programVariants.end(),added.begin(),added.end());
+        programs=next; compiledFeatures=requestedFeatures=features; physicalPrograms=physical;
+        // At most 40 linked programs, including 15 active stages and the four
+        // frozen capture stages. Unfinished captures pin their own variants
+        // through feature changes, preventing mixed six-face lighting.
+        while(programVariants.size()>40)
+        {
+            auto victim=programVariants.end();
+            for(auto it=programVariants.begin();it!=programVariants.end();++it)
+                if(std::find(programs.begin(),programs.end(),it->id)==programs.end() &&
+                    (!capture.active || std::find(capture.programs.begin(),capture.programs.end(),it->id)==capture.programs.end()) &&
+                    (victim==programVariants.end() || it->used<victim->used)) victim=it;
+            if(victim==programVariants.end()) break;
+            ownedLocations.erase(victim->id); glDeleteProgram(victim->id); programVariants.erase(victim);
+        }
+        statistics.residentProgramVariants=static_cast<unsigned>(programVariants.size());
+        failure.clear(); programsDirty=false; dirty=true;
+        if(reload)
+        {
+            volumesReady=false; cloudShadowValid=false; visibleCloudValid=false;
+            physicalDirty=multipleDirty=skyDirty=noiseDirty=true;
+        }
+        // Feature changes are already part of resource/parameter keys. In
+        // particular, a fog-only variant must not invalidate physical/cloud
+        // coefficients, the noise atlas, or invariant transmittance LUTs.
         return true;
+    }
+    GLint ownedLocation(GLuint program,const char* name)
+    {
+        auto& locations=ownedLocations[program];
+        const auto found=locations.find(name);
+        if(found!=locations.end()) return found->second;
+        const GLint result=glGetUniformLocation(program,name);
+        locations.emplace(name,result); return result;
     }
 
     bool cloudsEnabled() const
@@ -378,7 +471,7 @@ struct Atmosphere::Impl
     {
         statistics.captureTextureBytes=0;
         for(GLuint texture:{capture.output.sky,capture.output.lighting,capture.output.irradiance,capture.output.prefilter,
-                            capture.transmittance,capture.multiple,capture.sky,capture.noise,capture.shadow,capture.lighting,capture.external})
+                            capture.transmittance,capture.multiple,capture.sky,capture.noise,capture.shadow,capture.lighting,capture.external,capture.reflection,capture.moonImage})
         {
             const auto found=textureSizes.find(texture);
             if(found!=textureSizes.end()) statistics.captureTextureBytes+=found->second.bytes;
@@ -396,8 +489,10 @@ struct Atmosphere::Impl
     {
         cancelCapture(); releaseSet(capture.output);
         for(GLuint* t:{&capture.transmittance,&capture.multiple,&capture.sky,&capture.noise,
-                       &capture.shadow,&capture.lighting,&capture.external}) destroyTexture(*t);
+                       &capture.shadow,&capture.lighting,&capture.external,&capture.reflection,&capture.moonImage}) destroyTexture(*t);
         if(capture.uniforms) glDeleteBuffers(1,&capture.uniforms);
+        if(capture.moonUniforms) glDeleteBuffers(1,&capture.moonUniforms);
+        capture.moonUniforms=0;
         capture.uniforms=0; captureMemory();
     }
     void releaseLive()
@@ -464,6 +559,7 @@ struct Atmosphere::Impl
         updateEffectResources(true);
         if(!parameters) glCreateBuffers(1,&parameters);
         glNamedBufferData(parameters,sizeof(gpu),&gpu,GL_DYNAMIC_DRAW);
+        uploadedParameters=gpu; parametersUploaded=true;
         if(!vao) glCreateVertexArrays(1,&vao);
         if(!brdf)
         {
@@ -481,7 +577,16 @@ struct Atmosphere::Impl
 
     void upload()
     {
-        glNamedBufferSubData(parameters,0,sizeof(gpu),&gpu);
+        if(!parametersUploaded || std::memcmp(&gpu,&uploadedParameters,sizeof(gpu))!=0)
+        {
+            // Live parameters are consumed by several queued passes, including
+            // passes from the previous frame. Replace their small mutable store
+            // instead of overwriting it while those commands may still read it.
+            // Each IBL capture already owns a separate frozen uniform buffer.
+            glNamedBufferData(parameters,sizeof(gpu),&gpu,GL_STREAM_DRAW);
+            uploadedParameters=gpu; parametersUploaded=true;
+        }
+        // A capture may have rebound slot 6 even when our payload is unchanged.
         glBindBufferBase(GL_UNIFORM_BUFFER,6,parameters);
     }
     void commonTextures()
@@ -556,7 +661,7 @@ struct Atmosphere::Impl
     {
         direction=glm::vec4(0,1,0,0); radiance=glm::vec4(0);
         disk=glm::vec4(glm::max(color,glm::vec3(0))*std::max(0.0f,intensity),
-            glm::radians(std::clamp(radius,0.001f,10.0f)));
+            glm::radians(std::clamp(radius,0.001f,25.0f)));
         if(!light) return;
         glm::vec3 d=-light->getDirection();
         if(glm::dot(d,d)<1e-10f) return;
@@ -590,6 +695,75 @@ struct Atmosphere::Impl
         gpu.art={palette.exposure,std::max(config.skySaturation,0.0f),std::max(config.iblSaturation,0.0f),
             glm::dot(glm::clamp(config.groundAlbedo,0.0f,1.0f),glm::vec3(.2126f,.7152f,.0722f))};
         gpu.camera={camera->getPosition(),static_cast<float>(time)};
+        const auto oldMoon=moonGpu;
+        moonGpu.meshRight=moonGpu.meshUp=moonGpu.meshForward=glm::vec4(0);
+        if(config.moonSurface)
+        {
+            glm::dvec3 orbit(gpu.moonDirection);
+            if(!moon)
+            {
+                const double a=glm::radians(double(config.moonAzimuth)),e=glm::radians(double(config.moonElevation));
+                orbit={std::cos(e)*std::cos(a),std::sin(e),std::cos(e)*std::sin(a)};
+            }
+            // Anchor to the world, not to the camera; double precision subtraction
+            // retains parallax over terrain-scale journeys without large GPU positions.
+            const double distance=std::max({1000000.0,double(config.moonDistance),4.0*double(config.atmosphereHeight)});
+            const double radius=distance*std::sin(double(gpu.moonDisk.w));
+            const glm::dvec3 relative=orbit*distance+glm::dvec3(0,config.seaLevel,0)-glm::dvec3(camera->getPosition());
+            const double centreDistance=glm::length(relative);
+            const bool outside=centreDistance>radius+1.0;
+            moonGpu.centerRadius={glm::vec3(relative),outside?float(radius):0.0f};
+            const float rotation=glm::radians(config.moonRotation);
+            moonGpu.surface={std::cos(rotation),std::sin(rotation),std::clamp(config.moonNormalStrength,0.0f,2.0f),moonSurface?1.f:0.f};
+            // The directional lighting approximation stays world-fixed like
+            // its shadow camera. Only the visible sphere/reflections use finite
+            // parallax; walking must not invalidate clear-air LUTs every frame.
+            gpu.moonDirection={glm::vec3(orbit),outside?1.f:0.f};
+            if(!outside) gpu.moonDisk.w=0;
+            const float cosine=std::clamp(glm::dot(-glm::vec3(orbit),glm::vec3(gpu.sunDirection)),-1.f,1.f);
+            const float phaseAngle=std::acos(cosine),pi=3.14159265359f;
+            const float phase=std::max(0.f,(std::sin(phaseAngle)+(pi-phaseAngle)*cosine)/pi);
+            const float angularArea=std::pow(std::sin(gpu.moonDisk.w),2.f);
+            // Irradiance of a distant Lambertian sphere, using the atlas mean.
+            // One selected directional supplies its diffuse light and terrain
+            // shadows. GGX sees the actual extended body instead of a point glint.
+            const glm::vec3 reflected=glm::vec3(gpu.sunRadiance)*glm::vec3(gpu.moonDisk)
+                *(moonMeanAlbedo*(2.f/3.f)*angularArea*phase*std::max(config.moonIlluminanceScale,0.f));
+            gpu.moonRadiance={outside?reflected:glm::vec3(0),moon?1.f:2.f};
+        }
+        else moonGpu={};
+        if(config.moonSurface && moonMesh.valid() && moonGpu.centerRadius.w>0.f)
+        {
+            const auto previousImage=moonMesh.imageUpdates();
+            // The unit-sun image is independent of camera orientation, time,
+            // palette, exposure, sun color and intensity. No readback is needed.
+            const auto observer=-glm::vec3(moonGpu.centerRadius)/moonGpu.centerRadius.w;
+            if(moonMesh.update(observer,glm::radians(config.moonRotation),glm::vec3(gpu.sunDirection),
+                config.moonMeshResolution,failure))
+            {
+                moonGpu.meshRight=moonMesh.projectionRight();
+                moonGpu.meshUp=moonMesh.projectionUp();
+                moonGpu.meshForward=moonMesh.projectionForward();
+            }
+            if(previousImage!=moonMesh.imageUpdates()) { dirty=true; ++moonImageRevision; }
+        }
+        statistics.moonImageUpdates=moonMesh.imageUpdates();
+        statistics.moonShadowUpdates=moonMesh.shadowUpdates();
+        statistics.moonMeshGpuBytes=moonMesh.gpuBytes();
+        // Surface edits invalidate IBL immediately; ordinary camera parallax
+        // shares the existing movement threshold instead of queuing on every
+        // sub-centimetre camera update. The visible sphere still updates now.
+        if(oldMoon.surface!=moonGpu.surface || oldMoon.centerRadius.w!=moonGpu.centerRadius.w) dirty=true;
+        // Cached shaders only consume the frozen projection. Walking below the
+        // cache threshold must not orphan/upload another uniform buffer per frame.
+        const bool moonBlockChanged=config.moonSurface && moonMesh.valid()
+            ? oldMoon.meshRight!=moonGpu.meshRight || oldMoon.meshUp!=moonGpu.meshUp || oldMoon.meshForward!=moonGpu.meshForward
+            : std::memcmp(&oldMoon,&moonGpu,sizeof(moonGpu))!=0;
+        if(!moonParameters || moonBlockChanged)
+        {
+            if(!moonParameters) glCreateBuffers(1,&moonParameters);
+            glNamedBufferData(moonParameters,sizeof(moonGpu),&moonGpu,GL_STREAM_DRAW);
+        }
         gpu.volume={std::max(100.0f,config.aerialDistance),std::clamp(config.fogAnisotropy,-.95f,.95f),
             std::max(config.fogDensity,0.0f),config.fogBaseHeight};
         gpu.fog={glm::clamp(config.fogAlbedo,0.0f,1.0f),std::max(1.0f,config.fogScaleHeight)};
@@ -648,6 +822,9 @@ struct Atmosphere::Impl
             glTextureParameteri(capture.noise,parameter,GL_REPEAT);
         ensureTexture(capture.shadow,GL_TEXTURE_2D,GL_RG16F,shadowSize,shadowSize);
         ensureTexture(capture.lighting,GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube,1,mipCount(b.cube));
+        if(capture.texturedMoon)
+            ensureTexture(capture.reflection,GL_TEXTURE_CUBE_MAP,GL_RGBA16F,b.cube,b.cube,1,mipCount(b.cube));
+        else destroyTexture(capture.reflection);
         glCopyImageSubData(transmittance,GL_TEXTURE_2D,0,0,0,0,capture.transmittance,GL_TEXTURE_2D,0,0,0,0,tw,th,1);
         glCopyImageSubData(multiple,GL_TEXTURE_2D,0,0,0,0,capture.multiple,GL_TEXTURE_2D,0,0,0,0,ms,ms,1);
         glCopyImageSubData(cloudShadow,GL_TEXTURE_2D,0,0,0,0,capture.shadow,GL_TEXTURE_2D,0,0,0,0,shadowSize,shadowSize,1);
@@ -670,8 +847,28 @@ struct Atmosphere::Impl
             }
         }
         else destroyTexture(capture.external);
+        if(capture.meshMoon && moonMesh.texture())
+        {
+            const int size=moonMesh.resolution(),levels=mipCount(size);
+            // Wind/palette-driven IBL captures reuse the same frozen lunar
+            // image until the mesh view actually changes (no repeated copies).
+            if(!capture.moonImage || capture.moonImageRevision!=moonImageRevision)
+            {
+                ensureTexture(capture.moonImage,GL_TEXTURE_2D,GL_RGBA16F,size,size,1,levels);
+                for(int level=0;level<levels;++level)
+                {
+                    const int edge=std::max(1,size>>level);
+                    glCopyImageSubData(moonMesh.texture(),GL_TEXTURE_2D,level,0,0,0,
+                        capture.moonImage,GL_TEXTURE_2D,level,0,0,0,edge,edge,1);
+                }
+                capture.moonImageRevision=moonImageRevision;
+            }
+        }
+        else { destroyTexture(capture.moonImage); capture.moonImageRevision=0; }
         if(!capture.uniforms) glCreateBuffers(1,&capture.uniforms);
         glNamedBufferData(capture.uniforms,sizeof(capture.parameters),&capture.parameters,GL_STATIC_DRAW);
+        if(!capture.moonUniforms) glCreateBuffers(1,&capture.moonUniforms);
+        glNamedBufferData(capture.moonUniforms,sizeof(capture.moonParameters),&capture.moonParameters,GL_STATIC_DRAW);
         glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
         captureMemory();
     }
@@ -680,10 +877,15 @@ struct Atmosphere::Impl
         glBindBufferBase(GL_UNIFORM_BUFFER,6,capture.uniforms);
         textureUnit(0,capture.transmittance); textureUnit(1,capture.multiple); textureUnit(2,capture.sky);
         textureUnit(3,capture.noise); textureUnit(5,capture.shadow); textureUnit(9,capture.external);
+        glBindBufferBase(GL_UNIFORM_BUFFER,7,capture.moonUniforms);
+        textureUnit(4,capture.meshMoon?capture.moonImage:moonSurface);
     }
     void startCapture(const AtmosphereGpuParameters& candidate)
     {
         capture.active=true; capture.budget=budget; capture.parameters=candidate;
+        capture.moonParameters=moonGpu; capture.texturedMoon=config.moonSurface;
+        capture.meshMoon=config.moonSurface && moonMesh.valid();
+        capture.programs={programs[SkyView],programs[Environment],programs[FilterDiffuse],programs[FilterGgx]};
         capture.palette=capturePalette(); capture.revision=statistics.requestedEnvironmentRevision;
         capture.tile=8*std::clamp(config.iblTileSize/8,1,8);
         capture.cursor=0; capture.work.clear();
@@ -764,7 +966,7 @@ struct Atmosphere::Impl
         captureTextures();
         if(item.kind==CaptureSkyWork)
         {
-            glUseProgram(programs[SkyView]); textureImage(0,capture.sky,GL_RGBA16F,0,false);
+            glUseProgram(capture.programs[0]); textureImage(0,capture.sky,GL_RGBA16F,0,false);
             submit(b.skyWidth,b.skyHeight,1); return;
         }
         if(item.kind==MipsWork)
@@ -772,27 +974,33 @@ struct Atmosphere::Impl
             // This ordinary mip chain is input footprint filtering. Every GGX
             // roughness level below is still computed explicitly.
             glGenerateTextureMipmap(capture.lighting);
+            if(capture.texturedMoon) glGenerateTextureMipmap(capture.reflection);
             glCopyImageSubData(capture.lighting,GL_TEXTURE_CUBE_MAP,0,0,0,0,
                 capture.output.lighting,GL_TEXTURE_CUBE_MAP,0,0,0,0,b.cube,b.cube,6);
             glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT); return;
         }
         const bool sky=item.kind==CaptureTileWork;
-        const GLuint program=programs[sky?Environment:Filter];
+        const GLuint program=capture.programs[sky?1:(item.kind==DiffuseTileWork?2:3)];
         glUseProgram(program);
-        glUniform3i(location(program,"geDispatchOffset"),item.x,item.y,item.face);
+        glUniform3i(ownedLocation(program,"geDispatchOffset"),item.x,item.y,item.face);
         if(sky)
         {
-            glUniform1i(location(program,"geUseExternalEnvironment"),capture.external?1:0);
+            glUniform1i(ownedLocation(program,"geUseExternalEnvironment"),capture.external?1:0);
             textureImage(0,capture.output.sky,GL_RGBA16F); textureImage(1,capture.lighting,GL_RGBA16F);
+            if(capture.texturedMoon)
+            {
+                textureImage(2,capture.reflection,GL_RGBA16F);
+                glUniform1f(ownedLocation(program,"geMoonFootprint"),2.f/float(b.cube));
+            }
         }
         else
         {
-            textureUnit(0,capture.lighting);
             const bool diffuse=item.kind==DiffuseTileWork;
+            textureUnit(0,capture.texturedMoon && (!diffuse || capture.parameters.moonRadiance.w>1.5f)
+                ?capture.reflection:capture.lighting);
             textureImage(0,diffuse?capture.output.irradiance:capture.output.prefilter,GL_RGBA16F,item.level);
-            glUniform1i(location(program,"geFilterMode"),diffuse?0:1);
-            glUniform1i(location(program,"geFilterSamples"),b.filterSamples);
-            glUniform1f(location(program,"geFilterRoughness"),diffuse?1.0f:
+            glUniform1i(ownedLocation(program,"geFilterSamples"),b.filterSamples);
+            glUniform1f(ownedLocation(program,"geFilterRoughness"),diffuse?1.0f:
                 float(item.level)/float(std::min(5,mipCount(b.prefilter))-1));
         }
         submit(std::min(capture.tile,item.size-item.x),std::min(capture.tile,item.size-item.y),1);
@@ -828,7 +1036,7 @@ struct Atmosphere::Impl
         if(record) begin(IblTime);
         const float t=blendDuration>0.0f?std::clamp(static_cast<float>(blendElapsed/blendDuration),0.0f,1.0f):1.0f;
         const auto p=programs[Blend]; glUseProgram(p);
-        glUniform1f(location(p,"geBlendFactor"),t);
+        glUniform1f(ownedLocation(p,"geBlendFactor"),t);
         for(int kind=0;kind<4;++kind)
         {
             const auto texture=[&](const EnvironmentSet& set){return kind==0?set.sky:(kind==1?set.lighting:(kind==2?set.irradiance:set.prefilter));};
@@ -839,7 +1047,7 @@ struct Atmosphere::Impl
             for(int level=0;level<levels;++level)
             {
                 textureImage(0,texture(environments[2]),GL_RGBA16F,level);
-                glUniform1f(location(p,"geBlendLevel"),static_cast<float>(level));
+                glUniform1f(ownedLocation(p,"geBlendLevel"),static_cast<float>(level));
                 submit(std::max(1,size>>level),std::max(1,size>>level),6);
             }
         }
@@ -857,6 +1065,29 @@ const AtmosphereSettings& Atmosphere::settings() const { return m->config; }
 const AtmosphereStats& Atmosphere::stats() const { return m->statistics; }
 const std::string& Atmosphere::error() const { return m->failure; }
 bool Atmosphere::active() const { return m->config.enabled && m->ready && (m->hasEnvironment || m->liveSkyReady); }
+
+glm::vec3 Atmosphere::primarySpecularDirection() const
+{
+    if (active())
+    {
+        // Same horizon/source conditions as geAtmSunLightingEnabled(). The
+        // textured moon retains the existing area reflection in IBL at night.
+        return m->gpu.sunDirection.w > 0.5f && m->gpu.sunDirection.y >= 0.0f
+            && glm::any(glm::greaterThan(glm::vec3(m->gpu.sunRadiance), glm::vec3(0)))
+            ? glm::vec3(m->gpu.sunDirection) : glm::vec3(0);
+    }
+    if (m->pc && m->pc->lightManager)
+        for (const auto* light : m->pc->lightManager->getLights())
+        {
+            if (!light || !light->isActive() || light->getStatus() != 0 || light->getRange() <= 0.f
+                || !glm::any(glm::greaterThan(light->getColors(), glm::vec3(0)))) continue;
+            const glm::vec3 direction = -light->getDirection();
+            const float lengthSquared = glm::dot(direction, direction);
+            if (lengthSquared > 1e-10f) return direction / std::sqrt(lengthSquared);
+        }
+    return glm::vec3(0);
+}
+
 const AtmospherePalette& Atmosphere::displayedPalette() const { return m->hasDisplayedPalette?m->displayedPalette:m->transition.displayed(); }
 void Atmosphere::setPaletteTarget(const AtmospherePalette& value,bool force)
 {
@@ -874,10 +1105,50 @@ void Atmosphere::setPaletteTarget(const AtmospherePalette& value,bool force)
     p.exposure=std::isfinite(p.exposure)?std::clamp(p.exposure,0.0f,64.0f):1.0f;
     if(m->transition.target(p,m->config.paletteThreshold,m->config.transitionSeconds,force,m->hasDisplayedPalette?&m->displayedPalette:nullptr)) m->dirty=true;
 }
-void Atmosphere::reloadShaders() { m->programsDirty=true; m->dirty=true; }
+void Atmosphere::reloadShaders() { m->programsDirty=true; m->dirty=true; m->moonMesh.invalidate(); }
 void Atmosphere::invalidate() { m->dirty=m->physicalDirty=m->multipleDirty=m->skyDirty=m->noiseDirty=true; m->volumesReady=false; m->cloudShadowValid=false; }
 void Atmosphere::setSun(Lights* sun) { if(m->requestedSun!=sun) { m->requestedSun=sun; m->dirty=m->skyDirty=true; } }
 void Atmosphere::setMoon(Lights* moon) { if(m->requestedMoon!=moon) { m->requestedMoon=moon; m->dirty=m->skyDirty=true; } }
+bool Atmosphere::setMoonSurface(const std::uint8_t* rgba,unsigned width,unsigned height,float meanAlbedo)
+{
+    if(rgba && (width<2 || width>4096 || height<1 || height>2048 || width!=height*2 ||
+        !std::isfinite(meanAlbedo) || meanAlbedo<0 || meanAlbedo>1)) return false;
+    // The immutable atlas is shared by captures. Replace only after cancelling
+    // an in-flight transaction; already published environments stay valid.
+    if(m->capture.active) m->cancelCapture();
+    m->destroyTexture(m->moonSurface);
+    m->moonSurfaceMeanAlbedo=rgba?meanAlbedo:0.20f;
+    if(!m->moonMesh.valid()) m->moonMeanAlbedo=m->moonSurfaceMeanAlbedo;
+    if(rgba)
+    {
+        m->moonSurface=m->createTexture(GL_TEXTURE_2D,GL_RGBA8,int(width),int(height),1,mipCount(int(width)));
+        glTextureParameteri(m->moonSurface,GL_TEXTURE_WRAP_S,GL_REPEAT);
+        const GLenum parameters[]={GL_UNPACK_ALIGNMENT,GL_UNPACK_ROW_LENGTH,GL_UNPACK_SKIP_PIXELS,GL_UNPACK_SKIP_ROWS};
+        GLint saved[4],pbo=0; glGetIntegerv(GL_PIXEL_UNPACK_BUFFER_BINDING,&pbo);
+        for(unsigned i=0;i<4;++i) { glGetIntegerv(parameters[i],&saved[i]); glPixelStorei(parameters[i],i==0?1:0); }
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER,0);
+        glTextureSubImage2D(m->moonSurface,0,0,0,int(width),int(height),GL_RGBA,GL_UNSIGNED_BYTE,rgba);
+        for(unsigned i=0;i<4;++i) glPixelStorei(parameters[i],saved[i]);
+        glBindBuffer(GL_PIXEL_UNPACK_BUFFER,GLuint(pbo));
+        glGenerateTextureMipmap(m->moonSurface);
+        glMemoryBarrier(GL_TEXTURE_UPDATE_BARRIER_BIT|GL_TEXTURE_FETCH_BARRIER_BIT);
+    }
+    m->dirty=true;
+    return true;
+}
+bool Atmosphere::setMoonMesh(const MoonMeshData* mesh)
+{
+    if(mesh && (!std::isfinite(mesh->meanAlbedo) || mesh->meanAlbedo<0.f || mesh->meanAlbedo>1.f))
+    { m->failure="Invalid lunar mesh mean albedo."; return false; }
+    if(mesh && !m->moonMesh.setMesh(*mesh,m->failure)) return false;
+    if(!mesh) m->moonMesh.clear();
+    ++m->moonImageRevision;
+    m->moonMeanAlbedo=mesh?std::clamp(mesh->meanAlbedo,0.f,1.f):m->moonSurfaceMeanAlbedo;
+    if(m->capture.active) m->cancelCapture();
+    m->dirty=m->skyDirty=true;
+    m->statistics.moonMeshGpuBytes=m->moonMesh.gpuBytes();
+    return true;
+}
 void Atmosphere::setExternalEnvironment(unsigned int cube,std::uint64_t revision)
 {
     if(cube!=m->externalEnvironment || revision!=m->externalRevision) m->dirty=true;
@@ -948,16 +1219,21 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
         m->hasDisplayedPalette=true;
     }
     if(m->hasEnvironment) m->transition.advance(dt);
-    if(m->programsDirty)
+    const unsigned desiredFeatures=m->featureBits();
+    if(m->programsDirty || desiredFeatures!=m->requestedFeatures)
     {
-        m->cancelCapture();
-        if(!m->buildPrograms())
+        if(m->programsDirty) m->cancelCapture();
+        m->requestedFeatures=desiredFeatures;
+        if(!m->buildPrograms(desiredFeatures,m->programsDirty))
         {
             // Failed reloads leave every previously published texture/program
             // valid. A later explicit reload retries, never a per-frame loop.
             m->programsDirty=false; return;
         }
     }
+    // A failed feature compilation leaves the last complete view alive; do not
+    // execute its fixed-feature programs against incompatible new resources.
+    if(m->compiledFeatures!=desiredFeatures) return;
     if(!m->programs[Environment] || !m->programs[Brdf] || !m->programs[SkyDraw]) return;
     const Budget nextBudget=budgetFor(m->config);
     if(!m->ready || nextBudget!=m->budget)
@@ -982,7 +1258,8 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
     if(std::abs(m->gpu.camera.y-m->lastSkyAltitude)>=std::max(.01f,m->config.altitudeUpdateThreshold)) m->skyDirty=true;
     const glm::vec2 cloudMotion(m->gpu.camera.x-m->lastBakedCamera.x,m->gpu.camera.z-m->lastBakedCamera.z);
     if(std::abs(m->gpu.camera.y-m->lastBakedCamera.y)>=std::max(.01f,m->config.altitudeUpdateThreshold) ||
-       (m->cloudsEnabled() && glm::dot(cloudMotion,cloudMotion)>=std::pow(std::max(.01f,m->config.movementThreshold),2.0f)))
+       ((m->cloudsEnabled() || (m->config.moonSurface && !m->moonMesh.valid())) &&
+        glm::dot(cloudMotion,cloudMotion)>=std::pow(std::max(.01f,m->config.movementThreshold),2.0f)))
     { m->dirty=true; m->lastBakedCamera=glm::vec3(m->gpu.camera); }
     if(atmospherePaletteDifference(m->capturePalette(),m->lastRequestedPalette)>=std::max(.000001f,m->config.environmentThreshold))
     { m->dirty=true; m->lastRequestedPalette=m->capturePalette(); }
@@ -1016,8 +1293,13 @@ void Atmosphere::prepare(Camera* camera,double deltaSeconds)
         }
         m->multipleDirty=false;
         const auto& oldShadow=m->lastCloudShadowParameters;
+        const auto hasEnergy=[](const glm::vec4& radiance) {
+            return radiance.x>0.f || radiance.y>0.f || radiance.z>0.f;
+        };
         const bool cloudShadowChanged=!m->cloudShadowValid ||
             m->gpu.sunDirection!=oldShadow.sunDirection || m->gpu.moonDirection!=oldShadow.moonDirection ||
+            hasEnergy(m->gpu.moonRadiance)!=hasEnergy(oldShadow.moonRadiance) ||
+            hasEnergy(m->gpu.sunRadiance)!=hasEnergy(oldShadow.sunRadiance) ||
             m->gpu.misc.x!=oldShadow.misc.x || m->gpu.cloudWeather!=oldShadow.cloudWeather ||
             m->gpu.cloudProfiles!=oldShadow.cloudProfiles ||
             std::memcmp(&m->gpu.cloudLayer,&oldShadow.cloudLayer,4*sizeof(glm::vec4))!=0;
@@ -1079,22 +1361,46 @@ void Atmosphere::renderSky(unsigned int)
     m->begin(SkyTime);
     glBindBufferBase(GL_UNIFORM_BUFFER,6,m->parameters);
     glUseProgram(m->programs[SkyDraw]);
+    if(m->config.moonSurface)
+    {
+        glBindBufferBase(GL_UNIFORM_BUFFER,7,m->moonParameters);
+        textureUnit(4,m->moonMesh.valid()?m->moonMesh.texture():m->moonSurface);
+        const float footprint=std::max(2.f*std::abs(m->gpu.invProjection[0][0])/std::max(m->graphics->str_width,1u),
+            2.f*std::abs(m->gpu.invProjection[1][1])/std::max(m->graphics->str_height,1u));
+        glUniform1f(m->ownedLocation(m->programs[SkyDraw],"geMoonFootprint"),footprint);
+    }
     // The caller's external cube is already a complete resource. It can be
     // displayed while the first private IBL transaction is still in progress.
     textureUnit(0,m->hasEnvironment?m->environments[2].lighting:m->externalEnvironment);
     textureUnit(1,m->visibleClouds); textureUnit(2,m->skyView); textureUnit(3,m->noise);
     textureUnit(11,m->multiple); textureUnit(14,m->cloudShadow); textureUnit(15,m->transmittance);
-    glUniform1i(location(m->programs[SkyDraw],"geCurrentCloudView"),!m->externalEnvironment && m->liveSkyReady);
-    glUniform1i(location(m->programs[SkyDraw],"geRawExternalEnvironment"),m->externalEnvironment && !m->hasEnvironment);
+    glUniform1i(m->ownedLocation(m->programs[SkyDraw],"geCurrentCloudView"),!m->externalEnvironment && m->liveSkyReady);
+    glUniform1i(m->ownedLocation(m->programs[SkyDraw],"geRawExternalEnvironment"),m->externalEnvironment && !m->hasEnvironment);
     glDisable(GL_CULL_FACE); glDisable(GL_DEPTH_TEST); glDepthMask(GL_FALSE);
     glBindVertexArray(m->vao); glDrawArrays(GL_TRIANGLES,0,3);
     glDepthMask(GL_TRUE); glEnable(GL_DEPTH_TEST);
     m->end();
 }
 
+bool Atmosphere::shadowLayerActive(unsigned layer) const
+{
+    if(!active() || !m->volumesReady) return true;
+    const auto& g=m->gpu;
+    const bool day=g.sunDirection.w>0.5f && g.sunDirection.y>=0.f;
+    const auto energy=[](const glm::vec4& r) { return r.x>0.f || r.y>0.f || r.z>0.f; };
+    const auto inCascade=[layer](int first) {
+        return first>=0 && layer>=static_cast<unsigned>(first)
+            && layer-static_cast<unsigned>(first)<SHADOW_MAP_CASCADE_COUNT;
+    };
+    if(inCascade(g.shadow.x)) return day && energy(g.sunRadiance);
+    if(inCascade(g.shadow.y)) return !day && g.moonDirection.w>0.5f
+        && g.moonDirection.y>=0.f && energy(g.moonRadiance);
+    return true;
+}
+
 void Atmosphere::computeVolumes(Camera* camera)
 {
-    if(!active() || !m->physicalPrograms || !camera) return;
+    if(!active() || !m->physicalPrograms || !camera || m->compiledFeatures!=m->featureBits()) return;
     auto* lights=m->pc->lightManager;
     const auto shadowTexture=lights->getTextureShadowArray();
     m->gpu.shadow.z=static_cast<int>(lights->getFrameShadowBuffer().size());
@@ -1123,7 +1429,7 @@ void Atmosphere::computeVolumes(Camera* camera)
     // Disk appearance and specular IBL saturation do not illuminate media.
     aerialKey.sunDisk=aerialKey.moonDisk=glm::vec4(0); aerialKey.art.z=0;
     auto cloudKey=aerialKey;
-    // Cloud coefficients trace their own light rays, not the cloud shadow atlas.
+    // Cloud coefficients integrate the selected light directly, not the atlas.
     cloudKey.shadowOrigin=glm::vec4(0); cloudKey.cloudOffset.z=0;
     const bool aerialChanged=m->config.physicalAtmosphere && (!m->volumesReady ||
         shadowChanged || unknownRadiance || std::memcmp(&aerialKey,&m->lastAerialParameters,sizeof(aerialKey))!=0);
@@ -1158,11 +1464,33 @@ void Atmosphere::computeVolumes(Camera* camera)
     m->lastVolumeShadowRevision=shadowRevision; m->volumesReady=true; ++m->statistics.volumeUpdates;
 }
 
-void Atmosphere::bindLighting(unsigned int program,bool)
+void Atmosphere::bindLighting(unsigned int program,bool,std::uint64_t programRevision)
 {
+    if(!program) return;
     const bool on=active();
-    glProgramUniform1i(program,location(program,"uAtmosphereActive"),on && m->volumesReady);
-    glProgramUniform1i(program,location(program,"uAtmosphereIblActive"),on && m->hasEnvironment);
+    constexpr const char* names[]={"uAtmosphereActive","uAtmosphereIblActive","uAtmosphereIblSaturation",
+        "uAtmosphereSunIndex","uAtmosphereMoonIndex","uAtmosphereSunScale","uAtmosphereMoonScale","uAtmosphereInvResolution"};
+    Impl::LightingLocations scratch;
+    Impl::LightingLocations* locations=&scratch;
+    if(programRevision)
+    {
+        // Bound memory for editors/material churn. A clear only makes the next
+        // bind resolve locations again; it never changes shader data.
+        if(m->lightingLocations.size()>=256 && !m->lightingLocations.count(program)) m->lightingLocations.clear();
+        locations=&m->lightingLocations[program];
+        if(locations->revision!=programRevision) *locations=Impl::LightingLocations{};
+        locations->revision=programRevision;
+    }
+    if(!locations->complete)
+    {
+        const unsigned count=programRevision || on?static_cast<unsigned>(locations->values.size()):2u;
+        for(unsigned i=0;i<count;++i)
+        { locations->values[i]=glGetUniformLocation(program,names[i]); ++m->statistics.lightingLocationQueries; }
+        locations->complete=true;
+    }
+    const auto& u=locations->values;
+    glProgramUniform1i(program,u[0],on && m->volumesReady);
+    glProgramUniform1i(program,u[1],on && m->hasEnvironment);
     if(!on) return;
     glBindBufferBase(GL_UNIFORM_BUFFER,6,m->parameters);
     // Materials may still sample the engine's existing environment while the
@@ -1174,13 +1502,24 @@ void Atmosphere::bindLighting(unsigned int program,bool)
     }
     textureUnit(9,m->baselineScattering); textureUnit(10,m->baselineTransmission); textureUnit(11,m->multiple);
     textureUnit(12,m->scattering); textureUnit(13,m->transmission); textureUnit(14,m->cloudShadow); textureUnit(15,m->transmittance);
-    glProgramUniform1f(program,location(program,"uAtmosphereIblSaturation"),std::max(0.0f,m->config.iblSaturation));
-    glProgramUniform1i(program,location(program,"uAtmosphereSunIndex"),m->sun?static_cast<int>(m->sun->getIndex()):-1);
-    glProgramUniform1i(program,location(program,"uAtmosphereMoonIndex"),m->moon?static_cast<int>(m->moon->getIndex()):-1);
-    glProgramUniform1f(program,location(program,"uAtmosphereSunScale"),m->config.sunIlluminanceScale);
-    glProgramUniform1f(program,location(program,"uAtmosphereMoonScale"),m->config.moonIlluminanceScale);
-    glProgramUniform2f(program,location(program,"uAtmosphereInvResolution"),
+    glProgramUniform1f(program,u[2],std::max(0.0f,m->config.iblSaturation));
+    glProgramUniform1i(program,u[3],m->sun?static_cast<int>(m->sun->getIndex()):-1);
+    glProgramUniform1i(program,u[4],m->moon?static_cast<int>(m->moon->getIndex()):-1);
+    glProgramUniform1f(program,u[5],m->config.sunIlluminanceScale);
+    glProgramUniform1f(program,u[6],m->config.moonIlluminanceScale);
+    glProgramUniform2f(program,u[7],
         1.0f/std::max(m->graphics->str_width,1u),1.0f/std::max(m->graphics->str_height,1u));
+}
+
+void Atmosphere::bindParticleMedium(unsigned int program,int activeLocation)
+{
+    if(!program) return;
+    const bool ready=active() && m->volumesReady;
+    glProgramUniform1i(program,activeLocation,ready?1:0);
+    if(m->parameters) glBindBufferBase(GL_UNIFORM_BUFFER,6,m->parameters);
+    if(!ready) return;
+    textureUnit(12,m->scattering);
+    textureUnit(13,m->transmission);
 }
 
 void Atmosphere::release()
@@ -1191,8 +1530,11 @@ void Atmosphere::release()
             if(std::find(m->pc->lightManager->getLights().begin(),m->pc->lightManager->getLights().end(),entry.first)!=m->pc->lightManager->getLights().end())
                 entry.first->setShadowCasterMargin(entry.second);
     m->managedShadowMargins.clear();
-    m->releaseTargets(); m->releasePrograms(); m->destroyTexture(m->brdf);
+    m->releaseTargets(); m->releasePrograms(); m->destroyTexture(m->brdf); m->destroyTexture(m->moonSurface); m->moonMesh.clear(); m->statistics.moonMeshGpuBytes=0; m->lightingLocations.clear();
     if(m->parameters) glDeleteBuffers(1,&m->parameters);
+    if(m->moonParameters) glDeleteBuffers(1,&m->moonParameters);
+    m->moonParameters=0;
+    m->parametersUploaded=false;
     if(m->vao) glDeleteVertexArrays(1,&m->vao);
     for(auto& entry:m->timers) if(entry.query) glDeleteQueries(1,&entry.query);
     m->parameters=m->vao=0; m->timers={}; m->ready=false;

@@ -12,7 +12,9 @@
 #include "Debug.hpp"
 #include <algorithm>
 #include <climits>
-//#include "OilPainting.hpp"
+#ifdef GE_ENABLE_OIL_PAINTING
+#include "OilPainting.hpp"
+#endif
 
 namespace Ge
 {
@@ -25,14 +27,21 @@ namespace Ge
 		m_bloom = new Bloom();
 		m_depthOfField = new DepthOfField();
 		m_colorTint = new ColorTint();
+        m_environmentEffects = new EnvironmentScreenEffects();
 		m_modules.push_back(m_bloom);
 		m_modules.push_back(m_depthOfField);
+#ifdef GE_ENABLE_OIL_PAINTING
+		m_oilPainting = new OilPainting();
+		m_modules.push_back(m_oilPainting);
+#endif
 		m_modules.push_back(m_colorTint);
+        m_modules.push_back(m_environmentEffects);
 		for (int i = 0; i < m_modules.size(); i++)
 		{
 			if (!m_modules[i]->initialize(gdm))
 				return false;
 		}
+		m_environmentEffects->setState(m_environmentState);
 		return true;
 	}
 
@@ -86,13 +95,24 @@ namespace Ge
 			return;
 		bool useDof = m_setting->depth_of_field && m_gdm->current_camera;
 		bool useTint = m_setting->color_tint;
-		if ((useDof || useTint) && !ensurePostTargets(
-			static_cast<int>(m_gdm->str_width), static_cast<int>(m_gdm->str_height)))
+		bool useEnvironment = m_environmentEffects && m_environmentEffects->requested();
+        bool useOil = false;
+        bool usePost = useDof || useTint || useEnvironment;
+#ifdef GE_ENABLE_OIL_PAINTING
+		useOil = OilPainting::requested(m_setting);
+		usePost = usePost || useOil;
+#endif
+		if (usePost && !ensurePostTargets(
+			static_cast<int>(m_gdm->str_width), static_cast<int>(m_gdm->str_height),
+            (unsigned(useDof) + unsigned(useOil) + unsigned(useTint) + unsigned(useEnvironment) > 1u) ? 2u : 1u))
 		{
 			// A failed optional target must still leave the original presentation usable.
-			useDof = useTint = false;
+			useDof = useTint = useEnvironment = usePost = false;
+#ifdef GE_ENABLE_OIL_PAINTING
+			useOil = false;
+#endif
 		}
-		m_bloom->setOutputFrameBuffer((useDof || useTint) ? m_postFrameBuffers[0] : 0);
+		m_bloom->setOutputFrameBuffer(usePost ? m_postFrameBuffers[0] : 0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);//fix ghost triangle bug !!!
 		for (unsigned int i = 0; i < m_externalModules.size(); ++i)
 		{
@@ -101,27 +121,60 @@ namespace Ge
 		}
 		for (unsigned int i = 0; i < m_modules.size(); ++i)
 		{
-			if (m_modules[i] == m_depthOfField || m_modules[i] == m_colorTint)
+			if (m_modules[i] == m_depthOfField || m_modules[i] == m_colorTint || m_modules[i] == m_environmentEffects)
 				continue;
+#ifdef GE_ENABLE_OIL_PAINTING
+			if (m_modules[i] == m_oilPainting)
+				continue;
+#endif
 			if (m_atmosphereActive && (dynamic_cast<Fog*>(m_modules[i]) || dynamic_cast<VolumetricFog*>(m_modules[i]))) continue;
 			m_modules[i]->compute(frameBuffer, texture, depthTexture, sb, m_setting);
 		}
-		if (useDof)
-			m_depthOfField->compute(useTint ? m_postFrameBuffers[1] : 0,
-				m_postTextures[0], depthTexture, sb, m_setting);
-		if (useTint)
-			m_colorTint->compute(0, m_postTextures[useDof ? 1 : 0], depthTexture, sb, m_setting);
+        // Display-referred chain: tonemapping -> DoF -> optional oil -> grading
+        // -> game screen effects. Reuse the same two targets without feedback.
+        unsigned source = 0;
+        if (useDof)
+        {
+            m_depthOfField->compute((useOil || useTint || useEnvironment) ? m_postFrameBuffers[1] : 0,
+                m_postTextures[source], depthTexture, sb, m_setting);
+            source = 1;
+        }
+#ifdef GE_ENABLE_OIL_PAINTING
+        if (useOil)
+        {
+            const unsigned destination = 1 - source;
+            m_oilPainting->compute((useTint || useEnvironment) ? m_postFrameBuffers[destination] : 0,
+                m_postTextures[source], depthTexture, sb, m_setting);
+            source = destination;
+        }
+#endif
+        if (useTint)
+        {
+            const unsigned destination = 1 - source;
+            m_colorTint->compute(useEnvironment ? m_postFrameBuffers[destination] : 0,
+                m_postTextures[source], depthTexture, sb, m_setting);
+            source = destination;
+        }
+        if (useEnvironment)
+            m_environmentEffects->compute(0, m_postTextures[source], depthTexture, sb, m_setting);
 		m_bloom->setOutputFrameBuffer(0);
 		glBindFramebuffer(GL_FRAMEBUFFER, 0);
 		glActiveTexture(GL_TEXTURE0);
 	}
 
-	bool PostProcess::ensurePostTargets(int width, int height)
+	bool PostProcess::ensurePostTargets(int width, int height, unsigned requiredCount)
 	{
 		if (width <= 0 || height <= 0)
 			return false;
-		if (width == m_postWidth && height == m_postHeight)
-			return m_postTargetsComplete;
+        requiredCount = (std::clamp)(requiredCount, 1u, 2u);
+        const bool sameSize = width == m_postWidth && height == m_postHeight;
+        if (sameSize && requiredCount <= m_postTargetCount)
+            return m_postTargetsComplete;
+        // A single post pass needs only the bloom output target. Allocate the
+        // second texture only when two or more passes need ping-pong, then retain
+        // it across toggles. Upgrading never reallocates the first target.
+        const unsigned targetCount = (std::max)(requiredCount, m_postTargetCount);
+        const unsigned first = sameSize && m_postTargetsComplete ? m_postTargetCount : 0u;
 		if (m_postTextures[0] == 0)
 		{
 			glGenTextures(2, m_postTextures);
@@ -129,7 +182,7 @@ namespace Ge
 		}
 		bool complete = true;
 		glActiveTexture(GL_TEXTURE0);
-		for (unsigned int i = 0; i < 2; ++i)
+		for (unsigned int i = first; i < targetCount; ++i)
 		{
 			glBindTexture(GL_TEXTURE_2D, m_postTextures[i]);
 			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, width, height, 0, GL_RGBA, GL_FLOAT, nullptr);
@@ -146,6 +199,7 @@ namespace Ge
 		m_postWidth = width;
 		m_postHeight = height;
 		m_postTargetsComplete = complete;
+        m_postTargetCount = targetCount;
 		if (!complete)
 			Debug::Error("Post processing color framebuffer is incomplete.");
 		return complete;
@@ -154,7 +208,7 @@ namespace Ge
 	void PostProcess::resize(int width, int height)
 	{
 		if (m_postTextures[0] != 0 && width > 0 && height > 0)
-			ensurePostTargets(width, height);
+			ensurePostTargets(width, height, m_postTargetCount);
 		for (unsigned int i = 0; i < m_externalModules.size(); ++i)
 		{
 			m_externalModules[i]->resize(width, height);
@@ -176,11 +230,17 @@ namespace Ge
 		m_bloom = nullptr;
 		m_depthOfField = nullptr;
 		m_colorTint = nullptr;
+        m_environmentEffects = nullptr;
+        m_environmentState = {};
+#ifdef GE_ENABLE_OIL_PAINTING
+		m_oilPainting = nullptr;
+#endif
 		glDeleteTextures(2, m_postTextures);
 		glDeleteFramebuffers(2, m_postFrameBuffers);
 		for (auto& texture : m_postTextures) texture = 0;
 		for (auto& buffer : m_postFrameBuffers) buffer = 0;
 		m_postWidth = m_postHeight = 0;
+        m_postTargetCount = 0;
 		m_postTargetsComplete = false;
 		delete m_setting;
 		m_setting = nullptr;

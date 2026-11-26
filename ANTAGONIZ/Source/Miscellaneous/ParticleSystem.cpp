@@ -36,7 +36,7 @@ namespace Ge
         m_pc->renderingEngine->removeTransparencyCallback(this);
     }
 
-    size_t ParticleSystem::createGroup(void* settings, size_t sizeSettings, size_t nbParticule, Textures* tex, ComputeShader* cs, GraphiquePipeline* gp, GraphiquePipeline* dgp)
+    size_t ParticleSystem::createGroup(void* settings, size_t sizeSettings, size_t nbParticule, Textures* tex, ComputeShader* cs, GraphiquePipeline* gp, GraphiquePipeline* dgp, ComputeShader* initializer)
     {        
         ParticleGroup group;
         group.offsetSettings = m_allocator->allocate(settings, sizeSettings) / sizeof(float);
@@ -60,17 +60,10 @@ namespace Ge
             group.pipeline = m_baseRender;
         }
         group.depth_pipeline = dgp;
-        group.texture = tex;    
+        group.texture = tex;
+        group.init = initializer ? initializer : m_init;
 
-        int x, y, z;
-        glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_allocator->getBufferID());        
-        m_init->use();
-        glUniform1ui(glGetUniformLocation(m_init->getProgram(), "u_offset"), (unsigned int)group.offsetData);
-        glUniform1ui(glGetUniformLocation(m_init->getProgram(), "u_offsetSettings"), (unsigned int)group.offsetSettings);
-        glUniform1ui(glGetUniformLocation(m_init->getProgram(), "u_count"), (unsigned int)group.countData);        
-        ShaderUtil::CalcWorkSize(group.countData, &x, &y, &z);
-        m_init->dispatch(x, y, z);
-        glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+        dispatchGroupData(group, group.init);
 
         m_groups[++m_counterNewID] = group;
         updateInstanced();
@@ -96,22 +89,27 @@ namespace Ge
             return;
         }
 
-        const ParticleGroup& group = it->second;
+        dispatchGroupData(it->second, it->second.init);
+    }
+
+    void ParticleSystem::dispatchGroupData(const ParticleGroup& group, ComputeShader* shader)
+    {
+        if (!shader || !shader->isValid() || group.countData == 0) return;
         int x, y, z;
         glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, m_allocator->getBufferID());
-        m_init->use();
-        glUniform1ui(
-            glGetUniformLocation(m_init->getProgram(), "u_offset"),
-            static_cast<unsigned int>(group.offsetData));
-        glUniform1ui(
-            glGetUniformLocation(m_init->getProgram(), "u_offsetSettings"),
-            static_cast<unsigned int>(group.offsetSettings));
-        glUniform1ui(
-            glGetUniformLocation(m_init->getProgram(), "u_count"),
-            static_cast<unsigned int>(group.countData));
+        shader->use();
+        glUniform1ui(glGetUniformLocation(shader->getProgram(), "u_offset"), static_cast<unsigned>(group.offsetData));
+        glUniform1ui(glGetUniformLocation(shader->getProgram(), "u_offsetSettings"), static_cast<unsigned>(group.offsetSettings));
+        glUniform1ui(glGetUniformLocation(shader->getProgram(), "u_count"), static_cast<unsigned>(group.countData));
         ShaderUtil::CalcWorkSize(group.countData, &x, &y, &z);
-        m_init->dispatch(x, y, z);
+        shader->dispatch(x, y, z);
         glMemoryBarrier(GL_SHADER_STORAGE_BARRIER_BIT);
+    }
+
+    void ParticleSystem::dispatchGroup(size_t groupID, ComputeShader* shader)
+    {
+        const auto it = m_groups.find(groupID);
+        if (it != m_groups.end()) dispatchGroupData(it->second, shader);
     }
 
     void ParticleSystem::removeGroup(size_t groupID)

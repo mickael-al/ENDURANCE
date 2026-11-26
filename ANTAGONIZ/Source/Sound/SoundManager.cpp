@@ -40,7 +40,7 @@ namespace Ge
 	}
 
 	SoundBuffer * SoundManager::createBuffer(const char* filepath, bool forceMono,
-		bool retainAnalysisPcm)
+		bool retainAnalysisPcm, float loopBlendSeconds)
 	{
 		if (filepath == nullptr || filepath[0] == '\0')
 		{
@@ -67,6 +67,15 @@ namespace Ge
 			return nullptr;
 		}
 
+		// Optional loop seam conditioning is done before the device lock, on the
+		// existing loading worker. No extra voice, allocation or per-frame DSP.
+		if (loopBlendSeconds > 0.0f)
+		{
+			const unsigned channels = format == AL_FORMAT_MONO8 || format == AL_FORMAT_MONO16 ? 1u : 2u;
+			const unsigned bits = format == AL_FORMAT_MONO8 || format == AL_FORMAT_STEREO8 ? 8u : 16u;
+			size = blendSoundLoopSeam(buffer, size, frequency, channels, bits, loopBlendSeconds);
+			time = static_cast<double>(size) / (frequency * channels * (bits / 8u));
+		}
 		std::lock_guard<std::mutex> lock(m_audioMutex);
 		if (m_pContext == nullptr)
 		{

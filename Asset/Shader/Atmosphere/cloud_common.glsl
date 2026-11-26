@@ -12,7 +12,7 @@ layout(binding=GE_ATM_CLOUD_SHADOW_BINDING) uniform sampler2D geAtmCloudShadow;
 
 bool geAtmHasClouds()
 {
-    return geAtmControl.z!=0 && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0;
+    return GE_ATM_CLOUDS_ON && geAtmCloudLayer.z>0.0 && geAtmCloudLayer.w>0.0;
 }
 
 float geAtmCloudMaximumRayDistance()
@@ -128,25 +128,37 @@ float geAtmCloudShadowHeight(vec3 sourceDirection)
     return geAtmCloudLayer.x+mix(0.1,max(geAtmCloudLayer.y-0.1,0.1),height);
 }
 
+vec2 geAtmCloudShadowUV(vec3 position,vec3 sourceDirection)
+{
+    float y=sourceDirection.y;
+    // Regularized projection remains finite at exactly horizontal light.
+    float distance=(geAtmCloudShadowHeight(sourceDirection)-position.y)*y/(y*y+0.002*0.002);
+    vec2 anchor=position.xz+sourceDirection.xz*distance;
+    return (anchor-geAtmShadowOrigin.xy)/(2.0*max(geAtmCloudOffset.z,1.0))+0.5;
+}
+
+float geAtmCloudAtlasWeight(vec2 uv)
+{
+    float edge=min(min(uv.x,uv.y),min(1.0-uv.x,1.0-uv.y));
+    return smoothstep(0.0,0.06,edge);
+}
+
 float geAtmCloudVisibility(vec3 position,vec3 sourceDirection,bool secondary)
 {
     if(!geAtmHasClouds()) return 1.0;
     vec2 path=geAtmCloudLayerPath(position,sourceDirection,geAtmCloudMaximumRayDistance());
     if(path.y<=path.x) return 1.0;
     float y=sourceDirection.y;
-    // Regularized projection remains finite at exactly horizontal light.
-    float distance=(geAtmCloudShadowHeight(sourceDirection)-position.y)*y/(y*y+0.002*0.002);
-    vec2 anchor=position.xz+sourceDirection.xz*distance;
-    vec2 uv=(anchor-geAtmShadowOrigin.xy)/(2.0*max(geAtmCloudOffset.z,1.0))+0.5;
+    vec2 uv=geAtmCloudShadowUV(position,sourceDirection);
     if(any(lessThan(uv,vec2(0.0))) || any(greaterThan(uv,vec2(1.0)))) return 1.0;
     vec2 values=textureLod(geAtmCloudShadow,uv,0.0).rg;
     float whole=clamp(secondary ? values.g : values.r,0.0001,1.0);
     float wholeDistance=min(geAtmCloudMaximumRayDistance(),geAtmCloudLayer.y/max(abs(y),1e-7));
     float remaining=clamp((path.y-path.x)/max(wholeDistance,1.0),0.0,1.0);
-    float edge=min(min(uv.x,uv.y),min(1.0-uv.x,1.0-uv.y));
-    float mapWeight=smoothstep(0.0,0.06,edge);
+    float mapWeight=geAtmCloudAtlasWeight(uv);
     // Outside a finite shadow domain the approximation fades to clear. This
     // lookup intentionally needs no noise sampler in the material pipeline.
     return mix(1.0,pow(whole,remaining),mapWeight);
 }
+
 #endif

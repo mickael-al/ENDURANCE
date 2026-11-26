@@ -16,13 +16,16 @@ import os
 from pathlib import Path
 import random
 import struct
+import subprocess
+import tempfile
 import sys
 
 os.environ.setdefault("MESA_GL_VERSION_OVERRIDE", "4.6")
 os.environ.setdefault("MESA_GLSL_VERSION_OVERRIDE", "460")
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[1]
-from check_cpu import export_table, export_appearance
+from check_cpu import export_table, export_appearance, export_stain
+from check_grain_assets import export_grain
 sys.path.insert(0, str(ROOT / "Tests/Atmosphere"))
 from gl_support import AtmosphereGL, RGBA32F, RG32F, TEXTURE_2D, shader_source
 
@@ -71,19 +74,74 @@ def literal_table(colors=None, wall_colors=None, *, metallic=0., roughness=.6, a
         for rgb in (colors[i], wall_colors[i]):
             for _ in range(2):
                 floats.extend((*rgb, roughness)*3)
-                floats.extend((metallic, ao, 0., 0., .5, 1., 1., 0., 0., 0., 0., 0.))
+                floats.extend((metallic, ao, 0., 0., .5, 1., 1., 0., 0., 0., 0., 0., 0., .16, 0., 0.))
             floats.extend((.5, .1, 1., 0., 24., 1.5, 0., 0., 0., .15, .35, .35))
-        floats.extend((.28, .65, 0., 1., 1., .1, 1., .32))
-    assert len(floats) == 26*128
+        floats.extend((.28, .65, 0., 1., 1., .1, 1., .32, 0., 0., 0., 0.))
+    assert len(floats) == 26*148
     return struct.pack(f'<{len(floats)}f', *floats), colors, wall_colors
+
+
+def historical_sparkle_cache():
+    """Only historical shader comparisons need the removed RGBA grain cache.
+
+    Compile its exact old C++ bake, never approximate it in Python or depend on
+    the current renderer retaining an obsolete production texture/export API.
+    """
+    revision = '1ff2aecf8cc243df85c44676987f8bb77a3e8a3c'
+    name = 'ANTAGONIZ/Header/Miscellaneous/ProceduralTerrainFineSurface.hpp'
+    header = subprocess.check_output(['git','show',revision+':'+name],cwd=ROOT)
+    with tempfile.TemporaryDirectory(prefix='terrain-old-grain-cache-') as directory:
+        directory = Path(directory)
+        (directory/'cache.hpp').write_bytes(header)
+        (directory/'cache.cpp').write_text('#include "cache.hpp"\n#include <iostream>\nint main() {\n    const auto& p = ProceduralTerrain::terrainSparklePixels();\n    std::cout.write(reinterpret_cast<const char*>(p.data()),p.size());\n    return std::cout.good() ? 0 : 1;\n}\n')
+        binary = directory/'cache'
+        subprocess.run([os.environ.get('CXX','c++'),'-std=c++17','-O2',
+                        str(directory/'cache.cpp'),'-o',str(binary)],check=True)
+        return subprocess.check_output([str(binary)])
 
 
 class MaterialRig:
     def __init__(self, gl, table, size=(32, 24), fragment=None, formats=None):
         self.gl, self.size = gl, size
-        self.program = gl.compile([(0x8B31, PLANE_VERTEX),
-                                   (0x8B30, fragment or shader_source(TERRAIN/'render.fs.glsl'))],
-                                  'actual terrain material fragment on controlled plane')
+        self.vertex_source = PLANE_VERTEX
+        self.fragment_source = fragment or shader_source(TERRAIN/'render.fs.glsl')
+        self.specialized = 'ENDURANCE_TERRAIN_RENDER_OPTIONS_GLSL' in self.fragment_source
+        self.variants, self.program = {}, None
+        if not hasattr(gl, 'terrain_stain'):
+            # Production C++ bake, not an independent Python reimplementation.
+            payload = export_stain()
+            assert len(payload) == 512*512
+            gl.terrain_stain = gl.texture((512,512),internal=0x8229,levels=10,value=0.)
+            gl.sampler(0,gl.terrain_stain)
+            gl.glTexImage2D(TEXTURE_2D,0,0x8229,512,512,0,0x1903,0x1401,C.c_char_p(payload))
+            gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
+            gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
+            gl._fn('glGenerateMipmap',None,C.c_uint)
+            gl.glGenerateMipmap(TEXTURE_2D)
+            gl.check('production terrain stain cache')
+        self.grain_texture = 'terrainGrainTexture' in self.fragment_source
+        if self.grain_texture and not hasattr(gl, 'terrain_grain'):
+            payload = export_grain() # Archived PNG decode for historical comparisons only.
+            gl.terrain_grain = gl.texture((1024,1024),internal=0x8058,levels=1,value=0.)
+            gl.sampler(1,gl.terrain_grain)
+            gl.glTexImage2D(TEXTURE_2D,0,0x8058,1024,1024,0,0x1908,0x1401,C.c_char_p(payload))
+            gl.glTexParameteri(TEXTURE_2D,0x2801,0x2601) # GL_LINEAR, no mipmaps
+            gl.glTexParameteri(TEXTURE_2D,0x2800,0x2601)
+            gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
+            gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
+            gl.check('historical packed terrain grain texture')
+        self.historical_sparkle = 'terrainSparkleCache' in self.fragment_source
+        if self.historical_sparkle and not hasattr(gl, 'terrain_sparkle'):
+            payload = historical_sparkle_cache()
+            assert len(payload) == 128*128*4
+            gl.terrain_sparkle = gl.texture((128,128),internal=0x8058,levels=1,value=0.)
+            gl.sampler(1,gl.terrain_sparkle)
+            gl.glTexImage2D(TEXTURE_2D,0,0x8058,128,128,0,0x1908,0x1401,C.c_char_p(payload))
+            gl.glTexParameteri(TEXTURE_2D,0x2802,0x2901)
+            gl.glTexParameteri(TEXTURE_2D,0x2803,0x2901)
+            gl.check('historical terrain sparkle cache')
+        self.table_size = len(table)
+        self.matrix_values = tuple(range(25))
         self.table = gl.buffer(table)
         gl.glBindBufferBase(UNIFORM_BUFFER, 6, self.table)
         if formats is None: formats=(RG32F,RGBA32F,RGBA32F,RGBA32F)
@@ -101,12 +159,6 @@ class MaterialRig:
         gl._fn('glUniform1uiv', None, C.c_int, C.c_int, C.POINTER(C.c_uint))
         gl._fn('glGetUniformBlockIndex', C.c_uint, C.c_uint, C.c_char_p)
         gl._fn('glGetActiveUniformBlockiv', None, C.c_uint, C.c_uint, C.c_uint, C.POINTER(C.c_int))
-        index = gl.glGetUniformBlockIndex(self.program, b'TerrainMaterialTable')
-        if index != 0xffffffff:
-            extent = C.c_int()
-            gl.glGetActiveUniformBlockiv(self.program, index, 0x8A40, C.byref(extent))
-            assert extent.value == len(table), ('std140 table extent', extent.value, len(table))
-        self.matrix(tuple(range(25)))
         self.uniforms = {
             'microDetailStrength': ('1f', .15), 'microDetailScale': ('1f', 2.),
             'worldSeed': ('1ui', 1337), 'debugLod': ('1i', 0),
@@ -114,20 +166,62 @@ class MaterialRig:
             'terrainSeaBlendWidth': ('1f', 64.), 'terrainMacroPeriod': ('1f', 384.),
             'terrainPatchPeriod': ('1f', 32.), 'terrainMaterialDebug': ('1i', 0),
             'terrainAlbedoGamma': ('1f', 2.2),
+            'terrainVegetationStainSize': ('1f', 2.5),
+            'terrainOtherStainSize': ('1f', .25),
+            'terrainSparkleGrainSize': ('1f', .01),
+            'terrainGrainLightDirection': ('3f', 0., 1., 0.),
+            'terrainGrainCameraPosition': ('3f', 0., 1000180., 0.),
             'testOrigin': ('3f', -57.3, 180., 71.8),
             'testAxisX': ('3f', 40., 0., 0.), 'testAxisY': ('3f', 0., 0., 30.),
             'testNormal': ('3f', 0., 1., 0.), 'testViewOffset': ('3f', 0., 0., 0.),
             'testClimate': ('2f', .3, .6), 'testLod': ('1ui', 0),
         }
+        self._select_variant()
+
+    def _select_variant(self):
+        gl = self.gl
+        lod = int(self.uniforms['debugLod'][1])
+        debug = 0 if lod else int(self.uniforms['terrainMaterialDebug'][1])
+        biome = int(self.uniforms['terrainBiomeOverride'][1])
+        detail = int(self.uniforms['microDetailStrength'][1] > 0.)
+        key = (lod, debug, biome, detail) if self.specialized else ()
+        if key not in self.variants:
+            defines = (f'#define DEBUG_TERRAIN_MATERIAL {debug}\n'
+                       f'#define TERRAIN_FIXED_BIOME {biome}\n'
+                       f'#define TERRAIN_MICRODETAIL_ENABLED {detail}\n'
+                       + ('#define DEBUG_TERRAIN_LOD\n' if lod else '')) if self.specialized else ''
+            def source(text):
+                version, body = text.split('\n', 1)
+                return version + '\n' + defines + body
+            program = gl.compile([(0x8B31, source(self.vertex_source)),
+                                  (0x8B30, source(self.fragment_source))],
+                                 f'actual terrain material variant {key}')
+            index = gl.glGetUniformBlockIndex(program, b'TerrainMaterialTable')
+            if index != 0xffffffff:
+                extent = C.c_int()
+                gl.glGetActiveUniformBlockiv(program, index, 0x8A40, C.byref(extent))
+                assert extent.value == self.table_size, ('std140 table extent', extent.value, self.table_size)
+            self.variants[key] = program
+        program = self.variants[key]
+        if self.program == program: return False
+        self.program = program
         for name, (kind, *values) in self.uniforms.items():
-            gl.uniform(self.program, name, kind, *values)
+            gl.uniform(program, name, kind, *values)
+        self.matrix(self.matrix_values)
+        return True
+
+    def set_vertex(self, vertex_source):
+        self.vertex_source = vertex_source
+        self.variants = {}
+        self._select_variant()
 
     def matrix(self, values):
+        self.matrix_values = tuple(values)
         gl = self.gl
         gl.glUseProgram(self.program)
         location = gl.glGetUniformLocation(self.program, b'terrainBiomeMatrix[0]')
         if location >= 0:
-            gl.glUniform1uiv(location, 25, (C.c_uint*25)(*values))
+            gl.glUniform1uiv(location, 25, (C.c_uint*25)(*self.matrix_values))
 
     def upload(self, table):
         self.gl.resize(self.table, table)
@@ -137,6 +231,10 @@ class MaterialRig:
         for name, values in settings.items():
             kind = self.uniforms[name][0]
             if not isinstance(values, tuple): values = (values,)
+            self.uniforms[name] = (kind, *values)
+        if self._select_variant(): return
+        for name in settings:
+            kind, *values = self.uniforms[name]
             self.gl.uniform(self.program, name, kind, *values)
 
     def draw(self):
@@ -147,6 +245,9 @@ class MaterialRig:
         gl.glDisable(0x0B71); gl.glDisable(0x0BE2)
         gl.glBindVertexArray(self.vao)
         gl.glUseProgram(self.program)
+        gl.sampler(0,gl.terrain_stain)
+        if self.historical_sparkle: gl.sampler(1,gl.terrain_sparkle)
+        if self.grain_texture: gl.sampler(1,gl.terrain_grain)
         gl.glDrawArrays(0x0004, 0, 3)
         gl.glBindFramebuffer(0x8D40, 0)
 
@@ -296,7 +397,12 @@ def check_continuity(rig, table):
 
 
 def check_filtering(rig, table):
-    rig.upload(table)
+    # This check concerns the generic smooth relief. Granular layers explicitly
+    # keep their normal texture at range, verified separately below.
+    smooth=table
+    for offset in (0,112,272,384):
+        smooth=edited_vec(smooth,15,offset+96,(0.,.16,0.,0.))
+    rig.upload(smooth)
     rig.set(terrainBiomeOverride=15,microDetailStrength=1.,microDetailScale=2.,
             testOrigin=(-2.3,180.,1.8),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
     close=rig.read()
@@ -308,29 +414,173 @@ def check_filtering(rig, table):
     assert max(deviations) < .001, ('subpixel normal detail did not fade',max(deviations))
     rig.set(microDetailStrength=.15,testOrigin=(-57.3,180.,71.8),
             testAxisX=(40.,0.,0.),testAxisY=(0.,0.,30.))
+    rig.upload(table)
     print('PASS near-field microrelief and derivative-based subpixel normal suppression',flush=True)
 
 
 def edited_vec(table, biome, offset, values):
     """Edit an independently specified std140 byte offset in one biome record."""
     data=bytearray(table)
-    struct.pack_into('<4f',data,biome*512+offset,*values)
+    struct.pack_into('<4f',data,biome*592+offset,*values)
     return bytes(data)
+
+
+def check_fine_surface(gl):
+    # Independently constant materials isolate each new effect. Real GLSL and
+    # the real C++ cache are used, including production mip generation.
+    table,_,_=literal_table(colors=[(.3,.4,.2)]*26,roughness=.8)
+    table=edited_vec(table,0,224,(1.,0.,0.,0.)) # base only
+    rig=MaterialRig(gl,table,size=(128,128))
+    rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.),
+            microDetailStrength=0.,terrainSparkleGrainSize=.04)
+    baseline=rig.read()
+    grains=edited_vec(table,0,96,(1.,.12,0.,0.))
+    rig.upload(grains)
+    # An overhead sun and camera maximize the reflection envelope. The new
+    # zenith fade must still leave the substrate exactly unchanged.
+    assert rig.read()[1:] == baseline[1:], 'zenith sun still produces grain facets'
+    low_sun=(0.,.25,-math.sqrt(1.-.25**2))
+    rig.set(terrainGrainLightDirection=low_sun,
+            terrainGrainCameraPosition=(0.,180.+low_sun[1]*1e6,-low_sun[2]*1e6))
+    sparkle=rig.read()
+    assert sparkle[0] == baseline[0] and sparkle[2] == baseline[2], 'glints changed geometry/emission/albedo'
+    assert sparkle[3][0::4] == baseline[3][0::4] and sparkle[3][2::4] == baseline[3][2::4]
+    roughness = sparkle[3][1::4]
+    assert min(roughness) < .3 and max(roughness) > .799, ('missing isolated smooth facets',min(roughness),max(roughness))
+    coverage = sum(r < .79 for r in roughness)/len(roughness)
+    assert 0.001 < coverage < .15, ('substrate became globally glossy',coverage)
+    facets=list(pixels(sparkle[1]))
+    for n in facets:
+        assert abs(sum(x*x for x in n[:3])-1.) < 3e-5
+        assert n[1]>.6, 'decoded normal left the terrain hemisphere'
+    # No sun and wrong reflection direction must leave the entire substrate
+    # unchanged, not just multiply its final color by zero.
+    rig.set(terrainGrainLightDirection=(0.,0.,0.))
+    assert rig.read()[1:] == baseline[1:], 'no-source path perturbs IBL/diffuse material'
+    rig.set(terrainGrainLightDirection=(1.,0.,0.))
+    assert rig.read()[1:] == baseline[1:], 'unlit surface has grain facets'
+    rig.set(terrainGrainLightDirection=low_sun)
+    rig.set(testLod=5,testViewOffset=(5.,2.,-10.))
+    stable=rig.read()
+    assert stable[1:] == sparkle[1:], 'world grains changed with chunk LOD or camera origin'
+
+    # Hashes identify WORLD cells: changing the seed changes the population,
+    # whereas re-rendering or changing only chunk/view-origin metadata must not.
+    first=rig.read()
+    rig.set(worldSeed=7331); reseeded=rig.read()
+    assert max_difference(first[3],reseeded[3])>.1, 'grain ignores the world seed'
+    rig.set(worldSeed=1337)
+
+    # Shift the sampled plane by exactly one pixel. The same world points must
+    # retain the same response on the adjacent pixels, independently of any
+    # reference implementation of the hash, grid, or coverage kernel.
+    rig.set(testOrigin=(0.,180.,0.),testAxisX=(.5,0.,0.),testAxisY=(0.,0.,.5))
+    anchored=rig.read()
+    rig.set(testOrigin=(.5/128,180.,0.))
+    shifted=rig.read()
+    for attachment in (1,3):
+        pairs=[(anchored[attachment][4*(y*128+x+1)+c], shifted[attachment][4*(y*128+x)+c])
+               for y in range(128) for x in range(127) for c in range(3)]
+        assert max(abs(a-b) for a,b in pairs)<.002, 'grain population follows screen coordinates'
+    # Degenerate projection can occur on edge-on geometry: no NaN/Inf may enter
+    # the G-buffer even when the local footprint has no invertible mapping.
+    rig.set(testAxisX=(0.,0.,0.),testAxisY=(0.,0.,0.))
+    collapsed=rig.read()
+    assert all(math.isfinite(v) for a in collapsed for v in a), 'degenerate footprint creates nonfinite material'
+    rig.set(testOrigin=(-.37,180.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
+
+    # Saved v4 records can still contain stain controls. Granular materials
+    # must suppress those controls before blending, without changing albedo.
+    stale=edited_vec(grains,0,96,(1.,.12,.10,.06))
+    rig.upload(stale); clean=rig.read()
+    assert max_difference(clean[2],baseline[2])<2e-6, 'saved stains remain on sand/snow'
+    assert max_difference(clean[3],sparkle[3])<2e-6, 'saved stain roughness affects granular material'
+    # Old smooth microrelief is a separate source of ring-shaped highlights.
+    # It must remain on ordinary material, but not on the granular material.
+    noisy=edited_vec(table,0,48,(0.,1.,1.,.2))
+    rig.set(microDetailStrength=.3)
+    rig.upload(noisy); ordinary=rig.read()
+    assert max_difference(ordinary[1],baseline[1])>.001, 'microrelief regression setup is flat'
+    rig.upload(edited_vec(noisy,0,96,(1.,.12,.10,.06))); granular=rig.read()
+    assert max_difference(granular[1],sparkle[1])<2e-6, 'coherent FBM bumps survive on sand/snow'
+    assert max_difference(granular[3],sparkle[3])<2e-6, 'coherent FBM roughness survives on sand/snow'
+    rig.set(microDetailStrength=0.)
+
+    stains=edited_vec(table,0,96,(0.,.16,.10,.06))
+    rig.upload(stains); stain=rig.read()
+    assert stain[1] == baseline[1], 'stains introduced generic normal noise'
+    ratios=[c[0]/.3 for c in linear_colors(stain[2])]
+    assert min(ratios) < .902 and max(ratios) > .998, ('discrete stain mask',min(ratios),max(ratios))
+    for ratio,rough in zip(ratios,stain[3][1::4]):
+        assert .89999 <= ratio <= 1.00001, ('10 percent albedo bounds',ratio)
+        assert abs(rough-(.8-.6*(1.-ratio))) < 3e-6, 'stain roughness not coupled to mask'
+    rig.set(testOrigin=(12.43,180.,-9.37)) # inverse projection of one 16 m repeat
+    repeated=rig.read()
+    assert max_difference(stain[2],repeated[2]) < .0002, 'procedural cache does not tile continuously'
+
+    # The vegetation pattern must be EXACTLY ten times larger, independently
+    # of the biome's relief. Scaling the whole domain keeps the projected UVs.
+    rig.set(testOrigin=(-.037,0.,.023),testAxisX=(.1,0.,0.),testAxisY=(0.,0.,.1))
+    rig.upload(stains); small=rig.read()
+    green=edited_vec(stains,0,576,(1.,0.,0.,0.))
+    rig.set(testOrigin=(-.37,0.,.23),testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
+    rig.upload(green); large=rig.read()
+    assert max_difference(small[2],large[2]) < 1e-5, 'vegetation stains are not 10x larger'
+    # Blend the two evaluated fixed-scale masks, not an interpolated frequency.
+    rig.upload(stains); fine=rig.read()
+    rig.upload(edited_vec(stains,0,576,(.5,0.,0.,0.))); blended=rig.read()
+    for a,b,c in zip(linear_colors(large[2]),linear_colors(fine[2]),linear_colors(blended[2])):
+        assert max(abs((x+y)*.5-z) for x,y,z in zip(a,b,c)) < 3e-6, 'stain blending moves the domains'
+    rig.upload(grains); first=rig.read()
+    rig.upload(edited_vec(grains,0,560,(1.,.91,3.,.48))); second=rig.read()
+    assert max_difference(first[1],second[1]) < 1e-6 and max_difference(first[3],second[3]) < 1e-6, 'sparkle still follows the relief FBM'
+    rig.set(terrainSparkleGrainSize=.32); resized=rig.read()
+    assert max_difference(first[3],resized[3]) > .01, 'sparkle size control has no effect'
+    rig.set(terrainSparkleGrainSize=.04)
+
+    # Accents/ceilings never inherit a neighbouring base's sparkle or stains.
+    for effect in (grains,stains):
+        rig.upload(edited_vec(effect,0,224,(0.,0.,0.,0.)))
+        accent=rig.read()
+        assert max_difference(accent[2],baseline[2]) < 2e-6
+        assert max_difference(accent[3],baseline[3]) < 2e-6
+        rig.upload(effect); rig.set(testNormal=(0.,-1.,0.))
+        ceiling=rig.read()
+        assert max_difference(ceiling[2],baseline[2]) < 2e-6
+        assert max_difference(ceiling[3],baseline[3]) < 2e-6
+        rig.set(testNormal=(0.,1.,0.))
+
+    # A pixel spans more than the complete 16 m cache: its last mip is uniform.
+    rig.set(testAxisX=(4096.,0.,0.),testAxisY=(0.,0.,4096.))
+    rig.upload(grains); far=rig.read()
+    assert all(math.isfinite(v) for a in far for v in a), 'distant footprint creates nonfinite material'
+    far_coverage=sum(r<.79 for r in far[3][1::4])/(128*128)
+    assert .001<far_coverage<.15, ('distant sparkle density is not sparse',far_coverage)
+    assert max_difference(far[3],baseline[3]) > .1, 'procedural grains must remain active at large pixel footprints'
+    rig.upload(stains); far=rig.read()
+    far_ratios=[c[0]/.3 for c in linear_colors(far[2])]
+    assert .94 < min(far_ratios) <= max(far_ratios) < .96, 'mips must preserve average stain coverage'
+    assert max(far_ratios)-min(far_ratios) < .001, 'distant stains shimmer instead of filtering'
+    disabled=shader_source(TERRAIN/'render.fs.glsl').replace('#version 460 core',
+        '#version 460 core\n#define TERRAIN_FINE_SURFACE_ENABLED 0',1)
+    off=MaterialRig(gl,stains,fragment=disabled)
+    assert max_difference(off.read()[2],baseline[2][:32*24*4]) < 2e-6
+    print('PASS fine surfaces: zero facets at zenith, sparse low-sun points, world-anchored sampling, finite/normalized normals, no granular FBM leakage, 10% stains, independent scales, LOD/seed stability, no grain cutoff and compile-time disable',flush=True)
 
 
 def check_material_identity(rig, table):
     # Each semantic family changes surface normals at the same physical scale,
     # with an identical constant albedo. These are normal fields, not recolors.
     constant,_,_=literal_table()
-    for surface in (0,240):
-        for material in (0,96):
+    for surface in (0,272):
+        for material in (0,112):
             constant=edited_vec(constant,0,surface+material+48,(0.,1.,1.,.05))
     rig.set(terrainBiomeOverride=0,testOrigin=(-1.7,180.,2.3),testAxisX=(2.,0.,0.),
             testAxisY=(0.,0.,2.),testNormal=(0.,1.,0.),microDetailStrength=.15)
     signatures=[];reference=None
     for family in range(8):
-        candidate=edited_vec(constant,0,224,(float(family),1.2,.65,.3))
-        candidate=edited_vec(candidate,0,496,(1.,.14,2.,.4))
+        candidate=edited_vec(constant,0,256,(float(family),1.2,.65,.3))
+        candidate=edited_vec(candidate,0,560,(1.,.14,2.,.4))
         rig.upload(candidate);out=rig.read()
         assert all(math.isfinite(v) for attachment in out for v in attachment), ('normal family',family)
         signatures.append(tuple(round(v,5) for v in out[1]))
@@ -345,7 +595,7 @@ def check_material_identity(rig, table):
     rig.set(terrainBiomeOverride=15)
     rig.upload(table);before=rig.read()
     colored=table
-    for material in (0,96):
+    for material in (0,112):
         colored=edited_vec(colored,15,material+80,(0.,0.,0.,1.))
         colored=edited_vec(colored,15,material,(.1,.7,.3,.81))
         colored=edited_vec(colored,15,material+4*4,(.7,.1,.4,.81))
@@ -357,24 +607,24 @@ def check_material_identity(rig, table):
     # octaves. Fine detail fades by footprint, not by draw LOD or frame index.
     rig.set(terrainBiomeOverride=0,testAxisX=(1.,0.,0.),testAxisY=(0.,0.,1.))
     octave_outputs=[]
-    constant=edited_vec(constant,0,224,(0.,.3,.2,1.))
+    constant=edited_vec(constant,0,256,(0.,.3,.2,1.))
     for count in (1.,1.5,2.9):
-        rig.upload(edited_vec(constant,0,496,(1.,.16,count,.5)))
+        rig.upload(edited_vec(constant,0,560,(1.,.16,count,.5)))
         octave_outputs.append(rig.read()[1])
     for first,second in zip(octave_outputs,octave_outputs[1:]):
         assert max_difference(first,second)>1e-5, 'octave controls have no normal detail effect'
     scaled=[]
     for period in (.08,.32):
-        rig.upload(edited_vec(constant,0,496,(1.,period,2.,.4)))
+        rig.upload(edited_vec(constant,0,560,(1.,period,2.,.4)))
         scaled.append(rig.read()[1])
     assert max_difference(*scaled)>1e-4, 'grain period control has no effect'
 
     rig.set(terrainBiomeOverride=15,testAxisX=(240.,0.,0.),testAxisY=(0.,0.,240.))
     scales=[]
-    floats=struct.unpack('<3328f',table)
-    original=floats[15*128+124:15*128+128]
+    floats=struct.unpack('<3848f',table)
+    original=floats[15*148+140:15*148+144]
     for multiplier in (.2,3.):
-        rig.upload(edited_vec(table,15,496,(multiplier,*original[1:])))
+        rig.upload(edited_vec(table,15,560,(multiplier,*original[1:])))
         scales.append(rig.read()[2])
     assert max_difference(*scales)>1e-5, 'biome patch scale has no albedo effect'
     rig.upload(table)
@@ -500,10 +750,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
     biomes=list(range(26)) if biomes is None else biomes
     scale=extent/1024.
     rig=MaterialRig(gl,table,size)
-    rig.program=gl.compile([(0x8B31,shader_source(TERRAIN/'render.vs.glsl')),
-                            (0x8B30,shader_source(TERRAIN/'render.fs.glsl'))],
-                           'packed terrain material preview')
-    for name,(kind,*values) in rig.uniforms.items(): gl.uniform(rig.program,name,kind,*values)
+    rig.set_vertex(shader_source(TERRAIN/'render.vs.glsl'))
     if settings: rig.set(**settings)
     rig.matrix(tuple(range(25)))
     for name,signature in {
@@ -568,7 +815,7 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
     V=normalized(tuple(a-b for a,b in zip(eye,target)))
     H=normalized(tuple(a+b for a,b in zip(L,V)))
     VH=max(sum(a*b for a,b in zip(V,H)),0.)
-    floats=struct.unpack('<3328f',table)
+    floats=struct.unpack('<3848f',table)
     for tile_index,biome in enumerate(biomes):
         name=NAMES[biome]
         rig.set(terrainBiomeOverride=biome)
@@ -580,6 +827,8 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
         gl.glViewport(0,0,*size)
         gl.glBindVertexArray(rig.vao)
         gl.glUseProgram(rig.program)
+        gl.sampler(0,gl.terrain_stain)
+        if rig.historical_sparkle: gl.sampler(1,gl.terrain_sparkle)
         gl.glDrawArraysInstancedBaseInstance(0x0004,0,len(vertices)//3,1,0)
         gl.glBindFramebuffer(0x8D40,0)
         data=[gl.texels(t,size,channels=2 if i==0 else 4) for i,t in enumerate(rig.outputs)]
@@ -615,9 +864,9 @@ def render_preview(gl, table, path, settings=None, *, extent=1024., biomes=None,
         sheet.paste(tile,(x,y))
         draw.text((x+5,y+height_px+2),name,font=font,fill=(230,230,230))
         swatches=[]
-        for material in (0,24,60,84):
+        for material in (0,28,68,96):
             for stop in (0,4,8):
-                start=biome*128+material+stop
+                start=biome*148+material+stop
                 swatches.append(tuple(round(255.*max(0.,min(v,1.))**(1./2.2)) for v in floats[start:start+3]))
         for i,color in enumerate(swatches):
             draw.rectangle((x+i*width//12,y+height_px+21,x+(i+1)*width//12-1,y+height_px+34),fill=color)
@@ -645,6 +894,7 @@ def main():
         check_continuity(rig,table)
         check_filtering(rig,table)
         check_material_identity(rig,table)
+        check_fine_surface(gl)
         check_noise_gradients(gl)
         check_relief_gradients(gl)
         gl.check('terrain material validation')

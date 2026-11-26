@@ -13,6 +13,7 @@ namespace Ge
 {
     class Camera;
     class Lights;
+    struct MoonMeshData;
 
     enum class AtmosphereQuality { Low=0, Medium=1, High=2, Ultra=3 };
 
@@ -47,7 +48,7 @@ namespace Ge
         float ozoneCenterHeight=25000.0f;
         float ozoneHalfWidth=15000.0f;
         glm::vec3 groundAlbedo{0.15f};
-        float sunAngularRadius=0.266f; // degrees (half of the apparent diameter)
+        float sunAngularRadius=0.798f; // degrees; 3x apparent radius, independent of illuminance
         glm::vec3 sunDiskColor{1.0f,0.96f,0.88f};
         float sunDiskIntensity=25.0f;
         float sunIlluminanceScale=12.0f;
@@ -55,6 +56,13 @@ namespace Ge
         glm::vec3 moonDiskColor{0.55f,0.65f,0.85f};
         float moonDiskIntensity=0.15f;
         float moonIlluminanceScale=0.05f;
+        // Optional finite textured body. Its material is provided by the game;
+        // existing scenes keep their legacy disk until this is enabled.
+        bool moonSurface=false;
+        float moonDistance=1000000.0f; // centre from world (0, seaLevel, 0), metres
+        float moonAzimuth=140.0f, moonElevation=35.0f; // fallback without a moon light
+        float moonRotation=0.0f, moonNormalStrength=0.65f;
+        int moonMeshResolution=1024; // cached geometry image, independent of screen/cubemap size
         float aerialDistance=32768.0f;
         float altitudeUpdateThreshold=1.0f;
         float shadowCasterMargin=4000.0f; // base; available caster bounds may extend each cascade
@@ -74,7 +82,7 @@ namespace Ge
         float cloudWeatherContrast=1.4f;
         float cloudProfileVariation=0.7f;
         glm::vec3 cloudProfileMix{0.25f,0.5f,0.25f}; // stratus, cumulus, towers
-        glm::vec2 wind{12.0f,4.0f}; // m/s XZ; integrated at render time, stopping preserves position
+        glm::vec2 wind{48.0f,16.0f}; // m/s XZ; integrated at render time, stopping preserves position
         std::uint32_t cloudSeed=1337;
         // Zero selects the preset. Explicit overrides are clamped on upload.
         int cubemapSize=0, irradianceSize=0, prefilterSize=0;
@@ -98,6 +106,9 @@ namespace Ge
         std::uint64_t requestedEnvironmentRevision=0, captureRevision=0, publishedEnvironmentRevision=0;
         std::uint64_t dispatches=0, aerialDispatches=0, cloudVolumeDispatches=0;
         std::uint64_t cloudShadowDispatches=0, visibleCloudDispatches=0, fogDispatches=0;
+        std::uint64_t programVariantBuilds=0, programVariantHits=0, lightingLocationQueries=0;
+        std::uint64_t moonImageUpdates=0, moonShadowUpdates=0, moonMeshGpuBytes=0;
+        unsigned residentProgramVariants=0;
         // CPU accounting of owned texel storage; excludes driver allocation
         // overhead and includes retained published/capture resources.
         std::uint64_t gpuTextureBytes=0, captureTextureBytes=0;
@@ -127,12 +138,22 @@ namespace Ge
         const AtmosphereStats& stats() const;
         const std::string& error() const;
         bool active() const;
+        // Direction towards the visible sun for material-side specular detail.
+        // Zero at night/no source; first active directional when atmosphere is off.
+        // CPU state only: no texture bindings, GL readback or extra lighting pass.
+        glm::vec3 primarySpecularDirection() const;
         void setPaletteTarget(const AtmospherePalette& palette, bool force=false);
         const AtmospherePalette& displayedPalette() const;
         void invalidate();
         void reloadShaders();
         void setSun(Lights* sun);
         void setMoon(Lights* moon);
+        // Copies a linear RGBA8 atlas: object-space normal RGB, albedo A.
+        // nullptr releases it; the renderer owns its GPU copy. No frame readback.
+        bool setMoonSurface(const std::uint8_t* rgba, unsigned width, unsigned height, float meanAlbedo);
+        // Render-thread upload of a baked body and its fragments. nullptr restores
+        // the legacy atlas; geometry is rasterized only when its cached view changes.
+        bool setMoonMesh(const MoonMeshData* mesh);
         // Optional caller-owned HDR source, excluding directional-source disks.
         // A revision change schedules a complete environment transaction.
         void setExternalEnvironment(unsigned int cubemap, std::uint64_t revision=0);
@@ -144,10 +165,17 @@ namespace Ge
         void setGameFogBinding(std::function<void(unsigned int)> bind);
         void prepare(Camera* camera, double deltaSeconds);
         void prepareShadows();
+        // Ignore an inactive celestial source without reallocating its cascades.
+        bool shadowLayerActive(unsigned layer) const;
         void renderSky(unsigned int cameraSSBO);
         void computeVolumes(Camera* camera);
         // Deferred and forward materials share the same completed IBL/volume set.
-        void bindLighting(unsigned int program, bool transparent=false);
+        // A nonzero lifetime/relink revision permits cached uniform locations.
+        // Raw external program IDs retain the conservative uncached path.
+        void bindLighting(unsigned int program, bool transparent=false, std::uint64_t programRevision=0);
+        // Only medium UBO6 and perspective volumes12/13; callers cache the
+        // uAtmosphereActive location when compiling their particle program.
+        void bindParticleMedium(unsigned int program, int activeLocation);
         std::string serializeSettings() const;
         bool loadSettings(const std::string& json);
         void onGUI();

@@ -44,6 +44,8 @@ int main(int argc, char** argv)
             assert(scene.appearance.biomes[i].spectrum == defaults.biomes[i].spectrum);
             assert(scene.appearance.biomes[i].ground.normal == defaults.biomes[i].ground.normal);
             assert(scene.appearance.biomes[i].wall.normal == defaults.biomes[i].wall.normal);
+            assert(scene.appearance.biomes[i].ground.base.fineSurface == defaults.biomes[i].ground.base.fineSurface);
+            assert(scene.appearance.biomes[i].ground.accent.fineSurface == defaults.biomes[i].ground.accent.fineSurface);
         }
         return scene;
     };
@@ -63,7 +65,8 @@ int main(int argc, char** argv)
     customized.appearance.macroPeriod = 687.0f;
     customized.appearance.patchPeriod = 71.0f;
     customized.appearance.debugView = 2;
-    const auto before = customized.appearance;
+    auto before = customized.appearance;
+    Endurance::configureTerrainFineMaterials(before);
     assert(Endurance::upgradeTerrainAppearance(customized.appearance,
         customized.terrainAppearanceRevision) == ProceduralTerrain::BiomeCount - 2);
     for (std::size_t i = 0; i < ProceduralTerrain::BiomeCount; ++i)
@@ -78,6 +81,14 @@ int main(int argc, char** argv)
     // Saved v2 scenes never get remigrated, even if a user deliberately uses
     // an old palette. Future revisions also remain untouched.
     auto current = decodeLegacy();
+    current.terrainAppearanceRevision = 2;
+    current.appearance.biomes[0].wall.base.colorLow[3] = 0.04f;
+    auto v2Before = current.appearance;
+    Endurance::configureTerrainFineMaterials(v2Before);
+    assert(Endurance::upgradeTerrainAppearance(current.appearance,
+        current.terrainAppearanceRevision) == 0);
+    assert(sameTable(current.appearance, v2Before));
+    assert(current.terrainAppearanceRevision == Endurance::TerrainAppearanceRevision);
     current.terrainAppearanceRevision = Endurance::TerrainAppearanceRevision;
     const auto currentBefore = current.appearance;
     assert(Endurance::upgradeTerrainAppearance(current.appearance,
@@ -87,6 +98,95 @@ int main(int argc, char** argv)
     assert(Endurance::upgradeTerrainAppearance(current.appearance,
         current.terrainAppearanceRevision) == 0);
     assert(sameTable(current.appearance, currentBefore));
+
+    // A real v3 saved scene contains the OLD fine controls. Replace untouched
+    // values but preserve user changes, blue-ice roughness and global scales.
+    auto v3 = defaults;
+    v3.biomes[0].ground.base.fineSurface = {{.90f,.15f,0.f,0.f}};
+    v3.biomes[1].ground.base.fineSurface = {{.55f,.18f,0.f,0.f}};
+    v3.biomes[1].ground.accent.fineSurface = {{0.f,.16f,0.f,0.f}};
+    v3.biomes[1].wall.accent.fineSurface = {{0.f,.16f,0.f,0.f}};
+    v3.biomes[0].wall.base.colorLow[3] = .04f;
+    v3.biomes[12].ground.base.fineSurface[2] = .23f;
+    v3.biomes[12].ground.base.colorMid[1] = .013f;
+    v3.biomes[12].stainRouting = {{0.f,0.f,0.f,0.f}};
+    v3.vegetationStainSize = 7.f;
+    auto classification = v3;
+    Endurance::configureTerrainFineMaterials(classification);
+    std::uint32_t revision = 3;
+    Endurance::upgradeTerrainAppearance(v3,revision);
+    assert(revision == Endurance::TerrainAppearanceRevision);
+    assert(v3.biomes[0].ground.base.fineSurface == defaults.biomes[0].ground.base.fineSurface);
+    assert(v3.biomes[1].ground.base.fineSurface[0] == 0.f);
+    assert(v3.biomes[1].ground.accent.fineSurface[0] > 0.f);
+    assert(v3.biomes[1].wall.accent.fineSurface[0] > 0.f);
+    assert(v3.biomes[0].wall.base.colorLow[3] == .04f);
+    assert(v3.biomes[12].ground.base.fineSurface[2] == .23f);
+    assert(v3.biomes[12].ground.base.colorMid[1] == .013f);
+    assert(v3.biomes[12].stainRouting == classification.biomes[12].stainRouting);
+    assert(v3.vegetationStainSize == 7.f);
+
+    // Revision 4 may have serialized stains on every material, including
+    // edited fine controls. Remove ONLY the sand/snow stain channels; do not
+    // reset palette, grain strength/roughness, routing or the global sizes.
+    auto v4 = defaults;
+    for (auto& b : v4.biomes)
+        for (auto* m : {&b.ground.base,&b.ground.accent,&b.wall.base,&b.wall.accent})
+        {
+            m->fineSurface[2] = .23f;
+            m->fineSurface[3] = .11f;
+        }
+    v4.biomes[21].ground.base.fineSurface[0] = .37f;
+    v4.biomes[21].ground.base.fineSurface[1] = .24f;
+    v4.biomes[0].ground.base.fineSurface[0] = 0.f; // Disabled sparkle is still snow.
+    v4.biomes[0].wall.base.colorLow[3] = .04f;
+    v4.biomes[12].stainRouting = {{.12f,.23f,.34f,.45f}};
+    v4.vegetationStainSize = 9.f;
+    v4.otherStainSize = .6f;
+    v4.sparkleGrainSize = .02f;
+    auto v4Expected = v4;
+    for (std::size_t i = 0; i < ProceduralTerrain::BiomeCount; ++i)
+    {
+        auto& b = v4Expected.biomes[i];
+        const auto& known = defaults.biomes[i];
+        ProceduralTerrain::TerrainMaterial* actual[] = {
+            &b.ground.base,&b.ground.accent,&b.wall.base,&b.wall.accent};
+        const ProceduralTerrain::TerrainMaterial* semantic[] = {
+            &known.ground.base,&known.ground.accent,&known.wall.base,&known.wall.accent};
+        for (unsigned slot = 0; slot < 4; ++slot)
+            if (semantic[slot]->fineSurface[0] > 0.f)
+            {
+                actual[slot]->fineSurface[2] = 0.f;
+                actual[slot]->fineSurface[3] = 0.f;
+            }
+    }
+    revision = 4;
+    Endurance::upgradeTerrainAppearance(v4,revision);
+    assert(revision == Endurance::TerrainAppearanceRevision);
+    assert(sameTable(v4,v4Expected));
+    assert(v4.vegetationStainSize == 9.f && v4.otherStainSize == .6f && std::abs(v4.sparkleGrainSize - .1f) < 1e-7f);
+    assert(v4.biomes[0].ground.base.fineSurface[2] == 0.f);
+    assert(v4.biomes[1].ground.accent.fineSurface[2] == 0.f);
+    assert(v4.biomes[1].wall.accent.fineSurface[3] == 0.f);
+    assert(v4.biomes[21].ground.base.fineSurface[2] == 0.f);
+    assert(v4.biomes[21].ground.accent.fineSurface[2] == 0.f);
+    assert(v4.biomes[12].ground.base.fineSurface[2] == .23f);
+    assert(v4.biomes[20].ground.base.fineSurface[3] == .11f);
+
+    // Enlarge the existing scale exactly once, including artist edits. A fresh
+    // scene uses the same 1cm default and a saved v8 scene never grows again.
+    assert(defaults.sparkleGrainSize == .01f);
+    for (float size : {.001f, .002f, .037f, .8f})
+    {
+        auto savedScale = defaults;
+        savedScale.sparkleGrainSize = size;
+        revision = 7;
+        Endurance::upgradeTerrainAppearance(savedScale, revision);
+        const float expected = (std::min)(size * 5.f, 1.f);
+        assert(std::abs(savedScale.sparkleGrainSize - expected) < 1e-7f);
+        Endurance::upgradeTerrainAppearance(savedScale, revision);
+        assert(savedScale.sparkleGrainSize == expected && sameTable(savedScale, defaults));
+    }
 
     // Pre-material scenes have neither appearance nor version metadata.
     SceneAppearance absent;

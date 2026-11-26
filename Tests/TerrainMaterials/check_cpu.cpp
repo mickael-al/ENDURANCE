@@ -1,4 +1,5 @@
 #include "ProceduralTerrainMaterials.hpp"
+#include "ProceduralTerrainFineSurface.hpp"
 #include "EnduranceTerrainMaterials.hpp"
 #include "EnduranceTerrainMaterialSerialization.hpp"
 #include <cassert>
@@ -20,10 +21,10 @@ void validate()
     const auto authored = Endurance::makeTerrainAppearance();
     assert(validTerrainAppearance(authored));
     assert(validTerrainMaterialTable(authored.biomes));
-    assert(sizeof(TerrainMaterial) == 96);
-    assert(sizeof(TerrainSurface) == 240);
-    assert(sizeof(TerrainBiomeAppearance) == 512);
-    assert(sizeof(TerrainMaterialTable) == 13312);
+    assert(sizeof(TerrainMaterial) == 112);
+    assert(sizeof(TerrainSurface) == 272);
+    assert(sizeof(TerrainBiomeAppearance) == 592);
+    assert(sizeof(TerrainMaterialTable) == 15392);
 
     // Distinct authored palettes, not 26 copies of a generic fallback. Each
     // biome must also distinguish its surface base from its accent and walls.
@@ -47,6 +48,23 @@ void validate()
         }
     }
     assert(palettes.size() == 26);
+    for (const auto& b : authored.biomes)
+        for (const auto* m : {&b.ground.base,&b.ground.accent,&b.wall.base,&b.wall.accent})
+        {
+            const bool grains = m->fineSurface[0] > 0.f;
+            assert(m->fineSurface[2] == (grains ? 0.f : .10f));
+            assert(m->fineSurface[3] == (grains ? 0.f : .06f));
+        }
+    // Snow in secondary layers and wall frost must no longer be omitted.
+    assert(authored.biomes[1].ground.base.fineSurface[0] == 0.f);
+    assert(authored.biomes[1].ground.accent.fineSurface[0] > 0.f);
+    assert(authored.biomes[1].wall.accent.fineSurface[0] > 0.f);
+    assert(authored.biomes[12].stainRouting[0] == 1.f);
+    assert(authored.biomes[20].stainRouting[0] == 0.f);
+    assert(authored.biomes[0].ground.base.fineSurface[0] > 0.f);
+    assert(authored.biomes[21].ground.base.fineSurface[0] > 0.f);
+    assert(authored.biomes[12].ground.base.fineSurface[2] == 0.10f);
+    assert(authored.biomes[20].ground.base.fineSurface[0] == 0.f);
     const auto again = Endurance::makeTerrainAppearance();
     assert(std::memcmp(authored.biomes.data(), again.biomes.data(),
                        sizeof(TerrainMaterialTable)) == 0);
@@ -60,6 +78,11 @@ void validate()
         assert(validTerrainAppearance(authored));
     };
     reject([](auto& a) { a.biomes[0].ground.base.colorLow[0] = -0.1f; });
+    reject([](auto& a) { a.biomes[0].ground.base.fineSurface[0] = -0.1f; });
+    reject([](auto& a) { a.biomes[0].ground.base.fineSurface[1] = 0.0f; });
+    reject([](auto& a) { a.biomes[12].ground.base.fineSurface[2] = 1.1f; });
+    reject([](auto& a) { a.biomes[12].ground.base.fineSurface[3] =
+        (std::numeric_limits<float>::quiet_NaN)(); });
     reject([](auto& a) { a.biomes[0].ground.base.colorMid[3] = 2.0f; });
     reject([](auto& a) { a.biomes[0].wall.accent.response[0] = -1.0f; });
     reject([](auto& a) { a.biomes[0].wall.accent.response[1] = 2.0f; });
@@ -76,6 +99,10 @@ void validate()
     reject([](auto& a) { a.biomes[0].spectrum[3] = 0.6f; });
     reject([](auto& a) { a.biomes[0].slope[1] = a.biomes[0].slope[0]; });
     reject([](auto& a) { a.macroPeriod = 0.0f; });
+    reject([](auto& a) { a.vegetationStainSize = 0.f; });
+    reject([](auto& a) { a.otherStainSize = -1.f; });
+    reject([](auto& a) { a.sparkleGrainSize = 2.f; });
+    reject([](auto& a) { a.biomes[0].stainRouting[2] = 1.1f; });
     reject([](auto& a) { a.patchPeriod = -1.0f; });
     reject([](auto& a) { a.debugView = -1; });
     reject([](auto& a) { a.debugView = 100; });
@@ -106,10 +133,15 @@ void validate()
     edited.macroPeriod = 631.5f;
     edited.patchPeriod = 17.25f;
     edited.debugView = 3;
+    edited.vegetationStainSize = 3.25f;
+    edited.otherStainSize = .375f;
+    edited.sparkleGrainSize = .06f;
+    edited.biomes[13].stainRouting[2] = .75f;
     edited.biomes[25].wall.accent.colorHigh = {{.123f,.456f,.789f,.321f}};
     edited.biomes[13].ground.base.pattern = {{.15f,.27f,.42f,.16f}};
     edited.biomes[13].ground.normal = {{7.0f, 1.75f, 0.63f, 0.27f}};
     edited.biomes[25].spectrum = {{1.3f, 0.11f, 3.0f, 0.42f}};
+    edited.biomes[12].ground.accent.fineSurface = {{0.12f, 0.09f, 0.20f, 0.08f}};
     const std::string json = JS::serializeStruct(edited);
     TerrainAppearance decoded;
     JS::ParseContext roundtrip(json);
@@ -123,6 +155,9 @@ void validate()
     assert(decoded.macroPeriod == edited.macroPeriod);
     assert(decoded.patchPeriod == edited.patchPeriod);
     assert(decoded.debugView == edited.debugView);
+    assert(decoded.vegetationStainSize == edited.vegetationStainSize);
+    assert(decoded.otherStainSize == edited.otherStainSize);
+    assert(decoded.sparkleGrainSize == edited.sparkleGrainSize);
     TerrainAppearance oldScene;
     const auto original = oldScene;
     JS::ParseContext legacy("{\"obsoleteLegacySetting\":12}");
@@ -137,6 +172,12 @@ void validate()
 int main(int argc, char** argv)
 {
     validate();
+    if (argc == 2 && std::string(argv[1]) == "--stain")
+    {
+        const auto& pixels = ProceduralTerrain::terrainFineSurfacePixels();
+        std::cout.write(reinterpret_cast<const char*>(pixels.data()), pixels.size());
+        return std::cout.good() ? 0 : 1;
+    }
     if (argc == 2 && std::string(argv[1]) == "--dump")
     {
         const auto appearance = Endurance::makeTerrainAppearance();
@@ -148,7 +189,8 @@ int main(int argc, char** argv)
     {
         const auto appearance = Endurance::makeTerrainAppearance();
         std::cout << appearance.macroPeriod << ' ' << appearance.patchPeriod
-                  << ' ' << appearance.debugView << '\n';
+                  << ' ' << appearance.debugView << ' ' << appearance.vegetationStainSize
+                  << ' ' << appearance.otherStainSize << ' ' << appearance.sparkleGrainSize << '\n';
         return 0;
     }
     std::cout << "PASS material std140 ABI, 26 authored palettes, dielectric defaults, "

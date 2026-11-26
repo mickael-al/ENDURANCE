@@ -7,7 +7,7 @@ void main()
     ivec3 p=ivec3(gl_GlobalInvocationID),size=imageSize(geAtmSourceOutput);
     if(any(greaterThanEqual(p,size))) return;
     vec3 source=vec3(0.0); float extinction=0.0;
-    if(p.z>0 && geAtmControl.z!=0)
+    if(p.z>0 && geAtmHasClouds())
     {
         vec3 direction=geAtmViewDirection((vec2(p.xy)+0.5)/vec2(size.xy));
         float begin=geAtmSliceDistance(p.z-1,size.z),end=geAtmSliceDistance(p.z,size.z);
@@ -18,10 +18,10 @@ void main()
         if(extinction>0.0)
         {
             vec2 visibility=vec2(1.0);
-            if(geAtmSunDirection.w>0.5)
+            if(geAtmSunLightingEnabled())
                 visibility.x=geAtmTerrainVisibility(world,geAtmShadow.x)
                     *geAtmCloudLightRay(world,normalize(geAtmSunDirection.xyz),geAtmSamples.y);
-            if(geAtmMoonDirection.w>0.5)
+            if(geAtmMoonLightingEnabled())
                 visibility.y=geAtmTerrainVisibility(world,geAtmShadow.y)
                     *geAtmCloudLightRay(world,normalize(geAtmMoonDirection.xyz),geAtmSamples.y);
             source=geAtmMediumLight(world,geAtmOrigin()+direction*distance,direction,

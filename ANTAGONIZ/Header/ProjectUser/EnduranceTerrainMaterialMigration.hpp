@@ -1,13 +1,14 @@
 #pragma once
 
 #include "EnduranceTerrainMaterials.hpp"
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 
 namespace Endurance
 {
     // Scene data version, deliberately outside the renderer's std140 records.
-    constexpr std::uint32_t TerrainAppearanceRevision = 2;
+    constexpr std::uint32_t TerrainAppearanceRevision = 8;
 
     inline std::uint64_t terrainAppearanceLegacyFingerprint(
         const ProceduralTerrain::TerrainBiomeAppearance& biome) noexcept
@@ -54,6 +55,21 @@ namespace Endurance
         if (revision >= TerrainAppearanceRevision
             || !ProceduralTerrain::validTerrainAppearance(appearance)) return 0;
 
+        // v6 refined the former factory grain from 1 cm to 1 mm; v7 doubles
+        // it to 2 mm. Preserve other saved sizes and palette/effect settings.
+        if (revision < 6 && std::abs(appearance.sparkleGrainSize - 0.01f) < 0.000001f)
+            appearance.sparkleGrainSize = 0.001f;
+        if (revision < 7 && std::abs(appearance.sparkleGrainSize - 0.001f) < 0.000001f)
+            appearance.sparkleGrainSize = 0.002f;
+        // v8 enlarges the texture footprint fivefold, including authored scales.
+        // Versioning makes this a one-time change on load, never on each draw.
+        appearance.sparkleGrainSize = (std::min)(1.0f, appearance.sparkleGrainSize * 5.0f);
+        if (revision >= 5)
+        {
+            revision = TerrainAppearanceRevision;
+            return 0;
+        }
+
         // Original authored presets from 426d806, in biome-ID order. Keeping
         // compact fingerprints avoids a second, obsolete material table.
         constexpr std::uint64_t legacy[] = {
@@ -75,12 +91,57 @@ namespace Endurance
             "Every v1 biome needs its original fingerprint");
         const auto defaults = makeTerrainAppearance();
         std::size_t upgraded = 0;
-        for (std::size_t i = 0; i < ProceduralTerrain::BiomeCount; ++i)
+        // Only v1 factory palette records need replacement. Later revisions
+        // keep their palettes, including artist-edited blue ice.
+        for (std::size_t i = 0; revision < 2 && i < ProceduralTerrain::BiomeCount; ++i)
         {
             if (terrainAppearanceLegacyFingerprint(appearance.biomes[i]) == legacy[i])
             {
                 appearance.biomes[i] = defaults.biomes[i];
                 ++upgraded;
+            }
+        }
+        // v3 saved the former ground-only selection. Upgrade only unchanged
+        // factory fine controls; retain explicit artist edits and all palettes.
+        // v1/v2 had no fine controls, so classify their actual loaded colors.
+        auto classified = appearance;
+        configureTerrainFineMaterials(classified);
+        for (std::size_t i = 0; i < ProceduralTerrain::BiomeCount; ++i)
+        {
+            auto& b = appearance.biomes[i];
+            const auto& fresh = classified.biomes[i];
+            if (revision < 4) b.stainRouting = fresh.stainRouting;
+            ProceduralTerrain::TerrainMaterial* materials[] = {
+                &b.ground.base, &b.ground.accent, &b.wall.base, &b.wall.accent};
+            const ProceduralTerrain::TerrainMaterial* replacements[] = {
+                &fresh.ground.base, &fresh.ground.accent, &fresh.wall.base, &fresh.wall.accent};
+            for (unsigned slot = 0; slot < 4; ++slot)
+            {
+                ProceduralTerrain::TerrainMaterialVector old{{0.f,.16f,0.f,0.f}};
+                if (slot < 2)
+                    for (unsigned soil : {2u,3u,4u,7u,8u,9u,11u,12u,13u,14u,16u,17u,18u,19u,23u,24u})
+                        if (i == soil) old = {{0.f,.16f,.10f,.06f}};
+                if (slot == 0)
+                {
+                    if (i == 0) old = {{.90f,.15f,0.f,0.f}};
+                    if (i == 1) old = {{.55f,.18f,0.f,0.f}};
+                    if (i == 15) old = {{.60f,.20f,0.f,0.f}};
+                    if (i == 21) old = {{.85f,.17f,0.f,0.f}};
+                    if (i == 25) old = {{.65f,.18f,0.f,0.f}};
+                }
+                bool unchanged = true;
+                for (unsigned c = 0; c < 4; ++c)
+                    unchanged &= std::abs(materials[slot]->fineSurface[c]-old[c]) < 0.000001f;
+                if (revision < 3 || (revision == 3 && unchanged))
+                    materials[slot]->fineSurface = replacements[slot]->fineSurface;
+                // v5 explicitly removes stains from sand/snow, even where an
+                // earlier scene adjusted their strength. All other fine controls,
+                // artist palettes and the v4 routing stay untouched.
+                if (replacements[slot]->fineSurface[0] > 0.f)
+                {
+                    materials[slot]->fineSurface[2] = 0.f;
+                    materials[slot]->fineSurface[3] = 0.f;
+                }
             }
         }
         revision = TerrainAppearanceRevision;
