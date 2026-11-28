@@ -34,3 +34,6 @@ __pycache__/
 /ENDURANCE/Ressources/Trees/Baked/
 
 # OBJ files are source meshes, so do not ignore *.obj globally.
+
+
+/docs/ref_character/
