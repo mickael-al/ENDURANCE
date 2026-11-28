@@ -125,6 +125,16 @@ struct ClothSettings
     bool triangleContacts = true;
 };
 
+// World-space air velocity, distinct from the actor's velocity. Zero drag
+// preserves the legacy gravity-only simulation, including bitwise results.
+struct ClothWind
+{
+    glm::vec3 velocity{0.0f};
+    float density = 1.225f;
+    float drag = 0.0f;
+    float maxAcceleration = 40.0f;
+};
+
 class ClothSimulation
 {
 public:
@@ -142,7 +152,7 @@ public:
     void advance(float deltaSeconds,
         const std::vector<glm::vec3>& worldParticleTargets,
         const std::vector<ClothCapsule>& capsules,
-        const std::vector<ClothPlane>& planes = {});
+        const std::vector<ClothPlane>& planes = {}, const ClothWind& wind = {});
 
     // Call only from the simulation's owner thread. A frequency change updates
     // coefficients, preserving positions, velocities and elapsed fractional time.
@@ -167,6 +177,7 @@ private:
         const std::vector<ClothCapsule>& capsules,
         const std::vector<ClothPlane>& planes);
     void prepareFixedCoefficients();
+    void applyWind(float dt);
     void prepareConstraints();
     void preparePlanes(const std::vector<ClothPlane>& planes);
     void prepareSelfCollision();
@@ -174,6 +185,8 @@ private:
     void solveTriangleContacts(float dt, const std::vector<ClothCapsule>& capsules);
     std::shared_ptr<const ClothTopology> m_topology;
     ClothSettings m_settings;
+    ClothWind m_wind;
+    std::vector<glm::vec3> m_windNormals;
     std::vector<glm::vec3> m_positions, m_previous, m_velocities, m_rendered;
     std::vector<glm::vec3> m_frameTargets, m_stepTargets, m_pinLambda;
     std::vector<glm::vec3> m_contactNormal, m_surfaceVelocity;

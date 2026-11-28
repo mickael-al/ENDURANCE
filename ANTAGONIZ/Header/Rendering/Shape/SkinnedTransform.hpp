@@ -73,6 +73,12 @@ namespace Ge
 		bool setExternalGlobalPose(
 			const std::vector<glm::mat4>& globalMatrices);
 
+		// Publish a composed pose without changing clip playback, transitions or
+		// IK targets. The caller retains the unmodified source pose separately;
+		// secondary motion must never integrate its previous output as the base.
+		bool setProceduralGlobalPose(
+			const std::vector<glm::mat4>& globalMatrices);
+
 	private:
 		friend class SkinnedTransformManager;
 

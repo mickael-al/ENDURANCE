@@ -10,6 +10,7 @@
 #include <string>
 #include <functional>
 #include "MemoryManager.hpp"
+#include "FBXMeshMetadata.hpp"
 
 namespace Ge
 {
@@ -33,6 +34,7 @@ struct FBXSkinnedData
 {
 	std::vector<std::vector<Vertex>> meshVertexList;
 	std::vector<std::vector<uint32_t>> meshIndicesList;
+	std::vector<FBXMeshMetadata> meshMetadata;
 };
 
 namespace Ge
@@ -69,7 +71,8 @@ namespace Ge
 		ShapeBuffer* allocateEmptyBuffer(uint32_t indiceSize);
 		void loadObjData(std::vector<Vertex>& vertices, std::vector<uint32_t>& indices, const char* path, bool normal_recalculate);
 		std::vector<FBXMeshData> loadFBXData(const char* path, bool normal_recalculate, std::vector<int> m_loadIdMesh);
-		FBXSkinnedData loadFBXSkinnedData(
+		// CPU-only import; safe before a renderer/ModelManager is initialized.
+		static FBXSkinnedData loadFBXSkinnedData(
 			Skeleton& skeleton,
 			const char* path,
 			bool normal_recalculate,

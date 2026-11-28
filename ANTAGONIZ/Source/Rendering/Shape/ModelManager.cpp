@@ -20,6 +20,46 @@
 
 namespace
 {
+	glm::vec3 finiteNormal(const glm::vec3& value)
+	{
+		const float squaredLength = glm::dot(value, value);
+		return std::isfinite(squaredLength) && squaredLength > 1.e-20f
+			? value / std::sqrt(squaredLength) : glm::vec3(0.0f);
+	}
+
+	glm::vec3 perpendicularTangent(const glm::vec3& normal)
+	{
+		return finiteNormal(glm::cross(
+			std::abs(normal.y) < .9f ? glm::vec3(0, 1, 0) : glm::vec3(1, 0, 0), normal));
+	}
+
+	std::string fbxTexturePath(const ofbx::Material* material, ofbx::Texture::TextureType type)
+	{
+		const ofbx::Texture* texture = material != nullptr ? material->getTexture(type) : nullptr;
+		if (texture == nullptr) return {};
+		ofbx::DataView path = texture->getRelativeFileName();
+		if (path.begin == nullptr || path.end == nullptr || path.begin == path.end)
+			path = texture->getFileName();
+		return path.begin != nullptr && path.end != nullptr
+			? std::string(reinterpret_cast<const char*>(path.begin), reinterpret_cast<const char*>(path.end))
+			: std::string{};
+	}
+
+	FBXMeshMetadata fbxMeshMetadata(const ofbx::Mesh& mesh)
+	{
+		FBXMeshMetadata metadata;
+		metadata.meshName = mesh.name;
+		metadata.sourceMaterialCount = static_cast<std::uint32_t>((std::max)(0, mesh.getMaterialCount()));
+		const ofbx::Material* material = metadata.sourceMaterialCount > 0 ? mesh.getMaterial(0) : nullptr;
+		if (material != nullptr) metadata.materialName = material->name;
+		metadata.diffuseTexture = fbxTexturePath(material, ofbx::Texture::DIFFUSE);
+		metadata.normalTexture = fbxTexturePath(material, ofbx::Texture::NORMAL);
+		metadata.roughnessTexture = fbxTexturePath(material, ofbx::Texture::SHININESS);
+		metadata.metallicTexture = fbxTexturePath(material, ofbx::Texture::REFLECTION);
+		metadata.emissiveTexture = fbxTexturePath(material, ofbx::Texture::EMISSIVE);
+		return metadata;
+	}
+
 	std::string getFBXObjectPath(const ofbx::Object* object)
 	{
 		std::vector<std::string> elements;
@@ -554,7 +594,7 @@ namespace Ge
 
 		return [this, data = std::move(data), skeleton = std::move(skeleton)]() mutable -> ShapeBufferSkeleton*
 		{
-			ShapeBufferSkeleton* buffer = new ShapeBufferSkeleton(data.meshVertexList,data.meshIndicesList,skeleton,m_gdm);
+			ShapeBufferSkeleton* buffer = new ShapeBufferSkeleton(data.meshVertexList,data.meshIndicesList,skeleton,m_gdm,data.meshMetadata);
 			m_shapeBuffers.push_back(buffer);
 
 			return buffer;
@@ -565,7 +605,7 @@ namespace Ge
 	{
 		Skeleton skeleton;
 		FBXSkinnedData data = loadFBXSkinnedData(skeleton, path, normal_recalculate);
-		ShapeBufferSkeleton* buffer = new ShapeBufferSkeleton(data.meshVertexList,data.meshIndicesList,skeleton,m_gdm);
+		ShapeBufferSkeleton* buffer = new ShapeBufferSkeleton(data.meshVertexList,data.meshIndicesList,skeleton,m_gdm,data.meshMetadata);
 		m_shapeBuffers.push_back(buffer);
 
 		return buffer;
@@ -586,7 +626,8 @@ namespace Ge
 			data.meshVertexList,
 			data.meshIndicesList,
 			skeleton,
-			m_gdm);
+			m_gdm,
+			data.meshMetadata);
 		m_shapeBuffers.push_back(buffer);
 		return buffer;
 	}
@@ -927,8 +968,6 @@ namespace Ge
 			ofbx::LoadFlags::TRIANGULATE |
 			ofbx::LoadFlags::IGNORE_CAMERAS |
 			ofbx::LoadFlags::IGNORE_LIGHTS |
-			ofbx::LoadFlags::IGNORE_TEXTURES |
-			ofbx::LoadFlags::IGNORE_MATERIALS |
 			ofbx::LoadFlags::IGNORE_VIDEOS;
 
 		ofbx::IScene* scene = ofbx::load((ofbx::u8*)content, file_size, (ofbx::u16)flags);
@@ -1159,6 +1198,7 @@ namespace Ge
 						vertexWeights);
 				}
 			}
+			bool repairVertexFrame = normals == nullptr || tangents == nullptr || normal_recalculate;
 			glm::uvec3 packedData;
 			for (unsigned int j = 0; j < vertices.size(); ++j)
 			{
@@ -1171,22 +1211,26 @@ namespace Ge
 						position[j].z,
 						1.0f));
 
-				vertex.texCoord.x = uv[j].x;
-				vertex.texCoord.y = 1.0f - uv[j].y;
+				vertex.texCoord.x = uv != nullptr ? static_cast<float>(uv[j].x) : 0.0f;
+				vertex.texCoord.y = uv != nullptr ? 1.0f - static_cast<float>(uv[j].y) : 0.0f;
 
 				if (normals != nullptr && !normal_recalculate)
 				{
-					vertex.normal = glm::normalize(
+					vertex.normal = finiteNormal(
 						normalToSkeleton *
 						glm::vec3(
 							normals[j].x,
 							normals[j].y,
 							normals[j].z));
 				}
+				else
+				{
+					vertex.normal = glm::vec3(0.0f);
+				}
 
 				if (tangents != nullptr)
 				{
-					vertex.tangents = glm::normalize(
+					vertex.tangents = finiteNormal(
 						tangentToSkeleton *
 						glm::vec3(
 							tangents[j].x,
@@ -1197,6 +1241,8 @@ namespace Ge
 				{
 					vertex.tangents = { 0, 0, 0 };
 				}
+				repairVertexFrame |= glm::dot(vertex.normal, vertex.normal) < .5f ||
+					glm::dot(vertex.tangents, vertex.tangents) < .5f;
 
 				packedData.x =
 					vertexInfluencesID[j * 4] |
@@ -1227,12 +1273,11 @@ namespace Ge
 				indice[j] = j;
 			}
 
-			if (tangents == nullptr || normal_recalculate || normals == nullptr)
+			if (repairVertexFrame)
 			{
 				uint32_t index0, index1, index2;
 				glm::vec3 edge1, edge2, tangent;
 				glm::vec2 deltaUV1, deltaUV2;
-				float r;
 				for (size_t i = 0; i < indexCount; i += 3)
 				{
 					index0 = indice[i];
@@ -1243,33 +1288,29 @@ namespace Ge
 					Vertex& vertex1 = vertices[index1];
 					Vertex& vertex2 = vertices[index2];
 
-					if (tangents == nullptr)
+					edge1 = vertex1.pos - vertex0.pos;
+					edge2 = vertex2.pos - vertex0.pos;
+					glm::vec3 normal = finiteNormal(glm::cross(edge1, edge2));
+					if (glm::dot(normal, normal) < .5f) normal = glm::vec3(0, 1, 0);
+					deltaUV1 = vertex1.texCoord - vertex0.texCoord;
+					deltaUV2 = vertex2.texCoord - vertex0.texCoord;
+					const float determinant = deltaUV1.x * deltaUV2.y - deltaUV1.y * deltaUV2.x;
+					tangent = std::isfinite(determinant) && std::abs(determinant) > 1.e-12f
+						? finiteNormal((deltaUV2.y * edge1 - deltaUV1.y * edge2) / determinant)
+						: glm::vec3(0.0f);
+					for (Vertex* vertex : { &vertex0, &vertex1, &vertex2 })
 					{
-						edge1 = vertex1.pos - vertex0.pos;
-						edge2 = vertex2.pos - vertex0.pos;
-
-						deltaUV1 = vertex1.texCoord - vertex0.texCoord;
-						deltaUV2 = vertex2.texCoord - vertex0.texCoord;
-
-						r = 1.0f / (deltaUV1.x * deltaUV2.y - deltaUV2.x * deltaUV1.y);
-
-						tangent = glm::normalize(r * (deltaUV2.y * edge1 - deltaUV1.y * edge2));
-
-						vertex0.tangents = tangent;
-						vertex1.tangents = tangent;
-						vertex2.tangents = tangent;
-					}
-					if (normal_recalculate || normals == nullptr)
-					{
-						glm::vec3 normal = glm::normalize(glm::cross(vertex1.pos - vertex0.pos, vertex2.pos - vertex0.pos));
-						vertex0.normal = normal;
-						vertex1.normal = normal;
-						vertex2.normal = normal;
+						if (normal_recalculate || glm::dot(vertex->normal, vertex->normal) < .5f)
+							vertex->normal = normal;
+						if (glm::dot(vertex->tangents, vertex->tangents) < .5f)
+							vertex->tangents = glm::dot(tangent, tangent) > .5f
+								? tangent : perpendicularTangent(vertex->normal);
 					}
 				}
 			}
 			data.meshVertexList.push_back(std::move(vertices));
 			data.meshIndicesList.push_back(std::move(indice));
+			data.meshMetadata.push_back(fbxMeshMetadata(*targetMesh[m]));
 		}
 		if (referenceSkeleton == nullptr)
 		{

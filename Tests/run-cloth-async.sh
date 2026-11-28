@@ -13,3 +13,4 @@ cd -- "$endurance_test_root"
     ANTAGONIZ/Source/Physics/ClothSimulation.cpp \
     ANTAGONIZ/Source/Physics/PreparedClothContacts.cpp -o "$endurance_test_binary"
 "$endurance_test_binary"
+"$endurance_test_binary" --shared-pool

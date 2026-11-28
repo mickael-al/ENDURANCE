@@ -981,11 +981,80 @@ namespace
                 "Geodesic tethers must bound hanging-cloth stretch even with a small iteration budget");
         }
     }
+
+    void aerodynamicWind()
+    {
+        auto mesh = curtain(4, 4);
+        for (auto& p : mesh.positions) p.z = 0.0f;
+        std::fill(mesh.pins.begin(), mesh.pins.end(), 0.0f);
+        const auto topology = ClothTopology::build(mesh.positions, mesh.triangles, mesh.pins);
+        ClothSettings settings;
+        settings.gravity = glm::vec3(0.0f);
+        settings.damping = 0.0f;
+        settings.selfCollision = false;
+        settings.triangleContacts = false;
+        ClothSimulation legacy(topology, settings), disabled(topology, settings);
+        ClothWind wind;
+        wind.velocity = {0, 0, 8};
+        for (unsigned i = 0; i < 20; ++i)
+        {
+            legacy.advance(1.0f / 60, topology->restPositions(), {});
+            disabled.advance(1.0f / 60, topology->restPositions(), {}, {}, wind);
+        }
+        require(legacy.positions() == disabled.positions() && legacy.velocities() == disabled.velocities(),
+            "Default zero drag must preserve legacy simulation exactly");
+
+        wind.drag = 1.0f;
+        ClothSimulation frontal(topology, settings), tangential(topology, settings);
+        ClothWind tangent = wind;
+        tangent.velocity = {8, 0, 0};
+        frontal.advance(settings.fixedSeconds, topology->restPositions(), {}, {}, wind);
+        tangential.advance(settings.fixedSeconds, topology->restPositions(), {}, {}, tangent);
+        require(frontal.velocities()[0].z > tangential.velocities()[0].x * 3.0f,
+            "Frontal projected area must produce more drag than edge-on fabric");
+        for (unsigned i = 0; i < 120; ++i)
+            frontal.advance(settings.fixedSeconds, topology->restPositions(), {}, {}, wind);
+        require(frontal.positions()[0].z > 1.0f && frontal.velocities()[0].z > 0.0f && frontal.velocities()[0].z <= 8.001f,
+            "Air flow must accelerate a free patch without overshooting air speed");
+        ClothSimulation coasting = frontal;
+        ClothWind stillAir = wind;
+        stillAir.velocity = glm::vec3(0.0f);
+        for (unsigned i = 0; i < 60; ++i)
+        {
+            frontal.advance(settings.fixedSeconds, topology->restPositions(), {}, {}, stillAir);
+            coasting.advance(settings.fixedSeconds, topology->restPositions(), {});
+        }
+        require(frontal.velocities()[0].z < coasting.velocities()[0].z * 0.5f,
+            "Still air must resist moving fabric using relative air velocity");
+
+        ClothSimulation gust(topology, settings);
+        wind.velocity = {0, 0, 1.0e20f};
+        wind.maxAcceleration = 17.0f;
+        gust.advance(settings.fixedSeconds, topology->restPositions(), {}, {}, wind);
+        for (const auto& velocity : gust.velocities())
+            require(finite(velocity) && glm::length(velocity) <= 17.0f * settings.fixedSeconds + 0.001f,
+                "Extreme gusts must retain finite bounded acceleration");
+
+        const auto pinnedMesh = curtain(5, 7);
+        const auto pinnedTopology = ClothTopology::build(pinnedMesh.positions, pinnedMesh.triangles, pinnedMesh.pins);
+        ClothSimulation pinned(pinnedTopology, settings);
+        wind.velocity = {0, 0, 5};
+        for (unsigned i = 0; i < 90; ++i)
+            pinned.advance(settings.fixedSeconds, pinnedTopology->restPositions(), {}, {}, wind);
+        bool freeHemMoved = false;
+        for (std::size_t i = 0; i < pinnedTopology->particleCount(); ++i)
+        {
+            if (pinnedTopology->pinWeights()[i] >= ClothHardPinWeight)
+                require(pinned.positions()[i] == pinnedTopology->restPositions()[i], "Wind must not move body-attached cloth pins");
+            else if (pinned.positions()[i].z > pinnedTopology->restPositions()[i].z + 0.05f) freeHemMoved = true;
+        }
+        require(freeHemMoved, "Wind must move the free hem while the upper cloth follows its attachment");
+    }
 }
 
 int main()
 {
-    const std::array<std::pair<const char*, void(*)()>, 21> tests{{
+    const std::array<std::pair<const char*, void(*)()>, 22> tests{{
         {"seam welding and invalid topology", seamWelding},
         {"zero pins, exact anchors, pause and rest lengths", zeroPinsAndPause},
         {"fixed-step frame rates and bounded catch-up", frameRatesAndCatchUp},
@@ -1006,7 +1075,8 @@ int main()
         {"prepared contact reuse, invalid entries and non-unit planes", preparedContactReuse},
         {"barycentric triangle-interior body contacts", triangleInteriorContact},
         {"material geodesic anchor tethers", materialTethers},
-        {"current render sample and bounded prediction", currentRenderSample}
+        {"current render sample and bounded prediction", currentRenderSample},
+        {"relative aerodynamic wind, projected area and bounded gusts", aerodynamicWind}
     }};
     try
     {

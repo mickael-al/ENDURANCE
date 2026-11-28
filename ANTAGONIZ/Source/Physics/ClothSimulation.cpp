@@ -909,13 +909,20 @@ void ClothSimulation::reset(const std::vector<glm::vec3>& targets, float scale, 
 }
 
 void ClothSimulation::advance(float deltaSeconds, const std::vector<glm::vec3>& targets,
-    const std::vector<ClothCapsule>& capsules, const std::vector<ClothPlane>& planes)
+    const std::vector<ClothCapsule>& capsules, const std::vector<ClothPlane>& planes,
+    const ClothWind& wind)
 {
     m_lastSubsteps = 0;
     if (!(deltaSeconds > 0.0f) || !std::isfinite(deltaSeconds)) return;
     if (targets.size() != m_topology->particleCount())
         throw std::invalid_argument("Cloth advance target count does not match topology");
     if (!m_ready) reset(targets, m_scale);
+    m_wind = wind;
+    if (!finite(m_wind.velocity)) m_wind.velocity = glm::vec3(0.0f);
+    m_wind.velocity = glm::clamp(m_wind.velocity, glm::vec3(-10000.0f), glm::vec3(10000.0f));
+    m_wind.density = (std::min)(nonnegative(m_wind.density, 0.0f), 100.0f);
+    m_wind.drag = (std::min)(nonnegative(m_wind.drag, 0.0f), 10.0f);
+    m_wind.maxAcceleration = (std::min)(nonnegative(m_wind.maxAcceleration, 0.0f), 1000.0f);
     const float dt = (std::min)(deltaSeconds, m_settings.fixedSeconds * float(m_settings.maxSubsteps));
     const float before = m_accumulator;
     m_accumulator += dt;
@@ -953,6 +960,39 @@ void ClothSimulation::advance(float deltaSeconds, const std::vector<glm::vec3>& 
     m_frameCapsules.swap(m_cleanedCapsules);
 }
 
+void ClothSimulation::applyWind(float dt)
+{
+    if (!(m_wind.drag > 0.0f && m_wind.density > 0.0f && m_wind.maxAcceleration > 0.0f)) return;
+    m_windNormals.assign(m_positions.size(), glm::vec3(0.0f));
+    const auto& triangles = m_topology->m_triangles;
+    for (std::size_t triangle = 0; triangle < triangles.size(); triangle += 3)
+    {
+        const auto a = triangles[triangle], b = triangles[triangle + 1], c = triangles[triangle + 2];
+        const glm::vec3 normal = glm::cross(m_positions[b] - m_positions[a], m_positions[c] - m_positions[a]);
+        if (finite(normal))
+            for (const auto vertex : {a, b, c}) m_windNormals[vertex] += normal;
+    }
+    for (const auto i : m_dynamicParticles)
+    {
+        const glm::vec3 relative = m_wind.velocity - m_velocities[i];
+        const float speed2 = glm::dot(relative, relative);
+        const float normal2 = glm::dot(m_windNormals[i], m_windNormals[i]);
+        if (!std::isfinite(speed2) || speed2 < 1.0e-12f || !std::isfinite(normal2) || normal2 < 1.0e-16f) continue;
+        const float speed = std::sqrt(speed2);
+        const glm::vec3 normal = m_windNormals[i] / std::sqrt(normal2);
+        // Projected frontal area plus small tangential fabric drag. Reference
+        // area/mass keeps response stable when the simulation proxy changes.
+        const double projectedSpeed = std::abs(glm::dot(relative, normal)) + 0.05 * speed;
+        const double factor = 0.5 * m_wind.density * m_wind.drag * projectedSpeed * dt *
+            m_topology->m_areas[i] * m_scale * m_scale * m_inverseMass[i];
+        // Implicit drag cannot overshoot the air velocity, even in a gust or
+        // at high actor speed. The acceleration cap bounds attachment shocks.
+        const float fraction = float((std::min)(factor / (1.0 + factor),
+            double(m_wind.maxAcceleration) * dt / speed));
+        if (std::isfinite(fraction)) m_velocities[i] += relative * fraction;
+    }
+}
+
 void ClothSimulation::step(float dt, const std::vector<glm::vec3>& targets,
     const std::vector<ClothCapsule>& capsules, const std::vector<ClothPlane>&)
 {
@@ -961,6 +1001,7 @@ void ClothSimulation::step(float dt, const std::vector<glm::vec3>& targets,
     if (m_settings.triangleContacts)
         m_triangleCapsuleFeasibility.assign((m_topology->m_triangles.size() / 3) * capsules.size(), 0);
     for (const auto i : m_hardPins) m_positions[i] = targets[i];
+    applyWind(dt);
     for (const auto i : m_dynamicParticles)
     {
         m_velocities[i] = (m_velocities[i] + m_gravityStep) * m_dampingStep;

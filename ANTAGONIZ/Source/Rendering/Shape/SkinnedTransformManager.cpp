@@ -389,6 +389,16 @@ namespace Ge
 		return true;
 	}
 
+	bool SkinnedTransformManager::applyProceduralGlobalPose(
+		SkinnedTransform* st,
+		const std::vector<glm::mat4>& globalMatrices)
+	{
+		if (st == nullptr || !st->setProceduralGlobalPose(globalMatrices))
+			return false;
+		updateMatrix(st, st->getBoneMatrices());
+		return true;
+	}
+
 	void SkinnedTransformManager::destroySkinnedTransform(
 		SkinnedTransform* st)
 	{

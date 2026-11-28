@@ -10,16 +10,18 @@
 #include <functional>
 #include <tuple>
 #include <utility>
+#include <memory>
+#include <stdexcept>
 
 class ThreadPool {
 public:
-    ThreadPool()
+    explicit ThreadPool(unsigned int threadCount = 0)
         : stop(false)
     {
-        m_nThreads = std::thread::hardware_concurrency();
+        m_nThreads = threadCount ? threadCount : std::thread::hardware_concurrency();
         m_nThreads = (m_nThreads == 0) ? 4 : m_nThreads;
 
-        for (unsigned int i = 0; i < m_nThreads; ++i) 
+        for (unsigned int i = 0; i < m_nThreads; ++i)
         {
             workers.emplace_back([this] {
                 while (true) {
@@ -69,6 +71,20 @@ public:
         condition.notify_one();
     }
 
+    // Own the callable until execution finishes. Unlike the pointer overload,
+    // this is suitable for short asynchronous jobs with captured lifetimes.
+    void enqueue(std::function<void()> function)
+    {
+        std::unique_ptr<TaskBase> task(new FunctionTask(std::move(function)));
+        {
+            std::lock_guard<std::mutex> lock(queueMutex);
+            if (stop) throw std::runtime_error("Cannot enqueue on a stopped ThreadPool");
+            tasks.push(task.get());
+            task.release();
+        }
+        condition.notify_one();
+    }
+
     inline unsigned int getNbThread() const
     {
         return m_nThreads;
@@ -78,6 +94,12 @@ private:
     struct TaskBase {
         virtual ~TaskBase() = default;
         virtual void execute() = 0;
+    };
+
+    struct FunctionTask final : TaskBase {
+        std::function<void()> function;
+        explicit FunctionTask(std::function<void()> value) : function(std::move(value)) {}
+        void execute() override { function(); }
     };
 
     template<typename Func, typename... Args>

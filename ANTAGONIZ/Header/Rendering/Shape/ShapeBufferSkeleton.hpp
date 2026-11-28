@@ -11,6 +11,7 @@
 
 #include "Vertex.hpp"
 #include "ShapeBuffer.hpp"
+#include "FBXMeshMetadata.hpp"
 
 struct GraphicsDataMisc;
 
@@ -88,7 +89,8 @@ namespace Ge
 			std::vector<std::vector<Vertex>>& vertices,
 			std::vector<std::vector<uint32_t>>& index,
 			Skeleton& skeleton,
-			GraphicsDataMisc* gdm);
+			GraphicsDataMisc* gdm,
+			const std::vector<FBXMeshMetadata>& meshMetadata = {});
 		~ShapeBufferSkeleton();
 
 		void SetupVAO(unsigned int program) override;
@@ -99,11 +101,13 @@ namespace Ge
 		int findAnimation(const std::string& name) const;
 
 		const std::vector<ShapeBufferBase*>& getShapes() const;
+		const std::vector<FBXMeshMetadata>& getMeshMetadata() const;
 		const Skeleton& getSkeleton() const;
 		const std::vector<Animation>& getAnimations() const;
 
 	private:
 		std::vector<ShapeBufferBase*> m_shapes;
+		std::vector<FBXMeshMetadata> m_meshMetadata;
 		Skeleton m_skeleton;
 		std::vector<Animation> m_animations;
 	};

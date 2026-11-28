@@ -19,6 +19,7 @@
 #include "Engine.hpp"
 #include "PointeurClass.hpp"
 #include "ShadowCasterBounds.hpp"
+#include "ShadowCascadeSplits.hpp"
 
 namespace Ge
 {
@@ -129,26 +130,11 @@ namespace Ge
 		if (m_ubl.status == 0)
 		{
 			m_ubl.direction = getDirection();
-			float cascadeSplits[SHADOW_MAP_CASCADE_COUNT];
-
 			float nearClip = currentCamera->getNear();
 			float farClip = currentCamera->getFar();
 			float clipRange = farClip - nearClip;
-
-			float minZ = nearClip;
-			float maxZ = nearClip + clipRange;
-
-			float range = maxZ - minZ;
-			float ratio = maxZ / minZ;
-
-			for (uint32_t i = 0; i < SHADOW_MAP_CASCADE_COUNT; i++)
-			{
-				float p = (i + 1) / static_cast<float>(SHADOW_MAP_CASCADE_COUNT);
-				float log = minZ * std::pow(ratio, p);
-				float uniform = minZ + range * p;
-				float d = cascadeSplitLambda * (log - uniform) + uniform;
-				cascadeSplits[i] = (d - nearClip) / clipRange;
-			}
+			const auto cascadeSplits = directionalCascadeSplits<SHADOW_MAP_CASCADE_COUNT>(
+				nearClip, farClip, cascadeSplitLambda, currentCamera->getFirstShadowCascadeDistance());
 
 			// Avoid a singular lookAt basis when the sun is directly overhead.
 			const glm::vec3 lightDirection = glm::normalize(m_ubl.direction);

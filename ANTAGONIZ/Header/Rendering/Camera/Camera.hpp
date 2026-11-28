@@ -18,6 +18,10 @@ namespace Ge
 		void setFieldOfView(float fov);
 		void setNear(float near);
 		void setFar(float far);
+		// Zero keeps the ordinary shadow split distribution. A positive value
+		// reserves the first directional cascade when it lies inside near/far.
+		void setFirstShadowCascadeDistance(float metres);
+		float getFirstShadowCascadeDistance() const { return m_firstShadowCascadeDistance; }
 		void setPriority(int p);
 		void setOrtho(bool state);
 		void setOrthoSize(float size);
@@ -40,6 +44,7 @@ namespace Ge
 		float m_fov = 80.0f;
 		float m_near = 0.1f;
 		float m_far = 300.0f;
+		float m_firstShadowCascadeDistance = 0.0f;
 		int m_priority = 0;
 		bool m_ortho = false;
 		float m_orthoSize;

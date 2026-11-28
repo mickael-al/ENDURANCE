@@ -176,9 +176,11 @@ namespace Ge
 		std::vector<std::vector<Vertex>>& vertices,
 		std::vector<std::vector<uint32_t>>& index,
 		Skeleton& skeleton,
-		GraphicsDataMisc* gdm)
-		: m_skeleton(skeleton)
+		GraphicsDataMisc* gdm,
+		const std::vector<FBXMeshMetadata>& meshMetadata)
+		: m_meshMetadata(meshMetadata), m_skeleton(skeleton)
 	{
+		m_meshMetadata.resize(vertices.size());
 		for (size_t i = 0; i < vertices.size(); ++i)
 		{
 			m_shapes.push_back(new ShapeBufferBase(vertices[i], index[i], gdm));
@@ -216,6 +218,11 @@ namespace Ge
 	const std::vector<ShapeBufferBase*>& ShapeBufferSkeleton::getShapes() const
 	{
 		return m_shapes;
+	}
+
+	const std::vector<FBXMeshMetadata>& ShapeBufferSkeleton::getMeshMetadata() const
+	{
+		return m_meshMetadata;
 	}
 
 	const Skeleton& ShapeBufferSkeleton::getSkeleton() const
