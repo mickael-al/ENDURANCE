@@ -32,6 +32,9 @@ public:
     // Future weather/gameplay entry point. Only declared active events allowed by
     // the current dominant biome can start; nothing invokes this automatically.
     static EnduranceBiomeEffectsComponent* active();
+    // Ground-level air shared by secondary character motion and ambient effects.
+    // Cloud displacement keeps its separate atmospheric scale.
+    glm::vec3 airVelocity() const;
     // Read-only event envelope for audio; independent of particle/screen toggles.
     float effectStrength(EnduranceEnvironment::EffectId id) const;
     bool triggerEvent(EnduranceEnvironment::EffectId id, float seconds, float intensity = 1.0f);

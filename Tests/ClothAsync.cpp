@@ -15,6 +15,7 @@
 #include "ShapeBufferSkeleton.hpp"
 #include "SkinnedTransform.hpp"
 #include "glcore.hpp"
+#include "Miscellaneous/ThreadPool.hpp"
 
 // Fail one large buffer growth, allowing CRT/STL bookkeeping and exception
 // cleanup to allocate. In MSVC Debug a noexcept vector constructor allocates
@@ -50,10 +51,10 @@ bool same(const glm::mat4& a,const glm::mat4& b) {
 }
 template<class Predicate>
 void eventually(Ge::SkinnedCloth& cloth, const std::vector<ClothCapsule>& caps,
-                Predicate predicate,const char* message) {
+                Predicate predicate,const char* message,const ClothWind& wind={}) {
     const auto deadline=Clock::now()+std::chrono::seconds(15);
     do {
-        check(cloth.update(1.f/120,caps),"worker failed during update");
+        check(cloth.update(1.f/120,caps,false,{},wind),"worker failed during update");
         if(predicate())return;
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }while(Clock::now()<deadline);
@@ -91,18 +92,20 @@ struct Fixture {
 };
 }
 
-int main() {
+int main(int argc, char**) {
     std::cout<<std::unitbuf;std::cerr<<std::unitbuf;
     std::cout<<"PHASE fixture construction"<<std::endl;
     try {
+        ThreadPool pool(2);
+        ThreadPool* sharedPool = argc > 1 ? &pool : nullptr;
         Fixture fixture;std::cout<<"PHASE fixture ready; bind two cloth instances"<<std::endl;Ge::SkinnedCloth first,second;ClothSettings settings;
         settings.iterations=16;settings.maxSubsteps=1;
         check(first.bind(fixture.mesh,&fixture.first,settings)&&second.bind(fixture.mesh,&fixture.second,settings),"bind failed");
         check(first.getBufferID(0)!=second.getBufferID(0),"instances share SSBO");geometry(first);
         std::cout<<"PHASE bound; start two workers"<<std::endl;
-        check(first.startAsync()&&second.startAsync(),"persistent workers failed to start");
+        check(first.startAsync(sharedPool)&&second.startAsync(sharedPool),"asynchronous workers failed to start");
         check(first.asyncEnabled()&&first.simulation()==nullptr,"running worker exposes live mutable solver");
-        check(first.startAsync(),"starting existing worker should be idempotent");
+        check(first.startAsync(sharedPool),"starting existing worker should be idempotent");
         std::vector<ClothCapsule> heavyCaps(24,{{0,.9f,-.17f},{0,1.4f,-.17f},.12f,.3f});
         std::cout<<"PHASE workers started; wait first result"<<std::endl;
         eventually(first,heavyCaps,[&]{return first.asyncDiagnostics().workerSeconds>0;},"first asynchronous result missing");
@@ -110,6 +113,18 @@ int main() {
         eventually(second,{},[&]{return second.asyncDiagnostics().workerSeconds>0;},"second asynchronous result missing");
         geometry(first);geometry(second);
         std::cout<<"PASS persistent production worker/shared immutable mesh/independent SSBO/main-owned geometry\n";
+
+        ClothWind visibleWind;visibleWind.velocity={0,0,8};visibleWind.drag=1.0f;
+        const float initialHem=second.renderVertices().back().position.z;
+        eventually(second,{},[&]{return second.renderVertices().back().position.z>initialHem+.05f;},
+            "wind snapshot did not move the asynchronous free hem",visibleWind);
+        if(sharedPool) {
+            std::atomic<bool> otherJob{false};
+            sharedPool->enqueue(std::function<void()>([&]{otherJob.store(true,std::memory_order_release);}));
+            eventually(first,heavyCaps,[&]{return otherJob.load(std::memory_order_acquire);},
+                "cloth occupied shared workers and starved another CPU task");
+        }
+        std::cout<<"PASS aerodynamic wind reaches completed geometry; shared workers release capacity\n";
 
         std::cout<<"PHASE overload producer"<<std::endl;
         const double beginning=first.asyncDiagnostics().gameSeconds;
@@ -171,6 +186,20 @@ int main() {
         eventually(first,{},[&]{return first.outputReady()&&first.asyncDiagnostics().epoch==first.currentEpoch();},"gradual scale generation missing");
         std::cout<<"PASS teleport/3x/rotation/reflection and cumulative tiny scaling reject old generations\n";
 
+        std::cout<<"PHASE explicit teleport policy and wind snapshot"<<std::endl;
+        first.setAutomaticTeleportReset(false);
+        const auto fastEpoch=first.currentEpoch();
+        fixture.first.world=glm::translate(fixture.first.world,glm::vec3(20,0,0));
+        ClothWind gust;gust.velocity={0,0,12};gust.drag=1.0f;
+        check(first.update(1.f/60,{},false,{},gust),"fast movement/wind submission failed");
+        check(first.currentEpoch()==fastEpoch,"known ordinary high-speed movement reset the cloth");
+        eventually(first,{},[&]{return first.outputReady()&&same(first.snapshotWorld(),fixture.first.world);},"high-speed pooled snapshot missing");
+        check(first.asyncDiagnostics().epoch==fastEpoch,"worker heuristics reset explicit-teleport actor");geometry(first);
+        first.reset();
+        eventually(first,{},[&]{return first.outputReady()&&first.currentEpoch()>fastEpoch;},"explicit high-speed actor teleport reset missing");
+        first.setAutomaticTeleportReset(true);
+        std::cout<<"PASS fast actor keeps simulation generation; explicit teleport still resets\n";
+
         std::cout<<"PHASE hide/reappear"<<std::endl;
         first.setActive(false);const auto hidden=bytes(first);const auto hiddenUploads=ClothTest::uploads;
         for(unsigned i=0;i<25;++i){check(first.update(1.f/60,heavyCaps),"hidden update failed");std::this_thread::sleep_for(std::chrono::milliseconds(1));}
@@ -197,7 +226,7 @@ int main() {
         std::cout<<"PASS in-flight shutdown joins before mesh/GL release and other instance survives\n";
 
         std::cout<<"PHASE worker allocation failure fixture"<<std::endl;
-        Ge::SkinnedCloth failing;check(failing.bind(fixture.mesh,&fixture.second,settings)&&failing.startAsync(),"failure fixture did not start");
+        Ge::SkinnedCloth failing;check(failing.bind(fixture.mesh,&fixture.second,settings)&&failing.startAsync(sharedPool),"failure fixture did not start");
         std::cout<<"PHASE deny one large worker allocation; publish failure job"<<std::endl;
         failWorkerAllocation.store(true,std::memory_order_relaxed);check(failing.update(1.f/120,heavyCaps),"failure request was not published");
         const auto deadline=Clock::now()+std::chrono::seconds(15);

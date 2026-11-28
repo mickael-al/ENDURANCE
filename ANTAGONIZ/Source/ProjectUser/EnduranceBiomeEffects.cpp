@@ -89,6 +89,12 @@ EnduranceBiomeEffectsComponent::EnduranceBiomeEffectsComponent() : m(std::make_u
 EnduranceBiomeEffectsComponent::~EnduranceBiomeEffectsComponent() { stop(); }
 EnduranceBiomeEffectsComponent* EnduranceBiomeEffectsComponent::active() { return activeEffects; }
 
+glm::vec3 EnduranceBiomeEffectsComponent::airVelocity() const
+{
+    return enabled && m->registered
+        ? glm::vec3(m->currentWind.x, 0.0f, m->currentWind.y) : glm::vec3(0.0f);
+}
+
 float EnduranceBiomeEffectsComponent::effectStrength(EffectId id) const
 {
     const auto i = static_cast<std::size_t>(id);

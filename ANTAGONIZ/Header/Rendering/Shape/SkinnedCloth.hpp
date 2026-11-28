@@ -13,6 +13,8 @@
 #include "PreparedClothContacts.hpp"
 #include "Vertex.hpp"
 
+class ThreadPool;
+
 namespace Ge
 {
     class ShapeBufferSkeleton;
@@ -135,17 +137,24 @@ namespace Ge
         bool bind(std::shared_ptr<const SkinnedClothMesh> mesh,
             SkinnedTransform* transform, const ClothSettings& settings = {});
         bool update(float deltaSeconds, const std::vector<ClothCapsule>& capsules,
-            bool forceReset = false, const std::vector<ClothPlane>& planes = {});
+            bool forceReset = false, const std::vector<ClothPlane>& planes = {},
+            const ClothWind& wind = {});
         void reset();
         void release();
         // Start once at appearance. Frames publish inputs and consume the
         // latest complete result without waiting. Stop/join is lifecycle only.
         bool startAsync();
+        // The shared pool must outlive this cloth. Jobs consume one latest
+        // snapshot and release the worker, allowing hair/other cloth to run.
+        bool startAsync(ThreadPool* pool);
         void stopAsync();
         void setActive(bool active);
         // Render-thread request; the immutable input snapshot carries the
         // requested cadence to the worker without touching its live solver.
         void setFixedSeconds(float seconds);
+        // Fast actors know when they teleport. Disable the displacement/turn
+        // heuristic and use reset()/forceReset for actual discontinuities.
+        void setAutomaticTeleportReset(bool enabled) { m_automaticTeleportReset = enabled; }
         bool asyncEnabled() const;
         bool outputReady() const { return m_outputReady; }
         std::uint64_t currentEpoch() const { return m_epoch; }
@@ -163,7 +172,7 @@ namespace Ge
         struct AsyncState;
         bool captureFrame(Frame& frame, float deltaSeconds,
             const std::vector<ClothCapsule>& capsules, bool forceReset,
-            const std::vector<ClothPlane>& planes);
+            const std::vector<ClothPlane>& planes, const ClothWind& wind);
         bool computeFrame(const Frame& frame, float deltaSeconds, bool needsReset);
         bool skinTargets(const glm::mat4& world, bool resetAllTargets);
         void rebuildDeformationCache(const glm::mat4& world, float scale);
@@ -171,6 +180,8 @@ namespace Ge
             const std::vector<ClothCapsule>& capsules, const std::vector<ClothPlane>& planes);
         void uploadBuffers(const std::vector<ClothRenderVertex>& vertices);
         void workerLoop() noexcept;
+        bool workerStep() noexcept;
+        void scheduleAsync();
         std::shared_ptr<const SkinnedClothMesh> m_mesh;
         SkinnedTransform* m_transform = nullptr;
         std::unique_ptr<ClothSimulation> m_simulation;
@@ -202,7 +213,7 @@ namespace Ge
         bool m_previousWorldValid = false;
         bool m_resetPending = true;
         std::unique_ptr<Frame> m_syncFrame;
-        std::unique_ptr<AsyncState> m_async;
+        std::shared_ptr<AsyncState> m_async;
         // Render-thread-owned presentation data, separate from CPU scratch.
         std::vector<ClothRenderVertex> m_presentedVertices;
         ClothAsyncDiagnostics m_diagnostics;
@@ -212,5 +223,6 @@ namespace Ge
         float m_requestedFixedSeconds = 1.0f / 120.0f;
         bool m_outputReady = false;
         bool m_active = true;
+        bool m_automaticTeleportReset = true;
     };
 }

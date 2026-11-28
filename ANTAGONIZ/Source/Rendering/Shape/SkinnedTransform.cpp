@@ -3,6 +3,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <functional>
 
 #include <glm/gtc/matrix_transform.hpp>
@@ -12,6 +14,15 @@
 
 namespace
 {
+	bool finitePoseScalar(float value)
+	{
+		// This boundary validates worker output even in the engine's fast-math
+		// builds, where std::isfinite may be optimized to an unconditional true.
+		std::uint32_t bits = 0;
+		std::memcpy(&bits, &value, sizeof(bits));
+		return (bits & 0x7f800000u) != 0x7f800000u;
+	}
+
 	glm::mat4 composePose(const BonePose& pose)
 	{
 		return
@@ -154,7 +165,15 @@ namespace Ge
 	{
 		m_sid.offMatrix =
 			static_cast<unsigned int>(offBone / sizeof(glm::mat4));
-		if (sbs != nullptr) m_armIK.bind(sbs->getSkeleton());
+		if (sbs != nullptr)
+		{
+			const Skeleton& skeleton = sbs->getSkeleton();
+			m_armIK.bind(skeleton);
+			m_globalMatrices.reserve(skeleton.bones.size());
+			for (const Bone& bone : skeleton.bones)
+				m_globalMatrices.push_back(bone.bindPose);
+			rebuildSkinningMatrices();
+		}
 
 		glGenBuffers(1, &m_ssboSkeletonID);
 		glBindBuffer(GL_SHADER_STORAGE_BUFFER, m_ssboSkeletonID);
@@ -441,18 +460,26 @@ namespace Ge
 	bool SkinnedTransform::setExternalGlobalPose(
 		const std::vector<glm::mat4>& globalMatrices)
 	{
-		if (m_shapeBufferSkeleton == nullptr ||
-			globalMatrices.size() !=
-				m_shapeBufferSkeleton->getSkeleton().bones.size())
-		{
-			return false;
-		}
+		if (!setProceduralGlobalPose(globalMatrices)) return false;
 		m_playing = false;
 		m_poseDirty = false;
 		m_transitionActive = false;
 		m_transitionSourceMatrices.clear();
-		m_globalMatrices = globalMatrices;
 		m_armIK.clear(true);
+		return true;
+	}
+
+	bool SkinnedTransform::setProceduralGlobalPose(
+		const std::vector<glm::mat4>& globalMatrices)
+	{
+		if (m_shapeBufferSkeleton == nullptr ||
+			globalMatrices.size() != m_shapeBufferSkeleton->getSkeleton().bones.size())
+			return false;
+		for (const glm::mat4& matrix : globalMatrices)
+			for (int column = 0; column < 4; ++column)
+				for (int row = 0; row < 4; ++row)
+					if (!finitePoseScalar(matrix[column][row])) return false;
+		m_globalMatrices = globalMatrices;
 		rebuildSkinningMatrices();
 		return true;
 	}

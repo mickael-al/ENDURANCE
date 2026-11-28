@@ -14,6 +14,7 @@
 #include <thread>
 
 #include "Miscellaneous/LatestSnapshot.hpp"
+#include "Miscellaneous/ThreadPool.hpp"
 
 #include "ShapeBufferBase.hpp"
 #include "ShapeBufferSkeleton.hpp"
@@ -375,8 +376,9 @@ namespace Ge
         std::vector<glm::mat4> palette;
         std::vector<ClothCapsule> capsules;
         std::vector<ClothPlane> planes;
+        ClothWind wind;
         float scale = 1.0f, deltaSeconds = 0.0f, fixedSeconds = 1.0f / 120.0f;
-        bool mirrored = false, needsReset = false;
+        bool mirrored = false, needsReset = false, automaticTeleportReset = true;
         std::uint64_t epoch = 1, inputSequence = 0;
         double gameSeconds = 0.0;
     };
@@ -393,6 +395,10 @@ namespace Ge
         std::atomic<bool> stop{false}, failed{false};
         std::atomic<bool> active{true};
         std::thread worker;
+        ThreadPool* pool = nullptr;
+        std::mutex jobMutex;
+        std::condition_variable jobFinished;
+        bool jobPending = false;
         // Initialized before launching, subsequently worker-owned.
         std::uint64_t processedEpoch = 1;
         double processedGameSeconds = 0.0;
@@ -492,7 +498,7 @@ namespace Ge
 
     bool SkinnedCloth::captureFrame(Frame& frame, float deltaSeconds,
         const std::vector<ClothCapsule>& capsules, bool forceReset,
-        const std::vector<ClothPlane>& planes)
+        const std::vector<ClothPlane>& planes, const ClothWind& wind)
     {
         const glm::mat4 world = m_transform->getModelMatrix();
         const float determinant = glm::determinant(world);
@@ -513,7 +519,8 @@ namespace Ge
                     glm::normalize(glm::vec3(m_previousWorld[axis])));
             const float rotationCosine = std::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f);
             const float teleportDistance = (std::max)(0.5f, m_mesh->m_restDiagonal * scale * 0.75f);
-            transformDiscontinuity = translation > teleportDistance || rotationCosine < -0.5f ||
+            transformDiscontinuity = (m_automaticTeleportReset &&
+                (translation > teleportDistance || rotationCosine < -0.5f)) ||
                 determinant * glm::determinant(m_previousWorld) < 0.0f;
             if (!std::isfinite(deltaSeconds) || deltaSeconds <= 0.0f)
                 transformDiscontinuity = transformDiscontinuity || translation > 1.0e-5f ||
@@ -553,6 +560,8 @@ namespace Ge
         frame.gameSeconds = m_gameSeconds;
         frame.capsules = capsules;
         frame.planes = planes;
+        frame.wind = wind;
+        frame.automaticTeleportReset = m_automaticTeleportReset;
         m_previousWorld = world;
         m_previousWorldValid = true;
         // Compare future frames with the last requested reset scale, so many
@@ -576,13 +585,13 @@ namespace Ge
             std::fill(m_nodeMatrices.begin(), m_nodeMatrices.end(), glm::mat3(1.0f));
             m_rotationInputPositions.clear();
         }
-        m_simulation->advance(deltaSeconds, m_targets, frame.capsules, frame.planes);
+        m_simulation->advance(deltaSeconds, m_targets, frame.capsules, frame.planes, frame.wind);
         deform(frame.world, frame.inverseWorld, frame.capsules, frame.planes);
         return true;
     }
 
     bool SkinnedCloth::update(float deltaSeconds, const std::vector<ClothCapsule>& capsules,
-        bool forceReset, const std::vector<ClothPlane>& planes)
+        bool forceReset, const std::vector<ClothPlane>& planes, const ClothWind& wind)
     {
         if (!valid()) return false;
         if (workerFailed()) { m_outputReady = false; return false; }
@@ -590,13 +599,14 @@ namespace Ge
         if (m_async)
         {
             Frame& frame = m_async->input.writer();
-            if (!captureFrame(frame, deltaSeconds, capsules, forceReset, planes))
+            if (!captureFrame(frame, deltaSeconds, capsules, forceReset, planes, wind))
             {
                 m_resetPending = true;
                 m_outputReady = false;
                 return false;
             }
             m_async->input.publish();
+            scheduleAsync();
             // Pause freezes the last displayed mesh. A relocation/reset may
             // still install its new epoch, without integrating game time.
             const bool paused = !(std::isfinite(deltaSeconds) && deltaSeconds > 0.0f);
@@ -613,7 +623,7 @@ namespace Ge
             }
             return true;
         }
-        if (!captureFrame(*m_syncFrame, deltaSeconds, capsules, forceReset, planes)) return false;
+        if (!captureFrame(*m_syncFrame, deltaSeconds, capsules, forceReset, planes, wind)) return false;
         if (!computeFrame(*m_syncFrame, m_syncFrame->deltaSeconds, m_syncFrame->needsReset))
         {
             m_resetPending = true;
@@ -822,11 +832,16 @@ namespace Ge
 
     bool SkinnedCloth::startAsync()
     {
+        return startAsync(nullptr);
+    }
+
+    bool SkinnedCloth::startAsync(ThreadPool* pool)
+    {
         if (m_async) return !workerFailed();
         if (!valid()) return false;
         try
         {
-            std::unique_ptr<AsyncState> state(new AsyncState);
+            std::shared_ptr<AsyncState> state(new AsyncState);
             state->input.initializeAll([this](Frame& frame)
             {
                 frame.palette.resize(m_palette.size());
@@ -842,9 +857,10 @@ namespace Ge
             state->processedGameSeconds = m_gameSeconds;
             state->processedWorld = m_previousWorld;
             state->active.store(m_active, std::memory_order_relaxed);
+            state->pool = pool;
             m_presentedVertices = m_renderVertices;
             m_async = std::move(state);
-            m_async->worker = std::thread(&SkinnedCloth::workerLoop, this);
+            if (!pool) m_async->worker = std::thread(&SkinnedCloth::workerLoop, this);
             return true;
         }
         catch (...)
@@ -856,72 +872,102 @@ namespace Ge
         }
     }
 
-    void SkinnedCloth::workerLoop() noexcept
+    bool SkinnedCloth::workerStep() noexcept
     {
         AsyncState& state = *m_async;
         try
         {
-            while (!state.stop.load(std::memory_order_acquire))
+            if (state.stop.load(std::memory_order_acquire) ||
+                !state.active.load(std::memory_order_acquire) || !state.input.tryConsume()) return false;
+            const Frame& frame = state.input.reader();
+            bool needsReset = frame.epoch != state.processedEpoch;
+            // Coalesced ordinary submissions can cover a large transform
+            // jump even when no individual rendered frame teleported.
+            const float translation = glm::length(glm::vec3(frame.world[3] - state.processedWorld[3]));
+            float trace = 0.0f;
+            for (unsigned axis = 0; axis < 3; ++axis)
+                trace += glm::dot(glm::normalize(glm::vec3(frame.world[axis])),
+                    glm::normalize(glm::vec3(state.processedWorld[axis])));
+            const float rotationCosine = std::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f);
+            needsReset = needsReset || (frame.automaticTeleportReset &&
+                (translation > (std::max)(0.5f, m_mesh->m_restDiagonal * frame.scale * 0.75f) ||
+                    rotationCosine < -0.5f));
+            const double elapsed = (std::max)(0.0, frame.gameSeconds - state.processedGameSeconds);
+            const float dt = needsReset ? frame.deltaSeconds :
+                static_cast<float>((std::min)(elapsed, double((std::numeric_limits<float>::max)())));
+            state.processedGameSeconds = frame.gameSeconds;
+            state.processedEpoch = frame.epoch;
+            state.processedWorld = frame.world;
+            if (!(dt > 0.0f) && !needsReset)
             {
-                if (!state.active.load(std::memory_order_acquire) || !state.input.tryConsume())
-                {
-                    std::this_thread::sleep_for(std::chrono::milliseconds(1));
-                    continue;
-                }
-                const Frame& frame = state.input.reader();
-                bool needsReset = frame.epoch != state.processedEpoch;
-                // Coalesced ordinary submissions can cover a large transform
-                // jump even when no individual rendered frame teleported.
-                const float translation = glm::length(glm::vec3(frame.world[3] - state.processedWorld[3]));
-                float trace = 0.0f;
-                for (unsigned axis = 0; axis < 3; ++axis)
-                    trace += glm::dot(glm::normalize(glm::vec3(frame.world[axis])),
-                        glm::normalize(glm::vec3(state.processedWorld[axis])));
-                const float rotationCosine = std::clamp((trace - 1.0f) * 0.5f, -1.0f, 1.0f);
-                needsReset = needsReset || translation > (std::max)(0.5f,
-                    m_mesh->m_restDiagonal * frame.scale * 0.75f) || rotationCosine < -0.5f;
-                const double elapsed = (std::max)(0.0, frame.gameSeconds - state.processedGameSeconds);
-                const float dt = needsReset ? frame.deltaSeconds :
-                    static_cast<float>((std::min)(elapsed, double((std::numeric_limits<float>::max)())));
-                state.processedGameSeconds = frame.gameSeconds;
-                state.processedEpoch = frame.epoch;
-                state.processedWorld = frame.world;
-                if (!(dt > 0.0f) && !needsReset)
-                {
-                    // Cadence is an input setting, not a geometry reset. A
-                    // paused request can refresh its coefficients without
-                    // integrating or replacing the displayed snapshot.
-                    m_simulation->setFixedSeconds(frame.fixedSeconds);
-                    continue;
-                }
-                const auto started = std::chrono::steady_clock::now();
-                if (!computeFrame(frame, dt, needsReset))
-                {
-                    state.failed.store(true, std::memory_order_release);
-                    return;
-                }
-                if (state.stop.load(std::memory_order_acquire)) return;
-                auto& output = state.output.writer();
-                // The producer owns both vectors exclusively. Each output
-                // slot was preallocated before the worker was launched; swap
-                // transfers the completed mesh without a 1.45 MB copy.
-                output.vertices.swap(m_renderVertices);
-                output.diagnostics.epoch = frame.epoch;
-                output.diagnostics.inputSequence = frame.inputSequence;
-                output.diagnostics.gameSeconds = frame.gameSeconds;
-                output.diagnostics.sourceWorld = frame.world;
-                output.diagnostics.substeps = m_simulation->lastSubsteps();
-                output.diagnostics.fixedSeconds = m_simulation->fixedSeconds();
-                output.diagnostics.workerSeconds = std::chrono::duration<double>(
-                    std::chrono::steady_clock::now() - started).count();
-                state.output.publish();
+                // Cadence is an input setting, not a geometry reset. A
+                // paused request can refresh its coefficients without
+                // integrating or replacing the displayed snapshot.
+                m_simulation->setFixedSeconds(frame.fixedSeconds);
+                return true;
             }
+            const auto started = std::chrono::steady_clock::now();
+            if (!computeFrame(frame, dt, needsReset))
+            {
+                state.failed.store(true, std::memory_order_release);
+                return false;
+            }
+            if (state.stop.load(std::memory_order_acquire)) return false;
+            auto& output = state.output.writer();
+            // The producer owns both vectors exclusively. Each output
+            // slot was preallocated before the worker was launched; swap
+            // transfers the completed mesh without a 1.45 MB copy.
+            output.vertices.swap(m_renderVertices);
+            output.diagnostics.epoch = frame.epoch;
+            output.diagnostics.inputSequence = frame.inputSequence;
+            output.diagnostics.gameSeconds = frame.gameSeconds;
+            output.diagnostics.sourceWorld = frame.world;
+            output.diagnostics.substeps = m_simulation->lastSubsteps();
+            output.diagnostics.fixedSeconds = m_simulation->fixedSeconds();
+            output.diagnostics.workerSeconds = std::chrono::duration<double>(
+                std::chrono::steady_clock::now() - started).count();
+            state.output.publish();
+            return true;
         }
         catch (...)
         {
             // No exceptions escape a std::thread entry point. Failure is
             // reported atomically; only the render thread decides GL cleanup.
             state.failed.store(true, std::memory_order_release);
+            return false;
+        }
+    }
+
+    void SkinnedCloth::workerLoop() noexcept
+    {
+        while (!m_async->stop.load(std::memory_order_acquire) && !workerFailed())
+            if (!workerStep()) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+
+    void SkinnedCloth::scheduleAsync()
+    {
+        const auto state = m_async;
+        if (!state || !state->pool) return;
+        std::lock_guard<std::mutex> lock(state->jobMutex);
+        if (state->jobPending || state->stop.load(std::memory_order_acquire) ||
+            state->failed.load(std::memory_order_acquire)) return;
+        state->jobPending = true;
+        try
+        {
+            state->pool->enqueue(std::function<void()>([this, state]
+            {
+                // One frame per job: a cloth cannot occupy a pool worker while
+                // idle or starve another garment/hair task by looping forever.
+                workerStep();
+                std::lock_guard<std::mutex> finished(state->jobMutex);
+                state->jobPending = false;
+                state->jobFinished.notify_all();
+            }));
+        }
+        catch (...)
+        {
+            state->jobPending = false;
+            state->failed.store(true, std::memory_order_release);
         }
     }
 
@@ -930,6 +976,11 @@ namespace Ge
         if (!m_async) return;
         m_async->stop.store(true, std::memory_order_release);
         if (m_async->worker.joinable()) m_async->worker.join();
+        if (m_async->pool)
+        {
+            std::unique_lock<std::mutex> lock(m_async->jobMutex);
+            m_async->jobFinished.wait(lock, [this] { return !m_async->jobPending; });
+        }
         m_async.reset();
         m_renderVertices = m_presentedVertices;
         m_resetPending = true;
@@ -1009,6 +1060,7 @@ namespace Ge
         m_requestedFixedSeconds = 1.0f / 120.0f;
         m_outputReady = false;
         m_active = true;
+        m_automaticTeleportReset = true;
     }
 
     bool SkinnedCloth::valid() const

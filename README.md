@@ -8,6 +8,7 @@ Le dépôt contient le moteur, ses dépendances nécessaires et un projet d'édi
 - [Origine du moteur et périmètre de l'import](docs/ENGINE_ORIGIN.md)
 - [Steam et réseau : intégration et utilisation](docs/NETWORKING.md)
 - [Créer une extension de l'éditeur](ANTAGONIZ/Documentation/EditorExtensions.md)
+- [Personnage : caméra, jade, cheveux et vêtements CPU](docs/CHARACTER.md)
 
 ## Organisation
 

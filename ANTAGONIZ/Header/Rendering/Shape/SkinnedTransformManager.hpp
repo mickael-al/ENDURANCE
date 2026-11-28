@@ -55,6 +55,11 @@ namespace Ge
 		bool applyExternalGlobalPose(
 			SkinnedTransform* st,
 			const std::vector<glm::mat4>& globalMatrices);
+		// Render-thread publication of CPU-composed secondary motion. Unlike
+		// an external/ragdoll pose, this preserves animation and IK state.
+		bool applyProceduralGlobalPose(
+			SkinnedTransform* st,
+			const std::vector<glm::mat4>& globalMatrices);
 		void destroySkinnedTransform(SkinnedTransform* st);
 		void setupMaterials(SkinnedTransform* st, Materials* mat);
 

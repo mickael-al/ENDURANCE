@@ -11,6 +11,7 @@
 #include "PointeurClass.hpp"
 #include "Engine.hpp"
 #include "LightManager.hpp"
+#include "ShadowCascadeSplits.hpp"
 
 namespace Ge
 {
@@ -97,6 +98,14 @@ namespace Ge
 	void Camera::setFar(float f)
 	{
 		m_far = f;
+		mapMemory();
+	}
+
+	void Camera::setFirstShadowCascadeDistance(float metres)
+	{
+		const float next = sanitizeFirstShadowCascadeDistance(metres);
+		if (next == m_firstShadowCascadeDistance) return;
+		m_firstShadowCascadeDistance = next;
 		mapMemory();
 	}
 

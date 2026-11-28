@@ -84,6 +84,7 @@ def build(library, fast_math):
         if fast_math:
             cmd.append("-ffast-math")
         for path in (stub, ROOT / "ANTAGONIZ/Header/Rendering/Camera",
+                     ROOT / "ANTAGONIZ/Header/Rendering/Light",
                      ROOT / "ANTAGONIZ/Header/Rendering/Shader", ROOT / "ANTAGONIZ/Header/Struct",
                      ROOT / "ANTAGONIZ/Header/Interface", ROOT / "ThirdParty", ROOT / "ThirdParty/glm"):
             cmd += ["-I", str(path)]
