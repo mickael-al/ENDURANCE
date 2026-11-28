@@ -68,7 +68,7 @@ void terrainApplyGranularSurface(inout vec3 normal, inout float roughness,
     vec3 L = terrainGrainLightDirection;
     // World-space sun height: full strength at the horizon, zero at zenith.
     // Fade the material contribution without changing either fixed point grid.
-    float sunStrength = pow(1.0-clamp(L.y,0.0,1.0),TERRAIN_SPARKLE_SUN_EXPONENT);
+    float sunStrength = pow(1.0-clamp(L.y-0.1,0.0,1.0),TERRAIN_SPARKLE_SUN_EXPONENT);
     if (sunStrength <= 0.0) return;
     vec3 viewDelta = terrainGrainCameraPosition-c.position;
     vec3 V = viewDelta*inversesqrt(max(dot(viewDelta,viewDelta),1.0e-8));
